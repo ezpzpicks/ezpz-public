@@ -1,0 +1,915 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+
+type RecordTotals = {
+  label: string;
+  record: string;
+  totalBets: number;
+  winPct: number;
+  unitsWon: number;
+  roiPct: number;
+  wins: number;
+  losses: number;
+  pushes: number;
+};
+
+type Summary = {
+  betType: string;
+  status: "WINNING" | "EVEN" | "LOSING";
+  wins: number;
+  losses: number;
+  pushes: number;
+  totalBets: number;
+  winPct: number;
+  unitsWon: number;
+  roiPct: number;
+};
+
+type Play = {
+  playType: string;
+  game: string;
+  play: string;
+  oddsLine: string;
+  score: string | number;
+  isGreen: boolean;
+  awayTeam: string;
+  homeTeam: string;
+  headshotUrl?: string;
+  playerTeam?: string;
+  moneylinePct?: string;
+  projectedKs?: string | number;
+  sixInningKs?: string | number;
+  volatility?: string;
+  altLine?: string | number;
+  altOdds?: string | number;
+};
+
+type SheetRow = Record<string, string>;
+
+type ApiData = {
+  ok: boolean;
+  error?: string;
+  today: string;
+  lastUpdated: string;
+  tiles: {
+    last7Days: RecordTotals;
+    overallGreen: RecordTotals;
+    pendingGreen: number;
+    bestPlaysToday: number;
+  };
+  bestPlays: Play[];
+  slateToday: SheetRow[];
+  recordSummary: Summary[];
+  last7RecordSummary: Summary[];
+};
+
+type Tab = "Today’s Best Plays" | "Full Slate" | "Records";
+
+const TABS: Tab[] = ["Today’s Best Plays", "Full Slate", "Records"];
+const BEST_PLAY_MIN_ODDS = -145;
+
+const TEAM_ABBR: Record<string, string> = {
+  "Arizona Diamondbacks": "ari",
+  "Atlanta Braves": "atl",
+  "Baltimore Orioles": "bal",
+  "Boston Red Sox": "bos",
+  "Chicago Cubs": "chc",
+  "Chicago White Sox": "cws",
+  "Cincinnati Reds": "cin",
+  "Cleveland Guardians": "cle",
+  "Colorado Rockies": "col",
+  "Detroit Tigers": "det",
+  "Houston Astros": "hou",
+  "Kansas City Royals": "kc",
+  "Los Angeles Angels": "laa",
+  "Los Angeles Dodgers": "lad",
+  "Miami Marlins": "mia",
+  "Milwaukee Brewers": "mil",
+  "Minnesota Twins": "min",
+  "New York Mets": "nym",
+  "New York Yankees": "nyy",
+  Athletics: "ath",
+  "Oakland Athletics": "ath",
+  "Philadelphia Phillies": "phi",
+  "Pittsburgh Pirates": "pit",
+  "San Diego Padres": "sd",
+  "San Francisco Giants": "sf",
+  "Seattle Mariners": "sea",
+  "St. Louis Cardinals": "stl",
+  "Tampa Bay Rays": "tb",
+  "Texas Rangers": "tex",
+  "Toronto Blue Jays": "tor",
+  "Washington Nationals": "wsh",
+};
+
+function normalizeType(value: unknown) {
+  const text = String(value || "").toUpperCase().trim();
+
+  if (text.includes("STRONG OVER")) return "STRONG OVER";
+  if (text.includes("LEAN OVER")) return "LEAN OVER";
+  if (/\bOVER\b/.test(text)) return "OVER";
+  if (text.includes("STRONG UNDER")) return "STRONG UNDER";
+  if (text.includes("LEAN UNDER")) return "LEAN UNDER";
+  if (/\bUNDER\b/.test(text)) return "UNDER";
+  if (text.includes("ELITE NRFI")) return "ELITE NRFI";
+  if (text.includes("STRONG NRFI")) return "STRONG NRFI";
+  if (text.includes("LEAN NRFI")) return "LEAN NRFI";
+  if (text.includes("YRFI")) return "YRFI";
+  if (text === "NRFI" || text.includes(" NRFI")) return "NRFI";
+  if (text.includes("A MONEYLINE")) return "A MONEYLINE";
+  if (text.includes("B MONEYLINE")) return "B MONEYLINE";
+  if (text.includes("NON-EDGE MONEYLINE")) return "NON-EDGE MONEYLINE";
+  if (text.includes("PASS")) return "PASS";
+
+  return text;
+}
+
+function isKType(type: unknown) {
+  return ["OVER", "UNDER", "LEAN OVER", "LEAN UNDER", "STRONG OVER", "STRONG UNDER"].includes(normalizeType(type));
+}
+
+function isMoneylineType(type: unknown) {
+  return normalizeType(type).includes("MONEYLINE");
+}
+
+function isNonEdgeMoneyline(type: unknown) {
+  return normalizeType(type) === "NON-EDGE MONEYLINE";
+}
+
+function isPass(type: unknown) {
+  return normalizeType(type) === "PASS";
+}
+
+function toNumber(value: unknown) {
+  const n = Number(String(value ?? "").replace(/[^\d.-]/g, ""));
+  return Number.isFinite(n) ? n : 0;
+}
+
+function parseScore(value: unknown) {
+  const n = toNumber(value);
+  return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : 50;
+}
+
+function parseAmericanOdds(value: unknown) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return 0;
+
+  // Important: pitcher prop cells often look like "5.5 / -150" or "Line 5.5 -150".
+  // The first number is the K line, not the odds, so scan every signed/unsigned integer
+  // and only accept realistic American odds. This also prevents years like 2026 from
+  // being treated as +2026.
+  const matches = raw.match(/[+-]?\d+/g) || [];
+  const candidates = matches
+    .map((match) => Number(match))
+    .filter((odds) => Number.isFinite(odds) && Math.abs(odds) >= 100 && Math.abs(odds) <= 999);
+
+  if (!candidates.length) return 0;
+
+  // Prefer explicitly signed odds when available.
+  const signed = candidates.find((odds) => raw.includes(`+${odds}`) || raw.includes(`${odds}`));
+  return signed || candidates[candidates.length - 1] || 0;
+}
+
+function passesBestPlayOdds(play: Play) {
+  const odds = parseAmericanOdds(play.oddsLine);
+
+  // If odds are missing from the sheet, do not accidentally hide the play.
+  // Any available odds worse than -145 are excluded from Best Plays.
+  return odds === 0 || odds >= BEST_PLAY_MIN_ODDS;
+}
+
+function isQualifiedGreenPlay(play: Play) {
+  if (isPass(play.playType)) return false;
+  if (isNonEdgeMoneyline(play.playType)) return false;
+
+  return play.isGreen === true;
+}
+
+function isBestPlay(play: Play) {
+  if (!isQualifiedGreenPlay(play)) return false;
+
+  // Normal Best Plays must be -145 or better.
+  // Pitcher props can still qualify at worse odds only when they trigger the strict ALT badge logic.
+  return passesBestPlayOdds(play) || hasAltBadge(play);
+}
+
+function formatOdds(value: unknown) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "—";
+
+  return raw.replace(/(^|\s)(\d{3,})(?=$|\s)/g, (_match, prefix, num) => `${prefix}+${num}`);
+}
+
+function teamLogoUrl(team: string) {
+  const abbr = TEAM_ABBR[team];
+  return abbr ? `https://a.espncdn.com/i/teamlogos/mlb/500/${abbr}.png` : "";
+}
+
+function initials(name: string) {
+  const parts = String(name || "").replace(",", " ").split(/\s+/).filter(Boolean);
+  return parts.slice(0, 2).map((part) => part[0]).join("").toUpperCase() || "P";
+}
+
+function cleanPitcherName(summary: string) {
+  return String(summary || "")
+    .replace(/\([^)]*\)/g, "")
+    .replace(/\bLine\b.*$/i, "")
+    .replace(/\d+(\.\d+)?/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function parseKSummary(summary: string, fallback = "") {
+  const raw = String(summary || "").trim();
+  const fallbackText = String(fallback || "").trim();
+
+  const explicitLine =
+    raw.match(/\bLine\s*([0-9]+(?:\.[0-9]+)?)/i)?.[1] ||
+    fallbackText.match(/\bLine\s*([0-9]+(?:\.[0-9]+)?)/i)?.[1];
+
+  const beforeGrade = raw.split("(")[0] || raw;
+  const projectedMatches = [...beforeGrade.matchAll(/([0-9]+(?:\.[0-9]+)?)/g)].map((match) => match[1]);
+  const projected = projectedMatches.length ? projectedMatches[projectedMatches.length - 1] : "";
+
+  const afterGrade = raw.includes(")") ? raw.split(")").slice(1).join(")") : "";
+  const afterGradeNumber = afterGrade.match(/([0-9]+(?:\.[0-9]+)?)/)?.[1];
+  const fallbackNumber = fallbackText.match(/([0-9]+(?:\.[0-9]+)?)/)?.[1];
+
+  return {
+    projected: projected || "—",
+    line: explicitLine || afterGradeNumber || fallbackNumber || "—",
+  };
+}
+
+function extractProjectedK(summary: string, fallback = "") {
+  return parseKSummary(summary, fallback).projected;
+}
+
+function extractLine(summary: string, fallback = "") {
+  return parseKSummary(summary, fallback).line;
+}
+
+function getRecentSummary(playType: string, rows: Summary[]) {
+  const type = normalizeType(playType);
+  return rows.find((row) => normalizeType(row.betType) === type) || null;
+}
+
+function getFormInfo(summary: Summary | null) {
+  if (!summary || summary.totalBets < 3) {
+    return { label: "Neutral", icon: "➖", className: "neutral", detail: "small 7-day sample" };
+  }
+
+  if (summary.wins > summary.losses && summary.winPct >= 58) {
+    return { label: "Hot", icon: "🔥", className: "hot", detail: `${summary.wins}-${summary.losses}-${summary.pushes} last 7` };
+  }
+
+  if (summary.winPct < 45) {
+    return { label: "Cold", icon: "❄️", className: "cold", detail: `${summary.wins}-${summary.losses}-${summary.pushes} last 7` };
+  }
+
+  return { label: "Neutral", icon: "➖", className: "neutral", detail: `${summary.wins}-${summary.losses}-${summary.pushes} last 7` };
+}
+
+function hasAltBadge(play: Play) {
+  if (!isKType(play.playType)) return false;
+
+  const expectedKs = toNumber(play.projectedKs) || toNumber(extractProjectedK(play.play, play.oddsLine));
+  const line = toNumber(play.altLine) || toNumber(extractLine(play.play, play.oddsLine));
+  const sixInningKs = toNumber(play.sixInningKs);
+  const score = parseScore(play.score);
+  const volatility = String(play.volatility || "").toLowerCase();
+  const type = normalizeType(play.playType);
+
+  if (!expectedKs || !line) return false;
+  if (volatility === "high") return false;
+
+  // Strict ALT when 6-inning data exists.
+  if (sixInningKs) {
+    const overAlt = type.includes("OVER") && expectedKs >= line + 1 && sixInningKs >= line + 0.5;
+    const underAlt = type.includes("UNDER") && expectedKs <= line - 1 && sixInningKs <= line - 0.5;
+    return (overAlt || underAlt) && score >= 75;
+  }
+
+  // Fallback ALT when the public API does not have 6-inning/volatility fields.
+  const overAlt = type.includes("OVER") && expectedKs >= line + 1;
+  const underAlt = type.includes("UNDER") && expectedKs <= line - 1;
+
+  return (overAlt || underAlt) && score >= 75;
+}
+
+function moneylineGradeLabel(type: string) {
+  const normalized = normalizeType(type);
+  if (normalized === "A MONEYLINE") return "Moneyline A+";
+  if (normalized === "B MONEYLINE") return "Moneyline B+";
+  if (normalized === "NON-EDGE MONEYLINE") return "Moneyline";
+
+  return normalized.replace("MONEYLINE", "Moneyline");
+}
+
+function cleanMoneylineTeam(value: unknown) {
+  return String(value || "")
+    .replace(/\b\d+(?:\.\d+)?%/g, "")
+    .replace(/\bMoneyline\b/gi, "")
+    .replace(/\bA\+?\b|\bB\+?\b/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function formatModelPct(value: unknown) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "—";
+  const match = raw.match(/\d+(?:\.\d+)?\s*%?/);
+  if (!match) return "—";
+  const pct = match[0].replace(/\s/g, "");
+  return pct.includes("%") ? pct : `${pct}%`;
+}
+
+function getPlayableOdds(play: Play) {
+  const altOdds = formatOdds(play.altOdds || "");
+  if (altOdds !== "—" && parseAmericanOdds(altOdds)) return altOdds;
+
+  const odds = formatOdds(play.oddsLine || "");
+  return parseAmericanOdds(odds) ? odds : "—";
+}
+
+function findSlateRowForPlay(play: Play, rows: SheetRow[]) {
+  return rows.find((row) => {
+    const game = row["Game Label"] || `${row["Away Team"] || ""} at ${row["Home Team"] || ""}`.trim();
+    return game === play.game || (row["Away Team"] === play.awayTeam && row["Home Team"] === play.homeTeam);
+  });
+}
+
+function imageForBestPlay(play: Play, rows: SheetRow[]) {
+  if (play.headshotUrl) return play.headshotUrl;
+  if (!isKType(play.playType)) return "";
+
+  const row = findSlateRowForPlay(play, rows);
+  if (!row) return "";
+
+  const pitcherName = cleanPitcherName(play.play).toLowerCase();
+  const awaySummary = String(row["Away Pitcher K + Grade"] || "");
+  const homeSummary = String(row["Home Pitcher K + Grade"] || "");
+  const awayName = cleanPitcherName(awaySummary).toLowerCase();
+  const homeName = cleanPitcherName(homeSummary).toLowerCase();
+
+  if (pitcherName && (pitcherName === awayName || awayName.includes(pitcherName) || pitcherName.includes(awayName))) {
+    return imageFromRow(row, ["Away Pitcher Headshot URL", "Away Pitcher Headshot", "Away Pitcher Image URL"]);
+  }
+
+  if (pitcherName && (pitcherName === homeName || homeName.includes(pitcherName) || pitcherName.includes(homeName))) {
+    return imageFromRow(row, ["Home Pitcher Headshot URL", "Home Pitcher Headshot", "Home Pitcher Image URL"]);
+  }
+
+  return "";
+}
+
+function imageFromRow(row: SheetRow, keys: string[]) {
+  for (const key of keys) {
+    const value = String(row[key] || "").trim();
+    if (value.startsWith("http")) return value;
+  }
+
+  return "";
+}
+
+function statusClass(wins: number, losses: number) {
+  if (wins > losses) return "green";
+  if (wins === losses) return "yellow";
+  return "red";
+}
+
+function slateMoneylinePassesBestPlayRules(row: SheetRow) {
+  const grade = normalizeType(row["ML Grade"] || "");
+  if (grade === "NON-EDGE MONEYLINE" || grade === "PASS") return false;
+
+  const odds = row["ML Odds"] || row["Moneyline Odds"] || row["Odds"] || "";
+  return passesBestPlayOdds({ oddsLine: odds } as Play);
+}
+
+function Tile({ label, value, meta, green }: { label: string; value: string; meta: string; green?: boolean }) {
+  return (
+    <div className={`tile ${green ? "green" : ""}`}>
+      <div className="tileLabel">{label}</div>
+      <div className="tileValue">{value}</div>
+      <div className="tileMeta">{meta}</div>
+    </div>
+  );
+}
+
+function TeamRow({ awayTeam, homeTeam }: { awayTeam: string; homeTeam: string }) {
+  const awayLogo = teamLogoUrl(awayTeam);
+  const homeLogo = teamLogoUrl(homeTeam);
+
+  return (
+    <div className="teamRow">
+      <div className="teamSide">
+        {awayLogo ? <img className="teamLogo" src={awayLogo} alt={`${awayTeam} logo`} /> : null}
+        <div className="teamName">{awayTeam}</div>
+      </div>
+
+      <div className="vsText">AT</div>
+
+      <div className="teamSide home">
+        <div className="teamName">{homeTeam}</div>
+        {homeLogo ? <img className="teamLogo" src={homeLogo} alt={`${homeTeam} logo`} /> : null}
+      </div>
+    </div>
+  );
+}
+
+function PitcherPhoto({ url, summary }: { url?: string; summary: string }) {
+  const name = cleanPitcherName(summary);
+
+  if (url) {
+    return <img className="headshot" src={url} alt={`${name} headshot`} />;
+  }
+
+  return <div className="headshotFallback">{initials(name)}</div>;
+}
+
+function MiniBubble({ label, value, green }: { label: string; value: string | number; green?: boolean }) {
+  return (
+    <div className={`miniBubble ${green ? "green" : ""}`}>
+      <div className="miniLabel">{label}</div>
+      <div className="miniValue">{value || "—"}</div>
+    </div>
+  );
+}
+
+function FormTag({ summary }: { summary: Summary | null }) {
+  const form = getFormInfo(summary);
+
+  return (
+    <div className={`formPill ${form.className}`}>
+      {form.icon} {form.label} <span style={{ opacity: 0.72 }}>• {form.detail}</span>
+    </div>
+  );
+}
+
+function ConfidenceBar({ score }: { score: string | number }) {
+  const pct = parseScore(score);
+
+  return (
+    <div className="confidenceWrap">
+      <div className="confidenceTop">
+        <span>Model Confidence</span>
+        <span>{Math.round(pct)}%</span>
+      </div>
+      <div className="confidenceBar">
+        <div className="confidenceFill" style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  );
+}
+
+function clampScore(value: number) {
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function getRankScore(play: Play, recentSummary: Summary | null) {
+  const baseScore = parseScore(play.score);
+  const form = getFormInfo(recentSummary);
+  const hotBoost = form.className === "hot" ? 8 : 0;
+  const coldPenalty = form.className === "cold" ? -7 : 0;
+  const altBoost = hasAltBadge(play) ? 7 : 0;
+  const missingOddsPenalty = isKType(play.playType) && !parseAmericanOdds(play.oddsLine) && !parseAmericanOdds(play.altOdds) ? -2 : 0;
+
+  return clampScore(baseScore + hotBoost + coldPenalty + altBoost + missingOddsPenalty);
+}
+
+function getRankReason(play: Play, recentSummary: Summary | null) {
+  const baseScore = Math.round(parseScore(play.score));
+  const form = getFormInfo(recentSummary);
+  const pieces = [`Base ${baseScore}`];
+
+  if (form.className === "hot") pieces.push("Hot +8");
+  if (form.className === "cold") pieces.push("Cold -7");
+  if (hasAltBadge(play)) pieces.push("ALT +7");
+  if (isKType(play.playType) && !parseAmericanOdds(play.oddsLine) && !parseAmericanOdds(play.altOdds)) pieces.push("No odds -2");
+
+  return pieces.join(" • ");
+}
+
+function BadgeRow({ play, recentSummary }: { play: Play; recentSummary: Summary | null }) {
+  const form = getFormInfo(recentSummary);
+  const showHot = form.className === "hot";
+  const showCold = form.className === "cold";
+  const showAlt = hasAltBadge(play);
+
+  if (!showHot && !showCold && !showAlt) return null;
+
+  return (
+    <div className="badges">
+      {showHot ? <span className="badge hot">🔥 Hot</span> : null}
+      {showCold ? <span className="badge cold">❄️ Cold</span> : null}
+      {showAlt ? <span className="badge alt">⭐ ALT</span> : null}
+    </div>
+  );
+}
+
+function BestPlayCard({ play, index, recentSummary, slateRows }: { play: Play; index: number; recentSummary: Summary | null; slateRows: SheetRow[] }) {
+  const kPlay = isKType(play.playType);
+  const moneylinePlay = isMoneylineType(play.playType);
+  const pitcherName = cleanPitcherName(play.play);
+  const rawDisplayTeam = play.playerTeam || play.play;
+  const displayTeam = moneylinePlay ? cleanMoneylineTeam(rawDisplayTeam) || cleanMoneylineTeam(play.play) || "Moneyline" : rawDisplayTeam;
+  const modelPct = formatModelPct(play.moneylinePct || rawDisplayTeam || play.play);
+  const pitcherImage = imageForBestPlay(play, slateRows);
+  const rankScore = getRankScore(play, recentSummary);
+  const rankReason = getRankReason(play, recentSummary);
+  const topPlay = index < 3;
+
+  return (
+    <div className={`card green fade-in best ${topPlay ? "top" : ""}`}>
+      <div className="cardTop">
+        <div className="rankBadge">#{index + 1}</div>
+        <div className="scorePill" title={rankReason}>Rank {rankScore}</div>
+      </div>
+
+      {play.awayTeam && play.homeTeam ? (
+        <TeamRow awayTeam={play.awayTeam} homeTeam={play.homeTeam} />
+      ) : (
+        <div className="cardSub">{play.game}</div>
+      )}
+
+      {kPlay ? (
+        <>
+          <div className="playMain">
+            <PitcherPhoto summary={play.play} url={pitcherImage} />
+            <div>
+              <div className="playName">{pitcherName}</div>
+              <div className="playDetail">{play.playerTeam || play.game}</div>
+            </div>
+          </div>
+
+          <div className="projectionBlock">
+            <div className="projection">{extractProjectedK(play.play, play.oddsLine)} Ks</div>
+            <div className="grade">{normalizeType(play.playType)}</div>
+          </div>
+
+          <div className="divider" />
+
+          <div className="bubbleGrid three">
+            <MiniBubble label="Line" value={extractLine(play.play, play.oddsLine)} green />
+            <MiniBubble label="Odds" value={getPlayableOdds(play)} green />
+            <MiniBubble label="Projected Ks" value={extractProjectedK(play.play, play.oddsLine)} green />
+          </div>
+        </>
+      ) : moneylinePlay ? (
+        <>
+          <div className="playMain">
+            {teamLogoUrl(displayTeam) ? (
+              <img className="headshot" src={teamLogoUrl(displayTeam)} alt={`${displayTeam} logo`} />
+            ) : (
+              <div className="headshotFallback">{initials(displayTeam)}</div>
+            )}
+            <div>
+              <div className="playName">{displayTeam}</div>
+              <div className="playDetail">{moneylineGradeLabel(play.playType)}</div>
+            </div>
+          </div>
+
+          <div className="projectionBlock">
+            <div className="projection">Moneyline</div>
+            <div className="grade">{moneylineGradeLabel(play.playType)}</div>
+          </div>
+
+          <div className="divider" />
+
+          <div className="bubbleGrid">
+            <MiniBubble label="Odds" value={formatOdds(play.oddsLine || "—")} green />
+            <MiniBubble label="Model %" value={modelPct} green />
+            <MiniBubble label="Rank Score" value={rankScore} green />
+            <MiniBubble label="Bet Type" value={normalizeType(play.playType)} green />
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="cardTitle">{normalizeType(play.playType)}</div>
+          <div className="cardSub">{play.game}</div>
+
+          <div className="projectionBlock">
+            <div className="projection">{play.play}</div>
+            <div className="grade">{normalizeType(play.playType)}</div>
+          </div>
+
+          <div className="divider" />
+
+          <div className="bubbleGrid three">
+            <MiniBubble label="Pick" value={play.play} green />
+            <MiniBubble label="Rank Score" value={rankScore} green />
+            <MiniBubble label="Bet Type" value={normalizeType(play.playType)} green />
+          </div>
+        </>
+      )}
+
+      <BadgeRow play={play} recentSummary={recentSummary} />
+      <div className="formRow"><FormTag summary={recentSummary} /></div>
+      <ConfidenceBar score={rankScore} />
+    </div>
+  );
+}
+
+function KBubbleGroup({ summary, score, isGreen }: { summary: string; score: string; isGreen: boolean }) {
+  if (!summary) return null;
+
+  return (
+    <div className="bubbleGrid">
+      <MiniBubble label="Line" value={extractLine(summary)} green={isGreen} />
+      <MiniBubble label="Projected Ks" value={extractProjectedK(summary)} green={isGreen} />
+      <MiniBubble label="Rank Score" value={score || "—"} green={isGreen} />
+      <MiniBubble label="Bet Type" value={normalizeType(summary) || "—"} green={isGreen} />
+    </div>
+  );
+}
+
+function SlateCard({ row }: { row: SheetRow }) {
+  const game = row["Game Label"] || `${row["Away Team"]} at ${row["Home Team"]}`;
+  const awayK = row["Away Pitcher K + Grade"] || "";
+  const homeK = row["Home Pitcher K + Grade"] || "";
+  const awayGreen = !isPass(awayK) && !isNonEdgeMoneyline(awayK);
+  const homeGreen = !isPass(homeK) && !isNonEdgeMoneyline(homeK);
+  const mlType = normalizeType(row["ML Grade"] || "");
+  const nrfiType = normalizeType(row["NRFI Grade"] || "");
+  const mlGreen = mlType !== "" && mlType !== "PASS" && mlType !== "NON-EDGE MONEYLINE" && slateMoneylinePassesBestPlayRules(row);
+  const nrfiGreen = nrfiType !== "" && nrfiType !== "PASS";
+  const hasGreen = awayGreen || homeGreen || mlGreen || nrfiGreen;
+
+  return (
+    <div className={`card ${hasGreen ? "green" : ""}`}>
+      <div className="cardTitle">{game}</div>
+      {hasGreen ? <div className="slateGreenCallout">Qualified play active</div> : null}
+
+      <TeamRow awayTeam={row["Away Team"] || ""} homeTeam={row["Home Team"] || ""} />
+
+      <div className="marketStack">
+        {row["ML Grade"] ? (
+          <div className={`marketBubble ${mlGreen ? "green" : ""}`}>
+            Moneyline: {row["Better ML"] || "—"} • {row["ML Grade"]} • {formatOdds(row["ML Odds"] || "—")}
+          </div>
+        ) : null}
+
+        {row["NRFI Grade"] ? (
+          <div className={`marketBubble ${nrfiGreen ? "green" : ""}`}>NRFI/YRFI: {row["NRFI Grade"]}</div>
+        ) : null}
+      </div>
+
+      <div className="pitcherGrid">
+        <PitcherSlateBox
+          label="Away Pitcher"
+          summary={awayK}
+          score={row["Away Pitcher K Score"] || ""}
+          isGreen={awayGreen}
+          imageUrl={imageFromRow(row, ["Away Pitcher Headshot URL", "Away Pitcher Headshot", "Away Pitcher Image URL"])}
+        />
+        <PitcherSlateBox
+          label="Home Pitcher"
+          summary={homeK}
+          score={row["Home Pitcher K Score"] || ""}
+          isGreen={homeGreen}
+          imageUrl={imageFromRow(row, ["Home Pitcher Headshot URL", "Home Pitcher Headshot", "Home Pitcher Image URL"])}
+        />
+      </div>
+    </div>
+  );
+}
+
+function PitcherSlateBox({
+  label,
+  summary,
+  score,
+  isGreen,
+  imageUrl,
+}: {
+  label: string;
+  summary: string;
+  score: string;
+  isGreen: boolean;
+  imageUrl: string;
+}) {
+  return (
+    <div className="pitcherBox">
+      <div className="pitcherHeader">
+        <PitcherPhoto summary={summary || label} url={imageUrl} />
+        <div>
+          <div className="pitcherLabel">{label}</div>
+          <div className="pitcherNameSmall">{cleanPitcherName(summary) || label}</div>
+        </div>
+      </div>
+      <KBubbleGroup summary={summary} score={score} isGreen={isGreen} />
+    </div>
+  );
+}
+
+function RecordsTable({ rows }: { rows: Summary[] }) {
+  return (
+    <div className="tableWrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Bet Type</th>
+            <th>Status</th>
+            <th>Record</th>
+            <th>Win %</th>
+            <th>Units</th>
+            <th>ROI</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.betType}>
+              <td>{row.betType}</td>
+              <td><span className={`chip ${statusClass(row.wins, row.losses)}`}>{row.status}</span></td>
+              <td>{row.wins}-{row.losses}-{row.pushes}</td>
+              <td>{row.winPct}%</td>
+              <td>{row.unitsWon}u</td>
+              <td>{row.roiPct}%</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+export default function Home() {
+  const [data, setData] = useState<ApiData | null>(null);
+  const [error, setError] = useState("");
+  const [active, setActive] = useState<Tab>("Today’s Best Plays");
+
+  useEffect(() => {
+    fetch("/api/public-data", { cache: "no-store" })
+      .then((res) => res.json())
+      .then((json) => (json.ok ? setData(json) : setError(json.error || "Could not load public data.")))
+      .catch((err) => setError(err.message || "Could not load public data."));
+  }, []);
+
+  const bestPlays = useMemo(() => {
+    if (!data) return [];
+    const recentByType = new Map(data.last7RecordSummary.map((row) => [normalizeType(row.betType), row]));
+
+    return data.bestPlays
+      .filter(isBestPlay)
+      .sort((a, b) => {
+        const aSummary = recentByType.get(normalizeType(a.playType)) || null;
+        const bSummary = recentByType.get(normalizeType(b.playType)) || null;
+        const rankDiff = getRankScore(b, bSummary) - getRankScore(a, aSummary);
+        if (rankDiff !== 0) return rankDiff;
+
+        const hotDiff = Number(getFormInfo(bSummary).className === "hot") - Number(getFormInfo(aSummary).className === "hot");
+        if (hotDiff !== 0) return hotDiff;
+
+        const altDiff = Number(hasAltBadge(b)) - Number(hasAltBadge(a));
+        if (altDiff !== 0) return altDiff;
+
+        return parseScore(b.score) - parseScore(a.score);
+      });
+  }, [data]);
+
+  const content = useMemo(() => {
+    if (error) return <div className="error">{error}</div>;
+    if (!data) return <div className="empty">Loading EZPZ Picks...</div>;
+
+    if (active === "Today’s Best Plays") {
+      const recentByType = new Map(data.last7RecordSummary.map((row) => [normalizeType(row.betType), row]));
+
+      return (
+        <>
+          <div className="sectionHead">
+            <div>
+              <h2>Today’s Best Plays</h2>
+              <p>Last updated: {data.lastUpdated}</p>
+            </div>
+          </div>
+
+          {bestPlays.length ? (
+            <div className="cards">
+              {bestPlays.map((play, index) => (
+                <BestPlayCard
+                  key={`${play.game}-${play.play}-${index}`}
+                  play={play}
+                  index={index}
+                  recentSummary={recentByType.get(normalizeType(play.playType)) || null}
+                  slateRows={data.slateToday}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="empty">No qualified Best Plays saved yet for {data.today}.</div>
+          )}
+        </>
+      );
+    }
+
+    if (active === "Full Slate") {
+      return (
+        <>
+          <div className="sectionHead">
+            <div>
+              <h2>Full Slate</h2>
+              <p>Every saved game for {data.today}. Green highlights show qualified plays only.</p>
+            </div>
+          </div>
+
+          {data.slateToday.length ? (
+            <div className="cards">
+              {data.slateToday.map((row, index) => (
+                <SlateCard key={`${row["Game ID"]}-${index}`} row={row} />
+              ))}
+            </div>
+          ) : (
+            <div className="empty">No games saved today yet.</div>
+          )}
+        </>
+      );
+    }
+
+    return (
+      <>
+        <div className="sectionHead">
+          <div>
+            <h2>All Qualified Plays</h2>
+            <p>All qualified green plays are tracked here. Non-edge moneylines are kept out of public green totals.</p>
+          </div>
+        </div>
+
+        <div className="qualifiedGrid">
+          <Tile
+            label="Qualified Plays - Last 7 Days"
+            value={data.tiles.last7Days.record}
+            meta={`${data.tiles.last7Days.winPct}% • ${data.tiles.last7Days.unitsWon}u • ROI ${data.tiles.last7Days.roiPct}%`}
+            green
+          />
+          <Tile
+            label="Qualified Plays - Running Total"
+            value={data.tiles.overallGreen.record}
+            meta={`${data.tiles.overallGreen.winPct}% • ${data.tiles.overallGreen.unitsWon}u • ROI ${data.tiles.overallGreen.roiPct}%`}
+            green
+          />
+        </div>
+
+        <div className="sectionHead">
+          <div>
+            <h2>Last 7 Days Records</h2>
+            <p>Recent bet-type performance powers the Hot / Cold tags on Best Plays.</p>
+          </div>
+        </div>
+        {data.last7RecordSummary.length ? <RecordsTable rows={data.last7RecordSummary} /> : <div className="empty">No completed bets in the last 7 days.</div>}
+
+        <div className="sectionHead">
+          <div>
+            <h2>All-Time Records</h2>
+            <p>Long-term bet-type performance from your completed tracker.</p>
+          </div>
+        </div>
+        {data.recordSummary.length ? <RecordsTable rows={data.recordSummary} /> : <div className="empty">No completed bets yet.</div>}
+      </>
+    );
+  }, [active, bestPlays, data, error]);
+
+  return (
+    <main className="shell">
+      <section className="hero">
+        <div className="logoWrap">
+          <div className="logoFallback">EZ</div>
+          <img className="logo" src="/ezpz_logo.png" alt="EZPZ Picks logo" />
+        </div>
+        <p className="heroSub">Algorithm-driven MLB betting projections ranked by model edge, confidence, and long-term bet-type performance.</p>
+      </section>
+
+      {data ? (
+        <section className="tileGrid">
+          <Tile
+            label="Best Plays - Last 7 Days"
+            value={data.tiles.last7Days.record}
+            meta={`${data.tiles.last7Days.winPct}% • ${data.tiles.last7Days.unitsWon}u • ROI ${data.tiles.last7Days.roiPct}%`}
+            green
+          />
+          <Tile
+            label="Best Plays - Running Total"
+            value={data.tiles.overallGreen.record}
+            meta={`${data.tiles.overallGreen.winPct}% • ${data.tiles.overallGreen.unitsWon}u • ROI ${data.tiles.overallGreen.roiPct}%`}
+            green
+          />
+          <Tile
+            label="Today’s Best Plays"
+            value={String(bestPlays.length)}
+            meta="Pending Best Plays"
+            green={bestPlays.length > 0}
+          />
+        </section>
+      ) : null}
+
+      <nav className="tabs">
+        {TABS.map((tab) => (
+          <button key={tab} className={`tabBtn ${active === tab ? "active" : ""}`} onClick={() => setActive(tab)}>
+            {tab}
+          </button>
+        ))}
+      </nav>
+
+      {content}
+    </main>
+  );
+}
