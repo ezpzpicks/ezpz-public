@@ -75,7 +75,7 @@ type Tab = "Today’s Best Plays" | "Full Slate" | "Records";
 
 const TABS: Tab[] = ["Today’s Best Plays", "Full Slate", "Records"];
 const BEST_PLAY_MIN_ODDS = -145;
-const BEST_PLAY_MIN_RANK_SCORE = 65;
+const BEST_PLAY_MIN_RANK_SCORE = 60;
 
 const TEAM_ABBR: Record<string, string> = {
   "Arizona Diamondbacks": "ari",
