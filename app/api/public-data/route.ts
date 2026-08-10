@@ -6604,13 +6604,13 @@ async function fetchSingleAiGameExternalReviews(
   const configuredMax = Number.isFinite(configuredMaxRaw) ? configuredMaxRaw : 4600;
   const candidateScaledMinimum = 3000 + candidates.length * 550;
   const maxOutputTokens = Math.max(
-    3200,
+    4000,
     Math.min(8000, Math.max(configuredMax, candidateScaledMinimum)),
   );
-  const configuredTimeoutRaw = Number(process.env.EZPZ_AI_REQUEST_TIMEOUT_MS || 90_000);
+  const configuredTimeoutRaw = Number(process.env.EZPZ_AI_REQUEST_TIMEOUT_MS || 120_000);
   const configuredRequestTimeoutMs = Number.isFinite(configuredTimeoutRaw)
-    ? Math.max(15_000, Math.min(90_000, configuredTimeoutRaw))
-    : 55_000;
+    ? Math.max(30_000, Math.min(120_000, configuredTimeoutRaw))
+    : 120_000;
   // A late-pregame fallback must never keep researching after first pitch. End
   // the request five seconds before the scheduled start when that deadline is
   // sooner than the normal timeout.
