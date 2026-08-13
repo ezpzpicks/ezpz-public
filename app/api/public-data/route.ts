@@ -3330,9 +3330,10 @@ function calculatePitcherKEZPZScore(
 
 function parseAmericanOdds(value: unknown) {
   const raw = String(value ?? "").replace(/[−–—]/g, "-").trim();
+  const afterSlash = raw.match(/\/\s*([+-]?\d{3,4})(?!\d)\s*$/)?.[1];
   const signed = raw.match(/[+-]\d{3,4}(?!\d)/)?.[0];
   const whole = raw.match(/^[+-]?\d{3,4}$/)?.[0];
-  const match = signed || whole;
+  const match = afterSlash || signed || whole;
   if (!match) return 0;
   const odds = Number(match);
   return Number.isFinite(odds) && Math.abs(odds) >= 100 ? odds : 0;
