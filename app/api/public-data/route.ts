@@ -6187,16 +6187,28 @@ function sanitizeAiPublicList(value: unknown, maxItems: number) {
 }
 
 function aiResponseOutputText(payload: any) {
-  if (typeof payload?.output_text === "string") return payload.output_text;
-  const pieces: string[] = [];
+  let lastMessageText = "";
   for (const item of payload?.output || []) {
+    const pieces: string[] = [];
     for (const content of item?.content || []) {
       if (content?.type === "output_text" && typeof content?.text === "string") {
         pieces.push(content.text);
       }
     }
+    if (pieces.length) lastMessageText = pieces.join("");
   }
-  return pieces.join("\n");
+  // Responses can contain text both before and after a tool call. The SDK's
+  // aggregate output_text concatenates those messages, which can turn two
+  // individually valid JSON objects into invalid JSON. The last text-bearing
+  // message is the final structured response.
+  if (lastMessageText) return lastMessageText;
+  return typeof payload?.output_text === "string" ? payload.output_text : "";
+}
+
+function aiStructuredReviewErrorIsRetryable(value: unknown) {
+  return /incomplete\s*\(\s*max_output_tokens\s*\)|invalid structured game JSON|returned no structured game review|returned an incomplete required game review|did not return a complete decision/i.test(
+    String(value || ""),
+  );
 }
 
 function aiResponseCompletedWebSearch(payload: any) {
@@ -6837,10 +6849,9 @@ async function requestSingleAiGameExternalReviews(
       return await fetchSingleAiGameExternalReviews(candidates);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      // Structured Outputs reports a precise reason when the response reaches
-      // max_output_tokens. Retry only that rare recoverable condition with a
-      // modest ceiling; normal calls remain compact and inexpensive.
-      if (!/incomplete\s*\(\s*max_output_tokens\s*\)/i.test(message)) {
+      // Retry recoverable structured-output failures once with a modestly
+      // larger ceiling. Pregame timing is checked again inside the retry.
+      if (!aiStructuredReviewErrorIsRetryable(message)) {
         throw error;
       }
       const fallbackOutputTokens = Math.max(
