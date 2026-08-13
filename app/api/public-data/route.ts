@@ -7654,6 +7654,15 @@ function aiStoredFinalSelectionIsLocked(pick: AiPick) {
 function aiStoredFinalDecisionIsTerminal(pick: AiPick) {
   if (pick.snapshotStatus !== "FINAL_PREGAME") return false;
   if (aiStoredFinalSelectionIsLocked(pick)) return true;
+  // Reopen a deterministic odds rejection only when the saved price is now
+  // parseable. This repairs legacy positive prices such as "5.5 / 100" while
+  // the existing pregame guard still prevents any post-start AI review.
+  const repairedLegacyOddsBlock =
+    pick.externalReviewStatus === "NO_VERIFIED_CONTEXT" &&
+    pick.protectionStatus === "BLOCKED" &&
+    pick.rejectionReason.includes("Playable odds are missing") &&
+    Boolean(parseAmericanOdds(pick.odds));
+  if (repairedLegacyOddsBlock) return false;
   if (pick.externalReviewStatus === "WEB_REVIEWED") return true;
   // A temporary response timeout or output-limit error is not a final decision.
   // requestSingleAiGameExternalReviews applies a short in-memory cool-down, and
