@@ -1665,6 +1665,11 @@ function publicPctNumber(value: unknown) {
   return Number.isFinite(parsed) ? Math.max(0, Math.min(100, parsed)) : undefined;
 }
 
+function alignedPublicBetsPct(moneyPct?: number) {
+  if (moneyPct == null || !Number.isFinite(moneyPct)) return undefined;
+  return Math.round((100 - Math.max(0, Math.min(100, moneyPct))) * 10) / 10;
+}
+
 function publicPctText(value?: number) {
   return value == null ? "—" : `${value.toFixed(value % 1 ? 1 : 0)}%`;
 }
@@ -1729,8 +1734,8 @@ function computedPublicWarning(betsPct?: number, moneyPct?: number) {
     };
   }
 
-  // Bets % is ticket share and Handle % is wagered-money share. Handle is a
-  // useful sharp-action proxy, but it is not a confirmed sharp-bettor count.
+  // The public board uses the selected-side two-part split restored in the API:
+  // Bets % is the complement of Handle %, so the two values always total 100%.
   if (gapPct <= -20) {
     return { label: "Strong Handle Below Bets", tone: "negative" as const, negative: true };
   }
@@ -1765,12 +1770,13 @@ function getPublicBettingInfo(
 
   if (isMoneylineType(play.playType) || isTotalType(play.playType)) {
     const prefix = isMoneylineType(play.playType) ? "ML" : "Total";
-    const betsPct = publicPctNumber(
+    const reportedBetsPct = publicPctNumber(
       firstValue(row, [`${prefix} Public Bets %`]) || play.publicBetsPct,
     );
     const moneyPct = publicPctNumber(
       firstValue(row, [`${prefix} Public Money %`]) || play.publicMoneyPct,
     );
+    const betsPct = alignedPublicBetsPct(moneyPct) ?? reportedBetsPct;
     if (betsPct == null && moneyPct == null) return null;
 
     const savedWarning = String(
@@ -3189,7 +3195,7 @@ function PublicBettingPanel({ info }: { info: PublicBettingInfo | null }) {
           : ""}
       </div>
       <div className="publicSplitMeta">
-        Handle is wagered-money share and only a proxy for sharp action.
+        Selected-side split rule: Bets + Handle = 100%.
       </div>
       <div className="publicSplitMeta">
         {info.matchConfidence || "DraftKings selected-side split"}
