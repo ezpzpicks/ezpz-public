@@ -1689,6 +1689,25 @@ function truthySheetFlag(value: unknown) {
   return ["TRUE", "YES", "Y", "1"].includes(String(value ?? "").trim().toUpperCase());
 }
 
+const DRAFTKINGS_SIGNAL_DISPLAY_LABELS: Record<string, string> = {
+  "Extreme Public + Sharp Agreement": "Extreme Bets + Handle Agreement",
+  "Heavy Public + Sharp Agreement": "Heavy Bets + Handle Agreement",
+  "Strong Sharp Rejection": "Strong Handle Below Bets",
+  "Sharp Rejection": "Handle Below Bets",
+  "Strong Sharp Support": "Strong Handle Above Bets",
+  "Sharp Support": "Handle Above Bets",
+  "Balanced Public / Sharp Split": "Balanced Bets / Handle",
+};
+
+function draftKingsSignalDisplayLabel(value: unknown) {
+  const label = String(value ?? "").trim();
+  return DRAFTKINGS_SIGNAL_DISPLAY_LABELS[label] || label;
+}
+
+function draftKingsSignalTypeDisplayLabel(value: DraftKingsSignalSummary["signalType"]) {
+  return value === "Public Split" ? "Bets / Handle" : value;
+}
+
 function computedPublicWarning(betsPct?: number, moneyPct?: number) {
   if (betsPct == null || moneyPct == null) {
     return { label: "", tone: "neutral" as const, negative: false };
@@ -1697,35 +1716,35 @@ function computedPublicWarning(betsPct?: number, moneyPct?: number) {
   const gapPct = moneyPct - betsPct;
   if (betsPct >= 90 && moneyPct >= 90) {
     return {
-      label: "Extreme Public + Sharp Agreement",
+      label: "Extreme Bets + Handle Agreement",
       tone: "negative" as const,
       negative: true,
     };
   }
   if (betsPct >= 80 && moneyPct >= 80) {
     return {
-      label: "Heavy Public + Sharp Agreement",
+      label: "Heavy Bets + Handle Agreement",
       tone: "caution" as const,
       negative: true,
     };
   }
 
-  // Public % represents ticket share and Sharp % represents money share.
-  // The split is only balanced when those percentages are within 10 points.
+  // Bets % is ticket share and Handle % is wagered-money share. Handle is a
+  // useful sharp-action proxy, but it is not a confirmed sharp-bettor count.
   if (gapPct <= -20) {
-    return { label: "Strong Sharp Rejection", tone: "negative" as const, negative: true };
+    return { label: "Strong Handle Below Bets", tone: "negative" as const, negative: true };
   }
   if (gapPct <= -10) {
-    return { label: "Sharp Rejection", tone: "negative" as const, negative: true };
+    return { label: "Handle Below Bets", tone: "negative" as const, negative: true };
   }
   if (gapPct >= 20) {
-    return { label: "Strong Sharp Support", tone: "positive" as const, negative: false };
+    return { label: "Strong Handle Above Bets", tone: "positive" as const, negative: false };
   }
   if (gapPct >= 10) {
-    return { label: "Sharp Support", tone: "positive" as const, negative: false };
+    return { label: "Handle Above Bets", tone: "positive" as const, negative: false };
   }
   return {
-    label: "Balanced Public / Sharp Split",
+    label: "Balanced Bets / Handle",
     tone: "neutral" as const,
     negative: false,
   };
@@ -3121,18 +3140,18 @@ function PublicBettingPanel({ info }: { info: PublicBettingInfo | null }) {
   return (
     <div className="publicSplitPanel">
       <div className="publicSplitTitle">
-        <span>{info.source} Public / Sharp Splits</span>
+        <span>{info.source} Bets / Handle Splits</span>
         <strong>{info.selection || "Selected side"}</strong>
       </div>
       <div className="bubbleGrid publicSplitGrid">
-        <MiniBubble label="Opening Public" value={publicPctText(info.openingBetsPct)} />
-        <MiniBubble label="Current Public" value={publicPctText(info.betsPct)} />
-        <MiniBubble label="Public Change" value={signedPublicMoveText(info.publicMovementPct)} />
-        <MiniBubble label="Opening Sharp" value={publicPctText(info.openingMoneyPct)} />
-        <MiniBubble label="Current Sharp" value={publicPctText(info.moneyPct)} />
-        <MiniBubble label="Sharp Change" value={signedPublicMoveText(info.sharpMovementPct)} />
+        <MiniBubble label="Opening Bets" value={publicPctText(info.openingBetsPct)} />
+        <MiniBubble label="Current Bets" value={publicPctText(info.betsPct)} />
+        <MiniBubble label="Bets Change" value={signedPublicMoveText(info.publicMovementPct)} />
+        <MiniBubble label="Opening Handle" value={publicPctText(info.openingMoneyPct)} />
+        <MiniBubble label="Current Handle" value={publicPctText(info.moneyPct)} />
+        <MiniBubble label="Handle Change" value={signedPublicMoveText(info.sharpMovementPct)} />
         <MiniBubble
-          label="Sharp − Public"
+          label="Handle − Bets"
           value={
             info.gapPct == null
               ? "—"
@@ -3149,7 +3168,7 @@ function PublicBettingPanel({ info }: { info: PublicBettingInfo | null }) {
       <div className="publicSignalStack">
         {info.warning ? (
           <div className={`publicWarning ${warningClass}`}>
-            {warningIcon} {info.warning}
+            {warningIcon} {draftKingsSignalDisplayLabel(info.warning)}
           </div>
         ) : null}
         {info.lineMovementSignal ? (
@@ -3159,7 +3178,7 @@ function PublicBettingPanel({ info }: { info: PublicBettingInfo | null }) {
         ) : null}
       </div>
       <div className="publicSplitMeta">
-        Public {publicPctText(info.openingBetsPct)} → {publicPctText(info.betsPct)}
+        Bets {publicPctText(info.openingBetsPct)} → {publicPctText(info.betsPct)}
         {info.openingLine != null && info.line
           ? ` • Line ${info.openingLine} → ${info.line}`
           : info.openingOdds
@@ -3168,6 +3187,9 @@ function PublicBettingPanel({ info }: { info: PublicBettingInfo | null }) {
         {info.openingImpliedPct != null && info.currentImpliedPct != null
           ? ` • Implied ${info.openingImpliedPct.toFixed(1)}% → ${info.currentImpliedPct.toFixed(1)}%`
           : ""}
+      </div>
+      <div className="publicSplitMeta">
+        Handle is wagered-money share and only a proxy for sharp action.
       </div>
       <div className="publicSplitMeta">
         {info.matchConfidence || "DraftKings selected-side split"}
@@ -3224,11 +3246,11 @@ function LiveMarketSplits({
               <div className="liveSplitRow">
                 <strong>{split.selection}</strong>
                 <span>
-                  <small>Public</small>
+                  <small>Bets</small>
                   {publicPctText(split.betsPct)}
                 </span>
                 <span>
-                  <small>Sharp</small>
+                  <small>Handle</small>
                   {publicPctText(split.moneyPct)}
                 </span>
                 <span>
@@ -3240,7 +3262,7 @@ function LiveMarketSplits({
                 <div className="liveSplitSignals">
                   {split.warning ? (
                     <span className={`liveSignalPill ${warningTone}`}>
-                      {warningIcon} {split.warning}
+                      {warningIcon} {draftKingsSignalDisplayLabel(split.warning)}
                     </span>
                   ) : null}
                   {split.lineMovementSignal ? (
@@ -3876,7 +3898,9 @@ function TrendSignalPanels({ play }: { play: TrendPlay }) {
           <section className="trendSignalPanel" key={`${signal.signalType}-${signal.signalKey}`}>
             <div className="trendSignalHead">
               <div>
-                <span className={`liveSignalPill ${recordTone}`}>{signal.signal}</span>
+                <span className={`liveSignalPill ${recordTone}`}>
+                  {draftKingsSignalDisplayLabel(signal.signal)}
+                </span>
                 <small>{signal.recordScope}</small>
               </div>
               <strong>{clampScore(signalMetrics.score)}</strong>
@@ -3909,7 +3933,9 @@ function TrendSelectionRow({
 }) {
   const pickLabel = trendPickLabel(play);
   const badgeText = modelTrendBadgeText(matchStatus);
-  const compactSignals = play.signals.map((signal) => signal.signal).join(" • ");
+  const compactSignals = play.signals
+    .map((signal) => draftKingsSignalDisplayLabel(signal.signal))
+    .join(" • ");
 
   return (
     <details
@@ -3938,14 +3964,14 @@ function TrendSelectionRow({
         ) : null}
 
         <div className="bubbleGrid trendSelectionMetrics">
-          <MiniBubble label="Opening Public" value={publicPctText(play.openingBetsPct)} />
-          <MiniBubble label="Current Public" value={publicPctText(play.betsPct)} />
-          <MiniBubble label="Public Change" value={signedPublicMoveText(play.publicMovementPct)} />
-          <MiniBubble label="Opening Sharp" value={publicPctText(play.openingMoneyPct)} />
-          <MiniBubble label="Current Sharp" value={publicPctText(play.moneyPct)} />
-          <MiniBubble label="Sharp Change" value={signedPublicMoveText(play.sharpMovementPct)} />
+          <MiniBubble label="Opening Bets" value={publicPctText(play.openingBetsPct)} />
+          <MiniBubble label="Current Bets" value={publicPctText(play.betsPct)} />
+          <MiniBubble label="Bets Change" value={signedPublicMoveText(play.publicMovementPct)} />
+          <MiniBubble label="Opening Handle" value={publicPctText(play.openingMoneyPct)} />
+          <MiniBubble label="Current Handle" value={publicPctText(play.moneyPct)} />
+          <MiniBubble label="Handle Change" value={signedPublicMoveText(play.sharpMovementPct)} />
           <MiniBubble
-            label="Sharp − Public"
+            label="Handle − Bets"
             value={`${play.gapPct >= 0 ? "+" : ""}${play.gapPct.toFixed(1)}%`}
           />
           <MiniBubble label="Opening Odds" value={formatOdds(play.openingOdds)} />
@@ -3965,7 +3991,7 @@ function TrendSelectionRow({
               : "Head-to-head comparison unavailable"}
           </span>
           <span>
-            Public {publicPctText(play.openingBetsPct)} → {publicPctText(play.betsPct)}
+            Bets {publicPctText(play.openingBetsPct)} → {publicPctText(play.betsPct)}
             {play.openingLine != null && play.line != null
               ? ` • Line ${play.openingLine} → ${play.line}`
               : play.openingOdds
@@ -4834,13 +4860,13 @@ type DraftKingsSignalSummary = {
 const DRAFTKINGS_SIGNAL_CATALOG: Array<
   Pick<DraftKingsSignalSummary, "signalType" | "signal" | "tone">
 > = [
-  { signalType: "Public Split", signal: "Extreme Public + Sharp Agreement", tone: "negative" },
-  { signalType: "Public Split", signal: "Heavy Public + Sharp Agreement", tone: "caution" },
-  { signalType: "Public Split", signal: "Strong Sharp Rejection", tone: "negative" },
-  { signalType: "Public Split", signal: "Sharp Rejection", tone: "negative" },
-  { signalType: "Public Split", signal: "Strong Sharp Support", tone: "positive" },
-  { signalType: "Public Split", signal: "Sharp Support", tone: "positive" },
-  { signalType: "Public Split", signal: "Balanced Public / Sharp Split", tone: "neutral" },
+  { signalType: "Public Split", signal: "Extreme Bets + Handle Agreement", tone: "negative" },
+  { signalType: "Public Split", signal: "Heavy Bets + Handle Agreement", tone: "caution" },
+  { signalType: "Public Split", signal: "Strong Handle Below Bets", tone: "negative" },
+  { signalType: "Public Split", signal: "Handle Below Bets", tone: "negative" },
+  { signalType: "Public Split", signal: "Strong Handle Above Bets", tone: "positive" },
+  { signalType: "Public Split", signal: "Handle Above Bets", tone: "positive" },
+  { signalType: "Public Split", signal: "Balanced Bets / Handle", tone: "neutral" },
   { signalType: "Line Movement", signal: "Strong Reverse Line Movement Support", tone: "positive" },
   { signalType: "Line Movement", signal: "Reverse Line Movement Support", tone: "positive" },
   { signalType: "Line Movement", signal: "Strong Reverse Line Movement Against", tone: "negative" },
@@ -4886,10 +4912,11 @@ function summarizeDraftKingsSignals(rows: DraftKingsSignalResult[]) {
     });
   }
   for (const row of rows) {
-    const displaySignal =
+    const displaySignal = draftKingsSignalDisplayLabel(
       row.signalType === "Line Movement" && row.signal === "Reverse Line Movement"
         ? "Legacy Adverse Movement (pre-fix)"
-        : row.signal;
+        : row.signal,
+    );
     const key = `${row.signalType}|${displaySignal}`;
     // The route should only return cataloged signals, but keep the Records UI
     // bounded even if malformed historical data reaches the browser.
@@ -5256,9 +5283,11 @@ function DraftKingsSignalRecords({
               {summaries.map((row) => (
                 <tr key={`${row.signalType}-${row.signal}`}>
                   <td>
-                    <span className={`signalName ${row.tone}`}>{row.signal}</span>
+                    <span className={`signalName ${row.tone}`}>
+                      {draftKingsSignalDisplayLabel(row.signal)}
+                    </span>
                   </td>
-                  <td>{row.signalType}</td>
+                  <td>{draftKingsSignalTypeDisplayLabel(row.signalType)}</td>
                   <td>{row.wins}-{row.losses}-{row.pushes}</td>
                   <td>{row.winPct}%</td>
                   <td className={row.unitsWon > 0 ? "metricPositive" : row.unitsWon < 0 ? "metricNegative" : ""}>
