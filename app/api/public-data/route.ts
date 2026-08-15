@@ -651,7 +651,7 @@ function draftKingsSplitKey(row: DraftKingsSplit) {
   const selectedSide =
     row.market === "Total"
       ? row.side || textKey(row.selection)
-      : row.selectionTeam || normalizeTeam(row.selection);
+      : teamFromSelection(row.selectionTeam || row.selection);
   return `${row.date}|${row.game}|${row.market}|${textKey(selectedSide)}`;
 }
 
@@ -778,7 +778,7 @@ function warningFor(betsPct: number, moneyPct: number) {
   if (betsPct >= 90 && moneyPct >= 90) {
     return {
       warningKey: "EXTREME_PUBLIC_SHARP_AGREEMENT",
-      warning: "Extreme Public + Sharp Agreement",
+      warning: "Extreme Bets + Handle Agreement",
       warningTone: "negative" as const,
       warningNegative: true,
       gapPct,
@@ -787,7 +787,7 @@ function warningFor(betsPct: number, moneyPct: number) {
   if (betsPct >= 80 && moneyPct >= 80) {
     return {
       warningKey: "HEAVY_PUBLIC_SHARP_AGREEMENT",
-      warning: "Heavy Public + Sharp Agreement",
+      warning: "Heavy Bets + Handle Agreement",
       warningTone: "caution" as const,
       warningNegative: true,
       gapPct,
@@ -796,7 +796,7 @@ function warningFor(betsPct: number, moneyPct: number) {
   if (gapPct <= -20) {
     return {
       warningKey: "STRONG_SHARP_REJECTION",
-      warning: "Strong Sharp Rejection",
+      warning: "Strong Handle Below Bets",
       warningTone: "negative" as const,
       warningNegative: true,
       gapPct,
@@ -805,7 +805,7 @@ function warningFor(betsPct: number, moneyPct: number) {
   if (gapPct <= -10) {
     return {
       warningKey: "SHARP_REJECTION",
-      warning: "Sharp Rejection",
+      warning: "Handle Below Bets",
       warningTone: "negative" as const,
       warningNegative: true,
       gapPct,
@@ -814,7 +814,7 @@ function warningFor(betsPct: number, moneyPct: number) {
   if (gapPct >= 20) {
     return {
       warningKey: "STRONG_SHARP_SUPPORT",
-      warning: "Strong Sharp Support",
+      warning: "Strong Handle Above Bets",
       warningTone: "positive" as const,
       warningNegative: false,
       gapPct,
@@ -823,7 +823,7 @@ function warningFor(betsPct: number, moneyPct: number) {
   if (gapPct >= 10) {
     return {
       warningKey: "SHARP_SUPPORT",
-      warning: "Sharp Support",
+      warning: "Handle Above Bets",
       warningTone: "positive" as const,
       warningNegative: false,
       gapPct,
@@ -831,7 +831,7 @@ function warningFor(betsPct: number, moneyPct: number) {
   }
   return {
     warningKey: "BALANCED_PUBLIC_SHARP_SPLIT",
-    warning: "Balanced Public / Sharp Split",
+    warning: "Balanced Bets / Handle",
     warningTone: "neutral" as const,
     warningNegative: false,
     gapPct,
@@ -1648,10 +1648,16 @@ function sameDraftKingsGame(
 function teamFromSelection(value: unknown) {
   const key = textKey(value);
   if (!key) return "";
-  const matches = Object.keys(MLB_TEAM_ALIASES)
-    .filter((team) => key.includes(textKey(team)))
-    .sort((a, b) => b.length - a.length);
-  return matches[0] || normalizeTeam(value);
+  const matches = [...ALIAS_LOOKUP.entries()]
+    .filter(([alias]) =>
+      alias &&
+      (key === alias ||
+        key.startsWith(`${alias} `) ||
+        key.endsWith(` ${alias}`) ||
+        key.includes(` ${alias} `)),
+    )
+    .sort((a, b) => b[0].length - a[0].length);
+  return matches[0]?.[1] || normalizeTeam(value);
 }
 
 function easternTimeZoneOffsetMs(date: Date) {
