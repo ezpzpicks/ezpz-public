@@ -4830,14 +4830,36 @@ function overlayFrozenTrendPlays(
 ) {
   if (!frozenPlays.length) return livePlays;
 
+  const overlayKey = (play: TrendPlay) =>
+    `${trendGameComparisonKey(play)}|${trendMarketComparisonKey(play)}|${trendSideComparisonKey(play)}`;
+  const liveByKey = new Map(livePlays.map((play) => [overlayKey(play), play]));
+  const refreshedFrozenPlays = frozenPlays.map((frozenPlay) => {
+    const livePlay = liveByKey.get(overlayKey(frozenPlay));
+    if (!livePlay) return frozenPlay;
+
+    // The final market snapshot remains frozen, but signal labels, records,
+    // scores, and ranks must be rebuilt from the current calculation contract.
+    // Otherwise a repaired split (for example 32% Bets / 68% Handle) can keep
+    // the pre-repair "Handle Below Bets" badge from its stored JSON.
+    return {
+      ...livePlay,
+      frozenAt: frozenPlay.frozenAt || livePlay.updatedAt,
+      snapshotStatus: "FINAL_PREGAME" as const,
+      gradingVersion: FROZEN_TREND_GRADING_VERSION,
+      recordDate: frozenPlay.recordDate,
+      recordGameKey: frozenPlay.recordGameKey,
+      recordGameTime: frozenPlay.recordGameTime,
+    };
+  });
+
   const frozenGameKeys = new Set(
-    frozenPlays.map((play) => trendGameComparisonKey(play)),
+    refreshedFrozenPlays.map((play) => trendGameComparisonKey(play)),
   );
   const combined = [
     ...livePlays.filter(
       (play) => !frozenGameKeys.has(trendGameComparisonKey(play)),
     ),
-    ...frozenPlays,
+    ...refreshedFrozenPlays,
   ];
   const slateOrder = new Map(
     slateRows.map((row, index) => [
