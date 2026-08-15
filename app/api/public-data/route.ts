@@ -391,6 +391,7 @@ type DraftKingsSplit = {
   odds: string;
   moneyPct: number;
   betsPct: number;
+  reportedBetsPct?: number;
   gapPct: number;
   warningKey: string;
   warning: string;
@@ -399,6 +400,7 @@ type DraftKingsSplit = {
   openingLine?: number | null;
   openingOdds?: string;
   openingBetsPct?: number;
+  openingReportedBetsPct?: number;
   openingMoneyPct?: number;
   publicMovementPct?: number;
   sharpMovementPct?: number;
@@ -765,6 +767,11 @@ function percent(value: unknown) {
   return Number.isFinite(parsed) ? Math.max(0, Math.min(100, parsed)) : NaN;
 }
 
+function alignedBetsPct(moneyPct: number) {
+  const clampedMoneyPct = Math.max(0, Math.min(100, moneyPct));
+  return Math.round((100 - clampedMoneyPct) * 10) / 10;
+}
+
 function isOdds(value: unknown) {
   return /^[+-]?\d{3,4}$/.test(String(value || "").replace(/−/g, "-").trim());
 }
@@ -942,20 +949,33 @@ function enrichDraftKingsSplit(
   previous?: DraftKingsSplit | null,
   updatedAt = "",
 ): DraftKingsSplit {
-  const primary = warningFor(current.betsPct, current.moneyPct);
+  // Product contract: each selected-side tile is a two-part split where
+  // Money % + Bets % = 100%. DraftKings' independently reported Bets % is
+  // retained separately so the source value is not lost during normalization.
+  const reportedBetsPct = current.reportedBetsPct ?? current.betsPct;
+  const betsPct = alignedBetsPct(current.moneyPct);
+  const alignedCurrent = { ...current, betsPct, reportedBetsPct };
+  const primary = warningFor(betsPct, current.moneyPct);
   const openingLine = previous?.openingLine ?? previous?.line ?? current.openingLine ?? current.line;
   const openingOdds = previous?.openingOdds || previous?.odds || current.openingOdds || current.odds;
-  const openingBetsPct =
-    previous?.openingBetsPct ?? previous?.betsPct ?? current.openingBetsPct ?? current.betsPct;
   const openingMoneyPct =
     previous?.openingMoneyPct ?? previous?.moneyPct ?? current.openingMoneyPct ?? current.moneyPct;
+  const openingReportedBetsPct =
+    previous?.openingReportedBetsPct ??
+    previous?.reportedBetsPct ??
+    previous?.openingBetsPct ??
+    previous?.betsPct ??
+    current.openingReportedBetsPct ??
+    current.openingBetsPct ??
+    reportedBetsPct;
+  const openingBetsPct = alignedBetsPct(openingMoneyPct);
   const openingSnapshotTime =
     previous?.openingSnapshotTime ||
     previous?.lastSeenAt ||
     current.openingSnapshotTime ||
     updatedAt;
   const movement = movementForSplit(
-    current,
+    alignedCurrent,
     openingLine ?? null,
     openingOdds || current.odds,
     openingBetsPct,
@@ -963,11 +983,12 @@ function enrichDraftKingsSplit(
   const sharpMovementPct = Math.round((current.moneyPct - openingMoneyPct) * 10) / 10;
 
   return {
-    ...current,
+    ...alignedCurrent,
     ...primary,
     openingLine: openingLine ?? null,
     openingOdds: openingOdds || current.odds,
     openingBetsPct,
+    openingReportedBetsPct,
     openingMoneyPct,
     sharpMovementPct,
     openingSnapshotTime,
@@ -3598,13 +3619,11 @@ function buildDraftKingsSignalRows(
     const result = resultCode(row.Result);
     if (!result) continue;
     const snapshot = snapshotForTrackerRow(row, slateRows, snapshotRows);
-    const betsPct =
-      publicPercentOrNull(row["Public Bets %"]) ??
-      publicPercentOrNull(snapshot?.["Public Bets %"]);
     const moneyPct =
       publicPercentOrNull(row["Public Money %"]) ??
       publicPercentOrNull(snapshot?.["Public Money %"]);
-    if (betsPct == null || moneyPct == null) continue;
+    if (moneyPct == null) continue;
+    const betsPct = alignedBetsPct(moneyPct);
 
     const primary = warningFor(betsPct, moneyPct);
     const odds = parseAmericanOdds(
@@ -3771,6 +3790,9 @@ function applyHistoricalTrendOverride(
     market === "Total"
       ? numericLine(snapshot?.Line || row["Public Split Line"] || row.Line || row["Odds/Line"] || "")
       : null;
+  const recoveredMoneyPct =
+    publicPercentOrNull(snapshot?.["Public Money %"] || row["Public Money %"]) ?? 0;
+  const recoveredBetsPct = alignedBetsPct(recoveredMoneyPct);
   const normalized: TrendPlay = play
     ? {
         ...play,
@@ -3802,9 +3824,9 @@ function applyHistoricalTrendOverride(
               : "Underdog",
         line,
         odds,
-        betsPct: publicPercentOrNull(snapshot?.["Public Bets %"] || row["Public Bets %"]) ?? 0,
-        moneyPct: publicPercentOrNull(snapshot?.["Public Money %"] || row["Public Money %"]) ?? 0,
-        gapPct: publicPercentOrNull(snapshot?.["Public Gap %"] || row["Public Gap %"]) ?? 0,
+        betsPct: recoveredBetsPct,
+        moneyPct: recoveredMoneyPct,
+        gapPct: Math.round((recoveredMoneyPct - recoveredBetsPct) * 10) / 10,
         score: override.score,
         baseScore: override.score,
         tier: override.tier,
@@ -4009,6 +4031,8 @@ function buildTrendRecordRows(
           : odds > 0
             ? "Underdog"
             : storedPlay?.sideGroup || "");
+    const recoveredMoneyPct = publicPercentOrNull(row["Public Money %"]) ?? 0;
+    const recoveredBetsPct = alignedBetsPct(recoveredMoneyPct);
 
     const officialPlay: TrendPlay = authoritativePlay
       ? {
@@ -4050,9 +4074,9 @@ function buildTrendRecordRows(
             odds: String(
               row["Public Split Odds"] || recoverySnapshot?.Odds || row.Odds || row["Odds/Line"] || "",
             ),
-            betsPct: publicPercentOrNull(row["Public Bets %"]) ?? 0,
-            moneyPct: publicPercentOrNull(row["Public Money %"]) ?? 0,
-            gapPct: publicPercentOrNull(row["Public Gap %"]) ?? 0,
+            betsPct: recoveredBetsPct,
+            moneyPct: recoveredMoneyPct,
+            gapPct: Math.round((recoveredMoneyPct - recoveredBetsPct) * 10) / 10,
             score: frozenScore,
             tier: frozenTier,
             signals: [],
@@ -4695,9 +4719,31 @@ function parseStoredTrendPlay(row: SheetRow): TrendPlay | null {
       parsed.tier === "Pass"
         ? parsed.tier
         : "Pass";
+    const moneyPct = Number.isFinite(Number(parsed.moneyPct))
+      ? Math.max(0, Math.min(100, Number(parsed.moneyPct)))
+      : 0;
+    const betsPct = alignedBetsPct(moneyPct);
+    const openingMoneyPct = Number.isFinite(Number(parsed.openingMoneyPct))
+      ? Math.max(0, Math.min(100, Number(parsed.openingMoneyPct)))
+      : undefined;
+    const openingBetsPct =
+      openingMoneyPct == null ? undefined : alignedBetsPct(openingMoneyPct);
 
     return {
       ...(parsed as TrendPlay),
+      moneyPct,
+      betsPct,
+      gapPct: Math.round((moneyPct - betsPct) * 10) / 10,
+      openingMoneyPct,
+      openingBetsPct,
+      publicMovementPct:
+        openingBetsPct == null
+          ? parsed.publicMovementPct
+          : Math.round((betsPct - openingBetsPct) * 10) / 10,
+      sharpMovementPct:
+        openingMoneyPct == null
+          ? parsed.sharpMovementPct
+          : Math.round((moneyPct - openingMoneyPct) * 10) / 10,
       score: Number.isFinite(Number(parsed.score)) ? Number(parsed.score) : 0,
       tier: validTier,
       signals: parsed.signals as TrendSignalBreakdown[],
