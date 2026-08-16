@@ -1,0 +1,36 @@
+name: EZPZ DraftKings True RLM Snapshots
+
+on:
+  schedule:
+    # Four checks per hour run all day so the new MLB slate is initialized just
+    # after midnight ET, then the market baseline stays current until first pitch.
+    # The API separately locks one official snapshot 7-23 minutes before first pitch.
+    - cron: "2,17,32,47 0-23 * * *"
+      timezone: "America/New_York"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ezpz-draftkings-true-rlm-snapshots
+  cancel-in-progress: false
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Initialize MLB slate, refresh DraftKings baseline, and lock eligible pregame snapshots
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          test -n "$CRON_SECRET" || { echo "Missing repository secret: CRON_SECRET"; exit 1; }
+          curl --fail-with-body \
+            --silent \
+            --show-error \
+            --retry 2 \
+            --retry-delay 10 \
+            --max-time 75 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "https://ezpzpicks.com/api/public-data?scheduled=1&tracking=15m"
