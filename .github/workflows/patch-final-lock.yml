@@ -1,0 +1,276 @@
+# one-time route patch
+name: Apply final-lock fixes
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/patch-final-lock.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch route logic
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('app/api/public-data/route.ts')
+          text = path.read_text()
+
+          old_trend = r'''function trendGameInstanceKey(play: TrendPlay) {
+            const matchup = trendGameComparisonKey(play);
+            const gameTime = parseEventTimeKey(play.recordGameTime || "");
+            if (gameTime) return `${matchup}|${gameTime}`;
+            const gameKey = String(play.recordGameKey || "").trim().replace(/\.0$/, "");
+            return gameKey ? `${matchup}|game:${gameKey}` : matchup;
+          }
+
+          function trendSlateGameInstanceKey(row: SheetRow) {
+            const matchup = `${normalizeTeam(row["Away Team"] || "")}|${normalizeTeam(
+              row["Home Team"] || "",
+            )}`;
+            const gameTime = scheduledGameTimeKey(row);
+            if (gameTime) return `${matchup}|${gameTime}`;
+            const gameKey = String(row["Game Key"] || "").trim().replace(/\.0$/, "");
+            return gameKey ? `${matchup}|game:${gameKey}` : matchup;
+          }'''
+
+          new_trend = r'''function trendGameInstanceKey(play: TrendPlay) {
+            const matchup = trendGameComparisonKey(play);
+            // Game Key is the canonical identity whenever it exists. Final-lock
+            // rows can serialize game time differently from the live DraftKings
+            // row; preferring time first allowed one live and one frozen copy of
+            // the same selection to survive the merge after first pitch.
+            const gameKey = String(play.recordGameKey || "").trim().replace(/\.0$/, "");
+            if (gameKey) return `${matchup}|game:${gameKey}`;
+            const gameTime = parseEventTimeKey(play.recordGameTime || "");
+            return gameTime ? `${matchup}|${gameTime}` : matchup;
+          }
+
+          function trendSlateGameInstanceKey(row: SheetRow) {
+            const matchup = `${normalizeTeam(row["Away Team"] || "")}|${normalizeTeam(
+              row["Home Team"] || "",
+            )}`;
+            const gameKey = String(row["Game Key"] || "").trim().replace(/\.0$/, "");
+            if (gameKey) return `${matchup}|game:${gameKey}`;
+            const gameTime = scheduledGameTimeKey(row);
+            return gameTime ? `${matchup}|${gameTime}` : matchup;
+          }'''
+
+          if old_trend not in text:
+              raise SystemExit('trend identity block not found')
+          text = text.replace(old_trend, new_trend, 1)
+
+          helper_anchor = '''function aiStoredFinalSelectionIsLocked(pick: AiPick) {
+            // Once a pick has passed the FINAL_PREGAME AI review and was published as
+            // selected, it is immutable. Later refreshes must never re-review or demote
+            // it because market/model inputs can continue changing after the lock.
+          '''
+
+          helper_block = r'''const AI_STORED_LAST7_GATE_PREFIX = "Last-7 qualification recheck:";
+
+          function aiStoredLastSevenQualificationCorrection(
+            pick: AiPick,
+            completedTrackerRows: SheetRow[],
+            selectorNow: number,
+          ): AiPick | null {
+            if (
+              pick.snapshotStatus !== "FINAL_PREGAME" ||
+              pick.externalReviewStatus !== "WEB_REVIEWED" ||
+              !pick.bestPlayType
+            ) {
+              return null;
+            }
+
+            const managedByThisGate = pick.rejectionReason.startsWith(
+              AI_STORED_LAST7_GATE_PREFIX,
+            );
+            if (!pick.selected && !managedByThisGate) return null;
+
+            // Do not retroactively change a published decision after first pitch.
+            // This recheck exists only to catch Last-7 changes between final review
+            // and the scheduled start of this specific game.
+            const start = scheduledGameStart({
+              Date: pick.date,
+              "Game Time": pick.gameTime,
+            });
+            if (start != null && selectorNow >= start) return null;
+
+            const recordType = aiCanonicalBestPlayType(pick.bestPlayType);
+            if (!recordType) return null;
+
+            const lastSeven = aiLastSevenBetsSummaryForType(
+              completedTrackerRows,
+              recordType,
+            );
+            const form = aiPitcherBetTypeForm(lastSeven);
+            const profile = aiPitcherQualificationProfile(form, lastSeven);
+            const formLabel =
+              form === "HOT"
+                ? "Hot"
+                : form === "NEUTRAL"
+                  ? "Neutral"
+                  : form === "COLD"
+                    ? "Cold"
+                    : "Small Sample";
+            const statusLine = `${recordType} Last 7 Bets: ${formLabel} • ${lastSeven.record}`;
+            const hasMarketImpliedProbability =
+              Number(pick.marketImpliedProbability || 0) > 0;
+
+            let failure = "";
+            if (form === "COLD") {
+              failure = `${recordType} is Cold over its last 7 completed bets (${lastSeven.record}); Cold Best Play bet types are excluded until the rolling record improves`;
+            } else if (pick.aiScore < profile.score) {
+              failure = `AI score ${pick.aiScore} no longer reaches the current ${profile.score}+ requirement for ${recordType} (${formLabel}, ${lastSeven.record})`;
+            } else if (
+              profile.enforceProbability &&
+              pick.estimatedProbability < profile.probability
+            ) {
+              failure = `Estimated probability ${pick.estimatedProbability.toFixed(1)}% no longer reaches the current ${profile.probability}% requirement for ${recordType} (${formLabel}, ${lastSeven.record})`;
+            } else if (
+              hasMarketImpliedProbability &&
+              pick.estimatedAdvantage < profile.advantage
+            ) {
+              failure = `Estimated advantage ${pick.estimatedAdvantage.toFixed(1)}% no longer reaches the current ${profile.advantage.toFixed(1)}% requirement for ${recordType} (${formLabel}, ${lastSeven.record})`;
+            }
+
+            const cleanedStatus = pick.dataStatus.filter(
+              (item) =>
+                !String(item).startsWith(`${recordType} Last 7 Bets:`) &&
+                !String(item).startsWith(AI_STORED_LAST7_GATE_PREFIX),
+            );
+
+            if (failure) {
+              const rejectionReason = `${AI_STORED_LAST7_GATE_PREFIX} ${failure}`;
+              if (
+                !pick.selected &&
+                managedByThisGate &&
+                pick.rejectionReason === rejectionReason &&
+                pick.dataStatus.includes(statusLine)
+              ) {
+                return null;
+              }
+              return {
+                ...pick,
+                selected: false,
+                protectionStatus: "BLOCKED",
+                rejectionReason,
+                dataStatus: [statusLine, rejectionReason, ...cleanedStatus].slice(0, 5),
+                updatedAt: nowET(),
+                selectorVersion: AI_PICK_SELECTOR_VERSION,
+              };
+            }
+
+            // If an earlier Last-7 recheck was the only reason this locked pick
+            // was removed and the rolling bucket improves before first pitch,
+            // restore the already-completed external review without another AI call.
+            if (managedByThisGate && !pick.selected) {
+              return {
+                ...pick,
+                selected: true,
+                protectionStatus: "PASSED",
+                rejectionReason: "",
+                dataStatus: [statusLine, ...cleanedStatus].slice(0, 5),
+                updatedAt: nowET(),
+                selectorVersion: AI_PICK_SELECTOR_VERSION,
+              };
+            }
+
+            return null;
+          }
+
+          function aiStoredFinalSelectionIsLocked(pick: AiPick) {
+            // A completed FINAL_PREGAME web review is terminal for paid research:
+            // it is never re-run. The free rolling Last-7 Best Play gate may still
+            // demote or restore that stored decision before first pitch.
+          '''
+
+          if helper_anchor not in text:
+              raise SystemExit('AI stored-lock anchor not found')
+          text = text.replace(helper_anchor, helper_block, 1)
+
+          correction_anchor = '''  // Never leave an interrupted final-review row visible after first pitch and
+            // never restart paid research using in-game information. Keep the rejected
+            // row for the audit sheet, but make the public selection disappear.
+          '''
+
+          correction_block = r'''  // Re-run only the free rolling Last-7 Best Play qualification gate against
+            // completed/locked AI picks before their game starts. The external web
+            // review remains frozen, so this never creates another OpenAI request.
+            const lastSevenCorrections = storedToday
+              .map((pick) =>
+                aiStoredLastSevenQualificationCorrection(
+                  pick,
+                  completedTrackerRows,
+                  selectorNow,
+                ),
+              )
+              .filter((pick): pick is AiPick => Boolean(pick));
+            if (lastSevenCorrections.length) {
+              try {
+                await persistAiPickRows(lastSevenCorrections);
+              } catch (error) {
+                console.error("AI Last-7 qualification correction persistence failed", error);
+              }
+              const correctedByKey = new Map(
+                lastSevenCorrections.map(
+                  (pick) => [`${pick.date}|${pick.candidateId}`, pick] as const,
+                ),
+              );
+              workingStoredRows = workingStoredRows.map((row) => {
+                const parsed = parseAiPickRow(row);
+                if (!parsed) return row;
+                const replacement = correctedByKey.get(
+                  `${parsed.date}|${parsed.candidateId}`,
+                );
+                return replacement ? aiPickRow(replacement) : row;
+              });
+              stored = workingStoredRows
+                .map(parseAiPickRow)
+                .filter((pick): pick is AiPick => Boolean(pick));
+              storedToday = stored.filter(
+                (pick) => pick.date === isoPublicDate(today),
+              );
+            }
+
+            // Never leave an interrupted final-review row visible after first pitch and
+            // never restart paid research using in-game information. Keep the rejected
+            // row for the audit sheet, but make the public selection disappear.
+          '''
+
+          if correction_anchor not in text:
+              raise SystemExit('AI revalidation insertion anchor not found')
+          text = text.replace(correction_anchor, correction_block, 1)
+
+          path.write_text(text)
+          PY
+
+      - name: Verify build
+        shell: bash
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install --no-audit --no-fund
+          fi
+          npm run build
+
+      - name: Commit fixes and remove one-time workflow
+        shell: bash
+        run: |
+          git config user.name "EZPZ Fix Bot"
+          git config user.email "actions@github.com"
+          git rm .github/workflows/patch-final-lock.yml
+          git add app/api/public-data/route.ts
+          git commit -m "Fix final-lock AI revalidation and trend duplicates"
+          git push origin main
