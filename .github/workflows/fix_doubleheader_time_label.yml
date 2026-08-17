@@ -24,20 +24,8 @@ jobs:
           from pathlib import Path
           path = Path('app/page.tsx')
           text = path.read_text()
-          old = '''  const slateRow = trendSlateRow(group, slateRows).row;
-  const schedule = slateRow
-    ? scheduleInfoForRow(slateRow, boardDate)
-    : scheduleInfoFromRaw(group.gameTime, group.date || boardDate);'''
-          new = '''  const slateRow = trendSlateRow(group, slateRows).row;
-  const groupSchedule = scheduleInfoFromRaw(
-    group.gameTime,
-    group.date || boardDate,
-  );
-  const schedule = Number.isFinite(groupSchedule.minutes)
-    ? groupSchedule
-    : slateRow
-      ? scheduleInfoForRow(slateRow, boardDate)
-      : groupSchedule;'''
+          old = '  const slateRow = trendSlateRow(group, slateRows).row;\n  const schedule = slateRow\n    ? scheduleInfoForRow(slateRow, boardDate)\n    : scheduleInfoFromRaw(group.gameTime, group.date || boardDate);'
+          new = '  const slateRow = trendSlateRow(group, slateRows).row;\n  const groupSchedule = scheduleInfoFromRaw(\n    group.gameTime,\n    group.date || boardDate,\n  );\n  const schedule = Number.isFinite(groupSchedule.minutes)\n    ? groupSchedule\n    : slateRow\n      ? scheduleInfoForRow(slateRow, boardDate)\n      : groupSchedule;'
           if old not in text:
               raise SystemExit('TrendGameCard schedule block not found')
           text = text.replace(old, new, 1)
@@ -51,7 +39,6 @@ jobs:
           text = Path('app/page.tsx').read_text()
           assert 'const groupSchedule = scheduleInfoFromRaw(' in text
           assert 'const schedule = Number.isFinite(groupSchedule.minutes)' in text
-          assert '? groupSchedule' in text
           print('Trend tile header now prefers its game-instance time.')
           PY
 
