@@ -1,0 +1,74 @@
+name: Fix Doubleheader Trend Tile Time Label
+
+on:
+  push:
+    branches:
+      - agent/fix-doubleheader-time-label
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/fix-doubleheader-time-label
+
+      - name: Prefer trend game-instance time in tile header
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('app/page.tsx')
+          text = path.read_text()
+          old = '''  const slateRow = trendSlateRow(group, slateRows).row;
+  const schedule = slateRow
+    ? scheduleInfoForRow(slateRow, boardDate)
+    : scheduleInfoFromRaw(group.gameTime, group.date || boardDate);'''
+          new = '''  const slateRow = trendSlateRow(group, slateRows).row;
+  const groupSchedule = scheduleInfoFromRaw(
+    group.gameTime,
+    group.date || boardDate,
+  );
+  const schedule = Number.isFinite(groupSchedule.minutes)
+    ? groupSchedule
+    : slateRow
+      ? scheduleInfoForRow(slateRow, boardDate)
+      : groupSchedule;'''
+          if old not in text:
+              raise SystemExit('TrendGameCard schedule block not found')
+          text = text.replace(old, new, 1)
+          path.write_text(text)
+          PY
+
+      - name: Verify header time priority
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          text = Path('app/page.tsx').read_text()
+          assert 'const groupSchedule = scheduleInfoFromRaw(' in text
+          assert 'const schedule = Number.isFinite(groupSchedule.minutes)' in text
+          assert '? groupSchedule' in text
+          print('Trend tile header now prefers its game-instance time.')
+          PY
+
+      - name: Install dependencies
+        run: npm install --no-package-lock --no-audit --no-fund
+
+      - name: TypeScript check
+        run: npx tsc --noEmit
+
+      - name: Commit validated page fix
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/page.tsx
+          if git diff --cached --quiet; then
+            echo 'No page changes to commit.'
+            exit 0
+          fi
+          git commit -m 'Show correct time on doubleheader trend tiles'
+          git push origin HEAD:agent/fix-doubleheader-time-label
