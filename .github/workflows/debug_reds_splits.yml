@@ -14,37 +14,20 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 4
     steps:
-      - name: Compare n7days and n30days DraftKings filters
+      - name: Verify live Cardinals Reds trend instances
         run: |
-          urls=(
-            'https://dknetwork.draftkings.com/draftkings-sportsbook-betting-splits/?tb_eg=MLB&itm_content=MLB&tb_edate=n7days&tb_page=1'
-            'https://dknetwork.draftkings.com/draftkings-sportsbook-betting-splits/?tb_eg=MLB&itm_content=MLB&tb_edate=n30days&tb_page=1'
-          )
-          n=0
-          for url in "${urls[@]}"; do
-            n=$((n+1))
-            curl --fail-with-body --silent --show-error --max-time 20 \
-              -H 'User-Agent: Mozilla/5.0 (Linux; Android 16; Mobile) AppleWebKit/537.36 Chrome/139.0 Safari/537.36' \
-              "$url" -o "/tmp/dk_${n}.html"
-          done
-          python - <<'PY'
-          import re, html
-          from pathlib import Path
-          def tokens(raw):
-              for tag in ('script','style','noscript','svg'):
-                  raw=re.sub(fr'<{tag}\b[^>]*>[\s\S]*?</{tag}>',' ',raw,flags=re.I)
-              raw=re.sub(r'<[^>]+>','\n',raw)
-              raw=html.unescape(raw)
-              return [re.sub(r'\s+',' ',x.replace('\xa0',' ')).strip() for x in raw.splitlines() if re.sub(r'\s+',' ',x.replace('\xa0',' ')).strip()]
-          for n,label in [(1,'n7days'),(2,'n30days')]:
-              ts=tokens(Path(f'/tmp/dk_{n}.html').read_text(errors='ignore'))
-              print('====',label,'====')
-              for hit in [i for i,t in enumerate(ts) if 'STL Cardinals @ CIN Reds' in t]:
-                  print(ts[hit],ts[hit+1])
-                  for market in ('Moneyline','Run Line','Total'):
-                      try:j=ts.index(market,hit,hit+45)
-                      except ValueError:continue
-                      k=j+1
-                      while ts[k] in ('Odds','% Handle','% Bets'):k+=1
-                      print(market,'::',' | '.join(ts[k:k+8]))
-          PY
+          curl --fail-with-body --silent --show-error --max-time 75 \
+            'https://ezpzpicks.com/api/public-data' -o /tmp/public.json
+          echo '--- Live DK splits ---'
+          jq -c '.draftKings.splits[] | select((.awayTeam|ascii_downcase|contains("cardinal")) and (.homeTeam|ascii_downcase|contains("red")) and (.market=="Moneyline" or .market=="Total")) | {eventTime,market,selection,line,odds,betsPct,moneyPct}' /tmp/public.json
+          echo '--- Live trend plays ---'
+          jq -c '.trendPlays[] | select((.awayTeam|ascii_downcase|contains("cardinal")) and (.homeTeam|ascii_downcase|contains("red"))) | {recordGameTime,recordGameKey,market,selection,line,odds,betsPct,moneyPct,score,tier}' /tmp/public.json
+          echo '--- Validation ---'
+          jq -e '
+            ([.trendPlays[] | select((.awayTeam|ascii_downcase|contains("cardinal")) and (.homeTeam|ascii_downcase|contains("red")))] ) as $reds |
+            ($reds | length > 0) and
+            ([$reds[] | select((.recordGameTime // "") == "")] | length == 0) and
+            ([$reds[].recordGameTime] | unique | index("13:40") != null) and
+            ([$reds[].recordGameTime] | unique | index("18:40") != null)
+          ' /tmp/public.json >/dev/null
+          echo 'Cardinals/Reds trend plays are time-separated with no untimed legacy trend rows.'
