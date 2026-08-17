@@ -128,6 +128,20 @@ function parseEventDate(value) {
   return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
+function parseEventTimeKey(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const meridiem = raw.match(/(?:^|[,\s])(\d{1,2})(?::(\d{2}))\s*(AM|PM)\b/i);
+  if (meridiem) {
+    let hour = Number(meridiem[1]) % 12;
+    if (meridiem[3].toUpperCase() === "PM") hour += 12;
+    return `${String(hour).padStart(2, "0")}:${String(Number(meridiem[2] || 0)).padStart(2, "0")}`;
+  }
+  const twentyFour = raw.match(/(?:^|[,T\s])([01]?\d|2[0-3]):([0-5]\d)(?::\d{2})?(?:\s*(?:ET|EST|EDT))?\s*$/i);
+  if (twentyFour) return `${String(Number(twentyFour[1])).padStart(2, "0")}:${twentyFour[2]}`;
+  return "";
+}
+
 function numericLine(value) {
   const match = String(value || "").replace(/[−–—]/g, "-").match(/-?\d+(?:\.\d+)?/);
   const parsed = match ? Number(match[0]) : NaN;
@@ -211,6 +225,7 @@ function parseBettingSplits(rawHtml) {
     }
 
     const date = parseEventDate(dateToken);
+    const eventTime = parseEventTimeKey(dateToken);
     const game = `${awayTeam} at ${homeTeam}`;
     i += 2;
 
@@ -255,6 +270,7 @@ function parseBettingSplits(rawHtml) {
 
         rows.push({
           date,
+          eventTime,
           game,
           awayTeam,
           homeTeam,
@@ -278,7 +294,7 @@ function parseBettingSplits(rawHtml) {
 
   const deduped = new Map();
   for (const row of rows) {
-    deduped.set(`${row.date}|${row.game}|${row.market}|${textKey(row.selection)}`, row);
+    deduped.set(`${row.date}|${row.game}|${parseEventTimeKey(row.eventTime || "")}|${row.market}|${textKey(row.selection)}`, row);
   }
   return [...deduped.values()];
 }
@@ -313,7 +329,7 @@ async function fetchDraftKingsSplits() {
       const pageRows = parseBettingSplits(html);
       let newRows = 0;
       for (const row of pageRows) {
-        const key = `${row.date}|${row.game}|${row.market}|${textKey(row.selection)}`;
+        const key = `${row.date}|${row.game}|${parseEventTimeKey(row.eventTime || "")}|${row.market}|${textKey(row.selection)}`;
         if (seen.has(key)) continue;
         seen.add(key);
         splits.push(row);
@@ -339,7 +355,7 @@ async function fetchDraftKingsSplits() {
 
 function splitKey(row) {
   const selectionKey = row.market === "Total" ? row.side : normalizeTeam(row.selectionTeam || row.selection);
-  return `${row.date}|${row.game}|${row.market}|${textKey(selectionKey)}`;
+  return `${row.date}|${row.game}|${parseEventTimeKey(row.eventTime || "")}|${row.market}|${textKey(selectionKey)}`;
 }
 
 function movementForSplit(current, opening) {
@@ -459,7 +475,7 @@ function alertPayload(current, previous, opening, movement) {
   return {
     title: `EZPZ ${movement.signal || "Odds Movement"}`,
     message: [
-      current.game,
+      `${current.game}${current.eventTime ? ` (${current.eventTime} ET)` : ""}`,
       `${snapshotDisplay(previous)} → ${snapshotDisplay(current)}`,
       `Bets ${current.betsPct}% | Handle ${current.moneyPct}%`,
       basisLine,
@@ -498,11 +514,11 @@ async function publishNtfy(payload) {
 async function readState(date) {
   try {
     const parsed = JSON.parse(await fs.readFile(STATE_PATH, "utf8"));
-    if (parsed?.version === 1 && parsed?.date === date && parsed?.markets) return parsed;
+    if (parsed?.version === 2 && parsed?.date === date && parsed?.markets) return parsed;
   } catch (error) {
     if (error?.code !== "ENOENT") console.warn(`Ignoring unreadable odds state: ${error.message || error}`);
   }
-  return { version: 1, date, markets: {}, updatedAt: "" };
+  return { version: 2, date, markets: {}, updatedAt: "" };
 }
 
 async function writeState(state) {
@@ -539,6 +555,7 @@ async function main() {
     const entry = state.markets[key];
     const currentSnapshot = {
       date: current.date,
+      eventTime: parseEventTimeKey(current.eventTime || ""),
       game: current.game,
       market: current.market,
       selection: current.selection,
@@ -606,6 +623,10 @@ function runSelfTest() {
   if (!over || over.line !== 7.5 || over.betsPct !== 60 || over.moneyPct !== 65) {
     throw new Error("Self-test total parsing failed");
   }
+  const gameOne = { ...over, eventTime: "13:40" };
+  const gameTwo = { ...over, eventTime: "18:40" };
+  if (splitKey(gameOne) === splitKey(gameTwo)) throw new Error("Self-test doubleheader key collision");
+  if (parseEventTimeKey("8/17, 01:40PM") !== "13:40" || parseEventTimeKey("8/17, 06:40PM") !== "18:40") throw new Error("Self-test DraftKings event time parsing failed");
   const opening = { ...over, odds: "-110", line: 7.5, betsPct: 55 };
   const current = { ...over, odds: "+100", line: 8.5, betsPct: 65 };
   const movement = movementForSplit(current, opening);

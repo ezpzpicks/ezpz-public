@@ -95,7 +95,7 @@ const CACHE_TTL_MS = 45_000;
 const STALE_FALLBACK_MS = 30 * 60_000;
 const PUBLIC_SPLIT_TAB = "public_split_snapshots";
 const PUBLIC_SPLIT_HEADERS = [
-  "Snapshot Time ET", "Opening Snapshot Time ET", "Date", "Game", "Away Team", "Home Team", "Data Type",
+  "Snapshot Time ET", "Opening Snapshot Time ET", "Date", "Game Time ET", "Game", "Away Team", "Home Team", "Data Type",
   "Market", "Selection", "Line", "Odds", "Opening Line", "Opening Odds",
   "Opening Implied %", "Current Implied %",
   "Opening Public %", "Current Public %", "Public Change %",
@@ -385,6 +385,7 @@ const FROZEN_TREND_GRADING_VERSION = "frozen-h2h-display-v7";
 
 type DraftKingsSplit = {
   date: string;
+  eventTime?: string;
   game: string;
   awayTeam: string;
   homeTeam: string;
@@ -424,6 +425,7 @@ type DraftKingsSplit = {
 
 type DraftKingsProp = {
   date: string;
+  eventTime?: string;
   game: string;
   awayTeam: string;
   homeTeam: string;
@@ -661,12 +663,16 @@ function draftKingsDateET(date = new Date()) {
   return `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
 }
 
+function draftKingsMarketInstanceKey(row: { date: string; awayTeam: string; homeTeam: string; eventTime?: string }) {
+  return `${isoPublicDate(row.date)}|${normalizeTeam(row.awayTeam)}|${normalizeTeam(row.homeTeam)}|${parseEventTimeKey(row.eventTime || "")}`;
+}
+
 function draftKingsSplitKey(row: DraftKingsSplit) {
   const selectedSide =
     row.market === "Total"
       ? row.side || textKey(row.selection)
       : teamFromSelection(row.selectionTeam || row.selection);
-  return `${row.date}|${row.game}|${row.market}|${textKey(selectedSide)}`;
+  return `${row.date}|${row.game}|${parseEventTimeKey(row.eventTime || "")}|${row.market}|${textKey(selectedSide)}`;
 }
 
 function draftKingsPropKey(row: DraftKingsProp) {
@@ -674,6 +680,7 @@ function draftKingsPropKey(row: DraftKingsProp) {
   return [
     row.date,
     row.game,
+    parseEventTimeKey(row.eventTime || ""),
     textKey(row.pitcher),
     textKey(row.market),
     textKey(row.side),
@@ -766,6 +773,23 @@ function parseEventDate(value: unknown) {
     .sort((a, b) => a.distance - b.distance);
   const year = candidates[0]?.year || today.year;
   return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function parseEventTimeKey(value: unknown) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const meridiem = raw.match(/(?:^|[,\s])(\d{1,2})(?::(\d{2}))\s*(AM|PM)\b/i);
+  if (meridiem) {
+    let hour = Number(meridiem[1]) % 12;
+    if (meridiem[3].toUpperCase() === "PM") hour += 12;
+    const minute = Number(meridiem[2] || 0);
+    return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+  }
+  const twentyFour = raw.match(/(?:^|[,T\s])([01]?\d|2[0-3]):([0-5]\d)(?::\d{2})?(?:\s*(?:ET|EST|EDT))?\s*$/i);
+  if (twentyFour) {
+    return `${String(Number(twentyFour[1])).padStart(2, "0")}:${twentyFour[2]}`;
+  }
+  return "";
 }
 
 function numericLine(value: unknown) {
@@ -1094,6 +1118,7 @@ function parseBettingSplits(rawHtml: string) {
     }
 
     const date = parseEventDate(dateToken);
+    const eventTime = parseEventTimeKey(dateToken);
     const game = `${awayTeam} at ${homeTeam}`;
     i += 2;
 
@@ -1145,6 +1170,7 @@ function parseBettingSplits(rawHtml: string) {
 
         rows.push({
           date,
+          eventTime,
           game,
           awayTeam,
           homeTeam,
@@ -1169,7 +1195,7 @@ function parseBettingSplits(rawHtml: string) {
 
   const deduped = new Map<string, DraftKingsSplit>();
   for (const row of rows) {
-    deduped.set(`${row.date}|${row.game}|${row.market}|${textKey(row.selection)}`, row);
+    deduped.set(`${row.date}|${row.game}|${parseEventTimeKey(row.eventTime || "")}|${row.market}|${textKey(row.selection)}`, row);
   }
   return [...deduped.values()];
 }
@@ -1223,6 +1249,7 @@ function parsePlayerProps(rawHtml: string, rankOffset = 0) {
     const parsed = propSideAndLine(listedLine);
     rows.push({
       date: parseEventDate(dateText),
+      eventTime: parseEventTimeKey(dateText),
       game: `${awayTeam} at ${homeTeam}`,
       awayTeam,
       homeTeam,
@@ -1274,7 +1301,7 @@ async function buildDraftKingsPayload(): Promise<DraftKingsPayload> {
       let newRows = 0;
 
       for (const row of pageSplits) {
-        const key = `${row.date}|${row.game}|${row.market}|${textKey(row.selection)}`;
+        const key = `${row.date}|${row.game}|${parseEventTimeKey(row.eventTime || "")}|${row.market}|${textKey(row.selection)}`;
         if (seenSplitKeys.has(key)) continue;
         seenSplitKeys.add(key);
         splits.push(row);
@@ -1321,13 +1348,13 @@ async function buildDraftKingsPayload(): Promise<DraftKingsPayload> {
 
   const splitMap = new Map<string, DraftKingsSplit>();
   splits.forEach((row) =>
-    splitMap.set(`${row.date}|${row.game}|${row.market}|${textKey(row.selection)}`, row),
+    splitMap.set(`${row.date}|${row.game}|${parseEventTimeKey(row.eventTime || "")}|${row.market}|${textKey(row.selection)}`, row),
   );
   splits = [...splitMap.values()];
 
   const propMap = new Map<string, DraftKingsProp>();
   props.forEach((row) => {
-    const key = `${row.date}|${row.game}|${textKey(row.pitcher)}|${row.listedLine}`;
+    const key = `${row.date}|${row.game}|${parseEventTimeKey(row.eventTime || "")}|${textKey(row.pitcher)}|${row.listedLine}`;
     const existing = propMap.get(key);
     if (!existing || row.rank < existing.rank) propMap.set(key, row);
   });
@@ -1713,16 +1740,35 @@ function isoPublicDate(value: unknown) {
   return Number.isNaN(parsed.getTime()) ? "" : draftKingsDateET(parsed);
 }
 
+function scheduledGameTimeKey(row: SheetRow) {
+  const start = scheduledGameStart(row);
+  if (start != null) {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    }).formatToParts(new Date(start));
+    const hour = parts.find((part) => part.type === "hour")?.value || "";
+    const minute = parts.find((part) => part.type === "minute")?.value || "";
+    if (hour && minute) return `${hour}:${minute}`;
+  }
+  return parseEventTimeKey(firstValue(row, ["Game Time", "Game Start Time", "Scheduled Start", "Start Time", "Game Time ET"]));
+}
+
 function sameDraftKingsGame(
   row: SheetRow,
-  marketRow: { date: string; awayTeam: string; homeTeam: string },
+  marketRow: { date: string; awayTeam: string; homeTeam: string; eventTime?: string },
 ) {
   const away = normalizeTeam(row["Away Team"] || "");
   const home = normalizeTeam(row["Home Team"] || "");
   if (away !== marketRow.awayTeam || home !== marketRow.homeTeam) return false;
   const rowDate = isoPublicDate(row["Date"] || "");
   const marketDate = isoPublicDate(marketRow.date);
-  return !rowDate || !marketDate || rowDate === marketDate;
+  if (rowDate && marketDate && rowDate !== marketDate) return false;
+  const rowTime = scheduledGameTimeKey(row);
+  const marketTime = parseEventTimeKey(marketRow.eventTime || "");
+  return !rowTime || !marketTime || rowTime === marketTime;
 }
 
 function teamFromSelection(value: unknown) {
@@ -2025,6 +2071,7 @@ function snapshotRecordFromSplit(
     "Snapshot Time ET": snapshotTime,
     "Opening Snapshot Time ET": item.openingSnapshotTime || snapshotTime,
     Date: item.date,
+    "Game Time ET": parseEventTimeKey(item.eventTime || ""),
     Game: item.game,
     "Away Team": item.awayTeam,
     "Home Team": item.homeTeam,
@@ -2080,6 +2127,7 @@ function snapshotRecordFromProp(
     "Snapshot Time ET": snapshotTime,
     "Opening Snapshot Time ET": snapshotTime,
     Date: item.date,
+    "Game Time ET": parseEventTimeKey(item.eventTime || ""),
     Game: item.game,
     "Away Team": item.awayTeam,
     "Home Team": item.homeTeam,
@@ -2194,7 +2242,7 @@ function allGameTrendFieldsFromSnapshot(row: SheetRow) {
 }
 
 function draftKingsGameKey(row: SheetRow) {
-  return `${isoPublicDate(row.Date)}|${normalizeTeam(row["Away Team"] || "")}|${normalizeTeam(row["Home Team"] || "")}`;
+  return `${isoPublicDate(row.Date)}|${normalizeTeam(row["Away Team"] || "")}|${normalizeTeam(row["Home Team"] || "")}|${scheduledGameTimeKey(row)}`;
 }
 
 function minutesBeforeScheduledStart(row: SheetRow, now = Date.now()) {
@@ -2257,7 +2305,7 @@ function snapshotRecordKey(row: SheetRow) {
   } else {
     selectedKey = `${textKey(selection)}|${textKey(row.Line || "")}`;
   }
-  return `${isoPublicDate(row.Date)}|${textKey(row.Game)}|${dataType}|${textKey(market)}|${selectedKey}`;
+  return `${isoPublicDate(row.Date)}|${parseEventTimeKey(row["Game Time ET"] || "")}|${textKey(row.Game)}|${dataType}|${textKey(market)}|${selectedKey}`;
 }
 
 function snapshotPayloadFromRows(rows: SheetRow[], today: string): DraftKingsPayload {
@@ -2271,6 +2319,7 @@ function snapshotPayloadFromRows(rows: SheetRow[], today: string): DraftKingsPay
     const homeTeam = normalizeTeam(row["Home Team"] || "");
     if (!awayTeam || !homeTeam) continue;
     const date = isoPublicDate(row.Date);
+    const eventTime = parseEventTimeKey(row["Game Time ET"] || "");
     const game = String(row.Game || `${awayTeam} at ${homeTeam}`);
     const snapshotTime = String(row["Snapshot Time ET"] || "");
     if (snapshotTime) latest = snapshotTime;
@@ -2279,6 +2328,7 @@ function snapshotPayloadFromRows(rows: SheetRow[], today: string): DraftKingsPay
       const sideLine = propSideAndLine(row.Line || "");
       props.push({
         date,
+        eventTime,
         game,
         awayTeam,
         homeTeam,
@@ -2325,6 +2375,7 @@ function snapshotPayloadFromRows(rows: SheetRow[], today: string): DraftKingsPay
     );
     const baseSplit: DraftKingsSplit = {
       date,
+      eventTime,
       game,
       awayTeam,
       homeTeam,
@@ -2386,22 +2437,31 @@ function publicDisplayDraftKingsPayload(
   finalSnapshots: DraftKingsPayload,
   slateRows: SheetRow[],
 ): DraftKingsPayload {
-  const finalMarketSplits = finalSnapshots.splits.filter(
-    (split) =>
-      split.snapshotStatus === "FINAL_PREGAME" &&
-      (split.market === "Moneyline" || split.market === "Total"),
-  );
+  const finalMarketSplits = finalSnapshots.splits.flatMap((split) => {
+    if (
+      split.snapshotStatus !== "FINAL_PREGAME" ||
+      (split.market !== "Moneyline" && split.market !== "Total")
+    ) return [];
+    if (parseEventTimeKey(split.eventTime || "")) return [split];
+    const matchingSlateRows = slateRows.filter(
+      (row) =>
+        isoPublicDate(row.Date || "") === isoPublicDate(split.date) &&
+        normalizeTeam(row["Away Team"] || "") === normalizeTeam(split.awayTeam) &&
+        normalizeTeam(row["Home Team"] || "") === normalizeTeam(split.homeTeam),
+    );
+    // A legacy snapshot without a game time is safe only when the matchup occurs
+    // once that day. For a doubleheader it is ambiguous, so ignore it instead of
+    // letting Game 1 overwrite Game 2 (or vice versa).
+    if (matchingSlateRows.length != 1) return [];
+    return [{ ...split, eventTime: scheduledGameTimeKey(matchingSlateRows[0]) }];
+  });
   const lockedGameKeys = new Set(
-    finalMarketSplits.map(
-      (split) =>
-        `${isoPublicDate(split.date)}|${normalizeTeam(split.awayTeam)}|${normalizeTeam(split.homeTeam)}`,
-    ),
+    finalMarketSplits.map((split) => draftKingsMarketInstanceKey(split)),
   );
 
   const splitMap = new Map<string, DraftKingsSplit>();
   for (const split of current.splits) {
-    const gameKey =
-      `${isoPublicDate(split.date)}|${normalizeTeam(split.awayTeam)}|${normalizeTeam(split.homeTeam)}`;
+    const gameKey = draftKingsMarketInstanceKey(split);
     if (
       lockedGameKeys.has(gameKey) &&
       (split.market === "Moneyline" || split.market === "Total")
@@ -6248,6 +6308,7 @@ function aiFindMarketSplit(candidate: AiSelectorCandidate, draftKings: DraftKing
       isoPublicDate(split.date) === isoPublicDate(candidate.date) &&
       normalizeTeam(split.awayTeam) === normalizeTeam(candidate.awayTeam) &&
       normalizeTeam(split.homeTeam) === normalizeTeam(candidate.homeTeam) &&
+      (!candidate.slateRow || sameDraftKingsGame(candidate.slateRow, split)) &&
       split.market === candidate.market,
   );
   if (candidate.market === "Moneyline") {
