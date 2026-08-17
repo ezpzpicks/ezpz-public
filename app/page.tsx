@@ -3651,6 +3651,8 @@ function trendRecordScore(record: TrendRecord) {
   };
 }
 
+const TREND_BROAD_FALLBACK_SCORE_CAP = 69;
+
 function trendSignalMetrics(signal: TrendSignalBreakdown): TrendScoreMetrics {
   const windows = trendWindowWeights(signal.records).map(({ key, weight }) => {
     const recordMetrics = trendRecordScore(signal.records[key]);
@@ -3680,7 +3682,11 @@ function trendSignalMetrics(signal: TrendSignalBreakdown): TrendScoreMetrics {
     weightedAverage("winScore") * 0.4;
 
   return {
-    score: clampTrendValue(score),
+    score: clampTrendValue(
+      signal.exactSample > 0
+        ? score
+        : Math.min(score, TREND_BROAD_FALLBACK_SCORE_CAP),
+    ),
     roiPct: weightedAverage("roiPct"),
     winPct: weightedAverage("winPct"),
     hasData: true,
@@ -4094,7 +4100,7 @@ function TrendSignalPanels({ play }: { play: TrendPlay }) {
               <TrendRecordCell label="Last 7" record={signal.records.last7} />
             </div>
             <div className="trendWeightLine">
-              Exact category: {signal.exactSample} bets • No sample penalty • ROI 60% • Record 40% • Windows {Math.round(allTimeWeight * 100)}% overall / {Math.round(last30Weight * 100)}% last 30 / {Math.round(last7Weight * 100)}% last 7
+              Exact category: {signal.exactSample} bets • {signal.exactSample > 0 ? "No sample penalty" : "Broad-record fallback • Grade capped at Good"} • ROI 60% • Record 40% • Windows {Math.round(allTimeWeight * 100)}% overall / {Math.round(last30Weight * 100)}% last 30 / {Math.round(last7Weight * 100)}% last 7
             </div>
           </section>
         );
