@@ -1,0 +1,43 @@
+name: One-time fix moneyline score
+
+on:
+  push:
+    paths:
+      - '.github/workflows/one-time-fix-moneyline-score.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch route moneyline fallback scores
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('app/api/public-data/route.ts')
+          text = path.read_text()
+          old = 'return type === "A MONEYLINE" ? 72 : type === "B MONEYLINE" ? 66 : 50;'
+          new = 'return type === "A MONEYLINE" ? 80 : type === "B MONEYLINE" ? 65 : 50;'
+          if old not in text:
+              raise SystemExit('Expected moneyline fallback scoring line was not found; refusing to make an unsafe edit.')
+          if text.count(old) != 1:
+              raise SystemExit(f'Expected exactly one fallback scoring line, found {text.count(old)}.')
+          path.write_text(text.replace(old, new, 1))
+          PY
+      - name: Commit fix
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo 'No changes to commit.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/api/public-data/route.ts
+          git commit -m 'Fix moneyline best-play fallback scores'
+          git push
