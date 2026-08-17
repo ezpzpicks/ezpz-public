@@ -23,6 +23,9 @@ jobs:
       - name: Apply trend instance patch
         run: python scripts/apply_doubleheader_trend_instance_patch.py
 
+      - name: Fix generated TypeScript guard
+        run: python scripts/fix_doubleheader_trend_type_guard.py
+
       - name: Verify doubleheader source invariants
         run: |
           python - <<'PY'
@@ -34,6 +37,7 @@ jobs:
               'strict split/slate resolver': 'function trendSlateRowForSplit(split: DraftKingsSplit, slateRows: SheetRow[])',
               'legacy doubleheader rejection': 'return matchupRows.length === 1 ? matchupRows[0] : null;',
               'time-aware overlay': 'refreshedFrozenPlays.map((play) => trendGameInstanceKey(play))',
+              'narrow map filter': '.filter((play): play is NonNullable<typeof play> => play != null);',
           }
           missing = [name for name, needle in checks.items() if needle not in text]
           if missing:
