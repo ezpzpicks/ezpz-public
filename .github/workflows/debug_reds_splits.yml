@@ -14,20 +14,35 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 4
     steps:
-      - name: Verify live Cardinals Reds trend instances
+      - name: Inspect all raw Cardinals Reds markup
         run: |
-          curl --fail-with-body --silent --show-error --max-time 75 \
-            'https://ezpzpicks.com/api/public-data' -o /tmp/public.json
-          echo '--- Live DK splits ---'
-          jq -c '.draftKings.splits[] | select((.awayTeam|ascii_downcase|contains("cardinal")) and (.homeTeam|ascii_downcase|contains("red")) and (.market=="Moneyline" or .market=="Total")) | {eventTime,market,selection,line,odds,betsPct,moneyPct}' /tmp/public.json
-          echo '--- Live trend plays ---'
-          jq -c '.trendPlays[] | select((.awayTeam|ascii_downcase|contains("cardinal")) and (.homeTeam|ascii_downcase|contains("red"))) | {recordGameTime,recordGameKey,market,selection,line,odds,betsPct,moneyPct,score,tier}' /tmp/public.json
-          echo '--- Validation ---'
-          jq -e '
-            ([.trendPlays[] | select((.awayTeam|ascii_downcase|contains("cardinal")) and (.homeTeam|ascii_downcase|contains("red")))] ) as $reds |
-            ($reds | length > 0) and
-            ([$reds[] | select((.recordGameTime // "") == "")] | length == 0) and
-            ([$reds[].recordGameTime] | unique | index("13:40") != null) and
-            ([$reds[].recordGameTime] | unique | index("18:40") != null)
-          ' /tmp/public.json >/dev/null
-          echo 'Cardinals/Reds trend plays are time-separated with no untimed legacy trend rows.'
+          curl --fail-with-body --silent --show-error --max-time 30 \
+            -H 'User-Agent: Mozilla/5.0 (Linux; Android 16; Mobile) AppleWebKit/537.36 Chrome/139.0 Safari/537.36' \
+            'https://dknetwork.draftkings.com/draftkings-sportsbook-betting-splits/?tb_eg=MLB&itm_content=MLB&tb_edate=n30days&tb_page=1' \
+            -o /tmp/dk.html
+          python - <<'PY'
+          import re, html
+          raw=open('/tmp/dk.html', errors='ignore').read()
+          plain=html.unescape(re.sub(r'<[^>]+>', '\n', raw))
+          tokens=[re.sub(r'\s+',' ',x.replace('\xa0',' ')).strip() for x in plain.splitlines() if re.sub(r'\s+',' ',x.replace('\xa0',' ')).strip()]
+          hits=[i for i,t in enumerate(tokens) if 'STL Cardinals @ CIN Reds' in t]
+          print('Reds game hits:', hits)
+          for h in hits:
+              end=next((i for i in range(h+1,len(tokens)) if ' @ ' in tokens[i] and re.search(r'\d{1,2}/\d{1,2}', tokens[i+1] if i+1<len(tokens) else '')), min(len(tokens),h+160))
+              end=min(end,h+160)
+              print('\n===== GAME BLOCK', tokens[h], tokens[h+1] if h+1<len(tokens) else '', '=====')
+              for i in range(h,end): print(f'{i}: {tokens[i]}')
+          print('\n===== SCREENSHOT VALUE SEARCH =====')
+          for wanted in ['40%','22%','60%','78%','1%','33%','99%','67%','14%','86%']:
+              inds=[i for i,t in enumerate(tokens) if t==wanted]
+              near=[]
+              for i in inds:
+                  prev=' | '.join(tokens[max(0,i-8):min(len(tokens),i+9)])
+                  if 'Reds' in prev or 'Cardinals' in prev or any(abs(i-h)<100 for h in hits): near.append(i)
+              print(wanted, near[:30])
+          print('\n===== HTML FRAGMENTS CONTAINING CARDINALS/REDS =====')
+          for m in re.finditer(r'STL Cardinals @ CIN Reds', raw):
+              frag=html.unescape(raw[max(0,m.start()-1500):m.start()+7000])
+              print(re.sub(r'\s+',' ',frag)[:8500])
+              print('\n---FRAGMENT END---\n')
+          PY
