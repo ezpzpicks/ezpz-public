@@ -4962,33 +4962,73 @@ function rankTrendPlays(
     byGame.set(key, current);
   }
 
+  // A logical trend card is one game instance + market + selected side.
+  // Do not include the current total line in this identity: when a total
+  // moves from (for example) Over 9 to Over 9.5 it is still the same
+  // Over trend, not a second card. The game-instance key remains
+  // time-aware so same-day doubleheaders stay completely separate.
+  const logicalSelectionKey = (play: TrendPlay) =>
+    `${play.market}|${trendSideComparisonKey(play)}`;
+  const playTimestampMs = (play: TrendPlay) => {
+    const updatedAt = Date.parse(play.updatedAt || '');
+    const frozenAt = Date.parse(play.frozenAt || '');
+    return Math.max(
+      Number.isFinite(updatedAt) ? updatedAt : 0,
+      Number.isFinite(frozenAt) ? frozenAt : 0,
+    );
+  };
+
+  const deduped: TrendPlay[] = [];
   const rankBySelection = new Map<string, number>();
+
   for (const [gameKey, gamePlays] of byGame.entries()) {
-    [...gamePlays]
+    const uniqueBySelection = new Map<string, TrendPlay>();
+    for (const play of gamePlays) {
+      const selectionKey = logicalSelectionKey(play);
+      const existing = uniqueBySelection.get(selectionKey);
+      if (!existing) {
+        uniqueBySelection.set(selectionKey, play);
+        continue;
+      }
+
+      const playTime = playTimestampMs(play);
+      const existingTime = playTimestampMs(existing);
+      if (
+        playTime > existingTime ||
+        (playTime === existingTime && play.score > existing.score)
+      ) {
+        uniqueBySelection.set(selectionKey, play);
+      }
+    }
+
+    const uniquePlays = [...uniqueBySelection.values()];
+    [...uniquePlays]
       .sort((a, b) => {
         if (b.score !== a.score) return b.score - a.score;
         return trendPickLabel(a).localeCompare(trendPickLabel(b));
       })
       .forEach((play, index) => {
         rankBySelection.set(
-          `${gameKey}|${trendMarketComparisonKey(play)}|${trendSideComparisonKey(play)}`,
+          `${gameKey}|${logicalSelectionKey(play)}`,
           index + 1,
         );
       });
+
+    deduped.push(...uniquePlays);
   }
 
-  return plays.map((play) => ({
+  return deduped.map((play) => ({
     ...play,
     rank:
       rankBySelection.get(
-        `${trendGameInstanceKey(play)}|${trendMarketComparisonKey(play)}|${trendSideComparisonKey(play)}`,
+        `${trendGameInstanceKey(play)}|${logicalSelectionKey(play)}`,
       ) || play.rank,
     frozenAt: options?.frozen
       ? options.frozenAt || play.updatedAt
       : play.frozenAt,
     snapshotStatus: options?.frozen
-      ? ("FINAL_PREGAME" as const)
-      : play.snapshotStatus || ("LIVE" as const),
+      ? ('FINAL_PREGAME' as const)
+      : play.snapshotStatus || ('LIVE' as const),
     gradingVersion: options?.frozen
       ? FROZEN_TREND_GRADING_VERSION
       : play.gradingVersion,
