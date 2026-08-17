@@ -1,0 +1,25 @@
+name: Inspect Trend Grouping Helper
+
+on:
+  push:
+    branches:
+      - agent/separate-doubleheader-trend-tiles
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+      - name: Print trend grouping helper
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          text = Path('app/page.tsx').read_text()
+          start = text.index('function groupRankedTrendPlays(')
+          end = text.index('\nfunction ', start + 10)
+          print(text[start:end])
+          PY
