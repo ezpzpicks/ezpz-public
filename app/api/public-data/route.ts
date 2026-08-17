@@ -3629,7 +3629,7 @@ function calculateMoneylineEZPZScore(row: SheetRow, playType: unknown) {
     return clampScore(50 + modelComponent + edgeComponent + gradeBoost);
   }
 
-  return type === "A MONEYLINE" ? 72 : type === "B MONEYLINE" ? 66 : 50;
+  return type === "A MONEYLINE" ? 80 : type === "B MONEYLINE" ? 65 : 50;
 }
 
 function calculatePitcherKEZPZScore(
