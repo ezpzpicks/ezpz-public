@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - agent/final-lock-notifications
+    paths:
+      - .github/workflows/apply_final_lock_notifications_patch.yml
 
 permissions:
   contents: write
@@ -28,11 +30,11 @@ jobs:
           npm install --no-audit --no-fund
           npx tsc --noEmit
 
-      - name: Commit production changes and remove patch helpers
+      - name: Commit validated production code
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add app/api/public-data/route.ts .github/workflows/draftkings_snapshot.yml scripts/final_trend_lock_notifications.mjs
-          git rm .github/workflows/apply_final_lock_notifications_patch.yml scripts/apply_final_lock_notifications_patch.py
+          git restore .github/workflows/draftkings_snapshot.yml
+          git add app/api/public-data/route.ts scripts/final_trend_lock_notifications.mjs
           git commit -m "Send final trend lock notifications"
           git push origin HEAD:agent/final-lock-notifications
