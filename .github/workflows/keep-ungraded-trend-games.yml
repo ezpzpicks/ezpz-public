@@ -1,0 +1,28 @@
+name: Keep ungraded trend games visible
+
+on:
+  push:
+    paths:
+      - .github/workflows/keep-ungraded-trend-games.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Patch Trend Plays board
+        run: python .github/scripts/keep_ungraded_trend_games.py
+      - name: Validate and commit
+        run: |
+          git diff --check
+          if git diff --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/page.tsx
+          git commit -m "Keep ungraded trend games visible"
+          git push origin HEAD:main
