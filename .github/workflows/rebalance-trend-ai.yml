@@ -21,7 +21,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: npm
 
       - name: Apply trend grading rebalance
         shell: bash
@@ -160,7 +159,6 @@ jobs:
           route_path.write_text(route)
           page_path.write_text(page)
 
-          # Guard against the old Trend-only publication gates surviving anywhere important.
           forbidden = [
               'Strong/Elite trend (Trend Score 75+)',
               'compressed adjusted AI score of 85+',
@@ -175,7 +173,7 @@ jobs:
 
       - name: Validate build
         run: |
-          npm ci
+          npm install
           npm run build
 
       - name: Commit source changes and remove temporary workflow
