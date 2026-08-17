@@ -19,8 +19,18 @@ concurrency:
 jobs:
   capture:
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 4
     steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore final-lock notification state
+        uses: actions/cache/restore@v4
+        with:
+          path: .cache/final_trend_lock_notification_state.json
+          key: final-trend-lock-notifications-${{ github.run_id }}
+          restore-keys: |
+            final-trend-lock-notifications-
+
       - name: Initialize MLB slate, refresh DraftKings baseline, and lock eligible pregame snapshots
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
@@ -33,4 +43,18 @@ jobs:
             --retry-delay 10 \
             --max-time 75 \
             -H "Authorization: Bearer $CRON_SECRET" \
+            --output /tmp/ezpz_public_data.json \
             "https://ezpzpicks.com/api/public-data?scheduled=1&tracking=15m"
+
+      - name: Send newly locked trend snapshots to ntfy
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          FINAL_LOCK_CLICK_URL: https://ezpzpicks.com
+        run: node scripts/final_trend_lock_notifications.mjs /tmp/ezpz_public_data.json
+
+      - name: Save final-lock notification state
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .cache/final_trend_lock_notification_state.json
+          key: final-trend-lock-notifications-${{ github.run_id }}
