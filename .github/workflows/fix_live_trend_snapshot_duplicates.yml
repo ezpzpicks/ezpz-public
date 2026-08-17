@@ -22,72 +22,28 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
-
           path = Path('app/api/public-data/route.ts')
           text = path.read_text()
 
-          old_build = '''  return scoreHeadToHeadTrendPlays(rawPlays).sort((a, b) => {
-    const aGame = trendGameInstanceKey(a);
-    const bGame = trendGameInstanceKey(b);
-    const gameOrder =
-      (slateOrder.get(aGame) ?? Number.POSITIVE_INFINITY) -
-      (slateOrder.get(bGame) ?? Number.POSITIVE_INFINITY);
-    if (gameOrder) return gameOrder;
-    if (b.score !== a.score) return b.score - a.score;
-    return trendPickLabel(a).localeCompare(trendPickLabel(b));
-  });
-}'''
+          old_live = "  return scoreHeadToHeadTrendPlays(rawPlays).sort((a, b) => {"
+          new_live = (
+              "  // DraftKings can retain an earlier snapshot alongside the current row.\n"
+              "  // Collapse those rows before head-to-head scoring so stale snapshots cannot\n"
+              "  // influence the opposing-side comparison, then rank/dedupe once more after scoring.\n"
+              "  const latestRawPlays = rankTrendPlays(rawPlays);\n"
+              "  return rankTrendPlays(scoreHeadToHeadTrendPlays(latestRawPlays)).sort((a, b) => {"
+          )
+          if old_live not in text:
+              raise SystemExit('buildTrendPlays target statement not found')
+          text = text.replace(old_live, new_live, 1)
 
-          new_build = '''  // DraftKings can retain an earlier snapshot alongside the current row.
-  // Collapse those rows before head-to-head scoring so stale snapshots cannot
-  // influence the opposing-side comparison, then rank/dedupe once more after
-  // scoring as the final live-play safeguard.
-  const latestRawPlays = rankTrendPlays(rawPlays);
-  return rankTrendPlays(scoreHeadToHeadTrendPlays(latestRawPlays)).sort((a, b) => {
-    const aGame = trendGameInstanceKey(a);
-    const bGame = trendGameInstanceKey(b);
-    const gameOrder =
-      (slateOrder.get(aGame) ?? Number.POSITIVE_INFINITY) -
-      (slateOrder.get(bGame) ?? Number.POSITIVE_INFINITY);
-    if (gameOrder) return gameOrder;
-    if (b.score !== a.score) return b.score - a.score;
-    return trendPickLabel(a).localeCompare(trendPickLabel(b));
-  });
-}'''
-
-          if old_build not in text:
-              raise SystemExit('buildTrendPlays target block not found')
-          text = text.replace(old_build, new_build, 1)
-
-          old_overlay = '''  return combined.sort((a, b) => {
-    const aGame = trendGameInstanceKey(a);
-    const bGame = trendGameInstanceKey(b);
-    const gameOrder =
-      (slateOrder.get(aGame) ?? Number.POSITIVE_INFINITY) -
-      (slateOrder.get(bGame) ?? Number.POSITIVE_INFINITY);
-    if (gameOrder) return gameOrder;
-    if (b.score !== a.score) return b.score - a.score;
-    return trendPickLabel(a).localeCompare(trendPickLabel(b));
-  });
-}'''
-
-          new_overlay = '''  // Final response-level safeguard: live, retained, and frozen sources may each
-  // be internally valid but still overlap after they are combined. Collapse
-  // the final array by time-aware game instance + market + selected side.
-  return rankTrendPlays(combined).sort((a, b) => {
-    const aGame = trendGameInstanceKey(a);
-    const bGame = trendGameInstanceKey(b);
-    const gameOrder =
-      (slateOrder.get(aGame) ?? Number.POSITIVE_INFINITY) -
-      (slateOrder.get(bGame) ?? Number.POSITIVE_INFINITY);
-    if (gameOrder) return gameOrder;
-    if (b.score !== a.score) return b.score - a.score;
-    return trendPickLabel(a).localeCompare(trendPickLabel(b));
-  });
-}'''
-
+          old_overlay = "  return combined.sort((a, b) => {"
+          new_overlay = (
+              "  // Final response-level safeguard: collapse any overlap after live/frozen sources combine.\n"
+              "  return rankTrendPlays(combined).sort((a, b) => {"
+          )
           if old_overlay not in text:
-              raise SystemExit('overlayFrozenTrendPlays target block not found')
+              raise SystemExit('overlayFrozenTrendPlays target statement not found')
           text = text.replace(old_overlay, new_overlay, 1)
           path.write_text(text)
           PY
