@@ -1,4 +1,4 @@
-name: Inspect Trend Grouping Helper
+name: Patch Doubleheader Trend Tile Grouping
 
 on:
   push:
@@ -6,20 +6,95 @@ on:
       - agent/separate-doubleheader-trend-tiles
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  inspect:
+  patch:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - name: Print trend grouping helper
+        with:
+          ref: agent/separate-doubleheader-trend-tiles
+
+      - name: Patch TrendPlay identity and grouping
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('app/page.tsx')
+          text = path.read_text()
+
+          type_anchor = '''type TrendPlay = {
+  date?: string;
+  gameTime?: string;'''
+          type_replacement = '''type TrendPlay = {
+  date?: string;
+  gameTime?: string;
+  recordDate?: string;
+  recordGameKey?: string;
+  recordGameTime?: string;'''
+          if type_anchor not in text:
+              raise SystemExit('TrendPlay type anchor not found')
+          text = text.replace(type_anchor, type_replacement, 1)
+
+          old_time = '''    const gameTime = String(play.gameTime || "").trim();
+    const timeKey = gameTime
+      ? String(scheduleInfoFromRaw(gameTime, date).minutes)
+      : "";
+    const matchupKey = trendGameMatchKey(play) || publicMatchKey(play.game);
+    const key = [date, matchupKey, timeKey].filter(Boolean).join("|");'''
+          new_time = '''    const gameTime = String(
+      play.gameTime || play.recordGameTime || "",
+    ).trim();
+    const timeKey = gameTime
+      ? String(scheduleInfoFromRaw(gameTime, date).minutes)
+      : "";
+    const recordGameKey = String(play.recordGameKey || "")
+      .trim()
+      .replace(/\\.0$/, "");
+    const gameInstanceKey = timeKey || recordGameKey;
+    const matchupKey = trendGameMatchKey(play) || publicMatchKey(play.game);
+    const key = [date, matchupKey, gameInstanceKey].filter(Boolean).join("|");'''
+          if old_time not in text:
+              raise SystemExit('Trend grouping time block not found')
+          text = text.replace(old_time, new_time, 1)
+
+          old_date = '  return normalizedDateKey(play.date);'
+          new_date = '  return normalizedDateKey(play.recordDate || play.date);'
+          if old_date in text:
+              text = text.replace(old_date, new_date, 1)
+
+          path.write_text(text)
+          PY
+
+      - name: Verify grouping invariants
         run: |
           python - <<'PY'
           from pathlib import Path
           text = Path('app/page.tsx').read_text()
-          start = text.index('function groupRankedTrendPlays(')
-          end = text.index('\nfunction ', start + 10)
-          print(text[start:end])
+          assert 'recordGameKey?: string;' in text
+          assert 'recordGameTime?: string;' in text
+          assert 'play.gameTime || play.recordGameTime || ""' in text
+          assert 'const gameInstanceKey = timeKey || recordGameKey;' in text
+          assert 'const key = [date, matchupKey, gameInstanceKey]' in text
+          print('Doubleheader trend tile grouping invariants passed.')
           PY
+
+      - name: Install dependencies
+        run: npm install --no-package-lock --no-audit --no-fund
+
+      - name: TypeScript check
+        run: npx tsc --noEmit
+
+      - name: Commit validated page fix
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/page.tsx
+          if git diff --cached --quiet; then
+            echo 'No page changes to commit.'
+            exit 0
+          fi
+          git commit -m 'Separate doubleheader trend play tiles'
+          git push origin HEAD:agent/separate-doubleheader-trend-tiles
