@@ -1,0 +1,46 @@
+name: EZPZ DraftKings Odds Alerts
+
+on:
+  schedule:
+    # GitHub Actions supports 5-minute scheduling. This monitor fetches DraftKings
+    # directly from GitHub, so these checks do not invoke the Vercel site.
+    - cron: "*/5 0-23 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  TZ: America/New_York
+
+concurrency:
+  group: ezpz-draftkings-odds-alerts
+  cancel-in-progress: true
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore previous DraftKings alert state
+        uses: actions/cache/restore@v4
+        with:
+          path: .cache/draftkings_odds_alert_state.json
+          key: draftkings-odds-alert-state-${{ github.run_id }}
+          restore-keys: |
+            draftkings-odds-alert-state-
+
+      - name: Check DraftKings for meaningful odds movement
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          ODDS_ALERT_CLICK_URL: https://ezpzpicks.com
+        run: node scripts/draftkings_odds_alerts.mjs
+
+      - name: Save DraftKings alert state
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .cache/draftkings_odds_alert_state.json
+          key: draftkings-odds-alert-state-${{ github.run_id }}
