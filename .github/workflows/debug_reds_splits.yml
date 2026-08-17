@@ -12,14 +12,40 @@ permissions:
 jobs:
   inspect:
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 4
     steps:
-      - name: Inspect live public API Reds splits
+      - name: Inspect raw DraftKings Reds table tokens
         run: |
-          curl --fail-with-body --silent --show-error --max-time 75 \
-            "https://ezpzpicks.com/api/public-data" \
-            -o /tmp/public.json
-          echo '--- Cardinals/Reds DK splits served by live site ---'
-          jq -c '.draftKings.splits[] | select((.awayTeam|ascii_downcase|contains("cardinal")) and (.homeTeam|ascii_downcase|contains("red"))) | {eventTime,game,market,selection,side,line,odds,betsPct,moneyPct,openingLine,openingOdds,openingBetsPct,openingMoneyPct,publicMovementPct,sharpMovementPct,lineMovementSignal,lineMovementBasis,lineMovementValue,snapshotStatus,snapshotTime,lastSeenAt}' /tmp/public.json
-          echo '--- Cardinals/Reds trend plays served by live site ---'
-          jq -c '.trendPlays[] | select((.awayTeam|ascii_downcase|contains("cardinal")) and (.homeTeam|ascii_downcase|contains("red"))) | {game,market,selection,side,line,odds,betsPct,moneyPct,openingBetsPct,openingMoneyPct,openingLine,openingOdds,publicMovementPct,sharpMovementPct,score,tier,updatedAt,recordGameTime,snapshotStatus}' /tmp/public.json
+          for page in 1 2 3 4 5 6 7 8 9 10; do
+            curl --fail-with-body --silent --show-error --max-time 20 \
+              "https://dknetwork.draftkings.com/draftkings-sportsbook-betting-splits/?itm_content=MLB&tb_edate=n7days&tb_eg=MLB&tb_page=${page}" \
+              -o "/tmp/dk_${page}.html" || true
+          done
+          python - <<'PY'
+          import html as htmllib
+          import re
+          from pathlib import Path
+
+          def tokens(raw):
+              raw = re.sub(r'<script\b[^>]*>[\s\S]*?</script>', ' ', raw, flags=re.I)
+              raw = re.sub(r'<style\b[^>]*>[\s\S]*?</style>', ' ', raw, flags=re.I)
+              raw = re.sub(r'<noscript\b[^>]*>[\s\S]*?</noscript>', ' ', raw, flags=re.I)
+              raw = re.sub(r'<svg\b[^>]*>[\s\S]*?</svg>', ' ', raw, flags=re.I)
+              raw = re.sub(r'<[^>]+>', '\n', raw)
+              raw = htmllib.unescape(raw)
+              return [re.sub(r'\s+', ' ', x.replace('\xa0',' ')).strip() for x in raw.splitlines() if re.sub(r'\s+', ' ', x.replace('\xa0',' ')).strip()]
+
+          for page in range(1, 11):
+              path = Path(f'/tmp/dk_{page}.html')
+              if not path.exists():
+                  continue
+              ts = tokens(path.read_text(errors='ignore'))
+              hits = [i for i,t in enumerate(ts) if 'Cardinals @ CIN Reds' in t or 'STL Cardinals @ CIN Reds' in t]
+              if not hits:
+                  continue
+              print(f'===== PAGE {page} HITS {len(hits)} =====')
+              for hit in hits:
+                  print('--- hit', hit, '---')
+                  for idx, token in enumerate(ts[hit:hit+70], hit):
+                      print(f'{idx}: {token}')
+          PY
