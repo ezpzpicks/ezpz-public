@@ -2,10 +2,11 @@ name: EZPZ DraftKings Odds Alerts
 
 on:
   schedule:
-    # GitHub Actions supports 5-minute scheduling. This monitor fetches DraftKings
-    # directly from GitHub, so these checks do not invoke the Vercel site.
     - cron: "*/5 0-23 * * *"
   workflow_dispatch:
+  push:
+    branches:
+      - agent/verify-ntfy
 
 permissions:
   contents: read
@@ -23,6 +24,32 @@ jobs:
     timeout-minutes: 3
     steps:
       - uses: actions/checkout@v4
+
+      - name: Verify ntfy secret and send one-time test notification
+        if: github.event_name == 'push' && github.ref == 'refs/heads/agent/verify-ntfy'
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: |
+          test -n "$NTFY_TOPIC" || { echo "::error::NTFY_TOPIC repository secret is missing or empty"; exit 1; }
+          node --input-type=module <<'NODE'
+          const topic = String(process.env.NTFY_TOPIC || "").trim();
+          if (!/^[-_A-Za-z0-9]{1,64}$/.test(topic)) {
+            throw new Error("NTFY_TOPIC is present but has invalid characters or is longer than 64 characters");
+          }
+          const response = await fetch("https://ntfy.sh/", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              topic,
+              title: "EZPZ Odds Alerts Test",
+              message: "GitHub Actions -> ntfy is working. DraftKings odds alerts are connected.",
+              priority: 3,
+              tags: ["white_check_mark"]
+            })
+          });
+          if (!response.ok) throw new Error(`ntfy returned HTTP ${response.status} ${response.statusText}`);
+          console.log("NTFY_TOPIC is configured and ntfy accepted the test notification.");
+          NODE
 
       - name: Restore previous DraftKings alert state
         uses: actions/cache/restore@v4
