@@ -4213,9 +4213,15 @@ function TrendGameCard({
     : "";
   const topBadge = modelTrendBadgeText(topMatch);
   const slateRow = trendSlateRow(group, slateRows).row;
-  const schedule = slateRow
-    ? scheduleInfoForRow(slateRow, boardDate)
-    : scheduleInfoFromRaw(group.gameTime, group.date || boardDate);
+  const groupSchedule = scheduleInfoFromRaw(
+    group.gameTime,
+    group.date || boardDate,
+  );
+  const schedule = Number.isFinite(groupSchedule.minutes)
+    ? groupSchedule
+    : slateRow
+      ? scheduleInfoForRow(slateRow, boardDate)
+      : groupSchedule;
 
   return (
     <article className={`card trendGameCard ${group.topScore >= 75 ? "top" : ""}`}>
