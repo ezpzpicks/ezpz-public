@@ -1,0 +1,98 @@
+name: Fix Trend Fallback Grade Cap
+
+on:
+  push:
+    branches:
+      - agent/fix-trend-fallback-grades
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/fix-trend-fallback-grades
+
+      - name: Cap broad fallback trend grades
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          route = Path('app/api/public-data/route.ts')
+          text = route.read_text()
+          anchor = 'function buildTrendSignalBreakdown(\n'
+          cap_decl = 'const TREND_BROAD_FALLBACK_SCORE_CAP = 69;\n\n'
+          if cap_decl not in text:
+              if anchor not in text:
+                  raise SystemExit('route signal breakdown anchor not found')
+              text = text.replace(anchor, cap_decl + anchor, 1)
+          old_score = '    score: Math.round(metrics.score),\n    weights,\n    records: displayRecords,'
+          new_score = '    score: Math.round(\n      exact.allTime.totalBets > 0\n        ? metrics.score\n        : Math.min(metrics.score, TREND_BROAD_FALLBACK_SCORE_CAP),\n    ),\n    weights,\n    records: displayRecords,'
+          if old_score not in text:
+              raise SystemExit('route signal score block not found')
+          text = text.replace(old_score, new_score, 1)
+          old_frozen = '  const signals = play.signals\n    .map((signal) => trendWindowMetrics(signal.records))\n    .filter((metrics) => metrics.hasData);'
+          new_frozen = '  const signals = play.signals\n    .map((signal) => {\n      const metrics = trendWindowMetrics(signal.records);\n      if (!metrics.hasData) return metrics;\n      return {\n        ...metrics,\n        score:\n          signal.exactSample > 0\n            ? metrics.score\n            : Math.min(metrics.score, TREND_BROAD_FALLBACK_SCORE_CAP),\n      };\n    })\n    .filter((metrics) => metrics.hasData);'
+          if old_frozen not in text:
+              raise SystemExit('route frozen metrics block not found')
+          text = text.replace(old_frozen, new_frozen, 1)
+          route.write_text(text)
+
+          page = Path('app/page.tsx')
+          text = page.read_text()
+          page_anchor = 'function trendSignalMetrics(signal: TrendSignalBreakdown): TrendScoreMetrics {'
+          page_cap = 'const TREND_BROAD_FALLBACK_SCORE_CAP = 69;\n\n'
+          if page_cap not in text:
+              if page_anchor not in text:
+                  raise SystemExit('page signal metrics anchor not found')
+              text = text.replace(page_anchor, page_cap + page_anchor, 1)
+          old_return = '  return {\n    score: clampTrendValue(score),\n    roiPct: weightedAverage("roiPct"),\n    winPct: weightedAverage("winPct"),\n    hasData: true,\n  };'
+          new_return = '  return {\n    score: clampTrendValue(\n      signal.exactSample > 0\n        ? score\n        : Math.min(score, TREND_BROAD_FALLBACK_SCORE_CAP),\n    ),\n    roiPct: weightedAverage("roiPct"),\n    winPct: weightedAverage("winPct"),\n    hasData: true,\n  };'
+          if old_return not in text:
+              raise SystemExit('page signal score return block not found')
+          text = text.replace(old_return, new_return, 1)
+          old_label = '              Exact category: {signal.exactSample} bets • No sample penalty • ROI 60% • Record 40% • Windows {Math.round(allTimeWeight * 100)}% overall / {Math.round(last30Weight * 100)}% last 30 / {Math.round(last7Weight * 100)}% last 7'
+          new_label = '              Exact category: {signal.exactSample} bets • {signal.exactSample > 0 ? "No sample penalty" : "Broad-record fallback • Grade capped at Good"} • ROI 60% • Record 40% • Windows {Math.round(allTimeWeight * 100)}% overall / {Math.round(last30Weight * 100)}% last 30 / {Math.round(last7Weight * 100)}% last 7'
+          if old_label not in text:
+              raise SystemExit('page exact category label not found')
+          text = text.replace(old_label, new_label, 1)
+          page.write_text(text)
+          PY
+
+      - name: Verify fallback grading invariants
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          route = Path('app/api/public-data/route.ts').read_text()
+          page = Path('app/page.tsx').read_text()
+          assert 'const TREND_BROAD_FALLBACK_SCORE_CAP = 69;' in route
+          assert 'exact.allTime.totalBets > 0' in route
+          assert 'signal.exactSample > 0' in route
+          assert 'const TREND_BROAD_FALLBACK_SCORE_CAP = 69;' in page
+          assert 'signal.exactSample > 0' in page
+          assert 'Broad-record fallback • Grade capped at Good' in page
+          print('Fallback grading invariants passed.')
+          PY
+
+      - name: Install dependencies
+        run: npm install --no-package-lock --no-audit --no-fund
+
+      - name: TypeScript check
+        run: npx tsc --noEmit
+
+      - name: Commit validated production files
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/api/public-data/route.ts app/page.tsx
+          if git diff --cached --quiet; then
+            echo 'No production changes to commit.'
+            exit 0
+          fi
+          git commit -m 'Cap broad fallback trend grades at Good'
+          git push origin HEAD:agent/fix-trend-fallback-grades
