@@ -4786,6 +4786,8 @@ function buildTrendPlayForSplit(
     tier: "Pass",
     signals,
     updatedAt,
+    recordDate: isoPublicDate(split.date),
+    recordGameTime: parseEventTimeKey(split.eventTime || ""),
   };
 }
 
@@ -4809,6 +4811,46 @@ function trendSideComparisonKey(play: TrendPlay) {
 
 function trendGameComparisonKey(play: TrendPlay) {
   return `${normalizeTeam(play.awayTeam)}|${normalizeTeam(play.homeTeam)}`;
+}
+
+function trendGameInstanceKey(play: TrendPlay) {
+  const matchup = trendGameComparisonKey(play);
+  const gameTime = parseEventTimeKey(play.recordGameTime || "");
+  if (gameTime) return `${matchup}|${gameTime}`;
+  const gameKey = String(play.recordGameKey || "").trim().replace(/\.0$/, "");
+  return gameKey ? `${matchup}|game:${gameKey}` : matchup;
+}
+
+function trendSlateGameInstanceKey(row: SheetRow) {
+  const matchup = `${normalizeTeam(row["Away Team"] || "")}|${normalizeTeam(
+    row["Home Team"] || "",
+  )}`;
+  const gameTime = scheduledGameTimeKey(row);
+  if (gameTime) return `${matchup}|${gameTime}`;
+  const gameKey = String(row["Game Key"] || "").trim().replace(/\.0$/, "");
+  return gameKey ? `${matchup}|game:${gameKey}` : matchup;
+}
+
+function trendSlateRowForSplit(split: DraftKingsSplit, slateRows: SheetRow[]) {
+  const splitDate = isoPublicDate(split.date);
+  const matchupRows = slateRows.filter((row) => {
+    const rowDate = isoPublicDate(row.Date || "");
+    return (
+      (!splitDate || !rowDate || splitDate === rowDate) &&
+      normalizeTeam(row["Away Team"] || "") === normalizeTeam(split.awayTeam) &&
+      normalizeTeam(row["Home Team"] || "") === normalizeTeam(split.homeTeam)
+    );
+  });
+  const splitTime = parseEventTimeKey(split.eventTime || "");
+  if (splitTime) {
+    const exact = matchupRows.find(
+      (row) => scheduledGameTimeKey(row) === splitTime,
+    );
+    if (exact) return exact;
+  }
+  // A time-less legacy split is safe only when this matchup occurs once that
+  // day. On doubleheaders it is ambiguous and must not enter trend scoring.
+  return matchupRows.length === 1 ? matchupRows[0] : null;
 }
 
 function frozenTrendPlayMetrics(play: TrendPlay) {
@@ -4848,7 +4890,7 @@ function scoreHeadToHeadTrendPlays(plays: TrendPlay[]) {
   return baseRows.map(({ play, metrics }) => {
     const sameGameMarket = baseRows.filter(
       (candidate) =>
-        trendGameComparisonKey(candidate.play) === trendGameComparisonKey(play) &&
+        trendGameInstanceKey(candidate.play) === trendGameInstanceKey(play) &&
         trendMarketComparisonKey(candidate.play) === trendMarketComparisonKey(play),
     );
     const sideKey = trendSideComparisonKey(play);
@@ -4914,7 +4956,7 @@ function rankTrendPlays(
 ) {
   const byGame = new Map<string, TrendPlay[]>();
   for (const play of plays) {
-    const key = trendGameComparisonKey(play);
+    const key = trendGameInstanceKey(play);
     const current = byGame.get(key) || [];
     current.push(play);
     byGame.set(key, current);
@@ -4939,7 +4981,7 @@ function rankTrendPlays(
     ...play,
     rank:
       rankBySelection.get(
-        `${trendGameComparisonKey(play)}|${trendMarketComparisonKey(play)}|${trendSideComparisonKey(play)}`,
+        `${trendGameInstanceKey(play)}|${trendMarketComparisonKey(play)}|${trendSideComparisonKey(play)}`,
       ) || play.rank,
     frozenAt: options?.frozen
       ? options.frozenAt || play.updatedAt
@@ -4960,12 +5002,10 @@ function trendPlayForAllGameRow(
 ) {
   const market = trackerMarket(row);
   if (!market) return null;
-  const gameKey = `${normalizeTeam(slateRow["Away Team"] || "")}|${normalizeTeam(
-    slateRow["Home Team"] || "",
-  )}`;
+  const gameKey = trendSlateGameInstanceKey(slateRow);
   const candidates = plays.filter(
     (play) =>
-      trendGameComparisonKey(play) === gameKey &&
+      trendGameInstanceKey(play) === gameKey &&
       play.market === market,
   );
 
@@ -5000,33 +5040,38 @@ function buildTrendPlays(
   updatedAt: string,
 ) {
   const slateOrder = new Map(
-    slateRows.map((row, index) => [
-      `${normalizeTeam(row["Away Team"] || "")}|${normalizeTeam(row["Home Team"] || "")}`,
-      index,
-    ]),
+    slateRows.map((row, index) => [trendSlateGameInstanceKey(row), index]),
   );
   const rawPlays = splits
     .filter(
       (split) =>
         isoPublicDate(split.date) === isoPublicDate(referenceDate) &&
-        (split.market === "Moneyline" || split.market === "Total") &&
-        slateOrder.has(
-          `${normalizeTeam(split.awayTeam)}|${normalizeTeam(split.homeTeam)}`,
-        ),
+        (split.market === "Moneyline" || split.market === "Total"),
     )
-    .map((split) =>
-      buildTrendPlayForSplit(
+    .map((split) => {
+      const slateRow = trendSlateRowForSplit(split, slateRows);
+      if (!slateRow) return null;
+      const play = buildTrendPlayForSplit(
         split,
         history,
         referenceDate,
         split.snapshotTime || split.lastSeenAt || updatedAt,
-      ),
-    )
-    .filter((play): play is TrendPlay => Boolean(play));
+      );
+      if (!play) return null;
+      return {
+        ...play,
+        recordDate: isoPublicDate(slateRow.Date || split.date),
+        recordGameKey: String(slateRow["Game Key"] || "").trim().replace(/\.0$/, ""),
+        recordGameTime:
+          scheduledGameTimeKey(slateRow) ||
+          parseEventTimeKey(split.eventTime || ""),
+      };
+    })
+    .filter((play): play is NonNullable<typeof play> => play != null);
 
   return scoreHeadToHeadTrendPlays(rawPlays).sort((a, b) => {
-    const aGame = trendGameComparisonKey(a);
-    const bGame = trendGameComparisonKey(b);
+    const aGame = trendGameInstanceKey(a);
+    const bGame = trendGameInstanceKey(b);
     const gameOrder =
       (slateOrder.get(aGame) ?? Number.POSITIVE_INFINITY) -
       (slateOrder.get(bGame) ?? Number.POSITIVE_INFINITY);
@@ -5213,7 +5258,7 @@ function overlayFrozenTrendPlays(
   if (!frozenPlays.length) return livePlays;
 
   const overlayKey = (play: TrendPlay) =>
-    `${trendGameComparisonKey(play)}|${trendMarketComparisonKey(play)}|${trendSideComparisonKey(play)}`;
+    `${trendGameInstanceKey(play)}|${trendMarketComparisonKey(play)}|${trendSideComparisonKey(play)}`;
   const liveByKey = new Map(livePlays.map((play) => [overlayKey(play), play]));
   const refreshedFrozenPlays = frozenPlays.map((frozenPlay) => {
     const livePlay = liveByKey.get(overlayKey(frozenPlay));
@@ -5235,24 +5280,21 @@ function overlayFrozenTrendPlays(
   });
 
   const frozenGameKeys = new Set(
-    refreshedFrozenPlays.map((play) => trendGameComparisonKey(play)),
+    refreshedFrozenPlays.map((play) => trendGameInstanceKey(play)),
   );
   const combined = [
     ...livePlays.filter(
-      (play) => !frozenGameKeys.has(trendGameComparisonKey(play)),
+      (play) => !frozenGameKeys.has(trendGameInstanceKey(play)),
     ),
     ...refreshedFrozenPlays,
   ];
   const slateOrder = new Map(
-    slateRows.map((row, index) => [
-      `${normalizeTeam(row["Away Team"] || "")}|${normalizeTeam(row["Home Team"] || "")}`,
-      index,
-    ]),
+    slateRows.map((row, index) => [trendSlateGameInstanceKey(row), index]),
   );
 
   return combined.sort((a, b) => {
-    const aGame = trendGameComparisonKey(a);
-    const bGame = trendGameComparisonKey(b);
+    const aGame = trendGameInstanceKey(a);
+    const bGame = trendGameInstanceKey(b);
     const gameOrder =
       (slateOrder.get(aGame) ?? Number.POSITIVE_INFINITY) -
       (slateOrder.get(bGame) ?? Number.POSITIVE_INFINITY);
