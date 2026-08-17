@@ -106,6 +106,9 @@ type TrendSignalBreakdown = {
 type TrendPlay = {
   date?: string;
   gameTime?: string;
+  recordDate?: string;
+  recordGameKey?: string;
+  recordGameTime?: string;
   game: string;
   awayTeam: string;
   homeTeam: string;
@@ -3943,7 +3946,7 @@ function trendPlayDateKey(play: TrendPlay) {
   // Use the trend record's explicit slate date when it is available. Do not
   // infer the game day from a UTC timestamp because evening games often roll
   // into the following UTC date.
-  return normalizedDateKey(play.date);
+  return normalizedDateKey(play.recordDate || play.date);
 }
 
 function trendSlateRow(
@@ -3983,12 +3986,18 @@ function groupRankedTrendPlays(
 
   trendPlays.forEach((play) => {
     const date = trendPlayDateKey(play);
-    const gameTime = String(play.gameTime || "").trim();
+    const gameTime = String(
+      play.gameTime || play.recordGameTime || "",
+    ).trim();
     const timeKey = gameTime
       ? String(scheduleInfoFromRaw(gameTime, date).minutes)
       : "";
+    const recordGameKey = String(play.recordGameKey || "")
+      .trim()
+      .replace(/\.0$/, "");
+    const gameInstanceKey = timeKey || recordGameKey;
     const matchupKey = trendGameMatchKey(play) || publicMatchKey(play.game);
-    const key = [date, matchupKey, timeKey].filter(Boolean).join("|");
+    const key = [date, matchupKey, gameInstanceKey].filter(Boolean).join("|");
     const existing = grouped.get(key);
     if (existing) {
       existing.plays.push(play);
