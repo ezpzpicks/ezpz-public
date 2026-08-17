@@ -1,0 +1,25 @@
+name: Debug Cardinals Reds Splits
+
+on:
+  push:
+    branches:
+      - agent/debug-reds-splits
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Inspect live public API Reds splits
+        run: |
+          curl --fail-with-body --silent --show-error --max-time 75 \
+            "https://ezpzpicks.com/api/public-data" \
+            -o /tmp/public.json
+          echo '--- Cardinals/Reds DK splits served by live site ---'
+          jq -c '.draftKings.splits[] | select((.awayTeam|ascii_downcase|contains("cardinal")) and (.homeTeam|ascii_downcase|contains("red"))) | {eventTime,game,market,selection,side,line,odds,betsPct,moneyPct,openingLine,openingOdds,openingBetsPct,openingMoneyPct,publicMovementPct,sharpMovementPct,lineMovementSignal,lineMovementBasis,lineMovementValue,snapshotStatus,snapshotTime,lastSeenAt}' /tmp/public.json
+          echo '--- Cardinals/Reds trend plays served by live site ---'
+          jq -c '.trendPlays[] | select((.awayTeam|ascii_downcase|contains("cardinal")) and (.homeTeam|ascii_downcase|contains("red"))) | {game,market,selection,side,line,odds,betsPct,moneyPct,openingBetsPct,openingMoneyPct,openingLine,openingOdds,publicMovementPct,sharpMovementPct,score,tier,updatedAt,recordGameTime,snapshotStatus}' /tmp/public.json
