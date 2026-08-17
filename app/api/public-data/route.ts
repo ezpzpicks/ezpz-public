@@ -5109,7 +5109,11 @@ function buildTrendPlays(
     })
     .filter((play): play is NonNullable<typeof play> => play != null);
 
-  return scoreHeadToHeadTrendPlays(rawPlays).sort((a, b) => {
+  // DraftKings can retain an earlier snapshot alongside the current row.
+  // Collapse those rows before head-to-head scoring so stale snapshots cannot
+  // influence the opposing-side comparison, then rank/dedupe once more after scoring.
+  const latestRawPlays = rankTrendPlays(rawPlays);
+  return rankTrendPlays(scoreHeadToHeadTrendPlays(latestRawPlays)).sort((a, b) => {
     const aGame = trendGameInstanceKey(a);
     const bGame = trendGameInstanceKey(b);
     const gameOrder =
@@ -5332,7 +5336,8 @@ function overlayFrozenTrendPlays(
     slateRows.map((row, index) => [trendSlateGameInstanceKey(row), index]),
   );
 
-  return combined.sort((a, b) => {
+  // Final response-level safeguard: collapse any overlap after live/frozen sources combine.
+  return rankTrendPlays(combined).sort((a, b) => {
     const aGame = trendGameInstanceKey(a);
     const bGame = trendGameInstanceKey(b);
     const gameOrder =
