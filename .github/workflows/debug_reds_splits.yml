@@ -1,4 +1,4 @@
-name: Debug Cardinals Reds Splits
+name: Verify Production Trend Card Dedupe
 
 on:
   push:
@@ -14,35 +14,57 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 4
     steps:
-      - name: Inspect all raw Cardinals Reds markup
+      - name: Verify production trend cards are unique
         run: |
-          curl --fail-with-body --silent --show-error --max-time 30 \
-            -H 'User-Agent: Mozilla/5.0 (Linux; Android 16; Mobile) AppleWebKit/537.36 Chrome/139.0 Safari/537.36' \
-            'https://dknetwork.draftkings.com/draftkings-sportsbook-betting-splits/?tb_eg=MLB&itm_content=MLB&tb_edate=n30days&tb_page=1' \
-            -o /tmp/dk.html
+          curl --fail-with-body --silent --show-error --max-time 90 \
+            'https://ezpzpicks.com/api/public-data' -o /tmp/public.json
           python - <<'PY'
-          import re, html
-          raw=open('/tmp/dk.html', errors='ignore').read()
-          plain=html.unescape(re.sub(r'<[^>]+>', '\n', raw))
-          tokens=[re.sub(r'\s+',' ',x.replace('\xa0',' ')).strip() for x in plain.splitlines() if re.sub(r'\s+',' ',x.replace('\xa0',' ')).strip()]
-          hits=[i for i,t in enumerate(tokens) if 'STL Cardinals @ CIN Reds' in t]
-          print('Reds game hits:', hits)
-          for h in hits:
-              end=next((i for i in range(h+1,len(tokens)) if ' @ ' in tokens[i] and re.search(r'\d{1,2}/\d{1,2}', tokens[i+1] if i+1<len(tokens) else '')), min(len(tokens),h+160))
-              end=min(end,h+160)
-              print('\n===== GAME BLOCK', tokens[h], tokens[h+1] if h+1<len(tokens) else '', '=====')
-              for i in range(h,end): print(f'{i}: {tokens[i]}')
-          print('\n===== SCREENSHOT VALUE SEARCH =====')
-          for wanted in ['40%','22%','60%','78%','1%','33%','99%','67%','14%','86%']:
-              inds=[i for i,t in enumerate(tokens) if t==wanted]
-              near=[]
-              for i in inds:
-                  prev=' | '.join(tokens[max(0,i-8):min(len(tokens),i+9)])
-                  if 'Reds' in prev or 'Cardinals' in prev or any(abs(i-h)<100 for h in hits): near.append(i)
-              print(wanted, near[:30])
-          print('\n===== HTML FRAGMENTS CONTAINING CARDINALS/REDS =====')
-          for m in re.finditer(r'STL Cardinals @ CIN Reds', raw):
-              frag=html.unescape(raw[max(0,m.start()-1500):m.start()+7000])
-              print(re.sub(r'\s+',' ',frag)[:8500])
-              print('\n---FRAGMENT END---\n')
+          import json, re
+          from collections import defaultdict
+
+          data = json.load(open('/tmp/public.json'))
+          plays = data.get('trendPlays') or []
+
+          def norm(v):
+              return re.sub(r'[^a-z0-9]+', '', str(v or '').lower())
+
+          def game_key(p):
+              matchup = f"{norm(p.get('awayTeam'))}@{norm(p.get('homeTeam'))}"
+              instance = norm(p.get('recordGameKey')) or norm(p.get('recordGameTime'))
+              return f"{matchup}|{instance}"
+
+          def side_key(p):
+              market = str(p.get('market') or '').lower()
+              raw = f"{p.get('side') or ''} {p.get('selection') or ''}".lower()
+              if market == 'total':
+                  if 'over' in raw: return 'over'
+                  if 'under' in raw: return 'under'
+              return norm(p.get('side')) or norm(p.get('selection'))
+
+          groups = defaultdict(list)
+          for p in plays:
+              key = (game_key(p), str(p.get('market') or '').lower(), side_key(p))
+              groups[key].append(p)
+
+          dupes = {k:v for k,v in groups.items() if len(v) > 1}
+          print('TOTAL TREND PLAYS:', len(plays))
+          print('LOGICAL DUPLICATE GROUPS:', len(dupes))
+          for k, vals in dupes.items():
+              print('DUPLICATE', k)
+              for p in vals:
+                  print(' ', {x:p.get(x) for x in ['awayTeam','homeTeam','recordGameTime','recordGameKey','market','selection','side','line','score','rank','updatedAt','frozenAt']})
+
+          print('\n--- PITTSBURGH GAME ---')
+          for p in plays:
+              if 'tiger' in str(p.get('awayTeam','')).lower() and 'pirate' in str(p.get('homeTeam','')).lower():
+                  print({x:p.get(x) for x in ['recordGameTime','recordGameKey','market','selection','side','line','score','rank','updatedAt','frozenAt']})
+
+          print('\n--- CARDINALS / REDS ---')
+          for p in plays:
+              if 'cardinal' in str(p.get('awayTeam','')).lower() and 'red' in str(p.get('homeTeam','')).lower():
+                  print({x:p.get(x) for x in ['recordGameTime','recordGameKey','market','selection','side','line','score','rank','updatedAt','frozenAt']})
+
+          if dupes:
+              raise SystemExit(f'Found {len(dupes)} logical duplicate trend-card group(s) in production')
+          print('\nPASS: production has no duplicate logical trend-card groups.')
           PY
