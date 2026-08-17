@@ -2875,9 +2875,7 @@ async function persistFinalPregameDraftKings(
       trackingGameKeys.has(draftKingsGameKey(row)),
     );
     const trackingTrendSplits = availableSplits.filter((item) => {
-      const key = `${isoPublicDate(item.date)}|${normalizeTeam(item.awayTeam)}|${normalizeTeam(
-        item.homeTeam,
-      )}`;
+      const key = draftKingsMarketInstanceKey(item);
       return (
         trackingGameKeys.has(key) &&
         (item.market === "Moneyline" || item.market === "Total")
@@ -2913,12 +2911,7 @@ async function persistFinalPregameDraftKings(
       todayIso,
     );
     const savedFinalGameKeys = new Set(
-      savedFinalPayload.splits.map(
-        (split) =>
-          `${isoPublicDate(split.date)}|${normalizeTeam(split.awayTeam)}|${normalizeTeam(
-            split.homeTeam,
-          )}`,
-      ),
+      savedFinalPayload.splits.map((split) => draftKingsMarketInstanceKey(split)),
     );
     const savedFinalSlateObjects = slateObjects.filter((row) =>
       savedFinalGameKeys.has(draftKingsGameKey(row)),
