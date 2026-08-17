@@ -27,6 +27,7 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
+          import re
 
           route_path = Path('app/api/public-data/route.ts')
           page_path = Path('app/page.tsx')
@@ -39,6 +40,12 @@ jobs:
                   raise SystemExit(f'{label}: expected exactly 1 match, found {count}')
               return text.replace(old, new, 1)
 
+          def sub_once(text, pattern, replacement, label, flags=0):
+              updated, count = re.subn(pattern, replacement, text, count=1, flags=flags)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected exactly 1 match, found {count}')
+              return updated
+
           route = replace_once(
               route,
               'const AI_PICK_SELECTOR_VERSION = "hybrid-web-context-v17-all-best-play-last7-gates";',
@@ -46,79 +53,78 @@ jobs:
               'selector version',
           )
 
-          old_route_tier = '''function trendTier(score: number, eligible = true): TrendPlay["tier"] {
+          route = replace_once(
+              route,
+              '''function trendTier(score: number, eligible = true): TrendPlay["tier"] {
             if (!eligible || score < 60) return "Pass";
             if (score >= 88) return "Elite";
             if (score >= 75) return "Strong";
             return "Good";
-          }'''
-          new_route_tier = '''function trendTier(score: number, eligible = true): TrendPlay["tier"] {
+          }''',
+              '''function trendTier(score: number, eligible = true): TrendPlay["tier"] {
             if (!eligible || score < 60) return "Pass";
             if (score >= 85) return "Elite";
             if (score >= 69) return "Strong";
             return "Good";
-          }'''
-          route = replace_once(route, old_route_tier, new_route_tier, 'route trend tiers')
+          }''',
+              'route trend tiers',
+          )
 
-          old_page_tier = '''function rankedTrendLabel(score: number, eligible = true): TrendTier {
+          page = replace_once(
+              page,
+              '''function rankedTrendLabel(score: number, eligible = true): TrendTier {
             if (!eligible || score < 60) return "Pass";
             if (score >= 88) return "Elite";
             if (score >= 75) return "Strong";
             return "Good";
-          }'''
-          new_page_tier = '''function rankedTrendLabel(score: number, eligible = true): TrendTier {
+          }''',
+              '''function rankedTrendLabel(score: number, eligible = true): TrendTier {
             if (!eligible || score < 60) return "Pass";
             if (score >= 85) return "Elite";
             if (score >= 69) return "Strong";
             return "Good";
-          }'''
-          page = replace_once(page, old_page_tier, new_page_tier, 'page trend tiers')
+          }''',
+              'page trend tiers',
+          )
 
-          old_base = '''function aiTrendOnlyBaseScore(trendScore: number) {
+          route = replace_once(
+              route,
+              '''function aiTrendOnlyBaseScore(trendScore: number) {
             // A qualifying Trend Score is evidence, not a 1:1 AI grade. Compress the
             // 60-100 trend range into 60-90 so 95+ AI scores require independent support.
             const normalized = aiClamp(trendScore, 60, 100);
             return aiClamp(60 + (normalized - 60) * 0.75, 0, 90);
-          }'''
-          new_base = '''function aiTrendOnlyBaseScore(trendScore: number) {
+          }''',
+              '''function aiTrendOnlyBaseScore(trendScore: number) {
             // Strong trends should have a realistic path to the final 80+ AI gate without
             // turning Trend Score into an automatic publication score. Map 69-95 to
             // 76.5-89.5; history, market context, and final research decide whether it clears 80.
             const normalized = aiClamp(trendScore, 69, 100);
             return aiClamp(76.5 + (normalized - 69) * 0.5, 0, 92);
-          }'''
-          route = replace_once(route, old_base, new_base, 'trend-only AI base score')
+          }''',
+              'trend-only AI base score',
+          )
 
-          old_merge = '''    if (!existing.odds) existing.odds = play.odds || "";
-            return;
-          }
-          const odds = play.odds || "";'''
-          new_merge = '''    if (!existing.odds) existing.odds = play.odds || "";
-            return;
-          }
-          // Good-only trends stay visible on the Trend Plays board, but only Strong/Elite
-          // trends create standalone AI candidates. A Good trend can still support a Best Play.
-          if (play.tier === "Good") return;
-          const odds = play.odds || "";'''
-          route = replace_once(route, old_merge, new_merge, 'standalone trend candidate gate')
+          route = replace_once(
+              route,
+              '''  const odds = play.odds || "";
+            const trendHistoryAdjustment = aiTrendOnlyHistoryAdjustment(play);''',
+              '''  // Good-only trends stay visible on the Trend Plays board, but only Strong/Elite
+            // trends create standalone AI candidates. A Good trend can still support a Best Play.
+            if (play.tier === "Good") return;
+            const odds = play.odds || "";
+            const trendHistoryAdjustment = aiTrendOnlyHistoryAdjustment(play);''',
+              'standalone trend candidate gate',
+          )
 
-          old_payload = '''    aiScoreBeforeResearch: aiRound(
-              (candidate.source === "Best + Trend"
-                ? candidate.modelScore * aiTrendBlendWeights(candidate.trendPlay).modelWeight +
-                  candidate.trendScore * aiTrendBlendWeights(candidate.trendPlay).trendWeight
-                : candidate.modelScore || candidate.trendScore) + candidate.scoreAdjustment,
-              1,
-            ),'''
-          new_payload = '''    aiScoreBeforeResearch: aiRound(
-              (candidate.source === "Best + Trend"
-                ? candidate.modelScore * aiTrendBlendWeights(candidate.trendPlay).modelWeight +
-                  candidate.trendScore * aiTrendBlendWeights(candidate.trendPlay).trendWeight
-                : candidate.source === "Trend Play" && !candidate.bestPlayType
+          route = replace_once(
+              route,
+              ''': candidate.modelScore || candidate.trendScore) + candidate.scoreAdjustment,''',
+              ''': candidate.source === "Trend Play" && !candidate.bestPlayType
                   ? aiTrendOnlyBaseScore(candidate.trendScore)
-                  : candidate.modelScore || candidate.trendScore) + candidate.scoreAdjustment,
-              1,
-            ),'''
-          route = replace_once(route, old_payload, new_payload, 'research payload AI score')
+                  : candidate.modelScore || candidate.trendScore) + candidate.scoreAdjustment,''',
+              'research payload AI score',
+          )
 
           route = replace_once(
               route,
@@ -129,30 +135,22 @@ jobs:
 
           route = replace_once(
               route,
-              '''    // Strong/Elite trend (75+) and then earn an adjusted AI score of 85+; there
-              // is deliberately no minimum historical bet count.''',
-              '''    // Strong/Elite trend (69+) and then earn an adjusted AI score of 80+; there
-              // is deliberately no minimum historical bet count.''',
+              'Strong/Elite trend (75+) and then earn an adjusted AI score of 85+',
+              'Strong/Elite trend (69+) and then earn an adjusted AI score of 80+',
               'final selector trend comment',
           )
 
-          route = replace_once(
+          route = sub_once(
               route,
-              '''    const selectionThresholds = trendOnlyCandidate
-              ? {
-                  score: 85,''',
-              '''    const selectionThresholds = trendOnlyCandidate
-              ? {
-                  score: 80,''',
+              r'(const selectionThresholds = trendOnlyCandidate\s*\?\s*\{\s*score:\s*)85,',
+              r'\g<1>80,',
               'trend-only AI score threshold',
           )
 
-          route = replace_once(
+          route = sub_once(
               route,
-              '''      trendOnlyCandidate && rawTrendScore < 75
-                ? `Trend score ${rawTrendScore} did not reach the 75 Strong-trend minimum`''',
-              '''      trendOnlyCandidate && rawTrendScore < 69
-                ? `Trend score ${rawTrendScore} did not reach the 69 Strong-trend minimum`''',
+              r'trendOnlyCandidate && rawTrendScore < 75\s*\? `Trend score \$\{rawTrendScore\} did not reach the 75 Strong-trend minimum`',
+              'trendOnlyCandidate && rawTrendScore < 69\n        ? `Trend score ${rawTrendScore} did not reach the 69 Strong-trend minimum`',
               'trend-only minimum trend score',
           )
 
@@ -163,17 +161,31 @@ jobs:
               'Strong/Elite trend (Trend Score 75+)',
               'compressed adjusted AI score of 85+',
               '75 Strong-trend minimum',
+              'if (score >= 88) return "Elite";',
+              'if (score >= 75) return "Strong";',
           ]
           for phrase in forbidden:
-              if phrase in route:
-                  raise SystemExit(f'old trend gate still present: {phrase}')
+              if phrase in route or phrase in page:
+                  raise SystemExit(f'old trend grading text still present: {phrase}')
+
+          required = [
+              'if (score >= 85) return "Elite";',
+              'if (score >= 69) return "Strong";',
+              'score: 80,',
+              'rawTrendScore < 69',
+              'aiTrendOnlyBaseScore(candidate.trendScore)',
+              'if (play.tier === "Good") return;',
+          ]
+          for phrase in required:
+              if phrase not in route and phrase not in page:
+                  raise SystemExit(f'new trend grading text missing: {phrase}')
 
           print('Trend AI rebalance applied successfully.')
           PY
 
       - name: Validate build
         run: |
-          npm install
+          npm install --package-lock=false
           npm run build
 
       - name: Commit source changes and remove temporary workflow
