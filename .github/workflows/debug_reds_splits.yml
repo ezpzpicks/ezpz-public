@@ -14,31 +14,37 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 4
     steps:
-      - name: Inspect DraftKings client data sources
+      - name: Compare n7days and n30days DraftKings filters
         run: |
-          curl --fail-with-body --silent --show-error --max-time 20 \
-            -H 'User-Agent: Mozilla/5.0 (Linux; Android 16; Mobile) AppleWebKit/537.36 Chrome/139.0 Safari/537.36' \
-            'https://dknetwork.draftkings.com/draftkings-sportsbook-betting-splits/' \
-            -o /tmp/dk.html
+          urls=(
+            'https://dknetwork.draftkings.com/draftkings-sportsbook-betting-splits/?tb_eg=MLB&itm_content=MLB&tb_edate=n7days&tb_page=1'
+            'https://dknetwork.draftkings.com/draftkings-sportsbook-betting-splits/?tb_eg=MLB&itm_content=MLB&tb_edate=n30days&tb_page=1'
+          )
+          n=0
+          for url in "${urls[@]}"; do
+            n=$((n+1))
+            curl --fail-with-body --silent --show-error --max-time 20 \
+              -H 'User-Agent: Mozilla/5.0 (Linux; Android 16; Mobile) AppleWebKit/537.36 Chrome/139.0 Safari/537.36' \
+              "$url" -o "/tmp/dk_${n}.html"
+          done
           python - <<'PY'
           import re, html
-          from urllib.parse import urljoin
-          raw=open('/tmp/dk.html',errors='ignore').read()
-          print('=== SCRIPT SRCS ===')
-          for src in re.findall(r'<script[^>]+src=["\']([^"\']+)', raw, flags=re.I):
-              print(urljoin('https://dknetwork.draftkings.com/', html.unescape(src)))
-          print('=== RELEVANT URL-LIKE STRINGS ===')
-          seen=set()
-          for m in re.finditer(r'(?:(?:https?:)?//[^"\'<>\s]+|/[^"\'<>\s]*(?:api|ajax|split|betting)[^"\'<>\s]*)', raw, flags=re.I):
-              s=html.unescape(m.group(0))[:500]
-              if s not in seen:
-                  seen.add(s); print(s)
-          print('=== LINES WITH API/AJAX/TABLE FILTER TERMS ===')
-          text=html.unescape(raw)
-          for line in text.splitlines():
-              lower=line.lower()
-              if any(k in lower for k in ['admin-ajax','wp-json','betting-split','tb_page','tb_edate','itm_content','% handle','sportsbook betting splits']):
-                  line=re.sub(r'\s+',' ',line).strip()
-                  if line:
-                      print(line[:2000])
+          from pathlib import Path
+          def tokens(raw):
+              for tag in ('script','style','noscript','svg'):
+                  raw=re.sub(fr'<{tag}\b[^>]*>[\s\S]*?</{tag}>',' ',raw,flags=re.I)
+              raw=re.sub(r'<[^>]+>','\n',raw)
+              raw=html.unescape(raw)
+              return [re.sub(r'\s+',' ',x.replace('\xa0',' ')).strip() for x in raw.splitlines() if re.sub(r'\s+',' ',x.replace('\xa0',' ')).strip()]
+          for n,label in [(1,'n7days'),(2,'n30days')]:
+              ts=tokens(Path(f'/tmp/dk_{n}.html').read_text(errors='ignore'))
+              print('====',label,'====')
+              for hit in [i for i,t in enumerate(ts) if 'STL Cardinals @ CIN Reds' in t]:
+                  print(ts[hit],ts[hit+1])
+                  for market in ('Moneyline','Run Line','Total'):
+                      try:j=ts.index(market,hit,hit+45)
+                      except ValueError:continue
+                      k=j+1
+                      while ts[k] in ('Odds','% Handle','% Bets'):k+=1
+                      print(market,'::',' | '.join(ts[k:k+8]))
           PY
