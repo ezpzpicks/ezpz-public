@@ -1,0 +1,38 @@
+name: Apply Final Lock Notifications Patch
+
+on:
+  push:
+    branches:
+      - agent/final-lock-notifications
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/final-lock-notifications
+
+      - name: Apply production patch
+        run: python scripts/apply_final_lock_notifications_patch.py
+
+      - name: Verify final-lock notifier
+        run: node scripts/final_trend_lock_notifications.mjs --self-test
+
+      - name: Type-check public site
+        run: |
+          npm install --no-audit --no-fund
+          npx tsc --noEmit
+
+      - name: Commit production changes and remove patch helpers
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/api/public-data/route.ts .github/workflows/draftkings_snapshot.yml scripts/final_trend_lock_notifications.mjs
+          git rm .github/workflows/apply_final_lock_notifications_patch.yml scripts/apply_final_lock_notifications_patch.py
+          git commit -m "Send final trend lock notifications"
+          git push origin HEAD:agent/final-lock-notifications
