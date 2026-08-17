@@ -1,0 +1,153 @@
+name: Fix Trend Card Duplicates
+
+on:
+  push:
+    branches:
+      - agent/fix-trend-card-duplicates
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/fix-trend-card-duplicates
+
+      - name: Patch final trend play dedupe
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('app/api/public-data/route.ts')
+          text = path.read_text()
+          start = text.index('function rankTrendPlays(')
+          end = text.index('\nfunction trendPlayForAllGameRow(', start)
+
+          replacement = '''function rankTrendPlays(
+            plays: TrendPlay[],
+            options?: { frozen?: boolean; frozenAt?: string },
+          ) {
+            const byGame = new Map<string, TrendPlay[]>();
+            for (const play of plays) {
+              const key = trendGameInstanceKey(play);
+              const current = byGame.get(key) || [];
+              current.push(play);
+              byGame.set(key, current);
+            }
+
+            // A logical trend card is one game instance + market + selected side.
+            // Do not include the current total line in this identity: when a total
+            // moves from (for example) Over 9 to Over 9.5 it is still the same
+            // Over trend, not a second card. The game-instance key remains
+            // time-aware so same-day doubleheaders stay completely separate.
+            const logicalSelectionKey = (play: TrendPlay) =>
+              `${play.market}|${trendSideComparisonKey(play)}`;
+            const playTimestampMs = (play: TrendPlay) => {
+              const updatedAt = Date.parse(play.updatedAt || '');
+              const frozenAt = Date.parse(play.frozenAt || '');
+              return Math.max(
+                Number.isFinite(updatedAt) ? updatedAt : 0,
+                Number.isFinite(frozenAt) ? frozenAt : 0,
+              );
+            };
+
+            const deduped: TrendPlay[] = [];
+            const rankBySelection = new Map<string, number>();
+
+            for (const [gameKey, gamePlays] of byGame.entries()) {
+              const uniqueBySelection = new Map<string, TrendPlay>();
+              for (const play of gamePlays) {
+                const selectionKey = logicalSelectionKey(play);
+                const existing = uniqueBySelection.get(selectionKey);
+                if (!existing) {
+                  uniqueBySelection.set(selectionKey, play);
+                  continue;
+                }
+
+                const playTime = playTimestampMs(play);
+                const existingTime = playTimestampMs(existing);
+                if (
+                  playTime > existingTime ||
+                  (playTime === existingTime && play.score > existing.score)
+                ) {
+                  uniqueBySelection.set(selectionKey, play);
+                }
+              }
+
+              const uniquePlays = [...uniqueBySelection.values()];
+              [...uniquePlays]
+                .sort((a, b) => {
+                  if (b.score !== a.score) return b.score - a.score;
+                  return trendPickLabel(a).localeCompare(trendPickLabel(b));
+                })
+                .forEach((play, index) => {
+                  rankBySelection.set(
+                    `${gameKey}|${logicalSelectionKey(play)}`,
+                    index + 1,
+                  );
+                });
+
+              deduped.push(...uniquePlays);
+            }
+
+            return deduped.map((play) => ({
+              ...play,
+              rank:
+                rankBySelection.get(
+                  `${trendGameInstanceKey(play)}|${logicalSelectionKey(play)}`,
+                ) || play.rank,
+              frozenAt: options?.frozen
+                ? options.frozenAt || play.updatedAt
+                : play.frozenAt,
+              snapshotStatus: options?.frozen
+                ? ('FINAL_PREGAME' as const)
+                : play.snapshotStatus || ('LIVE' as const),
+              gradingVersion: options?.frozen
+                ? FROZEN_TREND_GRADING_VERSION
+                : play.gradingVersion,
+            }));
+          }
+          '''
+
+          path.write_text(text[:start] + replacement + text[end:])
+          PY
+
+      - name: Verify dedupe invariants
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          text = Path('app/api/public-data/route.ts').read_text()
+          start = text.index('function rankTrendPlays(')
+          end = text.index('\nfunction trendPlayForAllGameRow(', start)
+          block = text[start:end]
+
+          assert 'trendGameInstanceKey(play)' in block, 'Game-instance identity was lost'
+          assert 'const uniqueBySelection = new Map<string, TrendPlay>();' in block, 'Actual output dedupe is missing'
+          assert '`${play.market}|${trendSideComparisonKey(play)}`' in block, 'Logical side identity is missing'
+          assert 'trendMarketComparisonKey(play)' not in block, 'Exact total line must not be part of final card identity'
+          assert 'return deduped.map((play)' in block, 'rankTrendPlays still returns the original duplicate list'
+          print('Trend-card dedupe source invariants passed.')
+          PY
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript check
+        run: npx tsc --noEmit
+
+      - name: Commit validated route fix
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/api/public-data/route.ts
+          if git diff --cached --quiet; then
+            echo 'No route changes to commit.'
+            exit 0
+          fi
+          git commit -m 'Deduplicate logical trend play cards'
+          git push origin HEAD:agent/fix-trend-card-duplicates
