@@ -4634,6 +4634,8 @@ function trendWindowMetrics(records: TrendWindowRecords) {
   };
 }
 
+const TREND_BROAD_FALLBACK_SCORE_CAP = 69;
+
 function buildTrendSignalBreakdown(
   signal: {
     signalType: "Public Split" | "Line Movement";
@@ -4684,7 +4686,11 @@ function buildTrendSignalBreakdown(
     category: `${signal.signal} • ${market} • ${sideGroup}`,
     recordScope,
     exactSample: exact.allTime.totalBets,
-    score: Math.round(metrics.score),
+    score: Math.round(
+      exact.allTime.totalBets > 0
+        ? metrics.score
+        : Math.min(metrics.score, TREND_BROAD_FALLBACK_SCORE_CAP),
+    ),
     weights,
     records: displayRecords,
   };
@@ -4855,7 +4861,17 @@ function trendSlateRowForSplit(split: DraftKingsSplit, slateRows: SheetRow[]) {
 
 function frozenTrendPlayMetrics(play: TrendPlay) {
   const signals = play.signals
-    .map((signal) => trendWindowMetrics(signal.records))
+    .map((signal) => {
+      const metrics = trendWindowMetrics(signal.records);
+      if (!metrics.hasData) return metrics;
+      return {
+        ...metrics,
+        score:
+          signal.exactSample > 0
+            ? metrics.score
+            : Math.min(metrics.score, TREND_BROAD_FALLBACK_SCORE_CAP),
+      };
+    })
     .filter((metrics) => metrics.hasData);
 
   if (!signals.length) {
