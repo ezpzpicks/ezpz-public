@@ -14,54 +14,31 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 4
     steps:
-      - name: Compare DraftKings response variants
+      - name: Inspect DraftKings client data sources
         run: |
-          stamp=$(date +%s)
-          urls=(
-            "https://dknetwork.draftkings.com/draftkings-sportsbook-betting-splits/"
-            "https://dknetwork.draftkings.com/draftkings-sportsbook-betting-splits/?tb_page=1"
-            "https://dknetwork.draftkings.com/draftkings-sportsbook-betting-splits/?itm_content=MLB&tb_page=1"
-            "https://dknetwork.draftkings.com/draftkings-sportsbook-betting-splits/?itm_content=MLB&tb_edate=n7days&tb_eg=MLB&tb_page=1"
-            "https://dknetwork.draftkings.com/draftkings-sportsbook-betting-splits/?itm_content=MLB&tb_edate=n7days&tb_eg=MLB&tb_page=1&_ezpz=${stamp}"
-            "https://dknetwork.draftkings.com/draftkings-sportsbook-betting-splits/?_ezpz=${stamp}"
-          )
-          n=0
-          for url in "${urls[@]}"; do
-            n=$((n+1))
-            echo "URL${n}: ${url}"
-            curl --fail-with-body --silent --show-error --max-time 20 \
-              -H 'Cache-Control: no-cache' \
-              -H 'Pragma: no-cache' \
-              -H 'User-Agent: Mozilla/5.0 (Linux; Android 16; Mobile) AppleWebKit/537.36 Chrome/139.0 Safari/537.36' \
-              "$url" -o "/tmp/dk_${n}.html" || true
-          done
+          curl --fail-with-body --silent --show-error --max-time 20 \
+            -H 'User-Agent: Mozilla/5.0 (Linux; Android 16; Mobile) AppleWebKit/537.36 Chrome/139.0 Safari/537.36' \
+            'https://dknetwork.draftkings.com/draftkings-sportsbook-betting-splits/' \
+            -o /tmp/dk.html
           python - <<'PY'
-          import html as htmllib
-          import re
-          from pathlib import Path
-
-          def tokens(raw):
-              for tag in ('script','style','noscript','svg'):
-                  raw = re.sub(fr'<{tag}\b[^>]*>[\s\S]*?</{tag}>', ' ', raw, flags=re.I)
-              raw = re.sub(r'<[^>]+>', '\n', raw)
-              raw = htmllib.unescape(raw)
-              return [re.sub(r'\s+', ' ', x.replace('\xa0',' ')).strip() for x in raw.splitlines() if re.sub(r'\s+', ' ', x.replace('\xa0',' ')).strip()]
-
-          for n in range(1,7):
-              p=Path(f'/tmp/dk_{n}.html')
-              if not p.exists(): continue
-              ts=tokens(p.read_text(errors='ignore'))
-              hits=[i for i,t in enumerate(ts) if 'STL Cardinals @ CIN Reds' in t]
-              print(f'===== VARIANT {n}: {len(hits)} Reds hits =====')
-              for hit in hits:
-                  print('GAME', ts[hit], ts[hit+1])
-                  j=hit+2
-                  while j < min(len(ts), hit+42):
-                      if j+1 < len(ts) and ' @ ' in ts[j] and re.search(r'\d{1,2}/\d{1,2}', ts[j+1]): break
-                      if ts[j] in ('Moneyline','Run Line','Spread','Total'):
-                          market=ts[j]
-                          k=j+1
-                          while k < len(ts) and ts[k] in ('Odds','% Handle','% Bets'): k+=1
-                          print(market, '::', ' | '.join(ts[k:k+8]))
-                      j+=1
+          import re, html
+          from urllib.parse import urljoin
+          raw=open('/tmp/dk.html',errors='ignore').read()
+          print('=== SCRIPT SRCS ===')
+          for src in re.findall(r'<script[^>]+src=["\']([^"\']+)', raw, flags=re.I):
+              print(urljoin('https://dknetwork.draftkings.com/', html.unescape(src)))
+          print('=== RELEVANT URL-LIKE STRINGS ===')
+          seen=set()
+          for m in re.finditer(r'(?:(?:https?:)?//[^"\'<>\s]+|/[^"\'<>\s]*(?:api|ajax|split|betting)[^"\'<>\s]*)', raw, flags=re.I):
+              s=html.unescape(m.group(0))[:500]
+              if s not in seen:
+                  seen.add(s); print(s)
+          print('=== LINES WITH API/AJAX/TABLE FILTER TERMS ===')
+          text=html.unescape(raw)
+          for line in text.splitlines():
+              lower=line.lower()
+              if any(k in lower for k in ['admin-ajax','wp-json','betting-split','tb_page','tb_edate','itm_content','% handle','sportsbook betting splits']):
+                  line=re.sub(r'\s+',' ',line).strip()
+                  if line:
+                      print(line[:2000])
           PY
