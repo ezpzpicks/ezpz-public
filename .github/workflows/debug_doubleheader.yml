@@ -1,0 +1,38 @@
+name: Debug DK Doubleheader
+
+on:
+  push:
+    branches: [agent/fix-doubleheaders]
+
+permissions:
+  contents: read
+
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Inspect DraftKings Cardinals/Reds tokens
+        run: |
+          node --input-type=module <<'NODE'
+          const url = new URL('https://dknetwork.draftkings.com/draftkings-sportsbook-betting-splits/');
+          url.searchParams.set('itm_content','MLB');
+          url.searchParams.set('tb_edate','n7days');
+          url.searchParams.set('tb_eg','MLB');
+          url.searchParams.set('tb_page','1');
+          const r = await fetch(url, {headers:{'User-Agent':'Mozilla/5.0','Accept':'text/html,application/xhtml+xml'}});
+          if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+          const html = await r.text();
+          const cleaned = html
+            .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,' ')
+            .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi,' ')
+            .replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi,' ')
+            .replace(/<svg\b[^>]*>[\s\S]*?<\/svg>/gi,' ')
+            .replace(/<[^>]+>/g,'\n');
+          const tokens = cleaned.split(/\r?\n/).map(x=>x.replace(/&nbsp;/gi,' ').replace(/\s+/g,' ').trim()).filter(Boolean);
+          for (let i=0;i<tokens.length;i++) {
+            if (/Cardinals.*@.*Reds|St\. Louis.*@.*Cincinnati/i.test(tokens[i])) {
+              console.log('--- occurrence', i, '---');
+              for (let j=Math.max(0,i-5);j<Math.min(tokens.length,i+35);j++) console.log(j, JSON.stringify(tokens[j]));
+            }
+          }
+          NODE
