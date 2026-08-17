@@ -128,7 +128,7 @@ const ALL_GAME_TRENDS_HEADERS = [
 ];
 
 const AI_PICK_SELECTOR_TAB = "ai_pick_selector";
-const AI_PICK_SELECTOR_VERSION = "hybrid-web-context-v17-all-best-play-last7-gates";
+const AI_PICK_SELECTOR_VERSION = "hybrid-web-context-v18-trend-rebalance";
 const AI_MINIMUM_ESTIMATED_ADVANTAGE = 5;
 const AI_PICK_SELECTOR_HEADERS = [
   "Date", "Candidate ID", "Game Key", "Game Time", "Game", "Away Team", "Home Team",
@@ -4698,8 +4698,8 @@ function buildTrendSignalBreakdown(
 
 function trendTier(score: number, eligible = true): TrendPlay["tier"] {
   if (!eligible || score < 60) return "Pass";
-  if (score >= 88) return "Elite";
-  if (score >= 75) return "Strong";
+  if (score >= 85) return "Elite";
+  if (score >= 69) return "Strong";
   return "Good";
 }
 
@@ -6321,10 +6321,11 @@ function aiTrendBlendWeights(play: TrendPlay | null) {
 }
 
 function aiTrendOnlyBaseScore(trendScore: number) {
-  // A qualifying Trend Score is evidence, not a 1:1 AI grade. Compress the
-  // 60-100 trend range into 60-90 so 95+ AI scores require independent support.
-  const normalized = aiClamp(trendScore, 60, 100);
-  return aiClamp(60 + (normalized - 60) * 0.75, 0, 90);
+  // Strong trends should have a realistic path to the final 80+ AI gate without
+  // turning Trend Score into an automatic publication score. Map 69-95 to
+  // 76.5-89.5; history, market context, and final research decide whether it clears 80.
+  const normalized = aiClamp(trendScore, 69, 100);
+  return aiClamp(76.5 + (normalized - 69) * 0.5, 0, 92);
 }
 
 function aiTrendOnlyHistoryAdjustment(play: TrendPlay) {
@@ -6923,6 +6924,9 @@ function aiMergeTrendCandidate(
     if (!existing.odds) existing.odds = play.odds || "";
     return;
   }
+  // Good-only trends stay visible on the Trend Plays board, but only Strong/Elite
+  // trends create standalone AI candidates. A Good trend can still support a Best Play.
+  if (play.tier === "Good") return;
   const odds = play.odds || "";
   const trendHistoryAdjustment = aiTrendOnlyHistoryAdjustment(play);
   candidateMap.set(id, {
@@ -7150,6 +7154,8 @@ function aiCandidateResearchPayload(candidate: AiSelectorCandidate) {
       (candidate.source === "Best + Trend"
         ? candidate.modelScore * aiTrendBlendWeights(candidate.trendPlay).modelWeight +
           candidate.trendScore * aiTrendBlendWeights(candidate.trendPlay).trendWeight
+        : candidate.source === "Trend Play" && !candidate.bestPlayType
+        ? aiTrendOnlyBaseScore(candidate.trendScore)
         : candidate.modelScore || candidate.trendScore) + candidate.scoreAdjustment,
       1,
     ),
@@ -7616,7 +7622,7 @@ Use modelGameContext as the primary quantitative source. Verify only decision-re
 
 The shared fields must be concise but matchup-specific: startingPitching names both starters and any prop pitcher; bullpenAnalysis covers availability or says no material concern was verified; recentTeamForm covers both teams; historicalMatchup includes sample context or says no meaningful sample exists.
 
-Return candidateReviews in exactly the same order as the supplied candidates, with exactly one item for each. approved=true means the wager still deserves publication after research. approved=false is a final veto for materially negative evidence; it is not limited to critical conflicts. Use a small adjustment from -6 to +6, and use 0 when research does not change the supplied quantitative case. Each candidate needs two or three concise WHY bullets focused on the actual reason it cleared or failed—never a public risk list. For any candidate backed by a Best Play, its exact Best Play bet type uses the rolling Last-7-Bets quantitative gates: Hot = 74 score / 50% probability / 1.5% advantage; Neutral = 80 / 52.5% / 3.25%; Small Sample = 86 / 55% / 5%; Cold is excluded before review. This applies to pitcher props, A/B Moneylines, Total Over/Under, and Elite NRFI/YRFI. A Trend-Play-only candidate is not subject to the model bet-type form gate. It must be a Strong/Elite trend (Trend Score 75+) and clear the compressed adjusted AI score of 85+; there is no minimum historical bet count or small-sample veto. Your final approved=true/false review remains the final publication decision.
+Return candidateReviews in exactly the same order as the supplied candidates, with exactly one item for each. approved=true means the wager still deserves publication after research. approved=false is a final veto for materially negative evidence; it is not limited to critical conflicts. Use a small adjustment from -6 to +6, and use 0 when research does not change the supplied quantitative case. Each candidate needs two or three concise WHY bullets focused on the actual reason it cleared or failed—never a public risk list. For any candidate backed by a Best Play, its exact Best Play bet type uses the rolling Last-7-Bets quantitative gates: Hot = 74 score / 50% probability / 1.5% advantage; Neutral = 80 / 52.5% / 3.25%; Small Sample = 86 / 55% / 5%; Cold is excluded before review. This applies to pitcher props, A/B Moneylines, Total Over/Under, and Elite NRFI/YRFI. A Trend-Play-only candidate is not subject to the model bet-type form gate. It must be a Strong/Elite trend (Trend Score 69+) and clear the compressed adjusted AI score of 80+; there is no minimum historical bet count or small-sample veto. Your final approved=true/false review remains the final publication decision.
 
 For Pitcher Strikeouts, treat the supplied AI score as the strikeout model's differentiated assessment, not a win probability or automatic approval. Preserve the model's score distinctions unless verified research justifies the permitted small adjustment. Test the projection versus line, opposing lineup K/contact tendencies, pitcher arsenal/whiff fit, recent starts, innings/pitch count/leash, relevant history sample, and whether today’s lineup differs from generic team rates. A negative net assessment must be approved=false.
 
@@ -7918,7 +7924,7 @@ function finalizeAiCandidates(
 
     // Any candidate backed by a Best Play uses the same rolling Last-7-Bets
     // form gate, regardless of market. Trend-only candidates must first be a
-    // Strong/Elite trend (75+) and then earn an adjusted AI score of 85+; there
+    // Strong/Elite trend (69+) and then earn an adjusted AI score of 80+; there
     // is deliberately no minimum historical bet count.
     const bestPlayProfile = aiPitcherQualificationProfile(
       candidate.pitcherBetTypeForm,
@@ -7927,7 +7933,7 @@ function finalizeAiCandidates(
       candidate.pitcherRequiredScore || bestPlayProfile.score;
     const selectionThresholds = trendOnlyCandidate
       ? {
-          score: 85,
+          score: 80,
           probability: 0,
           advantage: 0,
           enforceProbability: false,
@@ -7951,8 +7957,8 @@ function finalizeAiCandidates(
     const qualificationScore = aiScore;
     const rawTrendScore = Number(candidate.trendScore || 0);
     const thresholdFailure =
-      trendOnlyCandidate && rawTrendScore < 75
-        ? `Trend score ${rawTrendScore} did not reach the 75 Strong-trend minimum`
+      trendOnlyCandidate && rawTrendScore < 69
+        ? `Trend score ${rawTrendScore} did not reach the 69 Strong-trend minimum`
         : qualificationScore < selectionThresholds.score
           ? `AI score ${qualificationScore} did not reach the ${selectionThresholds.score} premium-play threshold`
         : selectionThresholds.enforceProbability &&

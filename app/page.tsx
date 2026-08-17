@@ -3540,8 +3540,8 @@ function trendPickLabel(play: TrendPlay) {
 
 function rankedTrendLabel(score: number, eligible = true): TrendTier {
   if (!eligible || score < 60) return "Pass";
-  if (score >= 88) return "Elite";
-  if (score >= 75) return "Strong";
+  if (score >= 85) return "Elite";
+  if (score >= 69) return "Strong";
   return "Good";
 }
 
