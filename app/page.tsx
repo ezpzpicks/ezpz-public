@@ -4070,11 +4070,9 @@ function groupRankedTrendPlays(
 
   return [...grouped.values()]
     .map((group) => {
-      // The Trend Plays tab is a qualified-play board, not a four-side market
-      // dump. Keep Pass rows available to the head-to-head scorer above, then
-      // remove them from the public card after the comparison is complete.
+      // Score all tracked market sides together so the head-to-head comparison
+      // remains unchanged, then keep both graded and Pass rows visible on the card.
       const plays = scoreTrendMarketPlays(group.plays)
-        .filter((play) => play.tier !== "Pass")
         .sort((a, b) => {
           if (b.score !== a.score) return b.score - a.score;
           if (b.baseTrendScore !== a.baseTrendScore) {
@@ -4086,12 +4084,13 @@ function groupRankedTrendPlays(
           if (a.market !== b.market) return a.market === "Moneyline" ? -1 : 1;
           return trendPickLabel(a).localeCompare(trendPickLabel(b));
         });
+      const qualifiedPlays = plays.filter((play) => play.tier !== "Pass");
 
       return {
         ...group,
         plays,
-        topScore: plays[0]?.score || 0,
-        secondScore: plays[1]?.score || 0,
+        topScore: qualifiedPlays[0]?.score || 0,
+        secondScore: qualifiedPlays[1]?.score || 0,
         maxExactSample: Math.max(0, ...plays.map(trendExactSample)),
       };
     })
@@ -4255,7 +4254,7 @@ function TrendGameCard({
   slateRows: SheetRow[];
   boardDate: string;
 }) {
-  const leader = group.plays[0];
+  const leader = group.plays.find((play) => play.tier !== "Pass");
   const topPick = leader ? trendPickLabel(leader) : "—";
   const topMatch = leader && leader.tier !== "Pass"
     ? bestMatchForTrendPlay(leader, bestPlays, slateRows)
@@ -6415,7 +6414,13 @@ export default function Home() {
       data.slateToday,
       data.today,
     );
-    const qualifiedTrendPlays = rankedTrendGames.flatMap((group) => group.plays);
+    const qualifiedTrendPlays = rankedTrendGames.flatMap((group) =>
+      group.plays.filter((play) => play.tier !== "Pass"),
+    );
+    const displayedTrendSides = rankedTrendGames.reduce(
+      (sum, group) => sum + group.plays.length,
+      0,
+    );
     // Pending candidates remain visible until final review. A finalized
     // rejection is returned with selected=false or BLOCKED and disappears;
     // an approved candidate remains and changes from PENDING to FINAL.
@@ -6490,7 +6495,7 @@ export default function Home() {
           <div className="sectionHead">
             <h2>Today’s Trend Plays</h2>
             <span className="countPill">
-              {rankedTrendGames.length} games • {qualifiedTrendPlays.length} plays
+              {rankedTrendGames.length} games • {displayedTrendSides} tracked sides • {qualifiedTrendPlays.length} graded
             </span>
           </div>
 
