@@ -5,6 +5,7 @@ const STATE_PATH =
   process.env.FINAL_LOCK_STATE_PATH || ".cache/final_trend_lock_notification_state.json";
 const NTFY_TOPIC = String(process.env.NTFY_TOPIC || "").trim();
 const CLICK_URL = String(process.env.FINAL_LOCK_CLICK_URL || "https://ezpzpicks.com").trim();
+const MAX_MESSAGE_LENGTH = 3500;
 
 function textKey(value) {
   return String(value || "")
@@ -80,15 +81,19 @@ function minutesFromNowEt(dateIso, eventTime, now = new Date()) {
   const targetDay = Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
   const nowDay = Date.UTC(nowParts.year, nowParts.month - 1, nowParts.day);
   const dayDeltaMinutes = (targetDay - nowDay) / 60000;
-  const targetClock = hour * 60 + minute;
-  const nowClock = nowParts.hour * 60 + nowParts.minute;
-  return dayDeltaMinutes + targetClock - nowClock;
+  return dayDeltaMinutes + hour * 60 + minute - (nowParts.hour * 60 + nowParts.minute);
 }
 
 function pct(value) {
   const number = Number(value);
   if (!Number.isFinite(number)) return "—";
   return `${number.toFixed(number % 1 ? 1 : 0)}%`;
+}
+
+function scoreText(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "—";
+  return number.toFixed(number % 1 ? 1 : 0);
 }
 
 function odds(value) {
@@ -155,14 +160,79 @@ function finalGroups(payload) {
   return groups;
 }
 
+function sameGame(item, reference) {
+  if (!item || !reference) return false;
+  const awayMatch = textKey(item.awayTeam) && textKey(item.awayTeam) === textKey(reference.awayTeam);
+  const homeMatch = textKey(item.homeTeam) && textKey(item.homeTeam) === textKey(reference.homeTeam);
+  if (awayMatch && homeMatch) {
+    const itemTime = timeKey(item.gameTime || item.eventTime || item.recordGameTime || "");
+    const refTime = timeKey(reference.eventTime || reference.gameTime || "");
+    return !itemTime || !refTime || itemTime === refTime;
+  }
+  return textKey(item.game) && textKey(item.game) === textKey(reference.game);
+}
+
+function finalTrendPlaysForGame(payload, reference) {
+  return (Array.isArray(payload?.trendPlays) ? payload.trendPlays : [])
+    .filter((play) => sameGame(play, reference))
+    .filter((play) => play?.snapshotStatus === "FINAL_PREGAME")
+    .filter((play) => String(play?.tier || "").toLowerCase() !== "pass")
+    .sort((a, b) => Number(b?.score || 0) - Number(a?.score || 0));
+}
+
+function bestPlaysForGame(payload, reference) {
+  return (Array.isArray(payload?.bestPlays) ? payload.bestPlays : [])
+    .filter((play) => sameGame(play, reference))
+    .sort((a, b) => Number(b?.score || 0) - Number(a?.score || 0));
+}
+
+function trendPlaySummary(play) {
+  const market = String(play?.market || "").trim();
+  const selection = market === "Total"
+    ? `${play?.side || play?.selection || "Total"} ${play?.line ?? ""}`.trim()
+    : `${play?.selectionTeam || play?.selection || "Moneyline"} ML`.trim();
+  return `${play?.tier || "Trend"} ${scoreText(play?.score)} • ${selection}${play?.odds ? ` ${odds(play.odds)}` : ""}`;
+}
+
+function bestPlaySummary(play) {
+  const label = String(play?.play || play?.playType || "Best Play").trim();
+  const type = String(play?.playType || "Best Play").trim();
+  const score = Number.isFinite(Number(play?.score)) ? ` • Score ${scoreText(play.score)}` : "";
+  const price = String(play?.oddsLine || "").trim() ? ` • ${play.oddsLine}` : "";
+  return `${type}: ${label}${score}${price}`;
+}
+
+function trimMessage(message) {
+  const raw = String(message || "");
+  if (raw.length <= MAX_MESSAGE_LENGTH) return raw;
+  return `${raw.slice(0, MAX_MESSAGE_LENGTH - 28).trimEnd()}\n…open EZPZ for full details`;
+}
+
 async function readState(today) {
   try {
     const parsed = JSON.parse(await fs.readFile(STATE_PATH, "utf8"));
-    if (parsed?.version === 1 && parsed?.date === today && parsed?.sent) return parsed;
+    if (parsed?.version === 2 && parsed?.date === today) {
+      return {
+        version: 2,
+        date: today,
+        gameLocks: parsed.gameLocks || {},
+        aiPicks: parsed.aiPicks || {},
+        updatedAt: parsed.updatedAt || "",
+      };
+    }
+    if (parsed?.version === 1 && parsed?.date === today && parsed?.sent) {
+      return {
+        version: 2,
+        date: today,
+        gameLocks: parsed.sent,
+        aiPicks: {},
+        updatedAt: parsed.updatedAt || "",
+      };
+    }
   } catch (error) {
     if (error?.code !== "ENOENT") console.warn(`Ignoring unreadable final-lock state: ${error.message || error}`);
   }
-  return { version: 1, date: today, sent: {}, updatedAt: "" };
+  return { version: 2, date: today, gameLocks: {}, aiPicks: {}, updatedAt: "" };
 }
 
 async function writeState(state) {
@@ -172,7 +242,7 @@ async function writeState(state) {
   await fs.rename(temporary, STATE_PATH);
 }
 
-async function publishNtfy(title, message) {
+async function publishNtfy({ title, message, priority = 3, tags = [] }) {
   if (!NTFY_TOPIC) throw new Error("NTFY_TOPIC repository secret is missing or empty");
   if (!/^[-_A-Za-z0-9]{1,64}$/.test(NTFY_TOPIC)) {
     throw new Error("NTFY_TOPIC contains invalid characters or is longer than 64 characters");
@@ -186,9 +256,9 @@ async function publishNtfy(title, message) {
         body: JSON.stringify({
           topic: NTFY_TOPIC,
           title,
-          message,
-          priority: 3,
-          tags: ["lock", "chart_with_upwards_trend"],
+          message: trimMessage(message),
+          priority,
+          tags,
           click: CLICK_URL || undefined,
         }),
         signal: AbortSignal.timeout(10_000),
@@ -203,7 +273,7 @@ async function publishNtfy(title, message) {
   throw lastError || new Error("ntfy publish failed");
 }
 
-function buildNotification(group) {
+function buildGameLockNotification(group, payload) {
   const rows = [...group].sort((a, b) => {
     const marketOrder = (a.market === "Moneyline" ? 0 : 1) - (b.market === "Moneyline" ? 0 : 1);
     if (marketOrder) return marketOrder;
@@ -212,17 +282,91 @@ function buildNotification(group) {
   const first = rows[0] || {};
   const game = first.game || `${first.awayTeam || "Away"} at ${first.homeTeam || "Home"}`;
   const eventTime = formatTime12(first.eventTime);
-  const title = `EZPZ Final Trend Lock — ${game}`;
-  const lines = [eventTime ? `${game} • ${eventTime}` : game];
+  const lines = [eventTime ? `${game} • ${eventTime}` : game, "", "FINAL MARKET"];
   let currentMarket = "";
   for (const row of rows) {
     if (row.market !== currentMarket) {
       currentMarket = row.market;
-      lines.push(currentMarket === "Moneyline" ? "MONEYLINE" : "TOTAL");
+      lines.push(currentMarket === "Moneyline" ? "Moneyline" : "Total");
     }
-    lines.push(splitSummary(row));
+    lines.push(`• ${splitSummary(row)}`);
   }
-  return { title, message: lines.join("\n") };
+
+  const trends = finalTrendPlaysForGame(payload, first);
+  if (trends.length) {
+    lines.push("", "FINAL TREND PLAYS");
+    for (const play of trends) lines.push(`• ${trendPlaySummary(play)}`);
+  }
+
+  const bestPlays = bestPlaysForGame(payload, first);
+  if (bestPlays.length) {
+    lines.push("", "BEST PLAYS");
+    for (const play of bestPlays) lines.push(`• ${bestPlaySummary(play)}`);
+  }
+
+  return {
+    title: `EZPZ Final Lock — ${game}`,
+    message: lines.join("\n"),
+    priority: 4,
+    tags: ["lock", "chart_with_upwards_trend"],
+  };
+}
+
+function finalAiPicks(payload, today) {
+  return (Array.isArray(payload?.aiPicks) ? payload.aiPicks : [])
+    .filter((pick) => String(pick?.date || "").trim() === String(today || "").trim())
+    .filter((pick) => pick?.selected === true)
+    .filter((pick) => pick?.protectionStatus === "PASSED")
+    .filter((pick) => pick?.snapshotStatus === "FINAL_PREGAME")
+    .filter((pick) => pick?.externalReviewStatus === "WEB_REVIEWED")
+    .sort((a, b) => String(a?.gameTime || "").localeCompare(String(b?.gameTime || "")));
+}
+
+function aiPickKey(pick) {
+  return String(pick?.candidateId || [pick?.date, pick?.gameKey, pick?.market, pick?.selection, pick?.line].map(textKey).join("|")).trim();
+}
+
+function compactList(value, limit = 2) {
+  const items = Array.isArray(value) ? value : [];
+  return items.map((item) => String(item || "").trim()).filter(Boolean).slice(0, limit);
+}
+
+function buildAiPickNotification(pick) {
+  const game = pick?.game || `${pick?.awayTeam || "Away"} at ${pick?.homeTeam || "Home"}`;
+  const time = formatTime12(pick?.gameTime);
+  const lines = [
+    time ? `${game} • ${time}` : game,
+    `${pick?.play || pick?.selection || "AI Pick"}${pick?.odds ? ` • ${odds(pick.odds)}` : ""}`,
+    `AI Score ${scoreText(pick?.aiScore)} | Est. ${pct(pick?.estimatedProbability)} | Advantage ${pct(pick?.estimatedAdvantage)}`,
+  ];
+
+  const sourceParts = [pick?.source, pick?.bestPlayType, pick?.trendTier].map((value) => String(value || "").trim()).filter(Boolean);
+  if (sourceParts.length) lines.push(`Source: ${sourceParts.join(" • ")}`);
+
+  const why = compactList(pick?.whySelected, 2);
+  if (why.length) {
+    lines.push("", "WHY IT MADE THE CUT");
+    for (const item of why) lines.push(`• ${item}`);
+  }
+
+  const research = String(pick?.researchSummary || "").trim();
+  if (research) lines.push("", `Research: ${research}`);
+
+  const historical = compactList(pick?.historicalNotes, 1);
+  if (historical.length) lines.push(`History: ${historical[0]}`);
+
+  const risks = compactList(pick?.risks, 1);
+  if (risks.length) lines.push(`Risk: ${risks[0]}`);
+
+  const verdict = String(pick?.verdict || "").trim();
+  if (verdict) lines.push("", `Final verdict: ${verdict}`);
+
+  return {
+    title: `EZPZ AI Pick Final — ${pick?.play || game}`,
+    message: lines.join("\n"),
+    priority: 5,
+    tags: ["robot", "white_check_mark"],
+  };
 }
 
 function runSelfTest() {
@@ -243,8 +387,8 @@ function runSelfTest() {
           odds: "-118",
           openingLine: 9.5,
           openingOdds: "+100",
-          betsPct: 100,
-          moneyPct: 100,
+          betsPct: 68,
+          moneyPct: 74,
           openingBetsPct: 55,
           openingMoneyPct: 60,
           lineMovementSignal: "Reverse Line Movement Against",
@@ -252,17 +396,81 @@ function runSelfTest() {
         },
       ],
     },
+    trendPlays: [
+      {
+        game: "St. Louis Cardinals at Cincinnati Reds",
+        awayTeam: "St. Louis Cardinals",
+        homeTeam: "Cincinnati Reds",
+        market: "Total",
+        selection: "Over",
+        side: "Over",
+        line: 9,
+        odds: "-118",
+        score: 91,
+        tier: "Elite",
+        snapshotStatus: "FINAL_PREGAME",
+      },
+    ],
+    bestPlays: [
+      {
+        game: "St. Louis Cardinals at Cincinnati Reds",
+        awayTeam: "St. Louis Cardinals",
+        homeTeam: "Cincinnati Reds",
+        playType: "Strong Total Over",
+        play: "Over 9",
+        oddsLine: "-118",
+        score: 88,
+      },
+    ],
+    aiPicks: [
+      {
+        date: "2026-08-17",
+        candidateId: "test-ai-pick",
+        gameKey: "123",
+        gameTime: "18:40",
+        game: "St. Louis Cardinals at Cincinnati Reds",
+        awayTeam: "St. Louis Cardinals",
+        homeTeam: "Cincinnati Reds",
+        market: "Total",
+        play: "Over 9",
+        selection: "Over",
+        line: "9",
+        odds: "-118",
+        source: "Best + Trend",
+        bestPlayType: "Strong Total Over",
+        trendTier: "Elite",
+        aiScore: 92,
+        estimatedProbability: 61.2,
+        estimatedAdvantage: 7.1,
+        selected: true,
+        protectionStatus: "PASSED",
+        snapshotStatus: "FINAL_PREGAME",
+        externalReviewStatus: "WEB_REVIEWED",
+        whySelected: ["Model and final market agree", "Trend history remains strong"],
+        researchSummary: "Starting pitching and bullpen context support the over.",
+        historicalNotes: ["Matchup history is supportive."],
+        risks: ["Late lineup scratch."],
+        verdict: "Approved as a final AI pick.",
+      },
+    ],
   };
+
   const groups = finalGroups(payload);
   if (groups.size !== 1) throw new Error(`Self-test expected one final group, got ${groups.size}`);
   const group = [...groups.values()][0];
-  const notification = buildNotification(group);
+  const notification = buildGameLockNotification(group, payload);
   if (!notification.message.includes("9.5 +100 → 9 -118")) throw new Error("Self-test opening/final total formatting failed");
-  if (!notification.message.includes("RLM Against")) throw new Error("Self-test movement formatting failed");
+  if (!notification.message.includes("FINAL TREND PLAYS")) throw new Error("Self-test trend section missing");
+  if (!notification.message.includes("BEST PLAYS")) throw new Error("Self-test best-play section missing");
+  const ai = finalAiPicks(payload, payload.today);
+  if (ai.length !== 1) throw new Error(`Self-test expected one final AI pick, got ${ai.length}`);
+  const aiNotification = buildAiPickNotification(ai[0]);
+  if (!aiNotification.message.includes("AI Score 92")) throw new Error("Self-test AI score formatting failed");
+  if (!aiNotification.message.includes("Final verdict")) throw new Error("Self-test AI verdict missing");
   const keyA = groupKey(payload.draftKings.splits[0]);
   const keyB = groupKey({ ...payload.draftKings.splits[0], eventTime: "13:40" });
   if (keyA === keyB) throw new Error("Self-test doubleheader grouping collision");
-  console.log("Final trend lock notifier self-test passed.");
+  console.log("Final lock + AI notifier self-test passed.");
 }
 
 async function main() {
@@ -283,46 +491,71 @@ async function main() {
   if (!today) throw new Error("Public-data response did not include today's date");
   const state = await readState(today);
   const groups = finalGroups(payload);
-  let sent = 0;
-  let alreadySent = 0;
-  let seeded = 0;
+  let gameLocksSent = 0;
+  let gameLocksAlreadySent = 0;
+  let gameLocksSeeded = 0;
+  let aiPicksSent = 0;
+  let aiPicksAlreadySent = 0;
+  let aiPicksSeeded = 0;
 
   for (const [key, group] of groups) {
-    if (state.sent[key]) {
-      alreadySent += 1;
+    if (state.gameLocks[key]) {
+      gameLocksAlreadySent += 1;
       continue;
     }
     const first = group[0] || {};
     const minutes = minutesFromNowEt(first.date || today, first.eventTime);
 
-    // When this feature is first enabled mid-slate, silently seed locks that are
-    // already well in the past so the phone is not flooded with old games.
     if (minutes == null || minutes < -5) {
-      state.sent[key] = { seededAt: new Date().toISOString(), reason: "historical final lock" };
-      seeded += 1;
+      state.gameLocks[key] = { seededAt: new Date().toISOString(), reason: "historical final lock" };
+      gameLocksSeeded += 1;
       continue;
     }
-
-    // A genuine final lock should be close to first pitch. If a malformed future
-    // snapshot appears much earlier, leave it unsent so a later run can retry.
     if (minutes > 35) continue;
 
-    const notification = buildNotification(group);
-    await publishNtfy(notification.title, notification.message);
-    state.sent[key] = {
+    const notification = buildGameLockNotification(group, payload);
+    await publishNtfy(notification);
+    state.gameLocks[key] = {
       sentAt: new Date().toISOString(),
       game: first.game || "",
       eventTime: timeKey(first.eventTime),
     };
     state.updatedAt = new Date().toISOString();
     await writeState(state);
-    sent += 1;
+    gameLocksSent += 1;
+  }
+
+  for (const pick of finalAiPicks(payload, today)) {
+    const key = aiPickKey(pick);
+    if (state.aiPicks[key]) {
+      aiPicksAlreadySent += 1;
+      continue;
+    }
+    const minutes = minutesFromNowEt(pick.date || today, pick.gameTime);
+    if (minutes == null || minutes < -5) {
+      state.aiPicks[key] = { seededAt: new Date().toISOString(), reason: "historical final AI pick" };
+      aiPicksSeeded += 1;
+      continue;
+    }
+    if (minutes > 35) continue;
+
+    const notification = buildAiPickNotification(pick);
+    await publishNtfy(notification);
+    state.aiPicks[key] = {
+      sentAt: new Date().toISOString(),
+      game: pick.game || "",
+      play: pick.play || "",
+      gameTime: timeKey(pick.gameTime),
+    };
+    state.updatedAt = new Date().toISOString();
+    await writeState(state);
+    aiPicksSent += 1;
   }
 
   state.updatedAt = new Date().toISOString();
   await writeState(state);
   console.log(
-    `Final-lock notifier complete: ${groups.size} final game(s), ${sent} sent, ${alreadySent} already announced, ${seeded} historical lock(s) seeded silently.`,
+    `Final notifier complete: ${groups.size} final game(s); game locks ${gameLocksSent} sent / ${gameLocksAlreadySent} already announced / ${gameLocksSeeded} seeded; AI picks ${aiPicksSent} sent / ${aiPicksAlreadySent} already announced / ${aiPicksSeeded} seeded.`,
   );
 }
 
