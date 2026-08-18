@@ -1,0 +1,68 @@
+from pathlib import Path
+
+path = Path("app/page.tsx")
+text = path.read_text()
+
+replacements = [
+    (
+        '''      // The Trend Plays tab is a qualified-play board, not a four-side market
+      // dump. Keep Pass rows available to the head-to-head scorer above, then
+      // remove them from the public card after the comparison is complete.
+      const plays = scoreTrendMarketPlays(group.plays)
+        .filter((play) => play.tier !== "Pass")
+        .sort((a, b) => {''',
+        '''      // Score all tracked market sides together so the head-to-head comparison
+      // remains unchanged, then keep both graded and Pass rows visible on the card.
+      const plays = scoreTrendMarketPlays(group.plays)
+        .sort((a, b) => {''',
+    ),
+    (
+        '''          return trendPickLabel(a).localeCompare(trendPickLabel(b));
+        });
+
+      return {
+        ...group,
+        plays,
+        topScore: plays[0]?.score || 0,
+        secondScore: plays[1]?.score || 0,
+        maxExactSample: Math.max(0, ...plays.map(trendExactSample)),
+      };''',
+        '''          return trendPickLabel(a).localeCompare(trendPickLabel(b));
+        });
+      const qualifiedPlays = plays.filter((play) => play.tier !== "Pass");
+
+      return {
+        ...group,
+        plays,
+        topScore: qualifiedPlays[0]?.score || 0,
+        secondScore: qualifiedPlays[1]?.score || 0,
+        maxExactSample: Math.max(0, ...plays.map(trendExactSample)),
+      };''',
+    ),
+    (
+        '''  const leader = group.plays[0];''',
+        '''  const leader = group.plays.find((play) => play.tier !== "Pass");''',
+    ),
+    (
+        '''    const qualifiedTrendPlays = rankedTrendGames.flatMap((group) => group.plays);''',
+        '''    const qualifiedTrendPlays = rankedTrendGames.flatMap((group) =>
+      group.plays.filter((play) => play.tier !== "Pass"),
+    );
+    const displayedTrendSides = rankedTrendGames.reduce(
+      (sum, group) => sum + group.plays.length,
+      0,
+    );''',
+    ),
+    (
+        '''              {rankedTrendGames.length} games • {qualifiedTrendPlays.length} plays''',
+        '''              {rankedTrendGames.length} games • {displayedTrendSides} tracked sides • {qualifiedTrendPlays.length} graded''',
+    ),
+]
+
+for old, new in replacements:
+    if old in text:
+        text = text.replace(old, new, 1)
+    elif new not in text:
+        raise SystemExit(f"Expected page.tsx block was not found:\n{old[:180]}")
+
+path.write_text(text)
