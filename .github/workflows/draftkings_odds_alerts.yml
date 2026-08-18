@@ -1,10 +1,9 @@
-name: EZPZ DraftKings Odds Alerts
+name: EZPZ DraftKings Odds Alerts (Manual Only)
 
+# Intraday movement notifications are intentionally disabled. This workflow is
+# retained only for an on-demand manual check if we ever want to inspect the old
+# movement-alert behavior without re-enabling scheduled phone pushes.
 on:
-  schedule:
-    # GitHub Actions supports 5-minute scheduling. This monitor fetches DraftKings
-    # directly from GitHub, so these checks do not invoke the Vercel site.
-    - cron: "*/5 0-23 * * *"
   workflow_dispatch:
 
 permissions:
@@ -32,7 +31,7 @@ jobs:
           restore-keys: |
             draftkings-odds-alert-state-
 
-      - name: Check DraftKings for meaningful odds movement
+      - name: Manually check DraftKings for meaningful odds movement
         env:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
           ODDS_ALERT_CLICK_URL: https://ezpzpicks.com
