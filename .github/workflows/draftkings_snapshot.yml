@@ -23,7 +23,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Restore final-lock notification state
+      - name: Restore final notification state
         uses: actions/cache/restore@v4
         with:
           path: .cache/final_trend_lock_notification_state.json
@@ -46,13 +46,13 @@ jobs:
             --output /tmp/ezpz_public_data.json \
             "https://ezpzpicks.com/api/public-data?scheduled=1&tracking=15m"
 
-      - name: Send newly locked trend snapshots to ntfy
+      - name: Send detailed final game locks and newly finalized AI picks to ntfy
         env:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
           FINAL_LOCK_CLICK_URL: https://ezpzpicks.com
         run: node scripts/final_trend_lock_notifications.mjs /tmp/ezpz_public_data.json
 
-      - name: Save final-lock notification state
+      - name: Save final notification state
         if: always()
         uses: actions/cache/save@v4
         with:
