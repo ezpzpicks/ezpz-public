@@ -4,6 +4,8 @@ on:
   push:
     paths:
       - .github/workflows/draftkings_snapshot.yml
+      - scripts/final_trend_lock_notifications.mjs
+      - scripts/recover_recent_ai_notifications.mjs
   schedule:
     # Four checks per hour run all day so the new MLB slate is initialized just
     # after midnight ET, then the market baseline stays current until first pitch.
@@ -54,6 +56,12 @@ jobs:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
           FINAL_LOCK_CLICK_URL: https://ezpzpicks.com
         run: node scripts/final_trend_lock_notifications.mjs /tmp/ezpz_public_data.json
+
+      - name: Recover recently finalized AI picks skipped by the polling gap
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          FINAL_LOCK_CLICK_URL: https://ezpzpicks.com
+        run: node scripts/recover_recent_ai_notifications.mjs /tmp/ezpz_public_data.json
 
       - name: Save final notification state
         if: always()
