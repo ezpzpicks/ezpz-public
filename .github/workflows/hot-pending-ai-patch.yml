@@ -78,3 +78,5 @@ jobs:
           git rm .github/workflows/hot-pending-ai-patch.yml
           git commit -m "Let HOT Best Plays enter pending AI review"
           git push
+
+# Trigger after workflow exists on the default branch.
