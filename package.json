@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "prebuild": "node scripts/hot_pending_ai_patch.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"
