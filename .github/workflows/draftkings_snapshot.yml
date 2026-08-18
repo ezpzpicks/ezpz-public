@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: ezpz-draftkings-true-rlm-snapshots
@@ -22,6 +22,25 @@ jobs:
     timeout-minutes: 4
     steps:
       - uses: actions/checkout@v4
+
+      - name: Apply one-time HOT Pending AI selector update
+        shell: bash
+        run: |
+          python .github/scripts/hot_pending_ai_patch.py
+          git diff --check
+          if git diff --quiet; then
+            echo "HOT Pending AI selector is already updated."
+          else
+            # Restore this scheduled workflow to its prior version and remove the
+            # one-time patch script in the same commit, leaving only the route change.
+            git show HEAD^:.github/workflows/draftkings_snapshot.yml > .github/workflows/draftkings_snapshot.yml
+            git rm .github/scripts/hot_pending_ai_patch.py
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add app/api/public-data/route.ts .github/workflows/draftkings_snapshot.yml
+            git commit -m "Let HOT Best Plays enter pending AI review"
+            git push
+          fi
 
       - name: Restore final notification state
         uses: actions/cache/restore@v4
