@@ -1,6 +1,9 @@
 name: EZPZ DraftKings True RLM Snapshots
 
 on:
+  push:
+    paths:
+      - .github/workflows/draftkings_snapshot.yml
   schedule:
     # Four checks per hour run all day so the new MLB slate is initialized just
     # after midnight ET, then the market baseline stays current until first pitch.
@@ -31,15 +34,15 @@ jobs:
           if git diff --quiet; then
             echo "HOT Pending AI selector is already updated."
           else
-            # Restore this scheduled workflow to its prior version and remove the
-            # one-time patch script in the same commit, leaving only the route change.
-            git show HEAD^:.github/workflows/draftkings_snapshot.yml > .github/workflows/draftkings_snapshot.yml
+            # Restore the normal scheduled workflow and remove the one-time script
+            # in the same commit, leaving only the route behavior change.
+            git show 4ffa3c307da9b319954b6e7542986c389f9fbd87:.github/workflows/draftkings_snapshot.yml > .github/workflows/draftkings_snapshot.yml
             git rm .github/scripts/hot_pending_ai_patch.py
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add app/api/public-data/route.ts .github/workflows/draftkings_snapshot.yml
             git commit -m "Let HOT Best Plays enter pending AI review"
-            git push
+            git push origin HEAD:main
           fi
 
       - name: Restore final notification state
