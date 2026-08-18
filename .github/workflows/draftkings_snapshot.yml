@@ -26,25 +26,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Apply one-time HOT Pending AI selector update
-        shell: bash
-        run: |
-          python .github/scripts/hot_pending_ai_patch.py
-          git diff --check
-          if git diff --quiet; then
-            echo "HOT Pending AI selector is already updated."
-          else
-            # Restore the normal scheduled workflow and remove the one-time script
-            # in the same commit, leaving only the route behavior change.
-            git show 4ffa3c307da9b319954b6e7542986c389f9fbd87:.github/workflows/draftkings_snapshot.yml > .github/workflows/draftkings_snapshot.yml
-            git rm .github/scripts/hot_pending_ai_patch.py
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add app/api/public-data/route.ts .github/workflows/draftkings_snapshot.yml
-            git commit -m "Let HOT Best Plays enter pending AI review"
-            git push origin HEAD:main
-          fi
-
       - name: Restore final notification state
         uses: actions/cache/restore@v4
         with:
@@ -80,5 +61,3 @@ jobs:
         with:
           path: .cache/final_trend_lock_notification_state.json
           key: final-trend-lock-notifications-${{ github.run_id }}
-
-# One-time push trigger for HOT Pending AI update.
