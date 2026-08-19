@@ -69,3 +69,5 @@ jobs:
         with:
           path: .cache/final_trend_lock_notification_state.json
           key: final-trend-lock-notifications-${{ github.run_id }}
+
+# Manual live backfill trigger: 2026-08-18 20:07 ET
