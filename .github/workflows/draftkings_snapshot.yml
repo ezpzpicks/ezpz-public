@@ -7,10 +7,12 @@ on:
       - scripts/ai_final_notifications.mjs
       - scripts/final_trend_lock_notifications.mjs
   schedule:
-    # Four checks per hour run all day so the new MLB slate is initialized just
-    # after midnight ET, then the market baseline stays current until first pitch.
-    # The API separately locks one official snapshot 7-23 minutes before first pitch.
-    - cron: "2,17,32,47 0-23 * * *"
+    # Check every 5 minutes, offset from the top of the hour. GitHub scheduled
+    # workflows can occasionally run late or skip an individual wake-up, so the
+    # tighter cadence gives each MLB game several chances to capture its first
+    # official pregame lock before first pitch. The API keeps that first lock
+    # immutable, so later checks cannot overwrite it.
+    - cron: "2,7,12,17,22,27,32,37,42,47,52,57 0-23 * * *"
       timezone: "America/New_York"
   workflow_dispatch:
 
