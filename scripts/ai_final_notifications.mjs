@@ -5,7 +5,6 @@ const STATE_PATH = process.env.FINAL_LOCK_STATE_PATH || ".cache/final_trend_lock
 const NTFY_TOPIC = String(process.env.NTFY_TOPIC || "").trim();
 const CLICK_URL = String(process.env.FINAL_LOCK_CLICK_URL || "https://ezpzpicks.com").trim();
 const MAX_MESSAGE_LENGTH = 3500;
-const RECENT_PAST_GRACE_MINUTES = 30;
 
 function textKey(value) {
   return String(value || "")
@@ -43,38 +42,6 @@ function timeKey(value) {
   return "";
 }
 
-function currentEasternParts(date = new Date()) {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/New_York",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-  }).formatToParts(date);
-  const get = (type) => Number(parts.find((part) => part.type === type)?.value || 0);
-  return {
-    year: get("year"),
-    month: get("month"),
-    day: get("day"),
-    hour: get("hour"),
-    minute: get("minute"),
-  };
-}
-
-function minutesFromNowEt(dateIso, eventTime, now = new Date()) {
-  const time = timeKey(eventTime);
-  const match = String(dateIso || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!time || !match) return null;
-  const [hour, minute] = time.split(":").map(Number);
-  const nowParts = currentEasternParts(now);
-  const targetDay = Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
-  const nowDay = Date.UTC(nowParts.year, nowParts.month - 1, nowParts.day);
-  const dayDeltaMinutes = (targetDay - nowDay) / 60000;
-  return dayDeltaMinutes + hour * 60 + minute - (nowParts.hour * 60 + nowParts.minute);
-}
-
 function aiPickKey(pick) {
   return String(
     pick?.candidateId ||
@@ -82,13 +49,15 @@ function aiPickKey(pick) {
   ).trim();
 }
 
+// IMPORTANT: This intentionally matches the state the public site presents as a
+// finalized AI pick. The notification must not depend on a second hidden review
+// status after the pick is already Selected + PASSED + FINAL_PREGAME.
 function finalAiPicks(payload, today) {
   return (Array.isArray(payload?.aiPicks) ? payload.aiPicks : [])
     .filter((pick) => String(pick?.date || "").trim() === String(today || "").trim())
     .filter((pick) => pick?.selected === true)
     .filter((pick) => pick?.protectionStatus === "PASSED")
-    .filter((pick) => pick?.snapshotStatus === "FINAL_PREGAME")
-    .filter((pick) => pick?.externalReviewStatus === "WEB_REVIEWED");
+    .filter((pick) => pick?.snapshotStatus === "FINAL_PREGAME");
 }
 
 function pct(value) {
@@ -203,6 +172,21 @@ async function writeState(state) {
   await fs.rename(temporary, STATE_PATH);
 }
 
+function logAiPickStates(payload, today) {
+  const picks = Array.isArray(payload?.aiPicks) ? payload.aiPicks : [];
+  console.log(`AI notification scan: ${picks.length} total aiPicks in payload; today=${today}.`);
+  for (const pick of picks) {
+    console.log(
+      `AI state | ${pick?.game || "unknown game"} | ${pick?.play || pick?.selection || "unknown pick"}` +
+        ` | date=${pick?.date || ""}` +
+        ` | selected=${String(pick?.selected)}` +
+        ` | protection=${pick?.protectionStatus || ""}` +
+        ` | snapshot=${pick?.snapshotStatus || ""}` +
+        ` | review=${pick?.externalReviewStatus || ""}`,
+    );
+  }
+}
+
 async function main() {
   const inputPath = process.argv[2];
   if (!inputPath) throw new Error("Usage: node scripts/ai_final_notifications.mjs <public-data.json>");
@@ -213,48 +197,44 @@ async function main() {
   const today = String(payload.today || "").trim();
   if (!today) throw new Error("Public-data response did not include today's date");
 
+  logAiPickStates(payload, today);
+
   const state = await readState(today);
   let sent = 0;
   let alreadySent = 0;
-  let historical = 0;
+  const finalPicks = finalAiPicks(payload, today);
+  console.log(`AI notification scan: ${finalPicks.length} pick(s) match visible Final state.`);
 
-  for (const pick of finalAiPicks(payload, today)) {
+  for (const pick of finalPicks) {
     const key = aiPickKey(pick);
     const existing = state.aiPicks[key];
     if (existing?.sentAt) {
       alreadySent += 1;
+      console.log(`AI notification already sent: ${pick?.game || ""} | ${pick?.play || pick?.selection || ""}`);
       continue;
     }
 
-    const minutes = minutesFromNowEt(pick.date || today, pick.gameTime);
-    if (minutes != null && minutes < -RECENT_PAST_GRACE_MINUTES) {
-      if (!existing) {
-        state.aiPicks[key] = {
-          seededAt: new Date().toISOString(),
-          reason: "historical final AI pick",
-        };
-      }
-      historical += 1;
-      continue;
-    }
-
+    // Same-day visible Final picks are always eligible for backfill. We do not
+    // use game time as a notification gate; sentAt is the sole duplicate guard.
     await publishNtfy(buildAiPickNotification(pick));
     state.aiPicks[key] = {
       sentAt: new Date().toISOString(),
       game: pick.game || "",
       play: pick.play || "",
       gameTime: timeKey(pick.gameTime),
-      triggeredBy: "AI_FINAL",
+      triggeredBy: "AI_VISIBLE_FINAL",
+      externalReviewStatus: pick.externalReviewStatus || "",
       recoveredFromSeed: Boolean(existing?.seededAt),
     };
     state.updatedAt = new Date().toISOString();
     await writeState(state);
     sent += 1;
+    console.log(`AI notification sent: ${pick?.game || ""} | ${pick?.play || pick?.selection || ""}`);
   }
 
   state.updatedAt = new Date().toISOString();
   await writeState(state);
-  console.log(`AI-final notifier complete: ${sent} sent / ${alreadySent} already sent / ${historical} historical.`);
+  console.log(`AI-final notifier complete: ${sent} sent / ${alreadySent} already sent.`);
 }
 
 main().catch((error) => {
