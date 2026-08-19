@@ -4,17 +4,6 @@ const path = "app/api/public-data/route.ts";
 let text = fs.readFileSync(path, "utf8");
 const original = text;
 
-const oldVersion =
-  'const AI_PICK_SELECTOR_VERSION = "hybrid-web-context-v19-trend-review-calibration";';
-const newVersion =
-  'const AI_PICK_SELECTOR_VERSION = "hybrid-web-context-v20-ai-odds-cap";';
-
-if (text.includes(oldVersion)) {
-  text = text.replace(oldVersion, newVersion);
-} else if (!text.includes(newVersion)) {
-  throw new Error("AI selector version target not found");
-}
-
 const oldBlock = `  if (!String(candidate.odds || "").trim() || !parseAmericanOdds(candidate.odds)) {
     candidate.protectionReasons.push("Playable odds are missing");
   }
