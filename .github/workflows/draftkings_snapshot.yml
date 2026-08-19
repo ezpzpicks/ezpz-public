@@ -57,11 +57,14 @@ jobs:
           FINAL_LOCK_CLICK_URL: https://ezpzpicks.com
         run: node scripts/ai_final_notifications.mjs /tmp/ezpz_public_data.json
 
+      - name: Prepare game-lock-only notification payload
+        run: jq '.aiPicks = []' /tmp/ezpz_public_data.json > /tmp/ezpz_game_lock_data.json
+
       - name: Send each game's final odds lock to ntfy
         env:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
           FINAL_LOCK_CLICK_URL: https://ezpzpicks.com
-        run: node scripts/final_trend_lock_notifications.mjs /tmp/ezpz_public_data.json
+        run: node scripts/final_trend_lock_notifications.mjs /tmp/ezpz_game_lock_data.json
 
       - name: Save notification state
         if: always()
