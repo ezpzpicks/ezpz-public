@@ -16,6 +16,26 @@ function textKey(value) {
     .trim();
 }
 
+function isoDateKey(value) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "";
+
+  const iso = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (iso) {
+    const [, year, month, day] = iso;
+    return `${year}-${String(Number(month)).padStart(2, "0")}-${String(Number(day)).padStart(2, "0")}`;
+  }
+
+  const us = raw.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2}|\d{4})$/);
+  if (us) {
+    const [, month, day, rawYear] = us;
+    const year = rawYear.length === 2 ? `20${rawYear}` : rawYear;
+    return `${year}-${String(Number(month)).padStart(2, "0")}-${String(Number(day)).padStart(2, "0")}`;
+  }
+
+  return raw;
+}
+
 function timeKey(value) {
   const raw = String(value || "").trim();
   if (!raw) return "";
@@ -49,15 +69,17 @@ function aiPickKey(pick) {
   ).trim();
 }
 
-// IMPORTANT: This intentionally matches the state the public site presents as a
-// finalized AI pick. The notification must not depend on a second hidden review
-// status after the pick is already Selected + PASSED + FINAL_PREGAME.
+// Match the exact state the public card displays as Final. The API returns
+// payload.today as M/D/YYYY while stored AI picks use YYYY-MM-DD, so normalize
+// both sides before comparing dates.
 function finalAiPicks(payload, today) {
+  const todayKey = isoDateKey(today);
   return (Array.isArray(payload?.aiPicks) ? payload.aiPicks : [])
-    .filter((pick) => String(pick?.date || "").trim() === String(today || "").trim())
+    .filter((pick) => isoDateKey(pick?.date) === todayKey)
     .filter((pick) => pick?.selected === true)
     .filter((pick) => pick?.protectionStatus === "PASSED")
-    .filter((pick) => pick?.snapshotStatus === "FINAL_PREGAME");
+    .filter((pick) => pick?.snapshotStatus === "FINAL_PREGAME")
+    .filter((pick) => pick?.externalReviewStatus === "WEB_REVIEWED");
 }
 
 function pct(value) {
@@ -174,11 +196,14 @@ async function writeState(state) {
 
 function logAiPickStates(payload, today) {
   const picks = Array.isArray(payload?.aiPicks) ? payload.aiPicks : [];
-  console.log(`AI notification scan: ${picks.length} total aiPicks in payload; today=${today}.`);
+  console.log(
+    `AI notification scan: ${picks.length} total aiPicks in payload; today=${today}; normalized=${isoDateKey(today)}.`,
+  );
   for (const pick of picks) {
     console.log(
       `AI state | ${pick?.game || "unknown game"} | ${pick?.play || pick?.selection || "unknown pick"}` +
         ` | date=${pick?.date || ""}` +
+        ` | normalizedDate=${isoDateKey(pick?.date)}` +
         ` | selected=${String(pick?.selected)}` +
         ` | protection=${pick?.protectionStatus || ""}` +
         ` | snapshot=${pick?.snapshotStatus || ""}` +
@@ -203,7 +228,7 @@ async function main() {
   let sent = 0;
   let alreadySent = 0;
   const finalPicks = finalAiPicks(payload, today);
-  console.log(`AI notification scan: ${finalPicks.length} pick(s) match visible Final state.`);
+  console.log(`AI notification scan: ${finalPicks.length} pick(s) match the website Final state.`);
 
   for (const pick of finalPicks) {
     const key = aiPickKey(pick);
