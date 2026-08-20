@@ -7,12 +7,15 @@ on:
       - scripts/ai_final_notifications.mjs
       - scripts/final_trend_lock_notifications.mjs
   schedule:
-    # Check every 5 minutes, offset from the top of the hour. GitHub scheduled
-    # workflows can occasionally run late or skip an individual wake-up, so the
-    # tighter cadence gives each MLB game several chances to capture its first
-    # official pregame lock before first pitch. The API keeps that first lock
-    # immutable, so later checks cannot overwrite it.
-    - cron: "2,7,12,17,22,27,32,37,42,47,52,57 0-23 * * *"
+    # Check every 5 minutes only during the MLB game window. Starting at
+    # 10:30 AM ET gives the site a full hour before the earliest expected
+    # 11:30 AM games, while stopping at 10:30 PM ET avoids overnight calls.
+    # Split cron entries preserve an exact 10:30 AM through 10:30 PM ET window.
+    - cron: "30,35,40,45,50,55 10 * * *"
+      timezone: "America/New_York"
+    - cron: "0,5,10,15,20,25,30,35,40,45,50,55 11-21 * * *"
+      timezone: "America/New_York"
+    - cron: "0,5,10,15,20,25,30 22 * * *"
       timezone: "America/New_York"
   workflow_dispatch:
 
