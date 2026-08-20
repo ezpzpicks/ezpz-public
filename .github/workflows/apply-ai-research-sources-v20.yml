@@ -1,0 +1,140 @@
+name: Apply AI research source hierarchy v20
+
+on:
+  push:
+    branches:
+      - ai-research-sources-v20
+
+permissions:
+  contents: write
+
+jobs:
+  patch-route:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch current public-data route
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("app/api/public-data/route.ts")
+          text = path.read_text()
+
+          def replace_once(old: str, new: str, label: str):
+              global text
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"Guard failed for {label}: expected exactly 1 match, found {count}")
+              text = text.replace(old, new, 1)
+
+          replace_once(
+              'const AI_PICK_SELECTOR_VERSION = "hybrid-web-context-v19-trend-review-calibration";',
+              'const AI_PICK_SELECTOR_VERSION = "hybrid-web-context-v20-research-source-hierarchy";',
+              "selector version",
+          )
+
+          replace_once(
+              '''  const configuredSearchContextSize = String(
+            process.env.EZPZ_AI_SEARCH_CONTEXT_SIZE || "low",
+          ).trim();
+          const searchContextSize: "low" | "medium" | "high" = ["low", "medium", "high"].includes(
+            configuredSearchContextSize,
+          )
+            ? (configuredSearchContextSize as "low" | "medium" | "high")
+            : "low";''',
+              '''  const configuredSearchContextSize = String(
+            process.env.EZPZ_AI_SEARCH_CONTEXT_SIZE || "medium",
+          ).trim();
+          const searchContextSize: "low" | "medium" | "high" = ["low", "medium", "high"].includes(
+            configuredSearchContextSize,
+          )
+            ? (configuredSearchContextSize as "low" | "medium" | "high")
+            : "medium";
+          const configuredResearchSearchesRaw = Number(
+            process.env.EZPZ_AI_MAX_RESEARCH_SEARCHES || 2,
+          );
+          const maxResearchSearches = Number.isFinite(configuredResearchSearchesRaw)
+            ? Math.max(1, Math.min(4, Math.floor(configuredResearchSearchesRaw)))
+            : 2;''',
+              "research search configuration",
+          )
+
+          replace_once(
+              '      prompt_cache_key: "ezpz-ai-game-v13",',
+              '      prompt_cache_key: "ezpz-ai-game-v20",',
+              "prompt cache key",
+          )
+
+          replace_once(
+              '      max_tool_calls: 1,',
+              '      max_tool_calls: maxResearchSearches,',
+              "web search call budget",
+          )
+
+          old_prompt = '''              text: `You are the final pregame MLB research analyst for EZPZ AI Picks. Use one web search to research this one game, then evaluate every supplied candidate using the same verified pregame facts. Never use information from after first pitch and do not invent statistics.
+
+          Use modelGameContext as the primary quantitative source. Verify only decision-relevant details: probable/confirmed starters, projected lineups, recent 3-5-start form, workload/leash, bullpen availability, meaningful matchup or split evidence, and weather/park only if material. State plainly when a split or history sample is unavailable or too small.
+
+          The shared fields must be concise but matchup-specific:'''
+
+          new_prompt = '''              text: `You are the final pregame MLB research analyst for EZPZ AI Picks. Research this one game with targeted web searches, then evaluate every supplied candidate using the same verified pregame facts. Never use information from after first pitch and do not invent statistics.
+
+          Use modelGameContext as the primary quantitative source. Verify only decision-relevant details: probable/confirmed starters, projected or confirmed lineups, recent 3-5-start form, workload/leash, bullpen availability, meaningful matchup or split evidence, injuries/scratches, and weather/park only if material.
+
+          SEARCH PLAN AND PREFERRED SOURCES:
+          1. Starting pitchers and lineups — search MLB.com first for official probable pitchers, Gameday, and confirmed lineups. If a confirmed lineup is not yet posted there, use RotoWire Daily Lineups for confirmed/projected lineups and pitching matchups.
+          2. Bullpen availability/workload — use ESPN's previous-game box score to identify relievers used and their workload; MLB Gameday/box scores are the preferred backup. Check the prior one to three games only when needed to determine availability.
+          3. Starting-pitcher recent form — use MLB or ESPN game logs for the most recent three to five starts.
+          4. Pitcher strikeout, arsenal, whiff, and pitch-type matchup research — prefer Baseball Savant; use FanGraphs only when Savant does not provide the needed split/context.
+          5. Recent team form — use MLB or ESPN schedules/results and game logs. Focus on facts relevant to the current wager rather than generic record recaps.
+          6. Injuries, scratches, and expected absences — use official MLB/team injury information first; RotoWire or ESPN are acceptable backups.
+          7. Batter/pitcher splits and matchup context — prefer Baseball Savant, then FanGraphs. Do not overstate tiny BvP samples.
+          8. Weather/park — research only when it can materially affect the wager.
+
+          Use at least two targeted searches when needed: one should prioritize MLB/RotoWire for starters and lineups, while another should prioritize ESPN/MLB for bullpen usage and recent-game context. If a pitcher prop requires arsenal/whiff evidence, include Baseball Savant in the search plan. Do not spend searches on generic summaries when a source-specific query can answer the required fact.
+
+          RESEARCH EVIDENCE RULE: Failure to locate a fact is not evidence against a wager. Missing, unavailable, unconfirmed, or too-small information must be treated as neutral and must not lower adjustment, probability, or approval. Use adjustment=0 when research simply fails to add decision-relevant evidence. A negative adjustment or approved=false requires concrete verified adverse evidence such as a confirmed unfavorable lineup change, starter change/limitation, heavily taxed key relievers, material injury/scratch, relevant unfavorable matchup/split, or material weather condition. Never use "research failed to corroborate", "no supporting information found", "could not verify a surge", or similar absence-of-evidence wording as the reason for a negative adjustment or veto. State plainly when a split or history sample is unavailable or too small, but keep that item neutral.
+
+          The shared fields must be concise but matchup-specific:'''
+
+          replace_once(old_prompt, new_prompt, "research prompt hierarchy")
+
+          replace_once(
+              '''        // One compact request and one web search per game. This keeps the cost
+                // near the number of games, shares verified context across wagers, and
+                // avoids the old per-play queue that could outlive the route timeout.''',
+              '''        // One compact request with a small targeted search budget per game. This
+                // keeps cost near the number of games while giving the reviewer enough room
+                // to verify lineups/starters separately from bullpen/recent-game context.''',
+              "review request comment",
+          )
+
+          path.write_text(text)
+          print("Patched", path)
+          PY
+
+      - name: Verify intended changes
+        shell: bash
+        run: |
+          grep -F 'hybrid-web-context-v20-research-source-hierarchy' app/api/public-data/route.ts
+          grep -F 'EZPZ_AI_MAX_RESEARCH_SEARCHES' app/api/public-data/route.ts
+          grep -F 'MLB.com first for official probable pitchers' app/api/public-data/route.ts
+          grep -F 'Failure to locate a fact is not evidence against a wager' app/api/public-data/route.ts
+          grep -F 'max_tool_calls: maxResearchSearches' app/api/public-data/route.ts
+
+      - name: Commit patched route and remove patch workflow
+        shell: bash
+        run: |
+          rm .github/workflows/apply-ai-research-sources-v20.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/api/public-data/route.ts .github/workflows/apply-ai-research-sources-v20.yml
+          git commit -m "Improve AI MLB research source hierarchy"
+          git push origin HEAD:ai-research-sources-v20
