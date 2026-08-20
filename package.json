@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "prebuild": "node scripts/hot_pending_ai_patch.mjs && node scripts/ai_hot_grade_alignment_patch.mjs && node scripts/ai_research_sources_patch.mjs && node scripts/ai_structured_context_patch.mjs && node scripts/final_lock_window_patch.mjs && node scripts/ai_max_odds_patch.mjs",
+    "prebuild": "node scripts/hot_pending_ai_patch.mjs && node scripts/ai_hot_grade_alignment_patch.mjs && node scripts/ai_research_sources_patch.mjs && node scripts/ai_structured_context_patch.mjs && node scripts/final_lock_window_patch.mjs && node scripts/ai_max_odds_patch.mjs && node scripts/trend_final_alignment_patch.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"
