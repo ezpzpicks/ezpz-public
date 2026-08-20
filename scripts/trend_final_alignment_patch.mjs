@@ -9,7 +9,7 @@ const original = text;
 // FINAL_PREGAME research until the exact TrendPlay object is from the official
 // FINAL_PREGAME snapshot used by the Trend Plays board.
 const versionPattern =
-  /const AI_PICK_SELECTOR_VERSION = "hybrid-web-context-v(?:22-balanced-final-review|23-final-trend-alignment)";/;
+  /const AI_PICK_SELECTOR_VERSION = "(?:hybrid-web-context-v22-balanced-final-review|hybrid-structured-context-v23-builder-first|hybrid-web-context-v23-final-trend-alignment)";/;
 const alignedVersion =
   'const AI_PICK_SELECTOR_VERSION = "hybrid-web-context-v23-final-trend-alignment";';
 if (versionPattern.test(text)) {
