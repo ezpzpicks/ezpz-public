@@ -9,4 +9,13 @@ if (!text.includes(newBlock)) {
   if (count !== 1) throw new Error(`football team normalization: expected one block, found ${count}`);
   text = text.replace(oldBlock, newBlock);
 }
+
+const narrowSignals = `const primary=warningFor(split.betsPct,split.moneyPct); const active=[{signalType:\"Public Split\" as const,signalKey:primary.warningKey,signal:primary.warning,tone:primary.warningTone}];`;
+const typedSignals = `const primary=warningFor(split.betsPct,split.moneyPct); const active: Array<{signalType:\"Public Split\"|\"Line Movement\";signalKey:string;signal:string;tone:Tone}>=[{signalType:\"Public Split\",signalKey:primary.warningKey,signal:primary.warning,tone:primary.warningTone}];`;
+if (!text.includes(typedSignals)) {
+  const count = text.split(narrowSignals).length - 1;
+  if (count !== 1) throw new Error(`football trend signal typing: expected one block, found ${count}`);
+  text = text.replace(narrowSignals, typedSignals);
+}
+
 fs.writeFileSync(path, text);
