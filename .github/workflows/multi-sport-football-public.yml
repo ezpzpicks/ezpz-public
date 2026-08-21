@@ -3,7 +3,8 @@ name: Multi-sport football public smoke
 on:
   push:
     branches:
-      - multi-sport-sheets-football-public
+      - main
+      - football-public-vercel-hotfix
     paths:
       - app/FootballBoard.tsx
       - app/page.tsx
@@ -29,7 +30,7 @@ on:
       - .github/workflows/multi-sport-football-public.yml
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
@@ -37,18 +38,14 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: multi-sport-sheets-football-public
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
       - name: Install dependencies
         run: npm install
-      - name: Apply football source normalization
-        run: node scripts/football_public_source_fixes.mjs
-      - name: Generate football route and page integration
-        run: node scripts/multi_sport_football_patch.mjs
-      - name: Verify patches are idempotent
+      - name: Reproduce Vercel production build
+        run: npm run build
+      - name: Verify football patches remain idempotent after full prebuild
         run: |
           cp lib/footballPublicData.ts /tmp/football-before.ts
           cp app/page.tsx /tmp/page-before.tsx
@@ -58,18 +55,5 @@ jobs:
           diff -u /tmp/football-before.ts lib/footballPublicData.ts
           diff -u /tmp/page-before.tsx app/page.tsx
           diff -u /tmp/route-before.ts app/api/public-data/route.ts
-      - name: Build Next.js app
-        run: npx next build
       - name: Check generated diff
         run: git diff --check
-      - name: Record generated integration
-        if: github.event_name != 'pull_request'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -- lib/footballPublicData.ts app/page.tsx app/api/public-data/route.ts
-          if ! git diff --cached --quiet; then
-            git commit -m "Generate live football public integration"
-            git pull --rebase origin multi-sport-sheets-football-public
-            git push origin HEAD:multi-sport-sheets-football-public
-          fi
