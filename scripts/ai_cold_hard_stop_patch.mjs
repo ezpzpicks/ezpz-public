@@ -4,16 +4,6 @@ const path = "app/api/public-data/route.ts";
 let text = fs.readFileSync(path, "utf8");
 const original = text;
 
-const oldVersion =
-  'const AI_PICK_SELECTOR_VERSION = "hybrid-web-context-v22-balanced-final-review";';
-const newVersion =
-  'const AI_PICK_SELECTOR_VERSION = "hybrid-web-context-v23-cold-hard-stop";';
-if (text.includes(oldVersion)) {
-  text = text.replace(oldVersion, newVersion);
-} else if (!text.includes(newVersion)) {
-  throw new Error("AI selector v22 version marker not found after hot-pending patch");
-}
-
 const oldPriorityHeader = `function aiPriorityReviewCandidate(candidate: AiSelectorCandidate) {
   const bestPlayLabel = \`\${candidate.bestPlayType || ""} \${candidate.bestPlay?.playType || ""}\`.toUpperCase();
   return (`;
