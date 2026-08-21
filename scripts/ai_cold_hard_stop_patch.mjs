@@ -15,10 +15,10 @@ if (text.includes(oldVersion)) {
 }
 
 const oldPriorityHeader = `function aiPriorityReviewCandidate(candidate: AiSelectorCandidate) {
-  const bestPlayLabel = \`${candidate.bestPlayType || ""} ${candidate.bestPlay?.playType || ""}\`.toUpperCase();
+  const bestPlayLabel = \`\${candidate.bestPlayType || ""} \${candidate.bestPlay?.playType || ""}\`.toUpperCase();
   return (`;
 const newPriorityHeader = `function aiPriorityReviewCandidate(candidate: AiSelectorCandidate) {
-  const bestPlayLabel = \`${candidate.bestPlayType || ""} ${candidate.bestPlay?.playType || ""}\`.toUpperCase();
+  const bestPlayLabel = \`\${candidate.bestPlayType || ""} \${candidate.bestPlay?.playType || ""}\`.toUpperCase();
   // COLD is a hard exclusion. A Strong/Elite label must never override the
   // exact Last-7 pitcher bet-type form shown on the Best Plays card.
   if (candidate.pitcherBetTypeForm === "COLD") return false;
