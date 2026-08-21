@@ -1,0 +1,65 @@
+name: Fix AI cold record gate
+
+on:
+  push:
+    paths:
+      - ".github/workflows/fix-ai-cold-record-gate.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Patch pitcher Last-7 AI gate
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("app/api/public-data/route.ts")
+          text = path.read_text()
+
+          old = '''    if (["OVER", "UNDER", "LEAN OVER", "LEAN UNDER", "STRONG OVER", "STRONG UNDER"].includes(normalized)) {
+              return trackerMarket(row) !== "Total" && normalizeType(row["Bet Type"] || row.Market || "") === normalized;
+            }'''
+          new = '''    if (["OVER", "UNDER", "LEAN OVER", "LEAN UNDER", "STRONG OVER", "STRONG UNDER"].includes(normalized)) {
+              const market = textKey(row.Market || "");
+              const isPitcherStrikeoutMarket =
+                market.includes("pitcher strikeout") || market.includes("pitcher k");
+              return (
+                isPitcherStrikeoutMarket &&
+                normalizeType(row["Bet Type"] || row.Market || "") === normalized
+              );
+            }'''
+
+          if old not in text:
+              raise SystemExit("Could not find the aiRowsForType pitcher branch to patch")
+          text = text.replace(old, new, 1)
+
+          old2 = '''    const blocked = candidate.protectionReasons.length > 0;'''
+          new2 = '''    const blocked =
+              candidate.protectionReasons.length > 0 ||
+              Boolean(candidate.bestPlayType && candidate.pitcherBetTypeForm === "COLD");'''
+          if old2 not in text:
+              raise SystemExit("Could not find the final blocked check to harden")
+          text = text.replace(old2, new2, 1)
+
+          path.write_text(text)
+          PY
+
+      - name: Commit fix
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/api/public-data/route.ts
+          if git diff --cached --quiet; then
+            echo "No code changes to commit"
+            exit 0
+          fi
+          git commit -m "Fix pitcher Last-7 AI cold gating"
+          git push
