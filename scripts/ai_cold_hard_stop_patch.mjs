@@ -4,6 +4,27 @@ const path = "app/api/public-data/route.ts";
 let text = fs.readFileSync(path, "utf8");
 const original = text;
 
+// The tracker helper historically classified pitcher K grades such as OVER / UNDER
+// as generic game totals. That made aiRowsForType() discard every pitcher row and
+// report SAMPLE 0-0-0 even when the public Best Plays card correctly showed a Cold
+// rolling record. Fix the lookup first so the AI gate evaluates the exact pitcher
+// strikeout market and exact grade bucket.
+const pitcherRowsPattern = /if \(\["OVER", "UNDER", "LEAN OVER", "LEAN UNDER", "STRONG OVER", "STRONG UNDER"\]\.includes\(normalized\)\) \{\s*return trackerMarket\(row\) !== "Total" && normalizeType\(row\["Bet Type"\] \|\| row\.Market \|\| ""\) === normalized;\s*\}/;
+const correctedPitcherRows = `if (["OVER", "UNDER", "LEAN OVER", "LEAN UNDER", "STRONG OVER", "STRONG UNDER"].includes(normalized)) {
+      const market = textKey(row.Market || "");
+      const isPitcherStrikeoutMarket =
+        market.includes("pitcher strikeout") || market.includes("pitcher k");
+      return (
+        isPitcherStrikeoutMarket &&
+        normalizeType(row["Bet Type"] || row.Market || "") === normalized
+      );
+    }`;
+if (pitcherRowsPattern.test(text)) {
+  text = text.replace(pitcherRowsPattern, correctedPitcherRows);
+} else if (!text.includes('const isPitcherStrikeoutMarket =')) {
+  throw new Error("Pitcher Last-7 tracker lookup marker not found");
+}
+
 const oldPriorityHeader = `function aiPriorityReviewCandidate(candidate: AiSelectorCandidate) {
   const bestPlayLabel = \`\${candidate.bestPlayType || ""} \${candidate.bestPlay?.playType || ""}\`.toUpperCase();
   return (`;
@@ -57,7 +78,7 @@ if (text.includes(oldSelectionStart)) {
 
 if (text !== original) {
   fs.writeFileSync(path, text, "utf8");
-  console.log("Applied COLD Best Play final hard-stop patch for build.");
+  console.log("Applied corrected pitcher Last-7 lookup and COLD Best Play hard stop for build.");
 } else {
-  console.log("COLD Best Play final hard-stop patch already present.");
+  console.log("Pitcher Last-7 lookup and COLD Best Play hard stop already present.");
 }
