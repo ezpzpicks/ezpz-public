@@ -14,14 +14,6 @@ const DEFAULT_NAMES: Record<FootballSport, string> = {
   NCAAF: "CFB Model Database",
 };
 
-const CORE_PUBLIC_TABS = [
-  "daily_slate",
-  "bet_tracker",
-  "all_game_trends",
-  "public_split_snapshots",
-  "odds_snapshot",
-] as const;
-
 function parseCredentials() {
   const raw = String(process.env.GOOGLE_CREDENTIALS || "").trim();
   if (!raw) throw new Error("Missing GOOGLE_CREDENTIALS environment variable.");
@@ -37,6 +29,14 @@ function firstEnv(names: string[]) {
     const value = String(process.env[name] || "").trim();
     if (value) return value;
   }
+  return "";
+}
+
+function extractSpreadsheetId(value: string) {
+  const trimmed = String(value || "").trim();
+  const urlMatch = trimmed.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+  if (urlMatch?.[1]) return urlMatch[1];
+  if (/^[a-zA-Z0-9-_]{20,}$/.test(trimmed)) return trimmed;
   return "";
 }
 
@@ -77,32 +77,48 @@ async function sheetsClient() {
   return google.sheets({ version: "v4", auth: auth as any });
 }
 
-async function createSportSpreadsheet(config: SportSheetConfig) {
-  const sheets = await sheetsClient();
-  const response = await sheets.spreadsheets.create({
-    requestBody: {
-      properties: { title: config.spreadsheetName },
-      sheets: CORE_PUBLIC_TABS.map((title) => ({
-        properties: {
-          title,
-          gridProperties: { rowCount: 2000, columnCount: 120 },
-        },
-      })),
-    },
-    fields: "spreadsheetId,properties.title",
+async function findSpreadsheetByName(name: string) {
+  const auth = await authClient();
+  const drive = google.drive({ version: "v3", auth: auth as any });
+  const escaped = String(name).replace(/'/g, "\\'");
+  const response = await drive.files.list({
+    q: `name='${escaped}' and mimeType='application/vnd.google-apps.spreadsheet' and trashed=false`,
+    fields: "files(id,name)",
+    pageSize: 10,
+    supportsAllDrives: true,
+    includeItemsFromAllDrives: true,
   });
-  const spreadsheetId = String(response.data.spreadsheetId || "").trim();
-  if (!spreadsheetId) {
-    throw new Error(`${config.sport} database could not be created.`);
-  }
-  console.log(
-    `Created ${config.sport} database "${config.spreadsheetName}" (${spreadsheetId}).`,
-  );
-  return spreadsheetId;
+  return String(response.data.files?.[0]?.id || "").trim();
 }
 
 const spreadsheetIdCache = new Map<FootballSport, string>();
 const spreadsheetResolutionInFlight = new Map<FootballSport, Promise<string>>();
+const sharedContainerSports = new Set<FootballSport>();
+
+function physicalWorksheetName(sport: FootballSport, worksheetName: string) {
+  return sharedContainerSports.has(sport)
+    ? `${sport === "NCAAF" ? "cfb" : "nfl"}_${worksheetName}`
+    : worksheetName;
+}
+
+async function resolveSharedContainerId(sport: FootballSport) {
+  const configured = firstEnv(["GOOGLE_SHEET_ID", "GOOGLE_SHEET_NAME"]);
+  if (!configured) {
+    throw new Error(
+      `${sport} database is not configured and no shared GOOGLE_SHEET_ID/GOOGLE_SHEET_NAME fallback is available.`,
+    );
+  }
+
+  const direct = extractSpreadsheetId(configured);
+  const spreadsheetId = direct || (await findSpreadsheetByName(configured));
+  if (!spreadsheetId) {
+    throw new Error(
+      `${sport} database is not configured and the shared Google Sheet "${configured}" could not be found.`,
+    );
+  }
+  sharedContainerSports.add(sport);
+  return spreadsheetId;
+}
 
 export async function resolveSportSpreadsheetId(sport: FootballSport) {
   const cached = spreadsheetIdCache.get(sport);
@@ -115,25 +131,14 @@ export async function resolveSportSpreadsheetId(sport: FootballSport) {
     const config = sportSheetConfig(sport);
     if (config.spreadsheetId) return config.spreadsheetId;
 
-    const auth = await authClient();
-    const drive = google.drive({ version: "v3", auth: auth as any });
-    const escaped = config.spreadsheetName.replace(/'/g, "\\'");
-    const response = await drive.files.list({
-      q: `name='${escaped}' and mimeType='application/vnd.google-apps.spreadsheet' and trashed=false`,
-      fields: "files(id,name)",
-      pageSize: 10,
-      supportsAllDrives: true,
-      includeItemsFromAllDrives: true,
-    });
-    const file = response.data.files?.[0];
-    if (file?.id) return file.id;
+    // A specifically named dedicated workbook is still supported. If it does
+    // not exist, do not attempt to create a Drive file because service accounts
+    // can have zero ownership quota; use isolated tabs in the already-authorized
+    // shared workbook instead.
+    const dedicated = await findSpreadsheetByName(config.spreadsheetName);
+    if (dedicated) return dedicated;
 
-    // The admin model also creates its sport workbook on first use. This
-    // fallback removes the one-time manual dependency for a brand-new sport:
-    // the public service creates the same named workbook and standard public
-    // tabs, then the admin/model service opens that exact workbook by name and
-    // fills its model-specific tabs normally.
-    return createSportSpreadsheet(config);
+    return resolveSharedContainerId(sport);
   })();
 
   spreadsheetResolutionInFlight.set(sport, operation);
@@ -174,10 +179,11 @@ export async function readSportWorksheet(
 ): Promise<SheetRow[]> {
   const spreadsheetId = await resolveSportSpreadsheetId(sport);
   const sheets = await sheetsClient();
+  const physicalName = physicalWorksheetName(sport, worksheetName);
   try {
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: quoteSheetName(worksheetName),
+      range: quoteSheetName(physicalName),
     });
     return rowsToObjects((response.data.values || []) as string[][], columns);
   } catch (error: any) {
@@ -211,8 +217,9 @@ export async function ensureSportWorksheet(
 ) {
   const spreadsheetId = await resolveSportSpreadsheetId(sport);
   const sheets = await sheetsClient();
+  const physicalName = physicalWorksheetName(sport, worksheetName);
   const titles = await worksheetTitles(sport);
-  if (!titles.has(worksheetName)) {
+  if (!titles.has(physicalName)) {
     await sheets.spreadsheets.batchUpdate({
       spreadsheetId,
       requestBody: {
@@ -220,7 +227,7 @@ export async function ensureSportWorksheet(
           {
             addSheet: {
               properties: {
-                title: worksheetName,
+                title: physicalName,
                 gridProperties: { rowCount: 2000, columnCount: Math.max(20, headers.length + 5) },
               },
             },
@@ -232,13 +239,13 @@ export async function ensureSportWorksheet(
   if (headers.length) {
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${quoteSheetName(worksheetName)}!1:1`,
+      range: `${quoteSheetName(physicalName)}!1:1`,
     });
     const current = (response.data.values?.[0] || []).map((value) => String(value || "").trim());
     if (!current.length) {
       await sheets.spreadsheets.values.update({
         spreadsheetId,
-        range: `${quoteSheetName(worksheetName)}!A1`,
+        range: `${quoteSheetName(physicalName)}!A1`,
         valueInputOption: "RAW",
         requestBody: { values: [headers] },
       });
@@ -255,14 +262,15 @@ export async function writeSportWorksheet(
   await ensureSportWorksheet(sport, worksheetName, headers);
   const spreadsheetId = await resolveSportSpreadsheetId(sport);
   const sheets = await sheetsClient();
+  const physicalName = physicalWorksheetName(sport, worksheetName);
   const values = rows.map((row) => headers.map((header) => String(row[header] ?? "")));
   await sheets.spreadsheets.values.clear({
     spreadsheetId,
-    range: quoteSheetName(worksheetName),
+    range: quoteSheetName(physicalName),
   });
   await sheets.spreadsheets.values.update({
     spreadsheetId,
-    range: `${quoteSheetName(worksheetName)}!A1`,
+    range: `${quoteSheetName(physicalName)}!A1`,
     valueInputOption: "RAW",
     requestBody: { values: [headers, ...values] },
   });
@@ -290,6 +298,9 @@ export async function upsertSportRows(
 }
 
 export function sportDatabaseLabel(sport: FootballSport) {
+  if (sharedContainerSports.has(sport)) {
+    return `${sport === "NCAAF" ? "CFB" : "NFL"} namespace in shared model database`;
+  }
   const config = sportSheetConfig(sport);
   return config.spreadsheetName || config.spreadsheetId;
 }
