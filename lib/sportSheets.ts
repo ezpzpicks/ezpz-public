@@ -14,6 +14,14 @@ const DEFAULT_NAMES: Record<FootballSport, string> = {
   NCAAF: "CFB Model Database",
 };
 
+const CORE_PUBLIC_TABS = [
+  "daily_slate",
+  "bet_tracker",
+  "all_game_trends",
+  "public_split_snapshots",
+  "odds_snapshot",
+] as const;
+
 function parseCredentials() {
   const raw = String(process.env.GOOGLE_CREDENTIALS || "").trim();
   if (!raw) throw new Error("Missing GOOGLE_CREDENTIALS environment variable.");
@@ -64,40 +72,78 @@ async function authClient() {
   return authClientPromise;
 }
 
+async function sheetsClient() {
+  const auth = await authClient();
+  return google.sheets({ version: "v4", auth: auth as any });
+}
+
+async function createSportSpreadsheet(config: SportSheetConfig) {
+  const sheets = await sheetsClient();
+  const response = await sheets.spreadsheets.create({
+    requestBody: {
+      properties: { title: config.spreadsheetName },
+      sheets: CORE_PUBLIC_TABS.map((title) => ({
+        properties: {
+          title,
+          gridProperties: { rowCount: 2000, columnCount: 120 },
+        },
+      })),
+    },
+    fields: "spreadsheetId,properties.title",
+  });
+  const spreadsheetId = String(response.data.spreadsheetId || "").trim();
+  if (!spreadsheetId) {
+    throw new Error(`${config.sport} database could not be created.`);
+  }
+  console.log(
+    `Created ${config.sport} database "${config.spreadsheetName}" (${spreadsheetId}).`,
+  );
+  return spreadsheetId;
+}
+
 const spreadsheetIdCache = new Map<FootballSport, string>();
+const spreadsheetResolutionInFlight = new Map<FootballSport, Promise<string>>();
 
 export async function resolveSportSpreadsheetId(sport: FootballSport) {
   const cached = spreadsheetIdCache.get(sport);
   if (cached) return cached;
-  const config = sportSheetConfig(sport);
-  if (config.spreadsheetId) {
-    spreadsheetIdCache.set(sport, config.spreadsheetId);
-    return config.spreadsheetId;
-  }
 
-  const auth = await authClient();
-  const drive = google.drive({ version: "v3", auth: auth as any });
-  const escaped = config.spreadsheetName.replace(/'/g, "\\'");
-  const response = await drive.files.list({
-    q: `name='${escaped}' and mimeType='application/vnd.google-apps.spreadsheet' and trashed=false`,
-    fields: "files(id,name)",
-    pageSize: 10,
-    supportsAllDrives: true,
-    includeItemsFromAllDrives: true,
-  });
-  const file = response.data.files?.[0];
-  if (!file?.id) {
-    throw new Error(
-      `${sport} database \"${config.spreadsheetName}\" was not found. Open that sport in the admin once so its database is created.`,
-    );
-  }
-  spreadsheetIdCache.set(sport, file.id);
-  return file.id;
-}
+  const active = spreadsheetResolutionInFlight.get(sport);
+  if (active) return active;
 
-async function sheetsClient() {
-  const auth = await authClient();
-  return google.sheets({ version: "v4", auth: auth as any });
+  const operation = (async () => {
+    const config = sportSheetConfig(sport);
+    if (config.spreadsheetId) return config.spreadsheetId;
+
+    const auth = await authClient();
+    const drive = google.drive({ version: "v3", auth: auth as any });
+    const escaped = config.spreadsheetName.replace(/'/g, "\\'");
+    const response = await drive.files.list({
+      q: `name='${escaped}' and mimeType='application/vnd.google-apps.spreadsheet' and trashed=false`,
+      fields: "files(id,name)",
+      pageSize: 10,
+      supportsAllDrives: true,
+      includeItemsFromAllDrives: true,
+    });
+    const file = response.data.files?.[0];
+    if (file?.id) return file.id;
+
+    // The admin model also creates its sport workbook on first use. This
+    // fallback removes the one-time manual dependency for a brand-new sport:
+    // the public service creates the same named workbook and standard public
+    // tabs, then the admin/model service opens that exact workbook by name and
+    // fills its model-specific tabs normally.
+    return createSportSpreadsheet(config);
+  })();
+
+  spreadsheetResolutionInFlight.set(sport, operation);
+  try {
+    const spreadsheetId = await operation;
+    spreadsheetIdCache.set(sport, spreadsheetId);
+    return spreadsheetId;
+  } finally {
+    spreadsheetResolutionInFlight.delete(sport);
+  }
 }
 
 function rowsToObjects(values: string[][], columns?: string[]) {
