@@ -38,12 +38,21 @@ function patchPage() {
   text = text.replaceAll('market: "Moneyline" | "Total",', 'market: "Moneyline" | "Spread" | "Total",');
   text = text.replaceAll('market: "Moneyline" | "Run Line" | "Total";', 'market: "Moneyline" | "Run Line" | "Spread" | "Total";');
 
-  text = replaceOnce(
-    text,
-    `        const response = await fetch("/api/public-data", {\n          cache: "no-store",`,
-    `        const endpoint =\n          activeSport === "NFL" || activeSport === "NCAAF"\n            ? \`/api/public-data?sport=\${activeSport}\`\n            : "/api/public-data";\n        const response = await fetch(endpoint, {\n          cache: "no-store",`,
-    "sport-aware public fetch",
-  );
+  const simpleFetch = `        const response = await fetch("/api/public-data", {\n          cache: "no-store",`;
+  const optimizedFetch = `        const response = await fetch(forceFresh ? "/api/public-data?refresh=1" : "/api/public-data", {\n          cache: "no-store",`;
+  const simpleSportFetch = `        const endpoint =\n          activeSport === "NFL" || activeSport === "NCAAF"\n            ? \`/api/public-data?sport=\${activeSport}\`\n            : "/api/public-data";\n        const response = await fetch(endpoint, {\n          cache: "no-store",`;
+  const optimizedSportFetch = `        const endpoint =\n          activeSport === "NFL" || activeSport === "NCAAF"\n            ? \`/api/public-data?sport=\${activeSport}\${forceFresh ? "&refresh=1" : ""}\`\n            : forceFresh\n              ? "/api/public-data?refresh=1"\n              : "/api/public-data";\n        const response = await fetch(endpoint, {\n          cache: "no-store",`;
+
+  if (text.includes(optimizedSportFetch) || text.includes(simpleSportFetch)) {
+    // Already sport-aware.
+  } else if (text.includes(optimizedFetch)) {
+    text = text.replace(optimizedFetch, optimizedSportFetch);
+  } else if (text.includes(simpleFetch)) {
+    text = text.replace(simpleFetch, simpleSportFetch);
+  } else {
+    throw new Error("sport-aware public fetch: supported public-data fetch target not found");
+  }
+
   text = replaceOnce(
     text,
     `  }, []);\n\n  useEffect(() => {\n    void loadData();`,
