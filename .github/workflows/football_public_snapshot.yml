@@ -1,0 +1,56 @@
+name: EZPZ Football Public Snapshots
+
+on:
+  schedule:
+    # Persist NFL/NCAAF public split + trend snapshots every 10 minutes during
+    # the normal football activity window. Public website visitors remain read-only.
+    - cron: "0,10,20,30,40,50 10-23 * * *"
+      timezone: "America/New_York"
+    - cron: "0,10,20,30,40,50 0 * * *"
+      timezone: "America/New_York"
+    - cron: "0 1 * * *"
+      timezone: "America/New_York"
+  workflow_dispatch:
+
+concurrency:
+  group: ezpz-football-public-snapshots
+  cancel-in-progress: false
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Capture NFL snapshot
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          test -n "$CRON_SECRET" || { echo "Missing repository secret: CRON_SECRET"; exit 1; }
+          curl --fail-with-body \
+            --silent \
+            --show-error \
+            --retry 2 \
+            --retry-delay 8 \
+            --max-time 90 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "https://ezpzpicks.com/api/public-data?sport=NFL&scheduled=1" \
+            --output /tmp/nfl_public_data.json
+          jq -e '.ok == true' /tmp/nfl_public_data.json >/dev/null
+
+      - name: Space Google Sheets writes
+        run: sleep 10
+
+      - name: Capture NCAAF snapshot
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          curl --fail-with-body \
+            --silent \
+            --show-error \
+            --retry 2 \
+            --retry-delay 8 \
+            --max-time 90 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "https://ezpzpicks.com/api/public-data?sport=NCAAF&scheduled=1" \
+            --output /tmp/ncaaf_public_data.json
+          jq -e '.ok == true' /tmp/ncaaf_public_data.json >/dev/null
