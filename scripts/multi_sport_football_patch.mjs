@@ -35,6 +35,7 @@ function patchPage() {
     "football board import",
   );
   text = text.replaceAll('market: "Moneyline" | "Total";', 'market: "Moneyline" | "Spread" | "Total";');
+  text = text.replaceAll('market: "Moneyline" | "Total",', 'market: "Moneyline" | "Spread" | "Total",');
   text = text.replaceAll('market: "Moneyline" | "Run Line" | "Total";', 'market: "Moneyline" | "Run Line" | "Spread" | "Total";');
 
   text = replaceOnce(
