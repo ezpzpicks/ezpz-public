@@ -1,9 +1,11 @@
 name: Fix AI cold record gate
 
+# One-time repair workflow. Updating this file triggers the patch job below.
 on:
   push:
     paths:
       - ".github/workflows/fix-ai-cold-record-gate.yml"
+  workflow_dispatch:
 
 permissions:
   contents: write
