@@ -1,7 +1,7 @@
 import fs from "node:fs";
 
 function replaceOnce(text, oldText, newText, label) {
-  if (text.includes(newText) && !text.includes(oldText)) return text;
+  if (text.includes(newText)) return text;
   const count = text.split(oldText).length - 1;
   if (count !== 1) throw new Error(`${label}: expected exactly one old block, found ${count}`);
   return text.replace(oldText, newText);
