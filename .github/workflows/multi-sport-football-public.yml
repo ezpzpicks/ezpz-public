@@ -1,0 +1,69 @@
+name: Multi-sport football public smoke
+
+on:
+  push:
+    branches:
+      - multi-sport-sheets-football-public
+    paths:
+      - app/FootballBoard.tsx
+      - app/page.tsx
+      - app/api/public-data/route.ts
+      - lib/footballPublicData.ts
+      - lib/sportSheets.ts
+      - scripts/multi_sport_football_patch.mjs
+      - package.json
+      - .github/workflows/multi-sport-football-public.yml
+  pull_request:
+    branches:
+      - main
+    paths:
+      - app/FootballBoard.tsx
+      - app/page.tsx
+      - app/api/public-data/route.ts
+      - lib/footballPublicData.ts
+      - lib/sportSheets.ts
+      - scripts/multi_sport_football_patch.mjs
+      - package.json
+      - .github/workflows/multi-sport-football-public.yml
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: multi-sport-sheets-football-public
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Generate football route and page integration
+        run: node scripts/multi_sport_football_patch.mjs
+      - name: Verify patch is idempotent
+        run: |
+          cp app/page.tsx /tmp/page-before.tsx
+          cp app/api/public-data/route.ts /tmp/route-before.ts
+          node scripts/multi_sport_football_patch.mjs
+          diff -u /tmp/page-before.tsx app/page.tsx
+          diff -u /tmp/route-before.ts app/api/public-data/route.ts
+      - name: Build Next.js app
+        run: npx next build
+      - name: Check generated diff
+        run: git diff --check
+      - name: Record generated integration
+        if: github.event_name != 'pull_request'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- app/page.tsx app/api/public-data/route.ts
+          if ! git diff --cached --quiet; then
+            git commit -m "Generate live football public integration"
+            git pull --rebase origin multi-sport-sheets-football-public
+            git push origin HEAD:multi-sport-sheets-football-public
+          fi
