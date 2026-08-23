@@ -28,13 +28,13 @@ const sourceBlockPattern =
 const fixedChecklist = String.raw`FIXED RESEARCH CHECKLIST — USE THESE EXACT SOURCES
 Use builderGameContext/modelGameContext as the baseline quantitative case. Do not re-research the model or trend itself. For every applicable question below, return exactly one evidence direction internally: SUPPORTS, OPPOSES, or NEUTRAL. A fact is SUPPORTS/OPPOSES only when it materially changes the expected outcome of this exact wager. Merely confirming what was already expected is NEUTRAL.
 
-1) STARTING PITCHERS — Are the scheduled starters the same pitchers assumed by EZPZ, and is there any announced opener/bulk-role or starter change that materially affects the wager?
+1) STARTING PITCHING ADVANTAGE — Who is the better starting pitcher today, and does that pitching advantage SUPPORT, OPPOSE, or have a NEUTRAL effect on this pick?
 SOURCE: https://www.rotowire.com/baseball/projected-starters.php
-COMPARE: RotoWire scheduled/probable starters vs builderGameContext/modelGameContext. Expected starter confirmed = NEUTRAL. A material starter/role change may SUPPORT or OPPOSE.
+COMPARE: both scheduled/probable starters, their recent effectiveness and workload context from EZPZ, and any meaningful role difference or starter change. Decide which starter has the matchup advantage, then determine whether that advantage actually matters for this exact wager. If neither starter creates a meaningful edge for the pick, mark NEUTRAL.
 
-2) TODAY'S LINEUPS — Does today's confirmed/projected lineup materially help or hurt this wager compared with the lineup assumptions and hitter context supplied by EZPZ?
+2) LINEUP MATCHUP — How do today's confirmed/projected lineups match up against the opposing starting pitcher, and does that matchup SUPPORT, OPPOSE, or have a NEUTRAL effect on this pick?
 SOURCE: https://www.rotowire.com/baseball/daily-lineups.php
-COMPARE: actual/projected hitters, handedness, meaningful scratches/rest, and batting-order changes vs the EZPZ context. Normal/expected lineup = NEUTRAL. Do not award support just because a lineup was confirmed.
+COMPARE: the actual/projected hitters against the opposing starter using handedness, strikeout/contact profile, platoon strength, meaningful scratches/rest, and batting-order changes. Focus on which lineup has the more favorable matchup against the opposing pitcher and whether that matchup materially affects this exact wager. A normal or expected lineup without a meaningful matchup edge = NEUTRAL.
 
 3) BULLPEN USAGE — Has either bullpen been heavily used recently, are important relievers on back-to-back/heavy workloads, or is there a meaningful rest advantage that changes this wager?
 SOURCE: https://www.rotowire.com/baseball/bullpen-usage.php
@@ -59,7 +59,7 @@ COMPARE: wind, temperature, precipitation/delay risk, roof/dome status and only 
 GRADING RULES
 - Use only the fixed sources above plus the supplied EZPZ structured data unless a direct current contradiction requires clarification.
 - Do not browse broadly for generic articles, season narratives, opinions, betting picks, or reasons to confirm the wager.
-- Confirmed expected starter = NEUTRAL. Expected lineup = NEUTRAL. Rested bullpen with no special edge = NEUTRAL. No injury issue = NEUTRAL. Normal weather = NEUTRAL.
+- Confirmed expected starter = NEUTRAL unless the actual starter comparison creates a meaningful pitching advantage for or against the pick. Expected lineup = NEUTRAL unless the actual lineup-to-pitcher matchup creates a meaningful edge. Rested bullpen with no special edge = NEUTRAL. No injury issue = NEUTRAL. Normal weather = NEUTRAL.
 - Research adjustment must be 0 when the relevant evidence is neutral or balanced.
 - A positive adjustment requires at least one verified, wager-specific SUPPORTS finding. One modest material support is usually +1; stronger support may be +2; multiple independent strong supports may justify +3. Reserve +4 to +6 for rare, truly major verified pregame changes.
 - Negative adjustments follow the same scale for OPPOSES evidence. A critical conflict may justify approved=false.
