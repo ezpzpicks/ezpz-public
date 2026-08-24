@@ -64,7 +64,17 @@ GRADING RULES
 - A positive adjustment requires at least one verified, wager-specific SUPPORTS finding. One modest material support is usually +1; stronger support may be +2; multiple independent strong supports may justify +3. Reserve +4 to +6 for rare, truly major verified pregame changes.
 - Negative adjustments follow the same scale for OPPOSES evidence. A critical conflict may justify approved=false.
 - Do not turn missing information into negative evidence, and do not turn mere verification into positive evidence.
-- In researchSummary/WHY, report only the decisive SUPPORTS/OPPOSES findings and important NEUTRAL context. Keep it concise.
+
+SUMMARY OUTPUT — NUMBERS FIRST
+- researchSummary must be a compact list of the DIRECT COMPARATIVE ADVANTAGES for the exact wager. Show the actual numbers from the fixed sources whenever they are available, even when the difference is small or grades NEUTRAL.
+- Never replace an available comparison with phrases such as "no advantage found," "no meaningful edge," "nothing notable," or "research did not corroborate." If the numbers exist, show them and name which side the numbers favor.
+- Examples of the required style: "Starter edge: PHI — last 3 ER 1/2/1 vs NYM 4/3/2; night ERA 2.61 vs 3.48." "Bullpen: PHI high-leverage arms 28 pitches last 2 days vs NYM 61 — PHI rest edge." "Model: Under 8.5; EZPZ projection 7.7 — 0.8-run Under edge."
+- A small edge may still be NEUTRAL for grading, but the summary must still report it: for example, "Night ERA 3.42 vs 3.66 — slight selected-side edge (NEUTRAL weight)."
+- For last-3-start pitcher comparisons, list the exact runs/earned runs allowed by start rather than saying "better recent form."
+- For day/night, home/away, ballpark, ERA/WHIP, K rate, pitch count, model projection, implied probability, or bullpen workload, include the exact values whenever the source provides them.
+- Omit generic process commentary, threshold explanations, confirmations, and filler. Do not explain that a source was searched. Do not spend summary space saying normal lineup/no injuries/normal weather unless it directly creates a comparison advantage.
+- If a requested number truly is unavailable, omit that comparison unless its absence materially affects the decision; do not substitute vague prose.
+- WHY should contain at most the 1-2 strongest direct advantages/conflicts and should use the same exact numbers instead of generic narrative.
 
 MISSING INFORMATION IS NEUTRAL, NOT NEGATIVE.`;
 
@@ -77,7 +87,7 @@ if (sourceBlockPattern.test(text)) {
 const structuredSharedFields =
   "The shared fields must be concise but matchup-specific: startingPitching names both starters and any prop pitcher and notes confirmed/projected lineup context when material; bullpenAnalysis uses structured bullpen context first and supplements exact recent reliever usage when needed; recentTeamForm covers both teams using structured context first; historicalMatchup includes meaningful split/history sample context or says no meaningful sample exists. Never describe a concrete builderGameContext/modelGameContext fact as unverified simply because web search failed to reproduce it.";
 const conciseSharedFields =
-  "Keep the shared fields concise and evidence-only. Use the fixed checklist and exact URLs above. Clearly distinguish SUPPORTS, OPPOSES, and NEUTRAL. Do not award positive support for merely confirming expected starters, a normal lineup, an ordinarily rested bullpen, no material injury, or normal weather.";
+  "Keep the shared fields concise, numeric, and comparison-first. Use the fixed checklist and exact URLs above. Show the actual comparison values and name the side with the edge even when the difference is small. Clearly distinguish SUPPORTS, OPPOSES, and NEUTRAL for grading, but never hide an available numeric edge behind phrases like 'no advantage found.' Do not award positive support for merely confirming expected starters, a normal lineup, an ordinarily rested bullpen, no material injury, or normal weather.";
 if (text.includes(structuredSharedFields)) {
   text = text.replace(structuredSharedFields, conciseSharedFields);
 } else if (!text.includes(conciseSharedFields)) {
@@ -96,7 +106,7 @@ if (text.includes(oldPitcherKs)) {
 
 if (text !== original) {
   fs.writeFileSync(path, text, "utf8");
-  console.log("Applied concise fixed-source MLB AI research checklist.");
+  console.log("Applied concise fixed-source MLB AI research checklist with numeric summaries.");
 } else {
   console.log("Concise fixed-source MLB AI research checklist already present.");
 }
