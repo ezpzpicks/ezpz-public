@@ -14,16 +14,18 @@ if (!text.includes("function favoriteKeyFromAiPick(")) {
 
   if (pick.market === "Moneyline" || isMoneylineType(type)) {
     const team = cleanMoneylineTeam(pick.selection || pick.play || "");
-    return team ? `ML|${dateKey}|${favoriteKeyText(team)}` : "";
+    return team ? "ML|" + dateKey + "|" + favoriteKeyText(team) : "";
   }
 
   if (pick.market === "Pitcher Strikeouts" || isKType(type)) {
     const pitcher = pitcherNameKey(cleanPitcherName(pick.selection || pick.play || ""));
-    return pitcher ? `K|${dateKey}|${pitcher}` : "";
+    return pitcher ? "K|" + dateKey + "|" + pitcher : "";
   }
 
   if (pick.market === "First Inning" || isNRFIType(type)) {
-    const combined = normalizeType(`${pick.bestPlayType || ""} ${pick.selection || ""} ${pick.play || ""}`);
+    const combined = normalizeType(
+      (pick.bestPlayType || "") + " " + (pick.selection || "") + " " + (pick.play || ""),
+    );
     const firstInningType = isNRFIType(type)
       ? type
       : combined.includes("YRFI")
@@ -32,12 +34,14 @@ if (!text.includes("function favoriteKeyFromAiPick(")) {
           ? "NRFI"
           : type;
     return firstInningType
-      ? `FI|${dateKey}|${firstInningType}|${favoriteKeyText(pick.game || pick.play)}`
+      ? "FI|" + dateKey + "|" + firstInningType + "|" + favoriteKeyText(pick.game || pick.play)
       : "";
   }
 
   if (pick.market === "Total" || isTotalType(type)) {
-    const combined = `${pick.bestPlayType || ""} ${pick.selection || ""} ${pick.play || ""}`.toUpperCase();
+    const combined = (
+      (pick.bestPlayType || "") + " " + (pick.selection || "") + " " + (pick.play || "")
+    ).toUpperCase();
     const totalType = isTotalType(type)
       ? type
       : combined.includes("UNDER")
@@ -46,7 +50,7 @@ if (!text.includes("function favoriteKeyFromAiPick(")) {
           ? "TOTAL OVER"
           : "";
     return totalType
-      ? `TOTAL|${dateKey}|${totalType}|${favoriteKeyText(pick.game || pick.play)}`
+      ? "TOTAL|" + dateKey + "|" + totalType + "|" + favoriteKeyText(pick.game || pick.play)
       : "";
   }
 
@@ -80,9 +84,7 @@ if (text.includes(oldCardSignature)) {
   throw new Error("AI pick card signature not found for handpicked badge");
 }
 
-const summaryStatus = `<span className={\`aiStatusBadge \u0024{isFinalReview ? "final" : "pending"}\`}>
-              {isFinalReview ? "FINAL" : "PENDING — UNDER REVIEW"}
-            </span>`;
+const summaryStatus = '<span className={`aiStatusBadge ${isFinalReview ? "final" : "pending"}`}>\n              {isFinalReview ? "FINAL" : "PENDING — UNDER REVIEW"}\n            </span>';
 const summaryStatusWithHandpicked = `${summaryStatus}
             {handpicked ? (
               <span className="handpickedPill aiHandpickedPill">⭐ HANDPICKED</span>
