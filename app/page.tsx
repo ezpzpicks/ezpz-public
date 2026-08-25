@@ -1800,13 +1800,21 @@ function truthySheetFlag(value: unknown) {
 }
 
 const DRAFTKINGS_SIGNAL_DISPLAY_LABELS: Record<string, string> = {
-  "Extreme Public + Sharp Agreement": "Extreme Bets + Handle Agreement",
-  "Heavy Public + Sharp Agreement": "Heavy Bets + Handle Agreement",
-  "Strong Sharp Rejection": "Strong Handle Below Bets",
-  "Sharp Rejection": "Handle Below Bets",
-  "Strong Sharp Support": "Strong Handle Above Bets",
-  "Sharp Support": "Handle Above Bets",
-  "Balanced Public / Sharp Split": "Balanced Bets / Handle",
+  "Extreme Public + Sharp Agreement": "Extreme Public Consensus",
+  "Heavy Public + Sharp Agreement": "Heavy Public Consensus",
+  "Strong Sharp Rejection": "Strong Handle Share Below Bet Share",
+  "Sharp Rejection": "Handle Share Below Bet Share",
+  "Strong Sharp Support": "Strong Handle Share Above Bet Share",
+  "Sharp Support": "Handle Share Above Bet Share",
+  "Balanced Public / Sharp Split": "Balanced Bet / Handle Share",
+  "Extreme Bets + Handle Agreement": "Extreme Public Consensus",
+  "Heavy Bets + Handle Agreement": "Heavy Public Consensus",
+  "Strong Handle Below Bets": "Strong Handle Share Below Bet Share",
+  "Handle Below Bets": "Handle Share Below Bet Share",
+  "Strong Handle Above Bets": "Strong Handle Share Above Bet Share",
+  "Handle Above Bets": "Handle Share Above Bet Share",
+  "Balanced Bets / Handle": "Balanced Bet / Handle Share",
+  "Line Movement Confirmation": "Supportive Line Movement",
 };
 
 function draftKingsSignalDisplayLabel(value: unknown) {
@@ -3272,7 +3280,7 @@ function PublicBettingPanel({ info }: { info: PublicBettingInfo | null }) {
         <MiniBubble label="Opening Odds" value={formatOdds(info.openingOdds)} />
         <MiniBubble label="Current Odds" value={info.odds || "—"} />
         <MiniBubble
-          label="Market Move"
+          label="Move Toward Pick"
           value={marketMovementText(info.lineMovementBasis, info.lineMovementValue)}
         />
         {info.market === "Total" ? (
@@ -3290,7 +3298,7 @@ function PublicBettingPanel({ info }: { info: PublicBettingInfo | null }) {
         ) : null}
         {info.lineMovementSignal ? (
           <div className={`publicWarning ${movementClass}`}>
-            {movementIcon} {info.lineMovementSignal}{movementDetail}
+            {movementIcon} {draftKingsSignalDisplayLabel(info.lineMovementSignal)}{movementDetail}
           </div>
         ) : null}
       </div>
@@ -3384,7 +3392,7 @@ function LiveMarketSplits({
                   ) : null}
                   {split.lineMovementSignal ? (
                     <span className={`liveSignalPill ${movementTone}`}>
-                      {movementIcon} {split.lineMovementSignal}
+                      {movementIcon} {draftKingsSignalDisplayLabel(split.lineMovementSignal)}
                     </span>
                   ) : null}
                 </div>
@@ -4208,7 +4216,7 @@ function TrendSelectionRow({
           <MiniBubble label="Opening Odds" value={formatOdds(play.openingOdds)} />
           <MiniBubble label="Current Odds" value={formatOdds(play.odds)} />
           <MiniBubble
-            label="Market Move"
+            label="Move Toward Pick"
             value={marketMovementText(play.lineMovementBasis, play.lineMovementValue)}
           />
           {play.market === "Total" ? (
@@ -5203,18 +5211,18 @@ type DraftKingsSignalSummary = {
 const DRAFTKINGS_SIGNAL_CATALOG: Array<
   Pick<DraftKingsSignalSummary, "signalType" | "signal" | "tone">
 > = [
-  { signalType: "Public Split", signal: "Extreme Bets + Handle Agreement", tone: "negative" },
-  { signalType: "Public Split", signal: "Heavy Bets + Handle Agreement", tone: "caution" },
-  { signalType: "Public Split", signal: "Strong Handle Below Bets", tone: "negative" },
-  { signalType: "Public Split", signal: "Handle Below Bets", tone: "negative" },
-  { signalType: "Public Split", signal: "Strong Handle Above Bets", tone: "positive" },
-  { signalType: "Public Split", signal: "Handle Above Bets", tone: "positive" },
-  { signalType: "Public Split", signal: "Balanced Bets / Handle", tone: "neutral" },
+  { signalType: "Public Split", signal: "Extreme Public Consensus", tone: "negative" },
+  { signalType: "Public Split", signal: "Heavy Public Consensus", tone: "caution" },
+  { signalType: "Public Split", signal: "Strong Handle Share Below Bet Share", tone: "negative" },
+  { signalType: "Public Split", signal: "Handle Share Below Bet Share", tone: "negative" },
+  { signalType: "Public Split", signal: "Strong Handle Share Above Bet Share", tone: "positive" },
+  { signalType: "Public Split", signal: "Handle Share Above Bet Share", tone: "positive" },
+  { signalType: "Public Split", signal: "Balanced Bet / Handle Share", tone: "neutral" },
   { signalType: "Line Movement", signal: "Strong Reverse Line Movement Support", tone: "positive" },
   { signalType: "Line Movement", signal: "Reverse Line Movement Support", tone: "positive" },
   { signalType: "Line Movement", signal: "Strong Reverse Line Movement Against", tone: "negative" },
   { signalType: "Line Movement", signal: "Reverse Line Movement Against", tone: "negative" },
-  { signalType: "Line Movement", signal: "Line Movement Confirmation", tone: "positive" },
+  { signalType: "Line Movement", signal: "Supportive Line Movement", tone: "positive" },
   { signalType: "Line Movement", signal: "Adverse Line Movement", tone: "negative" },
   { signalType: "Line Movement", signal: "Legacy Adverse Movement (pre-fix)", tone: "negative" },
 ];
