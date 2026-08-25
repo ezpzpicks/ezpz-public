@@ -1,0 +1,105 @@
+name: Rename market signal labels
+
+# One-time display-label cleanup. Updating this file triggers the patch job below.
+on:
+  push:
+    paths:
+      - ".github/workflows/rename-market-signal-labels.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Clarify market signal labels without changing signal logic
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("app/page.tsx")
+          text = path.read_text()
+
+          old_mapping = '''const DRAFTKINGS_SIGNAL_DISPLAY_LABELS: Record<string, string> = {
+            "Extreme Public + Sharp Agreement": "Extreme Bets + Handle Agreement",
+            "Heavy Public + Sharp Agreement": "Heavy Bets + Handle Agreement",
+            "Strong Sharp Rejection": "Strong Handle Below Bets",
+            "Sharp Rejection": "Handle Below Bets",
+            "Strong Sharp Support": "Strong Handle Above Bets",
+            "Sharp Support": "Handle Above Bets",
+            "Balanced Public / Sharp Split": "Balanced Bets / Handle",
+          };'''
+          new_mapping = '''const DRAFTKINGS_SIGNAL_DISPLAY_LABELS: Record<string, string> = {
+            "Extreme Public + Sharp Agreement": "Extreme Public Consensus",
+            "Heavy Public + Sharp Agreement": "Heavy Public Consensus",
+            "Strong Sharp Rejection": "Strong Handle Share Below Bet Share",
+            "Sharp Rejection": "Handle Share Below Bet Share",
+            "Strong Sharp Support": "Strong Handle Share Above Bet Share",
+            "Sharp Support": "Handle Share Above Bet Share",
+            "Balanced Public / Sharp Split": "Balanced Bet / Handle Share",
+            "Extreme Bets + Handle Agreement": "Extreme Public Consensus",
+            "Heavy Bets + Handle Agreement": "Heavy Public Consensus",
+            "Strong Handle Below Bets": "Strong Handle Share Below Bet Share",
+            "Handle Below Bets": "Handle Share Below Bet Share",
+            "Strong Handle Above Bets": "Strong Handle Share Above Bet Share",
+            "Handle Above Bets": "Handle Share Above Bet Share",
+            "Balanced Bets / Handle": "Balanced Bet / Handle Share",
+            "Line Movement Confirmation": "Supportive Line Movement",
+          };'''
+          if old_mapping not in text:
+              raise SystemExit("Could not find DraftKings display-label mapping to patch")
+          text = text.replace(old_mapping, new_mapping, 1)
+
+          old_info_movement = '''{movementIcon} {info.lineMovementSignal}{movementDetail}'''
+          new_info_movement = '''{movementIcon} {draftKingsSignalDisplayLabel(info.lineMovementSignal)}{movementDetail}'''
+          if old_info_movement not in text:
+              raise SystemExit("Could not find Best Play line-movement display")
+          text = text.replace(old_info_movement, new_info_movement, 1)
+
+          old_split_movement = '''{movementIcon} {split.lineMovementSignal}'''
+          new_split_movement = '''{movementIcon} {draftKingsSignalDisplayLabel(split.lineMovementSignal)}'''
+          if old_split_movement not in text:
+              raise SystemExit("Could not find Full Slate line-movement display")
+          text = text.replace(old_split_movement, new_split_movement, 1)
+
+          market_move_count = text.count('label="Market Move"')
+          if market_move_count != 2:
+              raise SystemExit(f"Expected 2 Market Move labels, found {market_move_count}")
+          text = text.replace('label="Market Move"', 'label="Move Toward Pick"')
+
+          catalog_replacements = {
+              'signal: "Extreme Bets + Handle Agreement"': 'signal: "Extreme Public Consensus"',
+              'signal: "Heavy Bets + Handle Agreement"': 'signal: "Heavy Public Consensus"',
+              'signal: "Strong Handle Below Bets"': 'signal: "Strong Handle Share Below Bet Share"',
+              'signal: "Handle Below Bets"': 'signal: "Handle Share Below Bet Share"',
+              'signal: "Strong Handle Above Bets"': 'signal: "Strong Handle Share Above Bet Share"',
+              'signal: "Handle Above Bets"': 'signal: "Handle Share Above Bet Share"',
+              'signal: "Balanced Bets / Handle"': 'signal: "Balanced Bet / Handle Share"',
+              'signal: "Line Movement Confirmation"': 'signal: "Supportive Line Movement"',
+          }
+          for old, new in catalog_replacements.items():
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"Expected exactly one catalog entry for {old!r}, found {count}")
+              text = text.replace(old, new, 1)
+
+          path.write_text(text)
+          PY
+
+      - name: Commit label cleanup
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/page.tsx
+          if git diff --cached --quiet; then
+            echo "No code changes to commit"
+            exit 0
+          fi
+          git commit -m "Clarify market signal labels"
+          git push
