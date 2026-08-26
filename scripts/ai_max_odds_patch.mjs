@@ -12,11 +12,11 @@ const oldBlock = `  if (!String(candidate.odds || "").trim() || !parseAmericanOd
 const newBlock = `  const playableOdds = parseAmericanOdds(candidate.odds);
   if (!String(candidate.odds || "").trim() || !playableOdds) {
     candidate.protectionReasons.push("Playable odds are missing");
-  } else if (playableOdds < -165) {
+  } else if (playableOdds < -150) {
     candidate.protectionReasons.push(
-      "AI play odds " + playableOdds + " exceed the -165 maximum price",
+      "AI play odds " + playableOdds + " exceed the -150 maximum price",
     );
-    candidate.dataStatus.push("AI odds cap: -165 maximum");
+    candidate.dataStatus.push("AI odds cap: -150 maximum");
   }
   if ((candidate.market === "Total" || candidate.market === "Pitcher Strikeouts") && !String(candidate.line || "").trim()) {`;
 
@@ -28,7 +28,7 @@ if (text.includes(oldBlock)) {
 
 if (text !== original) {
   fs.writeFileSync(path, text, "utf8");
-  console.log("Applied AI Pick maximum odds cap of -165.");
+  console.log("Applied AI Pick maximum odds cap of -150.");
 } else {
   console.log("AI Pick maximum odds cap already applied.");
 }
