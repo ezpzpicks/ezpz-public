@@ -24,42 +24,46 @@ jobs:
           path = Path("app/api/public-data/route.ts")
           text = path.read_text()
 
-          old = '''  const refreshedFrozenPlays = frozenPlays.map((frozenPlay) => {
-    const livePlay = liveByKey.get(overlayKey(frozenPlay));
-    if (!livePlay) return frozenPlay;
+          old = (
+              '  const refreshedFrozenPlays = frozenPlays.map((frozenPlay) => {\n'
+              '    const livePlay = liveByKey.get(overlayKey(frozenPlay));\n'
+              '    if (!livePlay) return frozenPlay;\n'
+              '\n'
+              '    // The final market snapshot remains frozen, but signal labels, records,\n'
+              '    // scores, and ranks must be rebuilt from the current calculation contract.\n'
+              '    // Otherwise a repaired split (for example 32% Bets / 68% Handle) can keep\n'
+              '    // the pre-repair "Handle Below Bets" badge from its stored JSON.\n'
+              '    return {\n'
+              '      ...livePlay,\n'
+              '      frozenAt: frozenPlay.frozenAt || livePlay.updatedAt,\n'
+              '      snapshotStatus: "FINAL_PREGAME" as const,\n'
+              '      gradingVersion: FROZEN_TREND_GRADING_VERSION,\n'
+              '      recordDate: frozenPlay.recordDate,\n'
+              '      recordGameKey: frozenPlay.recordGameKey,\n'
+              '      recordGameTime: frozenPlay.recordGameTime,\n'
+              '    };\n'
+              '  });'
+          )
 
-    // The final market snapshot remains frozen, but signal labels, records,
-    // scores, and ranks must be rebuilt from the current calculation contract.
-    // Otherwise a repaired split (for example 32% Bets / 68% Handle) can keep
-    // the pre-repair "Handle Below Bets" badge from its stored JSON.
-    return {
-      ...livePlay,
-      frozenAt: frozenPlay.frozenAt || livePlay.updatedAt,
-      snapshotStatus: "FINAL_PREGAME" as const,
-      gradingVersion: FROZEN_TREND_GRADING_VERSION,
-      recordDate: frozenPlay.recordDate,
-      recordGameKey: frozenPlay.recordGameKey,
-      recordGameTime: frozenPlay.recordGameTime,
-    };
-  });'''
-
-          new = '''  const refreshedFrozenPlays = frozenPlays.map((frozenPlay) => {
-    const livePlay = liveByKey.get(overlayKey(frozenPlay));
-    if (!livePlay) return frozenPlay;
-
-    // FINAL_PREGAME means the grading state is immutable. Historical records
-    // continue changing as later games finish, so never let a live recalculation
-    // replace the locked score/tier/signals/record inputs after this game's lock.
-    // Live data may fill a field that did not exist on an older stored object,
-    // but every frozen field wins on overlap.
-    return {
-      ...livePlay,
-      ...frozenPlay,
-      frozenAt: frozenPlay.frozenAt || frozenPlay.updatedAt || livePlay.updatedAt,
-      snapshotStatus: "FINAL_PREGAME" as const,
-      gradingVersion: FROZEN_TREND_GRADING_VERSION,
-    };
-  });'''
+          new = (
+              '  const refreshedFrozenPlays = frozenPlays.map((frozenPlay) => {\n'
+              '    const livePlay = liveByKey.get(overlayKey(frozenPlay));\n'
+              '    if (!livePlay) return frozenPlay;\n'
+              '\n'
+              '    // FINAL_PREGAME means the grading state is immutable. Historical records\n'
+              '    // continue changing as later games finish, so never let a live recalculation\n'
+              '    // replace the locked score/tier/signals/record inputs after this game\'s lock.\n'
+              '    // Live data may fill a field that did not exist on an older stored object,\n'
+              '    // but every frozen field wins on overlap.\n'
+              '    return {\n'
+              '      ...livePlay,\n'
+              '      ...frozenPlay,\n'
+              '      frozenAt: frozenPlay.frozenAt || frozenPlay.updatedAt || livePlay.updatedAt,\n'
+              '      snapshotStatus: "FINAL_PREGAME" as const,\n'
+              '      gradingVersion: FROZEN_TREND_GRADING_VERSION,\n'
+              '    };\n'
+              '  });'
+          )
 
           if old in text:
               text = text.replace(old, new, 1)
