@@ -4,9 +4,9 @@ const path = "app/api/public-data/route.ts";
 let text = fs.readFileSync(path, "utf8");
 let changed = false;
 
-// A game can produce more than one AI candidate at slightly different moments.
-// Do not mark the whole game as finished just because one Best Play locked first.
-// Lock/finalize at candidate level so a qualifying Trend Play can still appear.
+// Final decisions are candidate-level, not game-level. A finalized Best Play
+// must not prevent a different qualifying Trend Play from the same game from
+// being created and finalized.
 const oldFinalizationBlock = `  const storedFinalGameKeys = new Set(
     storedToday
       .filter(
@@ -58,12 +58,47 @@ if (text.includes(oldFinalizationBlock)) {
   throw new Error("Trend candidate finalization target not found");
 }
 
-// HOT remains the only Best Play performance/form gate, but the user's new
-// -150 maximum price is a hard global betting constraint for every AI Pick.
+// The live/pending lifecycle had a second game-level lock. Convert it to the
+// same candidate-level rule so a Best Play final does not hide a later Trend Play.
+const oldLiveLockBlock = `  // Any persisted FINAL_PREGAME row means that candidate has already reached
+  // the final-decision stage. Do not recreate a live/pending preview for the
+  // same game after that point, including when the final decision was rejection.
+  const refreshedLockedKeys = new Set(
+    refreshedToday
+      .filter((pick) => pick.snapshotStatus === "FINAL_PREGAME")
+      .map((pick) => pick.gameKey),
+  );
+  const liveCandidates = candidates.filter(
+    (candidate) =>
+      !refreshedLockedKeys.has(candidate.gameKey) &&
+      (!candidate.slateRow || isPregameRow(candidate.slateRow, selectorNow)),
+  );`;
+
+const newLiveLockBlock = `  // Only the exact finalized candidate is locked. Other candidate IDs from the
+  // same game (for example a Trend Play after a Best Play) remain eligible.
+  const refreshedLockedCandidateIds = new Set(
+    refreshedToday
+      .filter((pick) => pick.snapshotStatus === "FINAL_PREGAME")
+      .map((pick) => pick.candidateId),
+  );
+  const liveCandidates = candidates.filter(
+    (candidate) =>
+      !refreshedLockedCandidateIds.has(candidate.candidateId) &&
+      (!candidate.slateRow || isPregameRow(candidate.slateRow, selectorNow)),
+  );`;
+
+if (text.includes(oldLiveLockBlock)) {
+  text = text.replace(oldLiveLockBlock, newLiveLockBlock);
+  changed = true;
+} else if (!text.includes("const refreshedLockedCandidateIds = new Set(")) {
+  throw new Error("Trend live candidate lock target not found");
+}
+
+// HOT remains the only Best Play performance/form gate, but -150 is a hard
+// global betting constraint for every AI Pick.
 const oldHotBlock = `    const hotBestPlay =
       bestPlayBacked && candidate.pitcherBetTypeForm === "HOT";
     const blocked = bestPlayBacked ? false : baseBlocked;`;
-
 const newHotBlock = `    const bestPlayOddsFailure = bestPlayBacked
       ? candidate.protectionReasons.find(
           (reason) =>
@@ -74,7 +109,6 @@ const newHotBlock = `    const bestPlayOddsFailure = bestPlayBacked
     const hotBestPlay =
       bestPlayBacked && candidate.pitcherBetTypeForm === "HOT";
     const blocked = bestPlayBacked ? Boolean(bestPlayOddsFailure) : baseBlocked;`;
-
 if (text.includes(oldHotBlock)) {
   text = text.replace(oldHotBlock, newHotBlock);
   changed = true;
@@ -87,7 +121,6 @@ const oldBestThreshold = `    const thresholdFailure = bestPlayBacked
         ? ""
         : (candidate.bestPlayType || "Best Play") + " is " + (candidate.pitcherBetTypeForm || "SAMPLE") + " over its rolling Last 7; only HOT Best Play bet types qualify for AI Picks"
       : trendOnlyCandidate && rawTrendScore < 69`;
-
 const newBestThreshold = `    const thresholdFailure = bestPlayBacked
       ? bestPlayOddsFailure
         ? bestPlayOddsFailure
@@ -95,7 +128,6 @@ const newBestThreshold = `    const thresholdFailure = bestPlayBacked
           ? ""
           : (candidate.bestPlayType || "Best Play") + " is " + (candidate.pitcherBetTypeForm || "SAMPLE") + " over its rolling Last 7; only HOT Best Play bet types qualify for AI Picks"
       : trendOnlyCandidate && rawTrendScore < 69`;
-
 if (text.includes(oldBestThreshold)) {
   text = text.replace(oldBestThreshold, newBestThreshold);
   changed = true;
@@ -109,7 +141,6 @@ const oldPreliminary = `    const preliminarySelected = bestPlayBacked
 const newPreliminary = `    const preliminarySelected = bestPlayBacked
       ? hotBestPlay && !bestPlayOddsFailure
       : !blocked && !thresholdFailure;`;
-
 if (text.includes(oldPreliminary)) {
   text = text.replace(oldPreliminary, newPreliminary);
   changed = true;
@@ -119,7 +150,7 @@ if (text.includes(oldPreliminary)) {
 
 if (changed) {
   fs.writeFileSync(path, text, "utf8");
-  console.log("Applied candidate-level Trend Play finalization and global -150 AI price cap.");
+  console.log("Applied candidate-level Trend Play locks and global -150 AI price cap.");
 } else {
-  console.log("Trend candidate finalization and -150 AI price cap already applied.");
+  console.log("Candidate-level Trend Play locks and -150 AI price cap already applied.");
 }
