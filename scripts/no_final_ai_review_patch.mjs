@@ -18,7 +18,7 @@ function replaceRange(text, startMarker, endMarker, replacement, label) {
   if (start < 0) throw new Error(`No-final-AI-review start target not found: ${label}`);
   const end = text.indexOf(endMarker, start + startMarker.length);
   if (end < 0) throw new Error(`No-final-AI-review end target not found: ${label}`);
-  return text.slice(0, start) + replacement + text.slice(end);
+  return text.slice(0, start) + replacement + text.slice(end + endMarker.length);
 }
 
 function patchRoute(text) {
@@ -95,7 +95,7 @@ function patchRoute(text) {
     text,
     "  // Never leave an interrupted final-review row visible after first pitch",
     "  // A final snapshot is not fully locked until its external review reaches a",
-    "",
+    "  // A final snapshot is not fully locked until its external review reaches a",
     "expired final review recovery",
   );
 
