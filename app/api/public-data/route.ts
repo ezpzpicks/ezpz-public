@@ -5328,18 +5328,17 @@ function overlayFrozenTrendPlays(
     const livePlay = liveByKey.get(overlayKey(frozenPlay));
     if (!livePlay) return frozenPlay;
 
-    // The final market snapshot remains frozen, but signal labels, records,
-    // scores, and ranks must be rebuilt from the current calculation contract.
-    // Otherwise a repaired split (for example 32% Bets / 68% Handle) can keep
-    // the pre-repair "Handle Below Bets" badge from its stored JSON.
+    // FINAL_PREGAME means the grading state is immutable. Historical records
+    // continue changing as later games finish, so never let a live recalculation
+    // replace the locked score/tier/signals/record inputs after this game's lock.
+    // Live data may fill a field that did not exist on an older stored object,
+    // but every frozen field wins on overlap.
     return {
       ...livePlay,
-      frozenAt: frozenPlay.frozenAt || livePlay.updatedAt,
+      ...frozenPlay,
+      frozenAt: frozenPlay.frozenAt || frozenPlay.updatedAt || livePlay.updatedAt,
       snapshotStatus: "FINAL_PREGAME" as const,
       gradingVersion: FROZEN_TREND_GRADING_VERSION,
-      recordDate: frozenPlay.recordDate,
-      recordGameKey: frozenPlay.recordGameKey,
-      recordGameTime: frozenPlay.recordGameTime,
     };
   });
 
