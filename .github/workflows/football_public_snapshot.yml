@@ -1,6 +1,11 @@
 name: EZPZ Football Public Snapshots
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/football_public_snapshot.yml
   schedule:
     # Persist NFL/NCAAF public split + line/odds movement snapshots every 5 minutes
     # during the normal football activity window. This preserves opening/current
