@@ -82,14 +82,14 @@ function patchFootballPublicData() {
   );
   text = replaceOnce(
     text,
-    "  const today=todayET(); await Promise.all([ensureSportWorksheet(sport,\"all_game_trends\",ALL_GAME_TRENDS_HEADERS),ensureSportWorksheet(sport,\"public_split_snapshots\",PUBLIC_SPLIT_HEADERS)]);",
-    "  const today=todayET(); if(persist) await Promise.all([ensureSportWorksheet(sport,\"all_game_trends\",ALL_GAME_TRENDS_HEADERS),ensureSportWorksheet(sport,\"public_split_snapshots\",PUBLIC_SPLIT_HEADERS)]);",
+    "  const today=todayET(); const trackingWeek=footballWeekBounds(sport,today); await Promise.all([ensureSportWorksheet(sport,\"all_game_trends\",ALL_GAME_TRENDS_HEADERS),ensureSportWorksheet(sport,\"public_split_snapshots\",PUBLIC_SPLIT_HEADERS)]);",
+    "  const today=todayET(); const trackingWeek=footballWeekBounds(sport,today); if(persist) await Promise.all([ensureSportWorksheet(sport,\"all_game_trends\",ALL_GAME_TRENDS_HEADERS),ensureSportWorksheet(sport,\"public_split_snapshots\",PUBLIC_SPLIT_HEADERS)]);",
     "read-only football public requests",
   );
   text = replaceOnce(
     text,
-    "  const currentSnapshots=enriched.map((split)=>snapshotRow({...split,snapshotTime:nowET()})); if(currentSnapshots.length) await upsertSportRows(sport,\"public_split_snapshots\",PUBLIC_SPLIT_HEADERS,currentSnapshots,snapshotKey);",
-    "  const currentSnapshots=enriched.map((split)=>snapshotRow({...split,snapshotTime:nowET()})); if(persist&&currentSnapshots.length) await upsertSportRows(sport,\"public_split_snapshots\",PUBLIC_SPLIT_HEADERS,currentSnapshots,snapshotKey);",
+    "  const currentSnapshots=enrichedTracking.map((split)=>snapshotRow({...split,snapshotTime:nowET()})); if(currentSnapshots.length) await upsertSportRows(sport,\"public_split_snapshots\",PUBLIC_SPLIT_HEADERS,currentSnapshots,snapshotKey);",
+    "  const currentSnapshots=enrichedTracking.map((split)=>snapshotRow({...split,snapshotTime:nowET()})); if(persist&&currentSnapshots.length) await upsertSportRows(sport,\"public_split_snapshots\",PUBLIC_SPLIT_HEADERS,currentSnapshots,snapshotKey);",
     "scheduled football snapshot persistence",
   );
   text = replaceOnce(
