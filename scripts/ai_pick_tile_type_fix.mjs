@@ -3,29 +3,24 @@ import fs from "node:fs";
 const path = "app/page.tsx";
 let text = fs.readFileSync(path, "utf8");
 
-const statusPattern = /type AiPickExternalStatus =\s*(?:\|\s*"[A-Z_]+"\s*)+;/g;
-const matches = [...text.matchAll(statusPattern)];
-if (!matches.length) throw new Error("AiPickExternalStatus union not found");
-
-const replacement = `type AiPickExternalStatus =
-  | "PENDING_FINAL_REVIEW"
-  | "WEB_REVIEWED"
-  | "NO_VERIFIED_CONTEXT"
-  | "NOT_CONFIGURED"
-  | "NOT_REQUIRED"
-  | "REVIEW_ERROR";`;
-text = text.replace(statusPattern, replacement);
-
-// Keep the display helper independently tolerant of NOT_REQUIRED even if an
-// earlier build transform narrows the base alias again.
+// The selector no longer performs a separate final AI/web review. Avoid an
+// obsolete NOT_REQUIRED comparison in the legacy display helper and make the
+// default label describe the current deterministic finalization flow.
 text = text.replace(
-  "function aiExternalReviewLabel(status: AiPickExternalStatus) {",
-  'function aiExternalReviewLabel(status: AiPickExternalStatus | "NOT_REQUIRED") {',
+  '  if (status === "NOT_REQUIRED") return "Separate AI/web review not required";\n',
+  "",
+);
+text = text.replace(
+  '  return "External research is not configured";',
+  '  return "Separate AI/web review not required";',
 );
 
 fs.writeFileSync(path, text, "utf8");
 
-if (!text.includes('function aiExternalReviewLabel(status: AiPickExternalStatus | "NOT_REQUIRED") {')) {
-  throw new Error("Failed to widen AI external-review display helper");
+if (text.includes('status === "NOT_REQUIRED"')) {
+  throw new Error("Obsolete NOT_REQUIRED status comparison remains in page.tsx");
 }
-console.log("Forced NOT_REQUIRED support for the redesigned AI tile display.");
+if (!text.includes('return "Separate AI/web review not required";')) {
+  throw new Error("Current no-review status label was not applied");
+}
+console.log("Removed obsolete final-review status comparison from redesigned AI tile.");
