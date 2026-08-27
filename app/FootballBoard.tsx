@@ -26,6 +26,9 @@ type TrendPlay = {
   selectionTeam: string; side: "Over" | "Under" | ""; sideGroup?: string; line: number | null; odds: string;
   betsPct: number; moneyPct: number; gapPct: number; openingBetsPct?: number; openingMoneyPct?: number;
   publicMovementPct?: number; sharpMovementPct?: number; openingLine?: number | null; openingOdds?: string;
+  openingImpliedPct?: number | null; currentImpliedPct?: number | null;
+  comparisonGap?: number; opponentScore?: number | null; updatedAt?: string; frozenAt?: string;
+  snapshotStatus?: "LIVE" | "FINAL_PREGAME";
   score: number; tier: "Pass" | "Good" | "Strong" | "Elite";
   signals: TrendSignal[]; lineMovementSignal?: string; lineMovementBasis?: string; lineMovementValue?: number | null;
 };
@@ -63,6 +66,46 @@ function signedPct(value: unknown) {
   const n = Number(value);
   if (!Number.isFinite(n)) return "—";
   return `${n > 0 ? "+" : ""}${n.toFixed(1)}%`;
+}
+
+function marketLine(play: TrendPlay, value: number | null | undefined) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "—";
+  if (play.market === "Spread") return `${n > 0 ? "+" : ""}${n}`;
+  return `${n}`;
+}
+
+function impliedPctValue(value: unknown) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  return Math.abs(n) <= 1 ? n * 100 : n;
+}
+
+function priceMove(play: TrendPlay) {
+  const opening = impliedPctValue(play.openingImpliedPct);
+  const current = impliedPctValue(play.currentImpliedPct);
+  if (opening == null || current == null) return "—";
+  const move = current - opening;
+  return `${move > 0 ? "+" : ""}${move.toFixed(1)} implied pts`;
+}
+
+function scheduledLockTime(gameTime?: string) {
+  const raw = String(gameTime || "");
+  const match = raw.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+  if (!match) return "—";
+  let hour = Number(match[1]) % 12;
+  if (match[3].toUpperCase() === "PM") hour += 12;
+  let total = (hour * 60 + Number(match[2]) - 15 + 1440) % 1440;
+  const lockHour24 = Math.floor(total / 60);
+  const minute = total % 60;
+  const suffix = lockHour24 >= 12 ? "PM" : "AM";
+  const lockHour12 = lockHour24 % 12 || 12;
+  return `${lockHour12}:${String(minute).padStart(2, "0")} ${suffix} ET`;
+}
+
+function compactTimestamp(value?: string) {
+  const raw = String(value || "").trim();
+  return raw || "—";
 }
 
 function selectedSplit(play: Play, splits: DraftKingsSplit[]) {
@@ -153,7 +196,11 @@ function TrendSelectionRow({ play, selectionRank, initiallyOpen }: { play: Trend
           <MiniBubble label="Current Handle" value={pct(play.moneyPct)} />
           <MiniBubble label="Handle Change" value={signedPct(play.sharpMovementPct)} />
           <MiniBubble label="Handle − Bets" value={`${play.gapPct >= 0 ? "+" : ""}${Number(play.gapPct || 0).toFixed(1)}%`} />
-          <MiniBubble label="Odds" value={play.odds || "—"} />
+          <MiniBubble label="Opening Odds" value={play.openingOdds || "—"} />
+          <MiniBubble label="Current Odds" value={play.odds || "—"} />
+          <MiniBubble label="Opening Line" value={marketLine(play, play.openingLine)} />
+          <MiniBubble label="Current Line" value={marketLine(play, play.line)} />
+          <MiniBubble label="Price Move" value={priceMove(play)} />
         </div>
 
         <div className="trendRecordGrid">
@@ -169,6 +216,13 @@ function TrendSelectionRow({ play, selectionRank, initiallyOpen }: { play: Trend
           </div>
         ) : null}
         {play.lineMovementSignal ? <div className="trendMovement">{play.lineMovementSignal}</div> : null}
+        <div className="trendTrackingStrip">
+          <span>Bets {pct(play.openingBetsPct)} → {pct(play.betsPct)}</span>
+          <span>Line {marketLine(play, play.openingLine)} → {marketLine(play, play.line)}</span>
+          <span>Exact sample: {primary?.exactSample || 0} bets</span>
+          <span>{play.snapshotStatus === "FINAL_PREGAME" ? "Locked" : "Locks"} {scheduledLockTime(play.gameTime)}</span>
+          <span>Updated {compactTimestamp(play.updatedAt)}</span>
+        </div>
       </div>
     </details>
   );
@@ -182,12 +236,14 @@ function TrendGameCard({ game, plays }: { game: string; plays: TrendPlay[] }) {
   });
   const topScore = Math.max(...ordered.map((play) => play.score), 0);
   const gameTime = ordered.find((play) => play.gameTime)?.gameTime || "";
+  const lockTime = scheduledLockTime(gameTime);
+  const isLocked = ordered.some((play) => play.snapshotStatus === "FINAL_PREGAME");
 
   return (
     <article className={`card trendGameCard ${topScore >= 75 ? "top" : ""}`}>
       <div className="trendGameHeader">
         <div className="cardTitle">{game}</div>
-        {gameTime ? <div className="trendGameTimeBox"><strong>{gameTime}</strong></div> : null}
+        {gameTime ? <div className="trendGameTimeBox"><strong>{gameTime}</strong><small>{isLocked ? "Locked" : "Locks"} {lockTime}</small></div> : null}
       </div>
       <div className="trendSelectionStack">
         {ordered.map((play, index) => (
@@ -266,7 +322,7 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
       <style jsx global>{`
         .footballBoard{display:grid;gap:18px}.fbHead{display:flex;justify-content:space-between;gap:16px;align-items:flex-end}.fbHead h2{margin:0 0 4px}.fbHead p,.fbMuted{color:var(--ez-muted);margin:0}.fbStatus{border:1px solid var(--ez-border);border-radius:999px;padding:7px 11px;color:var(--ez-muted)}.fbStatus.live{color:var(--ez-green);border-color:rgba(43,216,117,.35)}
         .fbGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(285px,1fr));gap:14px}.fbCard,.fbSlateCard,.fbRecordTile,.fbInfo,.fbEmpty{border:1px solid var(--ez-border);background:linear-gradient(145deg,var(--ez-panel),var(--ez-panel-2));border-radius:20px;padding:16px}.fbCardTop{display:flex;justify-content:space-between;gap:8px;color:var(--ez-muted);font-size:.82rem}.fbGrade{color:var(--ez-blue-soft);font-weight:800;text-transform:uppercase}.fbCard h3{font-size:1.28rem;margin:12px 0}.fbMetrics{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.fbMetrics div{background:rgba(255,255,255,.025);border:1px solid var(--ez-border);border-radius:12px;padding:9px}.fbMetrics span{display:block;color:var(--ez-muted);font-size:.72rem}.fbMetrics strong{display:block;margin-top:4px}.fbDkBox{display:grid;gap:4px;margin-top:12px;border-left:3px solid var(--ez-blue);padding:9px 10px;background:rgba(47,140,255,.07);border-radius:10px}.fbDkBox span{color:var(--ez-muted);font-size:.82rem}
-        .trendGameGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,350px),1fr));gap:17px;align-items:start}.card{position:relative;overflow:hidden;min-width:0;border-radius:24px;border:1px solid var(--ez-border);padding:18px;background:linear-gradient(145deg,var(--ez-panel),var(--ez-panel-2))}.trendGameCard{border-color:rgba(78,145,255,.25)}.trendGameCard::before{content:"";position:absolute;inset:14px auto 14px 0;width:3px;border-radius:0 3px 3px 0;background:linear-gradient(180deg,#7c8cff,var(--ez-blue));box-shadow:0 0 22px rgba(91,123,255,.34)}.trendGameHeader{position:relative;z-index:2;display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:13px}.cardTitle{color:#f4f8ff;font-size:18px;font-weight:950;line-height:1.2}.trendGameTimeBox{flex:0 0 auto;border:1px solid rgba(91,143,214,.18);border-radius:13px;padding:7px 9px;background:rgba(8,19,36,.68);color:rgba(188,210,238,.88);font-size:10px}.trendSelectionStack{position:relative;z-index:2;display:grid;gap:9px}.trendSelectionRow{overflow:hidden;border:1px solid rgba(100,139,190,.15);border-radius:17px;background:rgba(4,11,23,.62)}.trendSelectionRow.leader{border-color:rgba(70,155,255,.3);background:rgba(7,22,46,.72)}.trendSelectionSummary{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;align-items:center;gap:10px;padding:11px 12px;cursor:pointer;list-style:none}.trendSelectionSummary::-webkit-details-marker{display:none}.trendSelectionRank{display:grid;place-items:center;width:34px;height:34px;border-radius:11px;color:#c8d9ee;background:rgba(29,76,139,.18);font-size:12px;font-weight:950}.trendSelectionIdentity{display:grid;gap:4px;min-width:0}.trendSelectionIdentity strong{overflow:hidden;color:#f2f7ff;font-size:15px;font-weight:950;text-overflow:ellipsis;white-space:nowrap}.trendSelectionIdentity small{overflow:hidden;color:rgba(145,174,209,.72);font-size:9px;line-height:1.25;text-overflow:ellipsis;white-space:nowrap}.trendSelectionMarket{display:grid;justify-items:end;gap:2px;min-width:88px}.trendSelectionMarket small{color:rgba(154,182,215,.74);font-size:8px;font-weight:900;letter-spacing:.04em;text-transform:uppercase}.trendSelectionMarket strong{color:#f4f8ff;font-size:24px;font-weight:950;line-height:1}.trendSelectionChevron{color:rgba(163,191,225,.68);font-size:18px;transition:transform .2s ease}.trendSelectionRow[open] .trendSelectionChevron{transform:rotate(180deg)}.trendSelectionBody{border-top:1px solid rgba(100,139,190,.12);padding:12px}.bubbleGrid{display:grid;gap:8px}.trendSelectionMetrics{grid-template-columns:repeat(4,minmax(0,1fr))}.miniBubble{min-width:0;border-radius:15px;padding:11px 12px;background:linear-gradient(145deg,rgba(12,22,39,.82),rgba(6,13,25,.84));border:1px solid rgba(108,142,187,.14);box-shadow:inset 0 1px 0 rgba(255,255,255,.018)}.miniLabel{color:rgba(142,169,203,.68);font-size:8px;font-weight:800;letter-spacing:.03em;text-transform:uppercase}.miniValue{margin-top:4px;color:#eef5ff;font-size:13px;font-weight:900;white-space:nowrap}.trendRecordGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:10px}.trendRecordCard{border:1px solid rgba(100,139,190,.13);border-radius:13px;padding:9px 10px;background:rgba(6,14,27,.64)}.trendRecordCard span{display:block;color:rgba(145,174,209,.65);font-size:8px;font-weight:800;text-transform:uppercase}.trendRecordCard strong{display:block;margin-top:3px;color:#f0f6ff;font-size:13px}.trendSignalBox{display:grid;gap:3px;margin-top:10px;border-left:3px solid var(--ez-blue);padding:9px 10px;border-radius:10px;background:rgba(47,140,255,.07)}.trendSignalBox b{color:#f3f7ff;font-size:12px}.trendSignalBox span,.trendMovement{color:var(--ez-muted);font-size:10px}.trendMovement{margin-top:8px}
+        .trendGameGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,350px),1fr));gap:17px;align-items:start}.card{position:relative;overflow:hidden;min-width:0;border-radius:24px;border:1px solid var(--ez-border);padding:18px;background:linear-gradient(145deg,var(--ez-panel),var(--ez-panel-2))}.trendGameCard{border-color:rgba(78,145,255,.25)}.trendGameCard::before{content:"";position:absolute;inset:14px auto 14px 0;width:3px;border-radius:0 3px 3px 0;background:linear-gradient(180deg,#7c8cff,var(--ez-blue));box-shadow:0 0 22px rgba(91,123,255,.34)}.trendGameHeader{position:relative;z-index:2;display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:13px}.cardTitle{color:#f4f8ff;font-size:18px;font-weight:950;line-height:1.2}.trendGameTimeBox{flex:0 0 auto;display:grid;gap:2px;border:1px solid rgba(91,143,214,.18);border-radius:13px;padding:7px 9px;background:rgba(8,19,36,.68);color:rgba(188,210,238,.88);font-size:10px}.trendGameTimeBox small{color:rgba(113,184,255,.92);font-size:9px;font-weight:900}.trendSelectionStack{position:relative;z-index:2;display:grid;gap:9px}.trendSelectionRow{overflow:hidden;border:1px solid rgba(100,139,190,.15);border-radius:17px;background:rgba(4,11,23,.62)}.trendSelectionRow.leader{border-color:rgba(70,155,255,.3);background:rgba(7,22,46,.72)}.trendSelectionSummary{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;align-items:center;gap:10px;padding:11px 12px;cursor:pointer;list-style:none}.trendSelectionSummary::-webkit-details-marker{display:none}.trendSelectionRank{display:grid;place-items:center;width:34px;height:34px;border-radius:11px;color:#c8d9ee;background:rgba(29,76,139,.18);font-size:12px;font-weight:950}.trendSelectionIdentity{display:grid;gap:4px;min-width:0}.trendSelectionIdentity strong{overflow:hidden;color:#f2f7ff;font-size:15px;font-weight:950;text-overflow:ellipsis;white-space:nowrap}.trendSelectionIdentity small{overflow:hidden;color:rgba(145,174,209,.72);font-size:9px;line-height:1.25;text-overflow:ellipsis;white-space:nowrap}.trendSelectionMarket{display:grid;justify-items:end;gap:2px;min-width:88px}.trendSelectionMarket small{color:rgba(154,182,215,.74);font-size:8px;font-weight:900;letter-spacing:.04em;text-transform:uppercase}.trendSelectionMarket strong{color:#f4f8ff;font-size:24px;font-weight:950;line-height:1}.trendSelectionChevron{color:rgba(163,191,225,.68);font-size:18px;transition:transform .2s ease}.trendSelectionRow[open] .trendSelectionChevron{transform:rotate(180deg)}.trendSelectionBody{border-top:1px solid rgba(100,139,190,.12);padding:12px}.bubbleGrid{display:grid;gap:8px}.trendSelectionMetrics{grid-template-columns:repeat(4,minmax(0,1fr))}.miniBubble{min-width:0;border-radius:15px;padding:11px 12px;background:linear-gradient(145deg,rgba(12,22,39,.82),rgba(6,13,25,.84));border:1px solid rgba(108,142,187,.14);box-shadow:inset 0 1px 0 rgba(255,255,255,.018)}.miniLabel{color:rgba(142,169,203,.68);font-size:8px;font-weight:800;letter-spacing:.03em;text-transform:uppercase}.miniValue{margin-top:4px;color:#eef5ff;font-size:13px;font-weight:900;white-space:nowrap}.trendRecordGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:10px}.trendRecordCard{border:1px solid rgba(100,139,190,.13);border-radius:13px;padding:9px 10px;background:rgba(6,14,27,.64)}.trendRecordCard span{display:block;color:rgba(145,174,209,.65);font-size:8px;font-weight:800;text-transform:uppercase}.trendRecordCard strong{display:block;margin-top:3px;color:#f0f6ff;font-size:13px}.trendSignalBox{display:grid;gap:3px;margin-top:10px;border-left:3px solid var(--ez-blue);padding:9px 10px;border-radius:10px;background:rgba(47,140,255,.07)}.trendSignalBox b{color:#f3f7ff;font-size:12px}.trendSignalBox span,.trendMovement{color:var(--ez-muted);font-size:10px}.trendMovement{margin-top:8px}.trendTrackingStrip{display:flex;flex-wrap:wrap;gap:7px;margin-top:12px;padding-top:12px;border-top:1px solid rgba(100,139,190,.10)}.trendTrackingStrip span{border:1px solid rgba(100,139,190,.14);border-radius:999px;padding:6px 9px;background:rgba(8,18,34,.6);color:rgba(153,181,214,.76);font-size:9px;font-weight:800}
         .fbSlateStack{display:grid;gap:10px}.fbSlateCard{padding:0;overflow:hidden}.fbSlateCard summary{cursor:pointer;list-style:none;padding:15px;display:flex;justify-content:space-between;gap:10px}.fbSlateCard summary span{color:var(--ez-muted);font-size:.8rem}.fbSlateBody{display:grid;gap:12px;padding:0 15px 15px}.fbScore{display:grid;grid-template-columns:1fr auto;gap:7px 12px}.fbScore b{font-size:1.25rem}.fbMarketRow{padding:9px;border-radius:10px;background:rgba(255,255,255,.025)}.fbRecordsGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}.fbRecordTile{display:grid;gap:6px}.fbRecordTile span,.fbRecordTile small{color:var(--ez-muted)}.fbRecordTile strong{font-size:1.45rem}.fbInfo{color:var(--ez-muted);line-height:1.7}.fbEmpty{color:var(--ez-muted);text-align:center;padding:30px}
         @media(max-width:620px){.fbHead{align-items:flex-start;flex-direction:column}.fbMetrics{grid-template-columns:1fr}.fbSlateCard summary{flex-direction:column}.card{border-radius:22px;padding:16px}.trendGameHeader{gap:9px}.trendSelectionRank{width:30px;height:30px}.trendSelectionIdentity strong{font-size:13px}.trendSelectionMarket{min-width:66px}.trendSelectionMarket small{max-width:70px;text-align:right}.trendSelectionMarket strong{font-size:21px}.trendSelectionChevron{display:none}.trendSelectionMetrics{grid-template-columns:repeat(2,minmax(0,1fr))}.trendRecordGrid{grid-template-columns:1fr}}
       `}</style>
