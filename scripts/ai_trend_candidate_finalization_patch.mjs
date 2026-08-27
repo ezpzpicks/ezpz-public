@@ -6,7 +6,9 @@ let changed = false;
 
 // Final decisions are candidate-level, not game-level. A finalized Best Play
 // must not prevent a different qualifying Trend Play from the same game from
-// being created and finalized.
+// being created and finalized. A frozen Trend Play is itself an authoritative
+// FINAL_PREGAME trigger, so it must not wait on a possibly cached daily_slate
+// Public Data Status cell before finalizing.
 const oldFinalizationBlock = `  const storedFinalGameKeys = new Set(
     storedToday
       .filter(
@@ -48,7 +50,9 @@ const newFinalizationBlock = `  const storedFinalCandidateIds = new Set(
       .map((row) => draftKingsGameKey(row)),
   );
   const targetCandidates = candidates.filter((candidate) => {
-    if (!targetGameKeys.has(candidate.gameKey)) return false;
+    const hasFrozenTrendSnapshot =
+      candidate.trendPlay?.snapshotStatus === "FINAL_PREGAME";
+    if (!targetGameKeys.has(candidate.gameKey) && !hasFrozenTrendSnapshot) return false;
     if (storedFinalCandidateIds.has(candidate.candidateId)) return false;`;
 
 if (text.includes(oldFinalizationBlock)) {
@@ -56,6 +60,24 @@ if (text.includes(oldFinalizationBlock)) {
   changed = true;
 } else if (!text.includes("const storedFinalCandidateIds = new Set(")) {
   throw new Error("Trend candidate finalization target not found");
+}
+
+// Upgrade an already candidate-level build that predates the frozen-trend
+// trigger. This keeps the patch resilient if an earlier build step has already
+// converted the game lock before this script runs.
+const oldCandidateTrigger = `  const targetCandidates = candidates.filter((candidate) => {
+    if (!targetGameKeys.has(candidate.gameKey)) return false;
+    if (storedFinalCandidateIds.has(candidate.candidateId)) return false;`;
+const newCandidateTrigger = `  const targetCandidates = candidates.filter((candidate) => {
+    const hasFrozenTrendSnapshot =
+      candidate.trendPlay?.snapshotStatus === "FINAL_PREGAME";
+    if (!targetGameKeys.has(candidate.gameKey) && !hasFrozenTrendSnapshot) return false;
+    if (storedFinalCandidateIds.has(candidate.candidateId)) return false;`;
+if (text.includes(oldCandidateTrigger)) {
+  text = text.replace(oldCandidateTrigger, newCandidateTrigger);
+  changed = true;
+} else if (!text.includes("const hasFrozenTrendSnapshot =")) {
+  throw new Error("Frozen Trend Play finalization trigger target not found");
 }
 
 // The live/pending lifecycle had a second game-level lock. Convert it to the
@@ -150,7 +172,7 @@ if (text.includes(oldPreliminary)) {
 
 if (changed) {
   fs.writeFileSync(path, text, "utf8");
-  console.log("Applied candidate-level Trend Play locks and global -150 AI price cap.");
+  console.log("Applied candidate-level Trend Play locks, frozen-trend finalization trigger, and global -150 AI price cap.");
 } else {
-  console.log("Candidate-level Trend Play locks and -150 AI price cap already applied.");
+  console.log("Candidate-level Trend Play locks, frozen-trend finalization trigger, and -150 AI price cap already applied.");
 }
