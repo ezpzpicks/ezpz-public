@@ -17,9 +17,16 @@ if (!source.includes("function footballDateTimeLabel(play: TrendPlay)")) {
   source = source.replace(anchor, helper + anchor);
 }
 
+if (!source.includes('const gameDateTime = scheduled ? footballDateTimeLabel(scheduled) : "";')) {
+  source = source.replace(
+    '  const gameTime = ordered.find((play) => play.gameTime)?.gameTime || "";\n  const lockTime = scheduledLockTime(gameTime);',
+    '  const scheduled = ordered.find((play) => play.gameTime || play.date);\n  const gameTime = ordered.find((play) => play.gameTime)?.gameTime || "";\n  const gameDateTime = scheduled ? footballDateTimeLabel(scheduled) : "";\n  const lockTime = scheduledLockTime(gameTime);',
+  );
+}
+
 source = source.replace(
-  '  const gameTime = ordered.find((play) => play.gameTime)?.gameTime || "";',
-  '  const scheduled = ordered.find((play) => play.gameTime || play.date);\n  const gameDateTime = scheduled ? footballDateTimeLabel(scheduled) : "";',
+  '{gameTime ? <div className="trendGameTimeBox"><strong>{gameTime}</strong><small>{isLocked ? "Locked" : "Locks"} {lockTime}</small></div> : null}',
+  '{gameDateTime ? <div className="trendGameTimeBox"><strong>{gameDateTime}</strong><small>{isLocked ? "Locked" : "Locks"} {lockTime}</small></div> : null}',
 );
 
 source = source.replace(
@@ -45,4 +52,4 @@ if (!source.includes("a.plays.map(footballScheduleSortValue)")) {
 }
 
 writeFileSync(path, source);
-console.log("Applied football weekly date/time, collapsed rows, and chronological kickoff sorting.");
+console.log("Applied football weekly date/time, collapsed rows, chronological kickoff sorting, and preserved lock display.");
