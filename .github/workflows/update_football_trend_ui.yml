@@ -1,0 +1,83 @@
+name: Update football trend tracking UI
+
+on:
+  push:
+    paths:
+      - .github/workflows/update_football_trend_ui.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Add MLB-style tracking details and visible lock time
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('app/FootballBoard.tsx')
+          text = path.read_text()
+
+          old = '''  publicMovementPct?: number; sharpMovementPct?: number; openingLine?: number | null; openingOdds?: string;\n  score: number; tier: "Pass" | "Good" | "Strong" | "Elite";\n  signals: TrendSignal[]; lineMovementSignal?: string; lineMovementBasis?: string; lineMovementValue?: number | null;\n};'''
+          new = '''  publicMovementPct?: number; sharpMovementPct?: number; openingLine?: number | null; openingOdds?: string;\n  openingImpliedPct?: number | null; currentImpliedPct?: number | null;\n  comparisonGap?: number; opponentScore?: number | null; updatedAt?: string; frozenAt?: string;\n  snapshotStatus?: "LIVE" | "FINAL_PREGAME";\n  score: number; tier: "Pass" | "Good" | "Strong" | "Elite";\n  signals: TrendSignal[]; lineMovementSignal?: string; lineMovementBasis?: string; lineMovementValue?: number | null;\n};'''
+          if old not in text:
+              raise SystemExit('TrendPlay type anchor not found')
+          text = text.replace(old, new, 1)
+
+          old = '''function signedPct(value: unknown) {\n  const n = Number(value);\n  if (!Number.isFinite(n)) return "—";\n  return `${n > 0 ? "+" : ""}${n.toFixed(1)}%`;\n}\n'''
+          new = '''function signedPct(value: unknown) {\n  const n = Number(value);\n  if (!Number.isFinite(n)) return "—";\n  return `${n > 0 ? "+" : ""}${n.toFixed(1)}%`;\n}\n\nfunction marketLine(play: TrendPlay, value: number | null | undefined) {\n  const n = Number(value);\n  if (!Number.isFinite(n)) return "—";\n  if (play.market === "Spread") return `${n > 0 ? "+" : ""}${n}`;\n  return `${n}`;\n}\n\nfunction impliedPctValue(value: unknown) {\n  const n = Number(value);\n  if (!Number.isFinite(n)) return null;\n  return Math.abs(n) <= 1 ? n * 100 : n;\n}\n\nfunction priceMove(play: TrendPlay) {\n  const opening = impliedPctValue(play.openingImpliedPct);\n  const current = impliedPctValue(play.currentImpliedPct);\n  if (opening == null || current == null) return "—";\n  const move = current - opening;\n  return `${move > 0 ? "+" : ""}${move.toFixed(1)} implied pts`;\n}\n\nfunction scheduledLockTime(gameTime?: string) {\n  const raw = String(gameTime || "");\n  const match = raw.match(/(\\d{1,2}):(\\d{2})\\s*(AM|PM)/i);\n  if (!match) return "—";\n  let hour = Number(match[1]) % 12;\n  if (match[3].toUpperCase() === "PM") hour += 12;\n  let total = (hour * 60 + Number(match[2]) - 15 + 1440) % 1440;\n  const lockHour24 = Math.floor(total / 60);\n  const minute = total % 60;\n  const suffix = lockHour24 >= 12 ? "PM" : "AM";\n  const lockHour12 = lockHour24 % 12 || 12;\n  return `${lockHour12}:${String(minute).padStart(2, "0")} ${suffix} ET`;\n}\n\nfunction compactTimestamp(value?: string) {\n  const raw = String(value || "").trim();\n  return raw || "—";\n}\n'''
+          if old not in text:
+              raise SystemExit('signedPct anchor not found')
+          text = text.replace(old, new, 1)
+
+          old = '''        <div className="bubbleGrid trendSelectionMetrics">\n          <MiniBubble label="Opening Bets" value={pct(play.openingBetsPct)} />\n          <MiniBubble label="Current Bets" value={pct(play.betsPct)} />\n          <MiniBubble label="Bets Change" value={signedPct(play.publicMovementPct)} />\n          <MiniBubble label="Opening Handle" value={pct(play.openingMoneyPct)} />\n          <MiniBubble label="Current Handle" value={pct(play.moneyPct)} />\n          <MiniBubble label="Handle Change" value={signedPct(play.sharpMovementPct)} />\n          <MiniBubble label="Handle − Bets" value={`${play.gapPct >= 0 ? "+" : ""}${Number(play.gapPct || 0).toFixed(1)}%`} />\n          <MiniBubble label="Odds" value={play.odds || "—"} />\n        </div>'''
+          new = '''        <div className="bubbleGrid trendSelectionMetrics">\n          <MiniBubble label="Opening Bets" value={pct(play.openingBetsPct)} />\n          <MiniBubble label="Current Bets" value={pct(play.betsPct)} />\n          <MiniBubble label="Bets Change" value={signedPct(play.publicMovementPct)} />\n          <MiniBubble label="Opening Handle" value={pct(play.openingMoneyPct)} />\n          <MiniBubble label="Current Handle" value={pct(play.moneyPct)} />\n          <MiniBubble label="Handle Change" value={signedPct(play.sharpMovementPct)} />\n          <MiniBubble label="Handle − Bets" value={`${play.gapPct >= 0 ? "+" : ""}${Number(play.gapPct || 0).toFixed(1)}%`} />\n          <MiniBubble label="Opening Odds" value={play.openingOdds || "—"} />\n          <MiniBubble label="Current Odds" value={play.odds || "—"} />\n          <MiniBubble label="Opening Line" value={marketLine(play, play.openingLine)} />\n          <MiniBubble label="Current Line" value={marketLine(play, play.line)} />\n          <MiniBubble label="Price Move" value={priceMove(play)} />\n        </div>'''
+          if old not in text:
+              raise SystemExit('trend metric grid anchor not found')
+          text = text.replace(old, new, 1)
+
+          old = '''        {play.lineMovementSignal ? <div className="trendMovement">{play.lineMovementSignal}</div> : null}\n      </div>'''
+          new = '''        {play.lineMovementSignal ? <div className="trendMovement">{play.lineMovementSignal}</div> : null}\n        <div className="trendTrackingStrip">\n          <span>Bets {pct(play.openingBetsPct)} → {pct(play.betsPct)}</span>\n          <span>Line {marketLine(play, play.openingLine)} → {marketLine(play, play.line)}</span>\n          <span>Exact sample: {primary?.exactSample || 0} bets</span>\n          <span>{play.snapshotStatus === "FINAL_PREGAME" ? "Locked" : "Locks"} {scheduledLockTime(play.gameTime)}</span>\n          <span>Updated {compactTimestamp(play.updatedAt)}</span>\n        </div>\n      </div>'''
+          if old not in text:
+              raise SystemExit('trend movement anchor not found')
+          text = text.replace(old, new, 1)
+
+          old = '''  const topScore = Math.max(...ordered.map((play) => play.score), 0);\n  const gameTime = ordered.find((play) => play.gameTime)?.gameTime || "";\n\n  return ('''
+          new = '''  const topScore = Math.max(...ordered.map((play) => play.score), 0);\n  const gameTime = ordered.find((play) => play.gameTime)?.gameTime || "";\n  const lockTime = scheduledLockTime(gameTime);\n  const isLocked = ordered.some((play) => play.snapshotStatus === "FINAL_PREGAME");\n\n  return ('''
+          if old not in text:
+              raise SystemExit('TrendGameCard variables anchor not found')
+          text = text.replace(old, new, 1)
+
+          old = '''        {gameTime ? <div className="trendGameTimeBox"><strong>{gameTime}</strong></div> : null}'''
+          new = '''        {gameTime ? <div className="trendGameTimeBox"><strong>{gameTime}</strong><small>{isLocked ? "Locked" : "Locks"} {lockTime}</small></div> : null}'''
+          if old not in text:
+              raise SystemExit('game time box anchor not found')
+          text = text.replace(old, new, 1)
+
+          old = '''.trendGameTimeBox{flex:0 0 auto;border:1px solid rgba(91,143,214,.18);border-radius:13px;padding:7px 9px;background:rgba(8,19,36,.68);color:rgba(188,210,238,.88);font-size:10px}.trendSelectionStack'''
+          new = '''.trendGameTimeBox{flex:0 0 auto;display:grid;gap:2px;border:1px solid rgba(91,143,214,.18);border-radius:13px;padding:7px 9px;background:rgba(8,19,36,.68);color:rgba(188,210,238,.88);font-size:10px}.trendGameTimeBox small{color:rgba(113,184,255,.92);font-size:9px;font-weight:900}.trendSelectionStack'''
+          if old not in text:
+              raise SystemExit('trendGameTimeBox CSS anchor not found')
+          text = text.replace(old, new, 1)
+
+          old = '''.trendSignalBox span,.trendMovement{color:var(--ez-muted);font-size:10px}.trendMovement{margin-top:8px}\n        .fbSlateStack'''
+          new = '''.trendSignalBox span,.trendMovement{color:var(--ez-muted);font-size:10px}.trendMovement{margin-top:8px}.trendTrackingStrip{display:flex;flex-wrap:wrap;gap:7px;margin-top:12px;padding-top:12px;border-top:1px solid rgba(100,139,190,.10)}.trendTrackingStrip span{border:1px solid rgba(100,139,190,.14);border-radius:999px;padding:6px 9px;background:rgba(8,18,34,.6);color:rgba(153,181,214,.76);font-size:9px;font-weight:800}\n        .fbSlateStack'''
+          if old not in text:
+              raise SystemExit('tracking CSS anchor not found')
+          text = text.replace(old, new, 1)
+
+          path.write_text(text)
+          PY
+
+      - name: Commit football trend UI update
+        run: |
+          git config user.name "ezpzpicks"
+          git config user.email "actions@users.noreply.github.com"
+          git add app/FootballBoard.tsx
+          git commit -m "Show football trend movement and lock times"
+          git push
