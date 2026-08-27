@@ -12,7 +12,7 @@ if (!source.includes("gameKey: string; date?: string; gameTime?: string;")) {
 
 if (!source.includes("function footballDateTimeLabel(play: TrendPlay)")) {
   const anchor = "function selectedSplit(play: Play, splits: DraftKingsSplit[]) {";
-  const helper = `function footballDateLabel(value: unknown) {\n  const raw = String(value || \"\").trim();\n  const iso = raw.match(/^(20\\d{2})-(\\d{1,2})-(\\d{1,2})/);\n  if (iso) return \`\${Number(iso[2])}/\${Number(iso[3])}\`;\n  const us = raw.match(/(\\d{1,2})\\/(\\d{1,2})/);\n  return us ? \`\${Number(us[1])}/\${Number(us[2])}\` : raw;\n}\n\nfunction footballDateTimeLabel(play: TrendPlay) {\n  const date = footballDateLabel(play.date);\n  const time = String(play.gameTime || \"\").trim();\n  if (date && time && !time.includes(date)) return \`\${date} • \${time}\`;\n  return time || date;\n}\n\n`;
+  const helper = `function footballDateLabel(value: unknown) {\n  const raw = String(value || \"\").trim();\n  const iso = raw.match(/^(20\\d{2})-(\\d{1,2})-(\\d{1,2})/);\n  if (iso) return \`\${Number(iso[2])}/\${Number(iso[3])}\`;\n  const us = raw.match(/(\\d{1,2})\\/(\\d{1,2})/);\n  return us ? \`\${Number(us[1])}/\${Number(us[2])}\` : raw;\n}\n\nfunction footballDateTimeLabel(play: TrendPlay) {\n  const date = footballDateLabel(play.date);\n  const time = String(play.gameTime || \"\").trim();\n  if (date && time && !time.includes(date)) return \`\${date} • \${time}\`;\n  return time || date;\n}\n\nfunction footballScheduleSortValue(play: TrendPlay) {\n  const rawDate = String(play.date || \"\").trim();\n  const dateMatch = rawDate.match(/^(20\\d{2})-(\\d{1,2})-(\\d{1,2})/);\n  if (!dateMatch) return Number.POSITIVE_INFINITY;\n  const year = Number(dateMatch[1]);\n  const month = Number(dateMatch[2]);\n  const day = Number(dateMatch[3]);\n  let hour = 23;\n  let minute = 59;\n  const rawTime = String(play.gameTime || \"\").trim();\n  const timeMatch = rawTime.match(/(\\d{1,2})(?::(\\d{2}))?\\s*(AM|PM)?/i);\n  if (timeMatch) {\n    hour = Number(timeMatch[1]);\n    minute = Number(timeMatch[2] || 0);\n    const meridiem = String(timeMatch[3] || \"\").toUpperCase();\n    if (meridiem === \"PM\" && hour < 12) hour += 12;\n    if (meridiem === \"AM\" && hour === 12) hour = 0;\n  }\n  return Date.UTC(year, month - 1, day, hour, minute);\n}\n\n`;
   if (!source.includes(anchor)) throw new Error("FootballBoard selectedSplit anchor not found");
   source = source.replace(anchor, helper + anchor);
 }
@@ -29,12 +29,20 @@ source = source.replace(
 
 source = source.replace(/initiallyOpen=\{index === 0\}/g, "initiallyOpen={false}");
 
+source = source.replace(
+  '  const displayedTrendGroups = [...trendGroups.values()].sort((a, b) => a.game.localeCompare(b.game));',
+  '  const displayedTrendGroups = [...trendGroups.values()].sort((a, b) => {\n    const aStart = Math.min(...a.plays.map(footballScheduleSortValue));\n    const bStart = Math.min(...b.plays.map(footballScheduleSortValue));\n    if (aStart !== bStart) return aStart - bStart;\n    return a.game.localeCompare(b.game);\n  });',
+);
+
 if (!source.includes("gameDateTime ? <div className=\"trendGameTimeBox\"")) {
   throw new Error("FootballBoard date/time label patch did not apply");
 }
 if (!source.includes("initiallyOpen={false}")) {
   throw new Error("FootballBoard collapsed-row patch did not apply");
 }
+if (!source.includes("a.plays.map(footballScheduleSortValue)")) {
+  throw new Error("FootballBoard chronological trend sort patch did not apply");
+}
 
 writeFileSync(path, source);
-console.log("Applied football weekly date/time and collapsed trend-row UI patch.");
+console.log("Applied football weekly date/time, collapsed rows, and chronological kickoff sorting.");
