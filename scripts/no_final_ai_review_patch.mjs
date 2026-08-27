@@ -38,27 +38,24 @@ function patchRoute(text) {
     );
   }
 
-  text = replaceRequired(
-    text,
-    `  if (\n    pick.snapshotStatus !== "FINAL_PREGAME" ||\n    pick.externalReviewStatus !== "WEB_REVIEWED" ||\n    !pick.bestPlayType\n  ) {`,
-    `  if (\n    pick.snapshotStatus !== "FINAL_PREGAME" ||\n    !pick.bestPlayType\n  ) {`,
-    "Last-7 final gate review dependency",
-  );
-
+  // FINAL_PREGAME rows created by this deterministic flow use NOT_REQUIRED.
+  // Keep the legacy WEB_REVIEWED dependency on the old stored Last-7 repair so
+  // a newly locked deterministic pick can never be changed after its 15-minute
+  // snapshot. Qualification is decided once at the frozen snapshot.
   text = text.replace(
     "  // This recheck exists only to catch Last-7 changes between final review\n  // and the scheduled start of this specific game.",
-    "  // This recheck exists only to catch Last-7 changes between the final\n  // pregame lock and the scheduled start of this specific game.",
+    "  // Legacy WEB_REVIEWED rows may still use this historical repair path.\n  // New deterministic FINAL_PREGAME rows are immutable after their snapshot.",
   );
   text = text.replace(
     "  // restore the already-completed external review without another AI call.",
-    "  // restore the already-locked deterministic selection without any AI call.",
+    "  // restore the legacy reviewed selection without another AI call.",
   );
 
   text = replaceRange(
     text,
     "function aiStoredFinalSelectionIsLocked(pick: AiPick) {",
     "function aiSortByGameTime",
-    `function aiStoredFinalSelectionIsLocked(pick: AiPick) {\n  // ${MARKER}: a selected FINAL_PREGAME row is locked without any separate\n  // external AI approval. The free rolling Last-7 gate may still demote or\n  // restore the stored decision before first pitch.\n  return pick.snapshotStatus === "FINAL_PREGAME" && pick.selected === true;\n}\n\nfunction aiStoredFinalDecisionIsTerminal(pick: AiPick) {\n  return pick.snapshotStatus === "FINAL_PREGAME";\n}\n\nfunction aiSortByGameTime`,
+    `function aiStoredFinalSelectionIsLocked(pick: AiPick) {\n  // ${MARKER}: a selected FINAL_PREGAME row is locked without any separate\n  // external AI approval. Once the deterministic 15-minute snapshot is saved,\n  // the decision is immutable until result grading.\n  return pick.snapshotStatus === "FINAL_PREGAME" && pick.selected === true;\n}\n\nfunction aiStoredFinalDecisionIsTerminal(pick: AiPick) {\n  return pick.snapshotStatus === "FINAL_PREGAME";\n}\n\nfunction aiSortByGameTime`,
     "stored final decision helpers",
   );
 
@@ -103,7 +100,7 @@ function patchRoute(text) {
     text,
     "  // A final snapshot is not fully locked until its external review reaches a",
     "  const targetCandidates = candidates.filter((candidate) => {",
-    `  // ${MARKER}: a game enters finalization only after the actual frozen pregame\n  // market snapshot exists. No separate review window or retry queue is used.\n  const storedTodayByCandidateId = new Map(\n    storedToday.map((pick) => [pick.candidateId, pick] as const),\n  );\n  const finalDraftKingsGameKeys = new Set(\n    draftKings.splits\n      .filter(\n        (split) =>\n          split.snapshotStatus === "FINAL_PREGAME" &&\n          (split.market === "Moneyline" || split.market === "Total"),\n      )\n      .map(\n        (split) =>\n          \`${'${isoPublicDate(split.date)}|${normalizeTeam(split.awayTeam)}|${normalizeTeam(split.homeTeam)}'}\`,\n      ),\n  );\n  const storedFinalGameKeys = new Set(\n    storedToday\n      .filter(\n        (pick) =>\n          pick.snapshotStatus === "FINAL_PREGAME" &&\n          pick.externalReviewStatus === "NOT_REQUIRED",\n      )\n      .map((pick) => pick.gameKey),\n  );\n  const targetGameKeys = new Set(\n    slateRows\n      .filter((row) => {\n        const gameKey = draftKingsGameKey(row);\n        return (\n          finalDraftKingsGameKeys.has(gameKey) ||\n          slateHasFinalPregameSnapshot(row)\n        );\n      })\n      .map((row) => draftKingsGameKey(row))\n      .filter((key) => !storedFinalGameKeys.has(key)),\n  );\n  const targetCandidates = candidates.filter((candidate) => {`,
+    `  // ${MARKER}: a game enters finalization only after the actual frozen pregame\n  // market snapshot exists. No separate review window or retry queue is used.\n  const storedTodayByCandidateId = new Map(\n    storedToday.map((pick) => [pick.candidateId, pick] as const),\n  );\n  const finalDraftKingsGameKeys = new Set(\n    draftKings.splits\n      .filter(\n        (split) =>\n          split.snapshotStatus === "FINAL_PREGAME" &&\n          (split.market === "Moneyline" || split.market === "Total"),\n      )\n      // Use the exact same date/team/time identity as draftKingsGameKey(row).\n      // The old date/team-only key could never equal a slate key that included\n      // game time, so a valid 15-minute snapshot failed to trigger AI finalization.\n      .map((split) => draftKingsMarketInstanceKey(split)),\n  );\n  const storedFinalGameKeys = new Set(\n    storedToday\n      .filter(\n        (pick) =>\n          pick.snapshotStatus === "FINAL_PREGAME" &&\n          pick.externalReviewStatus === "NOT_REQUIRED",\n      )\n      .map((pick) => pick.gameKey),\n  );\n  const targetGameKeys = new Set(\n    slateRows\n      .filter((row) => {\n        const gameKey = draftKingsGameKey(row);\n        return (\n          finalDraftKingsGameKeys.has(gameKey) ||\n          slateHasFinalPregameSnapshot(row)\n        );\n      })\n      .map((row) => draftKingsGameKey(row))\n      .filter((key) => !storedFinalGameKeys.has(key)),\n  );\n  const targetCandidates = candidates.filter((candidate) => {`,
     "finalization target setup",
   );
 
