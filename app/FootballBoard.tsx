@@ -151,7 +151,11 @@ function SlateCard({ row, splits }: { row: SheetRow; splits: DraftKingsSplit[] }
 export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab: Tab; data: FootballData }) {
   const splits = data.draftKings?.splits || [];
   const trends = data.trendPlays || [];
-  const qualifiedTrends = trends.filter((play) => play.tier !== "Pass").sort((a, b) => b.score - a.score);
+  const displayedTrends = [...trends].sort((a, b) => {
+    if (a.gameKey !== b.gameKey) return a.game.localeCompare(b.game);
+    if (a.market !== b.market) return a.market === "Spread" ? -1 : 1;
+    return b.score - a.score;
+  });
   const summaryMap = new Map((data.recordSummary || []).map((row) => [row.betType, row]));
   const last7Map = new Map((data.last7RecordSummary || []).map((row) => [row.betType, row]));
 
@@ -159,7 +163,7 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
   if (tab === "Today’s Best Plays") {
     content = data.bestPlays.length ? <div className="fbGrid">{data.bestPlays.map((play, index) => <BestPlayCard key={`${play.game}-${play.play}-${index}`} play={play} splits={splits} />)}</div> : <div className="fbEmpty">No graded {sport} Best Plays are saved for {data.today}.</div>;
   } else if (tab === "Today’s Trend Plays") {
-    content = qualifiedTrends.length ? <div className="fbGrid">{qualifiedTrends.map((play, index) => <TrendCard key={`${play.gameKey}-${play.market}-${play.selection}-${index}`} play={play} />)}</div> : <div className="fbEmpty">No {sport} Spread/Total trend has reached the Good/Strong/Elite grading requirement yet. Trend history is isolated to {sport}.</div>;
+    content = displayedTrends.length ? <div className="fbGrid">{displayedTrends.map((play, index) => <TrendCard key={`${play.gameKey}-${play.market}-${play.selection}-${index}`} play={play} />)}</div> : <div className="fbEmpty">No {sport} DraftKings Spread/Total markets are available yet.</div>;
   } else if (tab === "EZPZ AI Picks") {
     content = <div className="fbEmpty">{data.aiSelectorStatus?.message || `${sport} AI picks are not enabled yet. Model Best Plays and sport-specific Trend Plays are live.`}</div>;
   } else if (tab === "Full Slate") {
