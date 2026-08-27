@@ -22,9 +22,11 @@ type TrendSignal = {
 };
 
 type TrendPlay = {
-  game: string; gameKey: string; market: "Spread" | "Total"; selection: string;
-  selectionTeam: string; side: "Over" | "Under" | ""; line: number | null; odds: string;
-  betsPct: number; moneyPct: number; gapPct: number; score: number; tier: "Pass" | "Good" | "Strong" | "Elite";
+  game: string; gameKey: string; gameTime?: string; market: "Spread" | "Total"; selection: string;
+  selectionTeam: string; side: "Over" | "Under" | ""; sideGroup?: string; line: number | null; odds: string;
+  betsPct: number; moneyPct: number; gapPct: number; openingBetsPct?: number; openingMoneyPct?: number;
+  publicMovementPct?: number; sharpMovementPct?: number; openingLine?: number | null; openingOdds?: string;
+  score: number; tier: "Pass" | "Good" | "Strong" | "Elite";
   signals: TrendSignal[]; lineMovementSignal?: string; lineMovementBasis?: string; lineMovementValue?: number | null;
 };
 
@@ -55,6 +57,12 @@ function num(value: unknown, digits = 1) {
 
 function textKey(value: unknown) {
   return String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function signedPct(value: unknown) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "—";
+  return `${n > 0 ? "+" : ""}${n.toFixed(1)}%`;
 }
 
 function selectedSplit(play: Play, splits: DraftKingsSplit[]) {
@@ -103,26 +111,94 @@ function BestPlayCard({ play, splits }: { play: Play; splits: DraftKingsSplit[] 
   );
 }
 
-function TrendCard({ play }: { play: TrendPlay }) {
-  const primary = play.signals?.[0];
+function MiniBubble({ label, value }: { label: string; value: string | number }) {
   return (
-    <article className={`fbCard fbTrend ${play.tier.toLowerCase()}`}>
-      <div className="fbCardTop"><span className="fbGrade">{play.tier} Trend</span><span>{play.market}</span></div>
-      <h3>{play.market === "Total" ? `${play.side} ${play.line ?? ""}` : `${play.selection} ${play.line ?? ""}`}</h3>
-      <p className="fbGame">{play.game}</p>
-      <div className="fbMetrics">
-        <div><span>Trend score</span><strong>{Math.round(play.score)}</strong></div>
-        <div><span>Bets</span><strong>{play.betsPct}%</strong></div>
-        <div><span>Handle</span><strong>{play.moneyPct}%</strong></div>
-      </div>
-      {primary ? (
-        <div className="fbDkBox">
-          <b>{primary.signal}</b>
-          <span>All time {primary.records.allTime.record} • Last 30 {primary.records.last30.record} • Last 7 {primary.records.last7.record}</span>
-          <span>{primary.recordScope} • exact sample {primary.exactSample}</span>
+    <div className="miniBubble">
+      <div className="miniLabel">{label}</div>
+      <div className="miniValue">{value || "—"}</div>
+    </div>
+  );
+}
+
+function trendPickLabel(play: TrendPlay) {
+  if (play.market === "Total") return `${play.side} ${play.line ?? ""}`.trim();
+  const line = play.line == null ? "" : `${play.line > 0 ? "+" : ""}${play.line}`;
+  return `${play.selection} ${line}`.trim();
+}
+
+function TrendSelectionRow({ play, selectionRank, initiallyOpen }: { play: TrendPlay; selectionRank: number; initiallyOpen: boolean }) {
+  const primary = play.signals?.[0];
+  const compactSignals = play.signals?.map((signal) => signal.signal).filter(Boolean).join(" • ") || "";
+  return (
+    <details className={`trendSelectionRow ${selectionRank === 1 ? "leader" : ""}`} open={initiallyOpen}>
+      <summary className="trendSelectionSummary">
+        <span className="trendSelectionRank">#{selectionRank}</span>
+        <span className="trendSelectionIdentity">
+          <strong>{trendPickLabel(play)}</strong>
+          <small>{play.market}{play.sideGroup ? ` • ${play.sideGroup}` : ""}{compactSignals ? ` • ${compactSignals}` : ""}</small>
+        </span>
+        <span className="trendSelectionMarket">
+          <small>{play.tier}</small>
+          <strong>{Math.round(play.score)}</strong>
+        </span>
+        <span className="trendSelectionChevron" aria-hidden="true">⌄</span>
+      </summary>
+
+      <div className="trendSelectionBody">
+        <div className="bubbleGrid trendSelectionMetrics">
+          <MiniBubble label="Opening Bets" value={pct(play.openingBetsPct)} />
+          <MiniBubble label="Current Bets" value={pct(play.betsPct)} />
+          <MiniBubble label="Bets Change" value={signedPct(play.publicMovementPct)} />
+          <MiniBubble label="Opening Handle" value={pct(play.openingMoneyPct)} />
+          <MiniBubble label="Current Handle" value={pct(play.moneyPct)} />
+          <MiniBubble label="Handle Change" value={signedPct(play.sharpMovementPct)} />
+          <MiniBubble label="Handle − Bets" value={`${play.gapPct >= 0 ? "+" : ""}${Number(play.gapPct || 0).toFixed(1)}%`} />
+          <MiniBubble label="Odds" value={play.odds || "—"} />
         </div>
-      ) : null}
-      {play.lineMovementSignal ? <div className="fbMuted">{play.lineMovementSignal}</div> : null}
+
+        <div className="trendRecordGrid">
+          <div className="trendRecordCard"><span>All time</span><strong>{primary?.records.allTime.record || "0-0-0"}</strong></div>
+          <div className="trendRecordCard"><span>Last 30</span><strong>{primary?.records.last30.record || "0-0-0"}</strong></div>
+          <div className="trendRecordCard"><span>Last 7</span><strong>{primary?.records.last7.record || "0-0-0"}</strong></div>
+        </div>
+
+        {primary ? (
+          <div className="trendSignalBox">
+            <b>{primary.signal}</b>
+            <span>{primary.recordScope} • exact sample {primary.exactSample}</span>
+          </div>
+        ) : null}
+        {play.lineMovementSignal ? <div className="trendMovement">{play.lineMovementSignal}</div> : null}
+      </div>
+    </details>
+  );
+}
+
+function TrendGameCard({ game, plays }: { game: string; plays: TrendPlay[] }) {
+  const ordered = [...plays].sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    if (a.market !== b.market) return a.market === "Spread" ? -1 : 1;
+    return trendPickLabel(a).localeCompare(trendPickLabel(b));
+  });
+  const topScore = Math.max(...ordered.map((play) => play.score), 0);
+  const gameTime = ordered.find((play) => play.gameTime)?.gameTime || "";
+
+  return (
+    <article className={`card trendGameCard ${topScore >= 75 ? "top" : ""}`}>
+      <div className="trendGameHeader">
+        <div className="cardTitle">{game}</div>
+        {gameTime ? <div className="trendGameTimeBox"><strong>{gameTime}</strong></div> : null}
+      </div>
+      <div className="trendSelectionStack">
+        {ordered.map((play, index) => (
+          <TrendSelectionRow
+            key={`${play.gameKey}-${play.market}-${play.selection}-${play.side}-${play.line ?? ""}`}
+            play={play}
+            selectionRank={index + 1}
+            initiallyOpen={index === 0}
+          />
+        ))}
+      </div>
     </article>
   );
 }
@@ -151,11 +227,14 @@ function SlateCard({ row, splits }: { row: SheetRow; splits: DraftKingsSplit[] }
 export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab: Tab; data: FootballData }) {
   const splits = data.draftKings?.splits || [];
   const trends = data.trendPlays || [];
-  const displayedTrends = [...trends].sort((a, b) => {
-    if (a.gameKey !== b.gameKey) return a.game.localeCompare(b.game);
-    if (a.market !== b.market) return a.market === "Spread" ? -1 : 1;
-    return b.score - a.score;
-  });
+  const trendGroups = [...trends].reduce((map, play) => {
+    const key = play.gameKey || play.game;
+    const existing = map.get(key);
+    if (existing) existing.plays.push(play);
+    else map.set(key, { game: play.game, plays: [play] });
+    return map;
+  }, new Map<string, { game: string; plays: TrendPlay[] }>());
+  const displayedTrendGroups = [...trendGroups.values()].sort((a, b) => a.game.localeCompare(b.game));
   const summaryMap = new Map((data.recordSummary || []).map((row) => [row.betType, row]));
   const last7Map = new Map((data.last7RecordSummary || []).map((row) => [row.betType, row]));
 
@@ -163,7 +242,7 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
   if (tab === "Today’s Best Plays") {
     content = data.bestPlays.length ? <div className="fbGrid">{data.bestPlays.map((play, index) => <BestPlayCard key={`${play.game}-${play.play}-${index}`} play={play} splits={splits} />)}</div> : <div className="fbEmpty">No graded {sport} Best Plays are saved for {data.today}.</div>;
   } else if (tab === "Today’s Trend Plays") {
-    content = displayedTrends.length ? <div className="fbGrid">{displayedTrends.map((play, index) => <TrendCard key={`${play.gameKey}-${play.market}-${play.selection}-${index}`} play={play} />)}</div> : <div className="fbEmpty">No {sport} DraftKings Spread/Total markets are available yet.</div>;
+    content = displayedTrendGroups.length ? <div className="trendGameGrid">{displayedTrendGroups.map((group) => <TrendGameCard key={group.game} game={group.game} plays={group.plays} />)}</div> : <div className="fbEmpty">No {sport} DraftKings Spread/Total markets are available yet.</div>;
   } else if (tab === "EZPZ AI Picks") {
     content = <div className="fbEmpty">{data.aiSelectorStatus?.message || `${sport} AI picks are not enabled yet. Model Best Plays and sport-specific Trend Plays are live.`}</div>;
   } else if (tab === "Full Slate") {
@@ -184,8 +263,12 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
     <section className="footballBoard">
       <div className="fbHead"><div><h2>{sport === "NFL" ? "NFL" : "College Football"} {tab}</h2><p>Regression projections • Spread + Total • sport-specific DraftKings trends</p></div><span className={`fbStatus ${data.draftKings?.status === "LIVE" ? "live" : ""}`}>{data.draftKings?.status === "LIVE" ? "DraftKings live" : "DraftKings pending"}</span></div>
       {content}
-      <style jsx>{`
-        .footballBoard{display:grid;gap:18px}.fbHead{display:flex;justify-content:space-between;gap:16px;align-items:flex-end}.fbHead h2{margin:0 0 4px}.fbHead p,.fbMuted,.fbGame{color:var(--ez-muted);margin:0}.fbStatus{border:1px solid var(--ez-border);border-radius:999px;padding:7px 11px;color:var(--ez-muted)}.fbStatus.live{color:var(--ez-green);border-color:rgba(43,216,117,.35)}.fbGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(285px,1fr));gap:14px}.fbCard,.fbSlateCard,.fbRecordTile,.fbInfo,.fbEmpty{border:1px solid var(--ez-border);background:linear-gradient(145deg,var(--ez-panel),var(--ez-panel-2));border-radius:20px;padding:16px}.fbCardTop{display:flex;justify-content:space-between;gap:8px;color:var(--ez-muted);font-size:.82rem}.fbGrade{color:var(--ez-blue-soft);font-weight:800;text-transform:uppercase}.fbCard h3{font-size:1.28rem;margin:12px 0}.fbMetrics{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.fbMetrics div{background:rgba(255,255,255,.025);border:1px solid var(--ez-border);border-radius:12px;padding:9px}.fbMetrics span{display:block;color:var(--ez-muted);font-size:.72rem}.fbMetrics strong{display:block;margin-top:4px}.fbDkBox{display:grid;gap:4px;margin-top:12px;border-left:3px solid var(--ez-blue);padding:9px 10px;background:rgba(47,140,255,.07);border-radius:10px}.fbDkBox span{color:var(--ez-muted);font-size:.82rem}.fbSlateStack{display:grid;gap:10px}.fbSlateCard{padding:0;overflow:hidden}.fbSlateCard summary{cursor:pointer;list-style:none;padding:15px;display:flex;justify-content:space-between;gap:10px}.fbSlateCard summary span{color:var(--ez-muted);font-size:.8rem}.fbSlateBody{display:grid;gap:12px;padding:0 15px 15px}.fbScore{display:grid;grid-template-columns:1fr auto;gap:7px 12px}.fbScore b{font-size:1.25rem}.fbMarketRow{padding:9px;border-radius:10px;background:rgba(255,255,255,.025)}.fbRecordsGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}.fbRecordTile{display:grid;gap:6px}.fbRecordTile span,.fbRecordTile small{color:var(--ez-muted)}.fbRecordTile strong{font-size:1.45rem}.fbInfo{color:var(--ez-muted);line-height:1.7}.fbEmpty{color:var(--ez-muted);text-align:center;padding:30px}@media(max-width:620px){.fbHead{align-items:flex-start;flex-direction:column}.fbMetrics{grid-template-columns:1fr}.fbSlateCard summary{flex-direction:column}}
+      <style jsx global>{`
+        .footballBoard{display:grid;gap:18px}.fbHead{display:flex;justify-content:space-between;gap:16px;align-items:flex-end}.fbHead h2{margin:0 0 4px}.fbHead p,.fbMuted{color:var(--ez-muted);margin:0}.fbStatus{border:1px solid var(--ez-border);border-radius:999px;padding:7px 11px;color:var(--ez-muted)}.fbStatus.live{color:var(--ez-green);border-color:rgba(43,216,117,.35)}
+        .fbGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(285px,1fr));gap:14px}.fbCard,.fbSlateCard,.fbRecordTile,.fbInfo,.fbEmpty{border:1px solid var(--ez-border);background:linear-gradient(145deg,var(--ez-panel),var(--ez-panel-2));border-radius:20px;padding:16px}.fbCardTop{display:flex;justify-content:space-between;gap:8px;color:var(--ez-muted);font-size:.82rem}.fbGrade{color:var(--ez-blue-soft);font-weight:800;text-transform:uppercase}.fbCard h3{font-size:1.28rem;margin:12px 0}.fbMetrics{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.fbMetrics div{background:rgba(255,255,255,.025);border:1px solid var(--ez-border);border-radius:12px;padding:9px}.fbMetrics span{display:block;color:var(--ez-muted);font-size:.72rem}.fbMetrics strong{display:block;margin-top:4px}.fbDkBox{display:grid;gap:4px;margin-top:12px;border-left:3px solid var(--ez-blue);padding:9px 10px;background:rgba(47,140,255,.07);border-radius:10px}.fbDkBox span{color:var(--ez-muted);font-size:.82rem}
+        .trendGameGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,350px),1fr));gap:17px;align-items:start}.card{position:relative;overflow:hidden;min-width:0;border-radius:24px;border:1px solid var(--ez-border);padding:18px;background:linear-gradient(145deg,var(--ez-panel),var(--ez-panel-2))}.trendGameCard{border-color:rgba(78,145,255,.25)}.trendGameCard::before{content:"";position:absolute;inset:14px auto 14px 0;width:3px;border-radius:0 3px 3px 0;background:linear-gradient(180deg,#7c8cff,var(--ez-blue));box-shadow:0 0 22px rgba(91,123,255,.34)}.trendGameHeader{position:relative;z-index:2;display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:13px}.cardTitle{color:#f4f8ff;font-size:18px;font-weight:950;line-height:1.2}.trendGameTimeBox{flex:0 0 auto;border:1px solid rgba(91,143,214,.18);border-radius:13px;padding:7px 9px;background:rgba(8,19,36,.68);color:rgba(188,210,238,.88);font-size:10px}.trendSelectionStack{position:relative;z-index:2;display:grid;gap:9px}.trendSelectionRow{overflow:hidden;border:1px solid rgba(100,139,190,.15);border-radius:17px;background:rgba(4,11,23,.62)}.trendSelectionRow.leader{border-color:rgba(70,155,255,.3);background:rgba(7,22,46,.72)}.trendSelectionSummary{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;align-items:center;gap:10px;padding:11px 12px;cursor:pointer;list-style:none}.trendSelectionSummary::-webkit-details-marker{display:none}.trendSelectionRank{display:grid;place-items:center;width:34px;height:34px;border-radius:11px;color:#c8d9ee;background:rgba(29,76,139,.18);font-size:12px;font-weight:950}.trendSelectionIdentity{display:grid;gap:4px;min-width:0}.trendSelectionIdentity strong{overflow:hidden;color:#f2f7ff;font-size:15px;font-weight:950;text-overflow:ellipsis;white-space:nowrap}.trendSelectionIdentity small{overflow:hidden;color:rgba(145,174,209,.72);font-size:9px;line-height:1.25;text-overflow:ellipsis;white-space:nowrap}.trendSelectionMarket{display:grid;justify-items:end;gap:2px;min-width:88px}.trendSelectionMarket small{color:rgba(154,182,215,.74);font-size:8px;font-weight:900;letter-spacing:.04em;text-transform:uppercase}.trendSelectionMarket strong{color:#f4f8ff;font-size:24px;font-weight:950;line-height:1}.trendSelectionChevron{color:rgba(163,191,225,.68);font-size:18px;transition:transform .2s ease}.trendSelectionRow[open] .trendSelectionChevron{transform:rotate(180deg)}.trendSelectionBody{border-top:1px solid rgba(100,139,190,.12);padding:12px}.bubbleGrid{display:grid;gap:8px}.trendSelectionMetrics{grid-template-columns:repeat(4,minmax(0,1fr))}.miniBubble{min-width:0;border-radius:15px;padding:11px 12px;background:linear-gradient(145deg,rgba(12,22,39,.82),rgba(6,13,25,.84));border:1px solid rgba(108,142,187,.14);box-shadow:inset 0 1px 0 rgba(255,255,255,.018)}.miniLabel{color:rgba(142,169,203,.68);font-size:8px;font-weight:800;letter-spacing:.03em;text-transform:uppercase}.miniValue{margin-top:4px;color:#eef5ff;font-size:13px;font-weight:900;white-space:nowrap}.trendRecordGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:10px}.trendRecordCard{border:1px solid rgba(100,139,190,.13);border-radius:13px;padding:9px 10px;background:rgba(6,14,27,.64)}.trendRecordCard span{display:block;color:rgba(145,174,209,.65);font-size:8px;font-weight:800;text-transform:uppercase}.trendRecordCard strong{display:block;margin-top:3px;color:#f0f6ff;font-size:13px}.trendSignalBox{display:grid;gap:3px;margin-top:10px;border-left:3px solid var(--ez-blue);padding:9px 10px;border-radius:10px;background:rgba(47,140,255,.07)}.trendSignalBox b{color:#f3f7ff;font-size:12px}.trendSignalBox span,.trendMovement{color:var(--ez-muted);font-size:10px}.trendMovement{margin-top:8px}
+        .fbSlateStack{display:grid;gap:10px}.fbSlateCard{padding:0;overflow:hidden}.fbSlateCard summary{cursor:pointer;list-style:none;padding:15px;display:flex;justify-content:space-between;gap:10px}.fbSlateCard summary span{color:var(--ez-muted);font-size:.8rem}.fbSlateBody{display:grid;gap:12px;padding:0 15px 15px}.fbScore{display:grid;grid-template-columns:1fr auto;gap:7px 12px}.fbScore b{font-size:1.25rem}.fbMarketRow{padding:9px;border-radius:10px;background:rgba(255,255,255,.025)}.fbRecordsGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}.fbRecordTile{display:grid;gap:6px}.fbRecordTile span,.fbRecordTile small{color:var(--ez-muted)}.fbRecordTile strong{font-size:1.45rem}.fbInfo{color:var(--ez-muted);line-height:1.7}.fbEmpty{color:var(--ez-muted);text-align:center;padding:30px}
+        @media(max-width:620px){.fbHead{align-items:flex-start;flex-direction:column}.fbMetrics{grid-template-columns:1fr}.fbSlateCard summary{flex-direction:column}.card{border-radius:22px;padding:16px}.trendGameHeader{gap:9px}.trendSelectionRank{width:30px;height:30px}.trendSelectionIdentity strong{font-size:13px}.trendSelectionMarket{min-width:66px}.trendSelectionMarket small{max-width:70px;text-align:right}.trendSelectionMarket strong{font-size:21px}.trendSelectionChevron{display:none}.trendSelectionMetrics{grid-template-columns:repeat(2,minmax(0,1fr))}.trendRecordGrid{grid-template-columns:1fr}}
       `}</style>
     </section>
   );
