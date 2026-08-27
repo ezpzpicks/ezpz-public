@@ -1,8 +1,8 @@
 name: EZPZ Football Public Snapshots
 
 on:
-  # A workflow-only push also runs one capture so tracking changes establish a
-  # baseline immediately; normal operation continues on the five-minute schedule.
+  # A workflow-only push also runs one capture so tracking changes establish or
+  # verify a baseline immediately; normal operation continues on the five-minute schedule.
   push:
     branches:
       - main
