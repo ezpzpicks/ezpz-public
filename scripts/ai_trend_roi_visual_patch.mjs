@@ -162,27 +162,256 @@ replaceRequired(
   "AI trend plays card call",
 );
 
-// Make the Best Play record/ROI tiles feel more like polished stat cards.
-replaceRequired(
-  `.aiPickGateMetric{background:#040a1594;border:1px solid #4f9cff26;border-radius:12px;gap:6px;min-height:68px;padding:11px;display:grid}.aiPickGateMetric span{color:var(--ez-muted);text-transform:uppercase;letter-spacing:.05em;font-size:9px;line-height:1.25}.aiPickGateMetric strong{align-self:end;font-size:17px}`,
-  `.aiPickGateMetric{background:linear-gradient(145deg,#071426e8,#040b16e8);border:1px solid #4f9cff30;border-radius:15px;gap:6px;min-height:82px;padding:13px;display:grid;position:relative;overflow:hidden;box-shadow:inset 0 1px #ffffff08,0 10px 24px #00000020}.aiPickGateMetric:before{content:"";background:linear-gradient(90deg,#2f8cff,#24c7ff,#2bd875);height:2px;position:absolute;inset:0 18% auto 18%;opacity:.72}.aiPickGateMetric span{color:#8fa9c9;text-transform:uppercase;letter-spacing:.075em;font-size:9px;font-weight:850;line-height:1.25}.aiPickGateMetric strong{align-self:end;color:#f6fbff;font-variant-numeric:tabular-nums;font-size:20px;letter-spacing:-.02em}.aiPickGateMetric small{color:#aac0d9;font-size:10px;font-weight:750}`, 
-  "Best Play stat-card styling",
-);
+if (!text.includes(".aiTrendNetRoiCard {")) {
+  const cssAnchor = `        @media (max-width: 720px) {`;
+  if (!text.includes(cssAnchor)) throw new Error("AI responsive CSS anchor not found");
+  const css = `        /* AI record / ROI visual polish */
+        .aiPickGateMetric {
+          position: relative;
+          overflow: hidden;
+          min-height: 82px;
+          padding: 13px;
+          border-color: rgba(79, 156, 255, 0.19);
+          border-radius: 15px;
+          background: linear-gradient(145deg, rgba(7, 20, 38, 0.91), rgba(4, 11, 22, 0.91));
+          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03), 0 10px 24px rgba(0, 0, 0, 0.13);
+        }
 
-const cssAnchor = `.aiPickDetailSection{background:#2bd8750b;border:1px solid #2bd87533;border-radius:14px;padding:16px}`;
-if (!text.includes(".aiTrendNetRoiCard{")) {
-  if (!text.includes(cssAnchor)) throw new Error("AI detail CSS anchor not found");
-  const trendCss = `.aiTrendEvidence{background:linear-gradient(145deg,#071c22d9,#06101dd9);border-color:#2bd87538;padding:18px}.aiTrendEvidenceHead{justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:14px;display:flex}.aiTrendEvidenceHead h3{margin:0 0 5px}.aiTrendEvidenceHead p{color:#9fb5cf;font-size:12px;line-height:1.45}.aiTrendTierPill{color:#bff3d2;white-space:nowrap;background:#14764029;border:1px solid #2bd87542;border-radius:999px;padding:6px 9px;font-size:9px;font-weight:900;letter-spacing:.06em;text-transform:uppercase}.aiTrendNetRoiCard{background:radial-gradient(circle at 92% 18%,#2bd87520,#0000 38%),linear-gradient(135deg,#0a2130f5,#071321f5);border:1px solid #3aa6d747;border-radius:17px;margin-bottom:12px;padding:14px;box-shadow:inset 0 1px #ffffff08,0 12px 28px #0000002e}.aiTrendNetRoiMain{justify-content:space-between;align-items:center;gap:14px;display:flex}.aiTrendNetRoiMain>div{gap:4px;display:grid}.aiTrendNetRoiMain span{color:#9bb6d6;letter-spacing:.085em;text-transform:uppercase;font-size:9px;font-weight:900}.aiTrendNetRoiMain small{color:#8da6c3;font-size:10px}.aiTrendNetRoiMain>strong{font-variant-numeric:tabular-nums;font-size:31px;font-weight:950;letter-spacing:-.045em;line-height:1}.aiTrendNetRoiMain>strong.positive,.aiTrendSignalStats small.positive{color:#55e59a}.aiTrendNetRoiMain>strong.negative,.aiTrendSignalStats small.negative{color:#ff8a96}.aiTrendNetRoiBreakdown{border-top:1px solid #72a6ca24;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:12px;padding-top:10px;display:grid}.aiTrendNetRoiBreakdown span{color:#8fa8c6;background:#ffffff05;border:1px solid #6a98bd1f;border-radius:10px;padding:8px 9px;font-size:10px}.aiTrendNetRoiBreakdown b{color:#edf7ff;float:right;font-variant-numeric:tabular-nums}.aiTrendSignalList{gap:9px;display:grid}.aiTrendSignalCard{background:linear-gradient(145deg,#07111fdb,#040a14db);border:1px solid #5689b22b;border-radius:15px;padding:12px 13px;box-shadow:inset 0 1px #ffffff06}.aiTrendSignalName{color:#e8f3ff;letter-spacing:.045em;text-transform:uppercase;margin-bottom:10px;font-size:10px;font-weight:900}.aiTrendSignalStats{grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;display:grid}.aiTrendSignalStats>div{background:#ffffff04;border:1px solid #6a8faf1c;border-radius:11px;gap:3px;min-width:0;padding:8px;display:grid}.aiTrendSignalStats span{color:#829bb8;letter-spacing:.07em;text-transform:uppercase;font-size:8px;font-weight:850}.aiTrendSignalStats strong{color:#f3f8ff;font-variant-numeric:tabular-nums;font-size:15px;font-weight:900}.aiTrendSignalStats small{font-variant-numeric:tabular-nums;font-size:9px;font-weight:850}.aiPickDetailSection{background:#2bd8750b;border:1px solid #2bd87533;border-radius:14px;padding:16px}`;
-  text = text.replace(cssAnchor, trendCss);
-}
+        .aiPickGateMetric::before {
+          content: "";
+          position: absolute;
+          inset: 0 18% auto 18%;
+          height: 2px;
+          background: linear-gradient(90deg, #2f8cff, #24c7ff, #2bd875);
+          opacity: 0.72;
+        }
 
-if (!text.includes("@media (width<=520px){.aiTrendNetRoiMain")) {
-  const reduceAnchor = `@media (prefers-reduced-motion:reduce){`;
-  if (!text.includes(reduceAnchor)) throw new Error("Reduced-motion CSS anchor not found");
-  text = text.replace(
-    reduceAnchor,
-    `@media (width<=520px){.aiTrendEvidence{padding:14px}.aiTrendEvidenceHead{align-items:flex-start}.aiTrendNetRoiMain>strong{font-size:28px}.aiTrendNetRoiBreakdown{grid-template-columns:1fr}.aiTrendSignalStats{grid-template-columns:repeat(3,minmax(0,1fr));gap:5px}.aiTrendSignalStats>div{padding:7px 6px}.aiTrendSignalStats strong{font-size:13px}.aiTrendSignalStats small{font-size:8px}}` + reduceAnchor,
-  );
+        .aiPickGateMetric span {
+          color: #8fa9c9;
+          font-weight: 850;
+          letter-spacing: 0.075em;
+        }
+
+        .aiPickGateMetric strong {
+          color: #f6fbff;
+          font-size: 20px;
+          font-variant-numeric: tabular-nums;
+          letter-spacing: -0.02em;
+        }
+
+        .aiPickGateMetric small {
+          color: #aac0d9;
+          font-size: 10px;
+          font-weight: 750;
+        }
+
+        .aiTrendEvidence {
+          padding: 18px;
+          border-color: rgba(43, 216, 117, 0.22);
+          background: linear-gradient(145deg, rgba(7, 28, 34, 0.85), rgba(6, 16, 29, 0.85));
+        }
+
+        .aiTrendEvidenceHead {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 12px;
+          margin-bottom: 14px;
+        }
+
+        .aiTrendEvidenceHead h3 {
+          margin: 0 0 5px;
+        }
+
+        .aiTrendEvidenceHead p {
+          color: #9fb5cf;
+          font-size: 12px;
+          line-height: 1.45;
+        }
+
+        .aiTrendTierPill {
+          flex: 0 0 auto;
+          border: 1px solid rgba(43, 216, 117, 0.26);
+          border-radius: 999px;
+          padding: 6px 9px;
+          color: #bff3d2;
+          background: rgba(20, 118, 64, 0.16);
+          font-size: 9px;
+          font-weight: 900;
+          letter-spacing: 0.06em;
+          text-transform: uppercase;
+          white-space: nowrap;
+        }
+
+        .aiTrendNetRoiCard {
+          margin-bottom: 12px;
+          padding: 14px;
+          border: 1px solid rgba(58, 166, 215, 0.28);
+          border-radius: 17px;
+          background:
+            radial-gradient(circle at 92% 18%, rgba(43, 216, 117, 0.13), transparent 38%),
+            linear-gradient(135deg, rgba(10, 33, 48, 0.96), rgba(7, 19, 33, 0.96));
+          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03), 0 12px 28px rgba(0, 0, 0, 0.18);
+        }
+
+        .aiTrendNetRoiMain {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 14px;
+        }
+
+        .aiTrendNetRoiMain > div {
+          display: grid;
+          gap: 4px;
+        }
+
+        .aiTrendNetRoiMain span {
+          color: #9bb6d6;
+          font-size: 9px;
+          font-weight: 900;
+          letter-spacing: 0.085em;
+          text-transform: uppercase;
+        }
+
+        .aiTrendNetRoiMain small {
+          color: #8da6c3;
+          font-size: 10px;
+        }
+
+        .aiTrendNetRoiMain > strong {
+          font-size: 31px;
+          font-weight: 950;
+          font-variant-numeric: tabular-nums;
+          letter-spacing: -0.045em;
+          line-height: 1;
+        }
+
+        .aiTrendNetRoiMain > strong.positive,
+        .aiTrendSignalStats small.positive {
+          color: #55e59a;
+        }
+
+        .aiTrendNetRoiMain > strong.negative,
+        .aiTrendSignalStats small.negative {
+          color: #ff8a96;
+        }
+
+        .aiTrendNetRoiBreakdown {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 8px;
+          margin-top: 12px;
+          padding-top: 10px;
+          border-top: 1px solid rgba(114, 166, 202, 0.14);
+        }
+
+        .aiTrendNetRoiBreakdown span {
+          padding: 8px 9px;
+          border: 1px solid rgba(106, 152, 189, 0.12);
+          border-radius: 10px;
+          color: #8fa8c6;
+          background: rgba(255, 255, 255, 0.02);
+          font-size: 10px;
+        }
+
+        .aiTrendNetRoiBreakdown b {
+          float: right;
+          color: #edf7ff;
+          font-variant-numeric: tabular-nums;
+        }
+
+        .aiTrendSignalList {
+          display: grid;
+          gap: 9px;
+        }
+
+        .aiTrendSignalCard {
+          padding: 12px 13px;
+          border: 1px solid rgba(86, 137, 178, 0.17);
+          border-radius: 15px;
+          background: linear-gradient(145deg, rgba(7, 17, 31, 0.86), rgba(4, 10, 20, 0.86));
+          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.025);
+        }
+
+        .aiTrendSignalName {
+          margin-bottom: 10px;
+          color: #e8f3ff;
+          font-size: 10px;
+          font-weight: 900;
+          letter-spacing: 0.045em;
+          text-transform: uppercase;
+        }
+
+        .aiTrendSignalStats {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 7px;
+        }
+
+        .aiTrendSignalStats > div {
+          display: grid;
+          gap: 3px;
+          min-width: 0;
+          padding: 8px;
+          border: 1px solid rgba(106, 143, 175, 0.11);
+          border-radius: 11px;
+          background: rgba(255, 255, 255, 0.016);
+        }
+
+        .aiTrendSignalStats span {
+          color: #829bb8;
+          font-size: 8px;
+          font-weight: 850;
+          letter-spacing: 0.07em;
+          text-transform: uppercase;
+        }
+
+        .aiTrendSignalStats strong {
+          color: #f3f8ff;
+          font-size: 15px;
+          font-weight: 900;
+          font-variant-numeric: tabular-nums;
+        }
+
+        .aiTrendSignalStats small {
+          font-size: 9px;
+          font-weight: 850;
+          font-variant-numeric: tabular-nums;
+        }
+
+        @media (max-width: 520px) {
+          .aiTrendEvidence {
+            padding: 14px;
+          }
+
+          .aiTrendNetRoiMain > strong {
+            font-size: 28px;
+          }
+
+          .aiTrendNetRoiBreakdown {
+            grid-template-columns: 1fr;
+          }
+
+          .aiTrendSignalStats {
+            gap: 5px;
+          }
+
+          .aiTrendSignalStats > div {
+            padding: 7px 6px;
+          }
+
+          .aiTrendSignalStats strong {
+            font-size: 13px;
+          }
+
+          .aiTrendSignalStats small {
+            font-size: 8px;
+          }
+        }
+
+`;
+  text = text.replace(cssAnchor, css + cssAnchor);
 }
 
 if (text !== original) {
