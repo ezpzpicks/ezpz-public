@@ -30,5 +30,35 @@ const lineAfter = `function numericLine(value: unknown) {
 if (text.includes(lineBefore)) text = text.replace(lineBefore, lineAfter);
 else if (!text.includes(lineAfter)) throw new Error("Could not find football numeric-line parser");
 
+// College feeds often shorten names and normalize punctuation differently
+// (for example Hawai'i vs Hawaii). Compare a compact form before token overlap.
+const teamBefore = `function sameTeam(a: unknown, b: unknown, sport: FootballSport) {
+  const left = normalizeTeam(a, sport);
+  const right = normalizeTeam(b, sport);
+  if (!left || !right) return false;
+  if (left === right) return true;
+  if (sport === "NFL") return false;
+  const l = new Set(left.split(" ").filter((token) => token.length > 2));
+  const r = new Set(right.split(" ").filter((token) => token.length > 2));
+  const overlap = [...l].filter((token) => r.has(token)).length;
+  return overlap >= Math.min(2, Math.max(1, Math.min(l.size, r.size)));
+}`;
+const teamAfter = `function sameTeam(a: unknown, b: unknown, sport: FootballSport) {
+  const left = normalizeTeam(a, sport);
+  const right = normalizeTeam(b, sport);
+  if (!left || !right) return false;
+  if (left === right) return true;
+  const compactLeft = left.replace(/\\s+/g, "");
+  const compactRight = right.replace(/\\s+/g, "");
+  if (sport !== "NFL" && (compactLeft.includes(compactRight) || compactRight.includes(compactLeft))) return true;
+  if (sport === "NFL") return false;
+  const l = new Set(left.split(" ").filter((token) => token.length > 2));
+  const r = new Set(right.split(" ").filter((token) => token.length > 2));
+  const overlap = [...l].filter((token) => r.has(token)).length;
+  return overlap >= Math.min(2, Math.max(1, Math.min(l.size, r.size)));
+}`;
+if (text.includes(teamBefore)) text = text.replace(teamBefore, teamAfter);
+else if (!text.includes(teamAfter)) throw new Error("Could not find football team matcher");
+
 fs.writeFileSync(path, text);
-console.log("patched football DraftKings filters, pagination, and market-line parsing");
+console.log("patched football DraftKings filters, pagination, line parsing, and team matching");
