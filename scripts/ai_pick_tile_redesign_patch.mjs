@@ -10,42 +10,29 @@ function replaceOnce(oldText, newText, label) {
   text = text.replace(oldText, newText);
 }
 
-// The selector no longer uses a separate web-review decision for finalized picks.
-replaceOnce(
-  `type AiPickExternalStatus =
-  | "PENDING_FINAL_REVIEW"
-  | "WEB_REVIEWED"
-  | "NO_VERIFIED_CONTEXT"
-  | "NOT_CONFIGURED"
-  | "REVIEW_ERROR";`,
-  `type AiPickExternalStatus =
-  | "PENDING_FINAL_REVIEW"
-  | "WEB_REVIEWED"
-  | "NO_VERIFIED_CONTEXT"
-  | "NOT_CONFIGURED"
-  | "NOT_REQUIRED"
-  | "REVIEW_ERROR";`,
-  "AI external status type",
-);
+// The final selector uses NOT_REQUIRED after the no-final-review patch. Make the
+// display patch tolerant whether that earlier patch has already added the type.
+if (!text.includes('| "NOT_REQUIRED"')) {
+  const statusStart = text.indexOf("type AiPickExternalStatus =");
+  const statusEnd = text.indexOf(";", statusStart);
+  if (statusStart < 0 || statusEnd < 0) throw new Error("AI external status type not found");
+  const statusBlock = text.slice(statusStart, statusEnd + 1);
+  if (!statusBlock.includes('| "REVIEW_ERROR"')) throw new Error("AI external status insertion point not found");
+  const updatedStatus = statusBlock.replace(
+    '  | "REVIEW_ERROR";',
+    '  | "NOT_REQUIRED"\n  | "REVIEW_ERROR";',
+  );
+  text = text.slice(0, statusStart) + updatedStatus + text.slice(statusEnd + 1);
+}
 
-replaceOnce(
-  `function aiExternalReviewLabel(status: AiPickExternalStatus) {
-  if (status === "WEB_REVIEWED") return "External context reviewed";
-  if (status === "NO_VERIFIED_CONTEXT") return "No verified outside context changed the play";
-  if (status === "PENDING_FINAL_REVIEW") return "External context review pending final snapshot";
-  if (status === "REVIEW_ERROR") return "External context review was unavailable";
-  return "External research is not configured";
-}`,
-  `function aiExternalReviewLabel(status: AiPickExternalStatus) {
-  if (status === "NOT_REQUIRED") return "Separate AI/web review not required";
-  if (status === "WEB_REVIEWED") return "External context reviewed";
-  if (status === "NO_VERIFIED_CONTEXT") return "No verified outside context changed the play";
-  if (status === "PENDING_FINAL_REVIEW") return "External context review pending final snapshot";
-  if (status === "REVIEW_ERROR") return "External context review was unavailable";
-  return "External research is not configured";
-}`,
-  "AI external status label",
-);
+if (!text.includes("Separate AI/web review not required")) {
+  const labelMarker = `function aiExternalReviewLabel(status: AiPickExternalStatus) {`;
+  if (!text.includes(labelMarker)) throw new Error("AI external status label helper not found");
+  text = text.replace(
+    labelMarker,
+    labelMarker + `\n  if (status === "NOT_REQUIRED") return "Separate AI/web review not required";`,
+  );
+}
 
 const cardMarker = `function AiPickSelectorCard({\n`;
 const helperBlock = `function aiSummaryRoi(summary: Summary | null) {
@@ -100,46 +87,22 @@ if (!text.includes("function aiSummaryRoi(")) {
   text = text.replace(cardMarker, helperBlock + cardMarker);
 }
 
-const oldCardHead = `function AiPickSelectorCard({
-  pick,
-  lastSevenBetsSummary,
-}: {
-  pick: AiPick;
-  lastSevenBetsSummary: Summary | null;
-}) {
-  const schedule = scheduleInfoFromRaw(pick.gameTime, pick.date);
-  const bestPlayGate = pick.bestPlayType
-    ? aiBestPlayGateInfo(lastSevenBetsSummary)
-    : null;
-  const isFinalReview =
-    pick.snapshotStatus === "FINAL_PREGAME" &&
-    pick.externalReviewStatus === "WEB_REVIEWED" &&
-    pick.protectionStatus === "PASSED";
-  const cleanedConfidence = cleanAiDisplayList(pick.confidenceReason);
-  const cleanedWhy = cleanAiDisplayList(pick.whySelected);
-  const confidenceReason = cleanedConfidence.length
-    ? cleanedConfidence
-    : [
-        isFinalReview
-          ? "This play cleared the AI score, probability, value, and protection thresholds after final verification."
-          : "This candidate currently clears the preliminary score, probability, value, and protection thresholds; final AI review is still pending.",
-      ];
-  const why = cleanedWhy.length
-    ? cleanedWhy
-    : [
-        isFinalReview
-          ? "The candidate passed the final EZPZ AI selection threshold and protection checks."
-          : "The candidate currently passes the preliminary EZPZ AI selection threshold and protection checks.",
-      ];
-  const historicalNotes = cleanAiDisplayList(pick.historicalNotes);`;
+// Replace the card declaration structurally so it remains compatible with the
+// handpicked-badge prebuild patch that runs earlier and adds its own prop.
+if (!text.includes("todaySummary: Summary | null;")) {
+  const cardStart = text.indexOf("function AiPickSelectorCard({");
+  const researchMarker = `  const researchSummary = cleanAiDisplayText(pick.researchSummary);`;
+  const researchStart = text.indexOf(researchMarker, cardStart);
+  if (cardStart < 0 || researchStart < 0) throw new Error("AI card declaration boundaries not found");
 
-const newCardHead = `function AiPickSelectorCard({
+  const newCardHead = `function AiPickSelectorCard({
   pick,
   todaySummary,
   last7DaysSummary,
   lastSevenBetsSummary,
   overallSummary,
   trendPlay,
+  handpicked = false,
 }: {
   pick: AiPick;
   todaySummary: Summary | null;
@@ -147,6 +110,7 @@ const newCardHead = `function AiPickSelectorCard({
   lastSevenBetsSummary: Summary | null;
   overallSummary: Summary | null;
   trendPlay: TrendPlay | null;
+  handpicked?: boolean;
 }) {
   const schedule = scheduleInfoFromRaw(pick.gameTime, pick.date);
   const bestPlayGate = pick.bestPlayType
@@ -154,12 +118,15 @@ const newCardHead = `function AiPickSelectorCard({
     : null;
   const isFinalReview =
     pick.snapshotStatus === "FINAL_PREGAME" && pick.protectionStatus === "PASSED";
-  const historicalNotes = cleanAiDisplayList(pick.historicalNotes);`;
-replaceOnce(oldCardHead, newCardHead, "AI card props and legacy confidence logic");
+  const historicalNotes = cleanAiDisplayList(pick.historicalNotes);
+`;
+  text = text.slice(0, cardStart) + newCardHead + text.slice(researchStart);
+}
 
 const cardBodyStartMarker = `        <div className="aiPickConfidenceBlock">`;
 const cardBodyEndMarker = `        {researchSummary ? (`;
-const cardBodyStart = text.indexOf(cardBodyStartMarker, text.indexOf("function AiPickSelectorCard("));
+const cardFunctionStart = text.indexOf("function AiPickSelectorCard(");
+const cardBodyStart = text.indexOf(cardBodyStartMarker, cardFunctionStart);
 const cardBodyEnd = text.indexOf(cardBodyEndMarker, cardBodyStart);
 if (cardBodyStart < 0 || cardBodyEnd < 0) {
   if (!text.includes("Best Play Record Snapshot")) {
@@ -241,7 +208,6 @@ if (cardBodyStart < 0 || cardBodyEnd < 0) {
   text = text.slice(0, cardBodyStart) + redesignedBody + text.slice(cardBodyEnd);
 }
 
-// Add a true current-date record map alongside the existing rolling windows.
 const last7Memo = `  const trackerLast7RecordSummary = useMemo(
     () => calculateTrackerRecordSummary(data?.betTrackerRows, "last7", data?.today || ""),
     [data?.betTrackerRows, data?.today],
@@ -272,16 +238,14 @@ const expandedMaps = `    const todayByType = new Map(
     const lastSevenBetsByType = new Map<string, Summary>(`;
 replaceOnce(recentMap, expandedMaps, "AI record maps");
 
-const oldCardCall = `                <AiPickSelectorCard
-                  key={pick.candidateId}
-                  pick={pick}
-                  lastSevenBetsSummary={
-                    pick.bestPlayType
-                      ? lastSevenBetsByType.get(normalizeType(pick.bestPlayType)) || null
-                      : null
-                  }
-                />`;
-const newCardCall = `                <AiPickSelectorCard
+if (!text.includes("trendPlay={aiTrendPlayForPick(pick, trendPlays)}")) {
+  const aiSection = text.indexOf('if (active === "EZPZ AI Picks")');
+  const callStart = text.indexOf("                <AiPickSelectorCard", aiSection);
+  const callEndMarker = `                />`;
+  const callEnd = text.indexOf(callEndMarker, callStart);
+  if (callStart < 0 || callEnd < 0) throw new Error("AI card render call boundaries not found");
+
+  const newCardCall = `                <AiPickSelectorCard
                   key={pick.candidateId}
                   pick={pick}
                   todaySummary={
@@ -305,8 +269,12 @@ const newCardCall = `                <AiPickSelectorCard
                       : null
                   }
                   trendPlay={aiTrendPlayForPick(pick, trendPlays)}
+                  handpicked={Boolean(
+                    favoriteRowMap.get(favoriteKeyFromAiPick(pick, data.today)),
+                  )}
                 />`;
-replaceOnce(oldCardCall, newCardCall, "AI card render call");
+  text = text.slice(0, callStart) + newCardCall + text.slice(callEnd + callEndMarker.length);
+}
 
 const dependencyMarker = `    mergedLast7RecordSummary,
     trackerLastSevenBetsRecordSummary,`;
