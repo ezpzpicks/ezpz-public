@@ -2,11 +2,13 @@ name: EZPZ Football Public Snapshots
 
 on:
   schedule:
-    # Persist NFL/NCAAF public split + trend snapshots every 10 minutes during
-    # the normal football activity window. Public website visitors remain read-only.
-    - cron: "0,10,20,30,40,50 10-23 * * *"
+    # Persist NFL/NCAAF public split + line/odds movement snapshots every 5 minutes
+    # during the normal football activity window. This preserves opening/current
+    # line, odds, implied probability, and betting-split movement for trend grading.
+    # Public website visitors remain read-only.
+    - cron: "0,5,10,15,20,25,30,35,40,45,50,55 10-23 * * *"
       timezone: "America/New_York"
-    - cron: "0,10,20,30,40,50 0 * * *"
+    - cron: "0,5,10,15,20,25,30,35,40,45,50,55 0 * * *"
       timezone: "America/New_York"
     - cron: "0 1 * * *"
       timezone: "America/New_York"
