@@ -88,6 +88,18 @@ function patchFootballPublicData() {
   );
   text = replaceOnce(
     text,
+    "  const slate=slateAll.filter((row)=>{const date=isoDate(row.Date||row[\"Game Date\"]||\"\");return !date||date===today;});\n  const trackingSlate=slateAll.filter((row)=>inFootballTrackingWeek(row,sport,today));",
+    "  const trackingSlate=slateAll.filter((row)=>inFootballTrackingWeek(row,sport,today));\n  const slate=trackingSlate;",
+    "weekly football public slate",
+  );
+  text = replaceOnce(
+    text,
+    "    if(isoDate(row.Date)!==today)return row;",
+    "    if(!inFootballTrackingWeek(row,sport,today))return row;",
+    "weekly football trend updates",
+  );
+  text = replaceOnce(
+    text,
     "  const currentSnapshots=enrichedTracking.map((split)=>snapshotRow({...split,snapshotTime:nowET()})); if(currentSnapshots.length) await upsertSportRows(sport,\"public_split_snapshots\",PUBLIC_SPLIT_HEADERS,currentSnapshots,snapshotKey);",
     "  const currentSnapshots=enrichedTracking.map((split)=>snapshotRow({...split,snapshotTime:nowET()})); if(persist&&currentSnapshots.length) await upsertSportRows(sport,\"public_split_snapshots\",PUBLIC_SPLIT_HEADERS,currentSnapshots,snapshotKey);",
     "scheduled football snapshot persistence",
