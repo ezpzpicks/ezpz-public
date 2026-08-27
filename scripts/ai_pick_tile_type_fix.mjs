@@ -2,6 +2,7 @@ import fs from "node:fs";
 
 const path = "app/page.tsx";
 let text = fs.readFileSync(path, "utf8");
+
 const statusPattern = /type AiPickExternalStatus =\s*(?:\|\s*"[A-Z_]+"\s*)+;/g;
 const matches = [...text.matchAll(statusPattern)];
 if (!matches.length) throw new Error("AiPickExternalStatus union not found");
@@ -13,12 +14,18 @@ const replacement = `type AiPickExternalStatus =
   | "NOT_CONFIGURED"
   | "NOT_REQUIRED"
   | "REVIEW_ERROR";`;
-
 text = text.replace(statusPattern, replacement);
+
+// Keep the display helper independently tolerant of NOT_REQUIRED even if an
+// earlier build transform narrows the base alias again.
+text = text.replace(
+  "function aiExternalReviewLabel(status: AiPickExternalStatus) {",
+  'function aiExternalReviewLabel(status: AiPickExternalStatus | "NOT_REQUIRED") {',
+);
+
 fs.writeFileSync(path, text, "utf8");
 
-const remaining = [...text.matchAll(/type AiPickExternalStatus =[\s\S]*?;/g)].map((match) => match[0]);
-if (!remaining.length || remaining.some((block) => !block.includes('"NOT_REQUIRED"'))) {
-  throw new Error("Failed to force NOT_REQUIRED into every AiPickExternalStatus union");
+if (!text.includes('function aiExternalReviewLabel(status: AiPickExternalStatus | "NOT_REQUIRED") {')) {
+  throw new Error("Failed to widen AI external-review display helper");
 }
-console.log(`Forced NOT_REQUIRED into ${remaining.length} AI external status union(s).`);
+console.log("Forced NOT_REQUIRED support for the redesigned AI tile display.");
