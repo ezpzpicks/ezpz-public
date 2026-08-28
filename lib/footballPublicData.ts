@@ -806,7 +806,28 @@ export async function buildFootballPublicData(sport:FootballSport){
   // timestamp later than the advertised final-lock time.
   const displayTrendMap=new Map<string,TrendPlay>();
   const displayTrendKey=(play:TrendPlay)=>`${play.gameKey||textKey(play.game)}|${play.market}|${textKey(play.market==="Total"?play.side:play.selection)}`;
-  for(const rawPlay of trendPlays){const play=rawPlay as TrendPlay;displayTrendMap.set(displayTrendKey(play),play);}
+  for(const rawPlay of trendPlays){
+  const play=rawPlay as TrendPlay;
+  const matchingSplit=enriched.find((split)=>
+    textKey(split.game)===textKey(play.game)&&
+    split.market===play.market&&
+    (play.market==="Total"
+      ? textKey(split.side)===textKey(play.side)
+      : textKey(split.selectionTeam)===textKey(play.selectionTeam))
+  );
+  const matchingSlate=slate.find((row)=>
+    String(row["Game ID"]||row["Game Key"]||"")===play.gameKey
+  );
+  const minutesToKickoff=matchingSplit
+    ? minutesUntilDraftKingsKickoff(matchingSplit) ?? (matchingSlate?minutesUntilKickoff(matchingSlate):null)
+    : matchingSlate?minutesUntilKickoff(matchingSlate):null;
+  // A live candidate is valid only before the advertised T-15 lock.
+  // At/after lock, show it only if the authoritative FINAL_PREGAME
+  // object was actually persisted below. Never leave a stale LIVE
+  // card on the public board when the background capture was missed.
+  if(minutesToKickoff!=null&&minutesToKickoff<=15) continue;
+  displayTrendMap.set(displayTrendKey(play),play);
+}
   for(const row of trendRows){
     if(isoDate(row.Date)!==today||!authoritativeFinalTrend(row)) continue;
     try{
