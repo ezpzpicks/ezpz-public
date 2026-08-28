@@ -1,0 +1,50 @@
+name: Fix football final lock type check
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/fix-football-lock-types.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tighten frozen trend overlay type
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("lib/footballPublicData.ts")
+          text = path.read_text()
+          old = '    for(const play of trendPlays) displayTrendMap.set(displayTrendKey(play),play);'
+          new = '    for(const rawPlay of trendPlays){const play=rawPlay as TrendPlay;displayTrendMap.set(displayTrendKey(play),play);}'
+          if new in text:
+              print("Trend overlay type cast already applied")
+          elif old in text:
+              path.write_text(text.replace(old, new, 1))
+              print("Applied TrendPlay cast to frozen/live display overlay")
+          else:
+              raise SystemExit("Could not find trend display overlay target")
+          PY
+
+      - name: Commit type fix
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add lib/footballPublicData.ts
+          if git diff --cached --quiet; then
+            echo "No code changes to commit"
+            exit 0
+          fi
+          git commit -m "Type football frozen trend overlay"
+          git push
