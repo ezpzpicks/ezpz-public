@@ -25,27 +25,30 @@ jobs:
 
           path = Path("scripts/football_quota_stability_patch.mjs")
           text = path.read_text()
+          label = '"scheduled football snapshot persistence",'
+          label_pos = text.find(label)
+          if label_pos < 0:
+              raise SystemExit("Could not find scheduled football snapshot persistence label")
 
-          old = '''  text = replaceOnce(
+          start = text.rfind("  text = replaceOnce(", 0, label_pos)
+          end = text.find("  );", label_pos)
+          if start < 0 or end < 0:
+              raise SystemExit("Could not isolate scheduled football snapshot persistence patch")
+          end += len("  );")
+
+          new = r'''  text = replaceOnce(
             text,
-            "  const currentSnapshots=enrichedTracking.map((split)=>snapshotRow({...split,snapshotTime:nowET()})); if(currentSnapshots.length) await upsertSportRows(sport,\\\"public_split_snapshots\\\",PUBLIC_SPLIT_HEADERS,currentSnapshots,snapshotKey);",
-            "  const currentSnapshots=enrichedTracking.map((split)=>snapshotRow({...split,snapshotTime:nowET()})); if(persist&&currentSnapshots.length) await upsertSportRows(sport,\\\"public_split_snapshots\\\",PUBLIC_SPLIT_HEADERS,currentSnapshots,snapshotKey);",
+            "  if(currentSnapshots.length) await upsertSportRows(sport,\"public_split_snapshots\",PUBLIC_SPLIT_HEADERS,currentSnapshots,snapshotKey);",
+            "  if(persist&&currentSnapshots.length) await upsertSportRows(sport,\"public_split_snapshots\",PUBLIC_SPLIT_HEADERS,currentSnapshots,snapshotKey);",
             "scheduled football snapshot persistence",
           );'''
-          new = '''  text = replaceOnce(
-            text,
-            "  if(currentSnapshots.length) await upsertSportRows(sport,\\\"public_split_snapshots\\\",PUBLIC_SPLIT_HEADERS,currentSnapshots,snapshotKey);",
-            "  if(persist&&currentSnapshots.length) await upsertSportRows(sport,\\\"public_split_snapshots\\\",PUBLIC_SPLIT_HEADERS,currentSnapshots,snapshotKey);",
-            "scheduled football snapshot persistence",
-          );'''
 
-          if new in text:
+          existing = text[start:end]
+          if existing == new:
               print("Build patch is already compatible with final-lock logic")
-          elif old in text:
-              path.write_text(text.replace(old, new, 1))
-              print("Updated build patch to preserve final-lock snapshot filtering")
           else:
-              raise SystemExit("Could not find scheduled football snapshot persistence patch")
+              path.write_text(text[:start] + new + text[end:])
+              print("Updated build patch to preserve final-lock snapshot filtering")
           PY
 
       - name: Commit compatibility fix
