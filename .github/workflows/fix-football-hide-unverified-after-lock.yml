@@ -21,17 +21,13 @@ jobs:
 
       - name: Hide unverified football trends once lock time is reached
         run: |
-          node <<'NODE'
-          const fs = require('fs');
-          const path = 'lib/footballPublicData.ts';
-          let source = fs.readFileSync(path, 'utf8');
-          const before = `  const displayTrendMap=new Map<string,TrendPlay>();
-          const displayTrendKey=(play:TrendPlay)=>\`${'${play.gameKey||textKey(play.game)}'}|${'${play.market}'}|${'${textKey(play.market==="Total"?play.side:play.selection)}'}\`;
-          for(const rawPlay of trendPlays){const play=rawPlay as TrendPlay;displayTrendMap.set(displayTrendKey(play),play);}
-`;
-          const after = `  const displayTrendMap=new Map<string,TrendPlay>();
-          const displayTrendKey=(play:TrendPlay)=>\`${'${play.gameKey||textKey(play.game)}'}|${'${play.market}'}|${'${textKey(play.market==="Total"?play.side:play.selection)}'}\`;
-          for(const rawPlay of trendPlays){
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("lib/footballPublicData.ts")
+          source = path.read_text()
+          old = '  for(const rawPlay of trendPlays){const play=rawPlay as TrendPlay;displayTrendMap.set(displayTrendKey(play),play);}'
+          new = '''  for(const rawPlay of trendPlays){
             const play=rawPlay as TrendPlay;
             const matchingSplit=enriched.find((split)=>
               textKey(split.game)===textKey(play.game)&&
@@ -52,14 +48,11 @@ jobs:
             // card on the public board when the background capture was missed.
             if(minutesToKickoff!=null&&minutesToKickoff<=15) continue;
             displayTrendMap.set(displayTrendKey(play),play);
-          }
-`;
-          if (!source.includes(before)) {
-            throw new Error('Expected football displayTrendMap block was not found.');
-          }
-          source = source.replace(before, after);
-          fs.writeFileSync(path, source);
-          NODE
+          }'''
+          if old not in source:
+              raise SystemExit("Expected football displayTrendMap block was not found.")
+          path.write_text(source.replace(old, new, 1))
+          PY
 
       - name: Commit repair
         run: |
