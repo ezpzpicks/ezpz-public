@@ -1,0 +1,44 @@
+name: Fix strict football lock type check
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/fix-football-strict-lock-type.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Remove duplicate gap field
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('lib/footballPublicData.ts')
+          s=p.read_text()
+          target='    gapPct: finiteSnapshotNumber(snapshot["Public Gap %"]) ?? Math.round((moneyPct - betsPct) * 10) / 10,\n    ...warning,'
+          replacement='    ...warning,'
+          if replacement in s and target not in s:
+              print('duplicate gap field already removed')
+          elif target in s:
+              p.write_text(s.replace(target,replacement,1))
+              print('removed duplicate gapPct; warningFor remains authoritative')
+          else:
+              raise SystemExit('gapPct patch target not found')
+          PY
+      - name: Commit type repair
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add lib/footballPublicData.ts
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "Fix strict football lock type check"
+          git push
