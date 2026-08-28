@@ -25,8 +25,8 @@ jobs:
 
           path = Path("lib/footballPublicData.ts")
           text = path.read_text()
-          old = '    for(const play of trendPlays) displayTrendMap.set(displayTrendKey(play),play);'
-          new = '    for(const rawPlay of trendPlays){const play=rawPlay as TrendPlay;displayTrendMap.set(displayTrendKey(play),play);}'
+          old = '  for(const play of trendPlays) displayTrendMap.set(displayTrendKey(play),play);'
+          new = '  for(const rawPlay of trendPlays){const play=rawPlay as TrendPlay;displayTrendMap.set(displayTrendKey(play),play);}'
           if new in text:
               print("Trend overlay type cast already applied")
           elif old in text:
