@@ -26,7 +26,7 @@ jobs:
           path = Path("lib/footballPublicData.ts")
           text = path.read_text()
 
-          def replace_once(old: str, new: str, label: str):
+          def must_replace(old: str, new: str, label: str):
               global text
               if new in text:
                   print(f"{label}: already applied")
@@ -36,7 +36,7 @@ jobs:
               text = text.replace(old, new, 1)
               print(f"{label}: applied")
 
-          marker = '''function emptyRecord(): TrendRecord { return { record: "0-0-0", totalBets: 0, wins: 0, losses: 0, pushes: 0, winPct: 0, roiPct: 0, unitsWon: 0 }; }'''
+          marker = 'function emptyRecord(): TrendRecord { return { record: "0-0-0", totalBets: 0, wins: 0, losses: 0, pushes: 0, winPct: 0, roiPct: 0, unitsWon: 0 }; }'
           helper = '''function finiteSnapshotNumber(value: unknown) {
             if (value == null || String(value).trim() === "") return null;
             const parsed = Number(value);
@@ -77,33 +77,19 @@ jobs:
           }
 
           ''' + marker
-          replace_once(marker, helper, "Persisted snapshot reconstruction")
+          must_replace(marker, helper, "Persisted snapshot reconstruction")
 
-          old = '''    selection:split.market==="Total"?split.side:split.selectionTeam, selectionTeam:split.selectionTeam, side:split.side, sideGroup:split.sideGroup, line:split.line, odds:split.odds,
-            betsPct:split.betsPct,moneyPct:split.moneyPct,gapPct:split.gapPct,openingBetsPct:split.openingBetsPct,openingMoneyPct:split.openingMoneyPct,publicMovementPct:split.publicMovementPct,sharpMovementPct:split.sharpMovementPct,openingLine:split.openingLine,openingOdds:split.openingOdds,openingImpliedPct:split.openingImpliedPct,currentImpliedPct:split.currentImpliedPct,lineMovementBasis:split.lineMovementBasis,lineMovementValue:split.lineMovementValue,score:baseScore,baseScore,tier:"Pass",signals,updatedAt:nowET(),snapshotStatus:"LIVE" };
-          }'''
-          new = '''    selection:split.market==="Total"?split.side:split.selectionTeam, selectionTeam:split.selectionTeam, side:split.side, sideGroup:split.sideGroup, line:split.line, odds:split.odds,
-            betsPct:split.betsPct,moneyPct:split.moneyPct,gapPct:split.gapPct,openingBetsPct:split.openingBetsPct,openingMoneyPct:split.openingMoneyPct,publicMovementPct:split.publicMovementPct,sharpMovementPct:split.sharpMovementPct,openingLine:split.openingLine,openingOdds:split.openingOdds,openingImpliedPct:split.openingImpliedPct,currentImpliedPct:split.currentImpliedPct,lineMovementBasis:split.lineMovementBasis,lineMovementValue:split.lineMovementValue,score:baseScore,baseScore,tier:"Pass",signals,updatedAt:split.snapshotTime||nowET(),snapshotStatus:"LIVE" };
-          }'''
-          replace_once(old, new, "Use market snapshot timestamp on trend play")
+          must_replace(
+              'updatedAt:nowET(),snapshotStatus:"LIVE"',
+              'updatedAt:split.snapshotTime||nowET(),snapshotStatus:"LIVE"',
+              "Use market snapshot timestamp on trend play",
+          )
 
-          old = '''  const dk=await loadDraftKingsSplits(sport,trackingSlate); const snapshotMap=new Map(snapshotExisting.map((row)=>[snapshotKey(row),row])); const enrichedTracking=dk.splits.map((split)=>movementForSplit(split,snapshotMap.get(splitSnapshotKey(split))));
-            const snapshotStamp=nowET();
-            const currentSnapshots=enrichedTracking.flatMap((split)=>{
-              const slateRow=findSlateForSplit(split,trackingSlate,sport);
-              const minutesToKickoff=minutesUntilDraftKingsKickoff(split) ?? (slateRow?minutesUntilKickoff(slateRow):null);
-              // Once a side has an authoritative FINAL_PREGAME trend, its persisted
-              // market row is immutable. After kickoff we also refuse to write a late
-              // snapshot and falsely call it a verified pregame lock.
-              if(splitHasAuthoritativeFinalTrend(trendExisting,split,sport)) return [];
-              if(minutesToKickoff!=null&&minutesToKickoff<0) return [];
-              return [snapshotRow({...split,snapshotTime:snapshotStamp})];
-            });'''
-          new = '''  const dk=await loadDraftKingsSplits(sport,trackingSlate); const snapshotMap=new Map(snapshotExisting.map((row)=>[snapshotKey(row),row]));
+          old_decl = 'const dk=await loadDraftKingsSplits(sport,trackingSlate); const snapshotMap=new Map(snapshotExisting.map((row)=>[snapshotKey(row),row])); const enrichedTracking=dk.splits.map((split)=>movementForSplit(split,snapshotMap.get(splitSnapshotKey(split))));'
+          new_decl = '''const dk=await loadDraftKingsSplits(sport,trackingSlate); const snapshotMap=new Map(snapshotExisting.map((row)=>[snapshotKey(row),row]));
             const enrichedTrackingLive=dk.splits.map((split)=>movementForSplit(split,snapshotMap.get(splitSnapshotKey(split))));
-            // If a scheduled refresh lands after the advertised T-15 cutoff, use the
-            // last persisted pre-cutoff market instead of accepting newer market data.
-            // At exactly T-15 the current scrape is valid and can become the final lock.
+            // A scheduled run can drift a few minutes. Once it is past T-15, do not
+            // use the new scrape: reconstruct the market from the last stored snapshot.
             const enrichedTracking=enrichedTrackingLive.flatMap((split)=>{
               const slateRow=findSlateForSplit(split,trackingSlate,sport);
               const minutesToKickoff=minutesUntilDraftKingsKickoff(split) ?? (slateRow?minutesUntilKickoff(slateRow):null);
@@ -112,36 +98,36 @@ jobs:
                 return persisted?[persisted]:[];
               }
               return [split];
-            });
-            const snapshotStamp=nowET();
-            const currentSnapshots=enrichedTrackingLive.flatMap((split)=>{
-              const slateRow=findSlateForSplit(split,trackingSlate,sport);
-              const minutesToKickoff=minutesUntilDraftKingsKickoff(split) ?? (slateRow?minutesUntilKickoff(slateRow):null);
-              // Once a side has an authoritative FINAL_PREGAME trend, its persisted
-              // market row is immutable. Never overwrite the last verified snapshot
-              // after the advertised T-15 cutoff.
-              if(splitHasAuthoritativeFinalTrend(trendExisting,split,sport)) return [];
-              if(minutesToKickoff!=null&&minutesToKickoff<15) return [];
-              return [snapshotRow({...split,snapshotTime:snapshotStamp})];
             });'''
-          replace_once(old, new, "Strict T-15 snapshot cutoff")
+          must_replace(old_decl, new_decl, "Strict T-15 effective market")
 
-          old = '''    const locked=minutesToKickoff!=null&&minutesToKickoff<=15&&minutesToKickoff>=0;
-              const stamp=nowET();
-              return{...row,"Public Bets %":String(split.betsPct),"Public Money %":String(split.moneyPct),"Public Gap %":String(split.gapPct),"Public Warning":split.warning,"Public Warning Negative":split.warningNegative?"TRUE":"FALSE","Public Split Source":"DraftKings","Public Split Market":split.market,"Public Split Selection":split.market==="Total"?split.side:split.selectionTeam,"Public Split Line":split.line==null?"":String(split.line),"Public Split Odds":split.odds,"Public Split Match Confidence":locked?"Final 15-minute football market lock":"Live weekly football market","Public Split Snapshot Time":stamp,'''
-          new = '''    const locked=minutesToKickoff!=null&&minutesToKickoff<=15&&minutesToKickoff>=0;
-              const stamp=nowET();
-              const marketStamp=locked&&split.snapshotTime?split.snapshotTime:stamp;
-              return{...row,"Public Bets %":String(split.betsPct),"Public Money %":String(split.moneyPct),"Public Gap %":String(split.gapPct),"Public Warning":split.warning,"Public Warning Negative":split.warningNegative?"TRUE":"FALSE","Public Split Source":"DraftKings","Public Split Market":split.market,"Public Split Selection":split.market==="Total"?split.side:split.selectionTeam,"Public Split Line":split.line==null?"":String(split.line),"Public Split Odds":split.odds,"Public Split Match Confidence":locked?"Final 15-minute football market lock":"Live weekly football market","Public Split Snapshot Time":marketStamp,'''
-          replace_once(old, new, "Preserve pre-cutoff timestamp")
+          must_replace(
+              'const currentSnapshots=enrichedTracking.flatMap((split)=>{',
+              'const currentSnapshots=enrichedTrackingLive.flatMap((split)=>{',
+              "Persist only from live pre-cutoff feed",
+          )
+          must_replace(
+              'if(minutesToKickoff!=null&&minutesToKickoff<0) return [];',
+              'if(minutesToKickoff!=null&&minutesToKickoff<15) return [];',
+              "Stop snapshot persistence after T-15",
+          )
 
-          old = '''"Opening Public Split Snapshot Time":split.openingSnapshotTime||String(snapshotMap.get(splitSnapshotKey(split))?.["Opening Snapshot Time ET"]||stamp),'''
-          new = '''"Opening Public Split Snapshot Time":split.openingSnapshotTime||String(snapshotMap.get(splitSnapshotKey(split))?.["Opening Snapshot Time ET"]||marketStamp),'''
-          replace_once(old, new, "Opening snapshot timestamp fallback")
-
-          old = '''"Trend Score Details":play?JSON.stringify({...play,frozenAt:locked?stamp:undefined,snapshotStatus:locked?"FINAL_PREGAME":"LIVE",gradingVersion:locked?FROZEN_TREND_GRADING_VERSION:undefined}):""};'''
-          new = '''"Trend Score Details":play?JSON.stringify({...play,frozenAt:locked?marketStamp:undefined,snapshotStatus:locked?"FINAL_PREGAME":"LIVE",gradingVersion:locked?FROZEN_TREND_GRADING_VERSION:undefined}):""};'''
-          replace_once(old, new, "Freeze actual verified snapshot timestamp")
+          must_replace(
+              'const locked=minutesToKickoff!=null&&minutesToKickoff<=15&&minutesToKickoff>=0;\n    const stamp=nowET();',
+              'const locked=minutesToKickoff!=null&&minutesToKickoff<=15&&minutesToKickoff>=0;\n    const stamp=nowET();\n    const marketStamp=locked&&split.snapshotTime?split.snapshotTime:stamp;',
+              "Preserve verified market timestamp",
+          )
+          must_replace('"Public Split Snapshot Time":stamp', '"Public Split Snapshot Time":marketStamp', "Use verified snapshot time")
+          must_replace(
+              '"Opening Public Split Snapshot Time":split.openingSnapshotTime||String(snapshotMap.get(splitSnapshotKey(split))?.["Opening Snapshot Time ET"]||stamp)',
+              '"Opening Public Split Snapshot Time":split.openingSnapshotTime||String(snapshotMap.get(splitSnapshotKey(split))?.["Opening Snapshot Time ET"]||marketStamp)',
+              "Opening timestamp fallback",
+          )
+          must_replace(
+              'frozenAt:locked?stamp:undefined',
+              'frozenAt:locked?marketStamp:undefined',
+              "Freeze actual verified timestamp",
+          )
 
           path.write_text(text)
           PY
@@ -150,6 +136,7 @@ jobs:
         shell: bash
         run: |
           grep -q 'splitFromPersistedSnapshot' lib/footballPublicData.ts
+          grep -q 'enrichedTrackingLive' lib/footballPublicData.ts
           grep -q 'minutesToKickoff<15' lib/footballPublicData.ts
           grep -q 'updatedAt:split.snapshotTime||nowET()' lib/footballPublicData.ts
           grep -q 'const marketStamp=locked&&split.snapshotTime?split.snapshotTime:stamp' lib/footballPublicData.ts
