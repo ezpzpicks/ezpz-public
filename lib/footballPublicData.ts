@@ -594,7 +594,6 @@ function splitFromPersistedSnapshot(split: DraftKingsSplit, snapshot: SheetRow |
     odds,
     betsPct,
     moneyPct,
-    gapPct: finiteSnapshotNumber(snapshot["Public Gap %"]) ?? Math.round((moneyPct - betsPct) * 10) / 10,
     ...warning,
     openingLine: numericLine(snapshot["Opening Line"]) ?? split.openingLine,
     openingOdds: String(snapshot["Opening Odds"] || split.openingOdds || odds),
