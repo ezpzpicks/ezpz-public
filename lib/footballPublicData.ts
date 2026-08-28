@@ -309,6 +309,17 @@ function minutesUntilKickoff(row: SheetRow, now = new Date()) {
   return (kickoffStamp - nowEtMinuteStamp(now)) / 60_000;
 }
 
+function minutesUntilDraftKingsKickoff(split: DraftKingsSplit, now = new Date()) {
+  const date = isoDate(split.date);
+  const time = parseEventTimeKey(split.eventTime);
+  if (!date || !time) return null;
+  const [year, month, day] = date.split("-").map(Number);
+  const [hour, minute] = time.split(":").map(Number);
+  if (![year, month, day, hour, minute].every(Number.isFinite)) return null;
+  const kickoffStamp = Date.UTC(year, month - 1, day, hour, minute);
+  return (kickoffStamp - nowEtMinuteStamp(now)) / 60_000;
+}
+
 function numericLine(value: unknown) {
   const match = String(value || "").replace(/[−–—]/g, "-").match(/[+-]?\d+(?:\.\d+)?/);
   const number = match ? Number(match[0]) : NaN;
@@ -669,6 +680,17 @@ function authoritativeFinalTrend(row: SheetRow) {
   }
 }
 
+function splitHasAuthoritativeFinalTrend(rows: SheetRow[], split: DraftKingsSplit, sport: FootballSport) {
+  return rows.some((row) => {
+    if (!authoritativeFinalTrend(row) || isoDate(row.Date) !== split.date) return false;
+    if (!sameTeam(row["Away Team"], split.awayTeam, sport) || !sameTeam(row["Home Team"], split.homeTeam, sport)) return false;
+    if (String(row.Market || "") !== split.market) return false;
+    return split.market === "Total"
+      ? textKey(row.Side || row.Selection) === textKey(split.side)
+      : sameTeam(row.Selection, split.selectionTeam, sport);
+  });
+}
+
 function settleTrendRows(rows:SheetRow[],schedule:SheetRow[],sport:FootballSport){
   const finals=schedule.filter((row)=>truthy(row.Completed)||((row["Away Score"]??"")!==""&&(row["Home Score"]??"")!==""));
   return rows.map((row)=>{
@@ -699,26 +721,53 @@ export async function buildFootballPublicData(sport:FootballSport){
   const trackingSlate=slateAll.filter((row)=>inFootballTrackingWeek(row,sport,today));
   let trendRows=settleTrendRows(trendExisting,schedule,sport); const shells=slate.flatMap(modelTrendShells); const merged=new Map(trendRows.map((row)=>[trendRowKey(row),row]));for(const shell of shells){const key=trendRowKey(shell);merged.set(key,{...(merged.get(key)||{}),...shell,Result:resultCode(merged.get(key)?.Result)?merged.get(key)!.Result:"Pending"});}trendRows=[...merged.values()];
   const dk=await loadDraftKingsSplits(sport,trackingSlate); const snapshotMap=new Map(snapshotExisting.map((row)=>[snapshotKey(row),row])); const enrichedTracking=dk.splits.map((split)=>movementForSplit(split,snapshotMap.get(splitSnapshotKey(split))));
-  const currentSnapshots=enrichedTracking.map((split)=>snapshotRow({...split,snapshotTime:nowET()})); if(currentSnapshots.length) await upsertSportRows(sport,"public_split_snapshots",PUBLIC_SPLIT_HEADERS,currentSnapshots,snapshotKey);
+  const snapshotStamp=nowET();
+  const currentSnapshots=enrichedTracking.flatMap((split)=>{
+    const slateRow=findSlateForSplit(split,trackingSlate,sport);
+    const minutesToKickoff=minutesUntilDraftKingsKickoff(split) ?? (slateRow?minutesUntilKickoff(slateRow):null);
+    // Once a side has an authoritative FINAL_PREGAME trend, its persisted
+    // market row is immutable. After kickoff we also refuse to write a late
+    // snapshot and falsely call it a verified pregame lock.
+    if(splitHasAuthoritativeFinalTrend(trendExisting,split,sport)) return [];
+    if(minutesToKickoff!=null&&minutesToKickoff<0) return [];
+    return [snapshotRow({...split,snapshotTime:snapshotStamp})];
+  });
+  if(currentSnapshots.length) await upsertSportRows(sport,"public_split_snapshots",PUBLIC_SPLIT_HEADERS,currentSnapshots,snapshotKey);
   const enriched=enrichedTracking.filter((split)=>Boolean(findSlateForSplit(split,slate,sport)));
   const history=historyFromTrendRows(trendRows); const rawTrendPlays=enriched.map((split)=>{const row=findSlateForSplit(split,slate,sport);return row?buildTrendPlay(split,history,today,row):null;}).filter(Boolean) as TrendPlay[]; const trendPlays=headToHead(rawTrendPlays);
   const playMap=new Map(trendPlays.map((play)=>[`${play.gameKey}|${play.market}|${textKey(play.market==="Total"?play.side:play.selection)}`,play]));
   trendRows=trendRows.map((row)=>{
     if(isoDate(row.Date)!==today)return row;
-    const minutesToKickoff=minutesUntilKickoff(row);
     if(authoritativeFinalTrend(row)) return row;
-    if(minutesToKickoff!=null&&minutesToKickoff<0)return row;
     const split=findSplitForSide(row,enriched,sport,row.Market as FootballMarket,String(row.Market==="Total"?row.Side||row.Selection:row.Selection));if(!split)return row;
+    // DraftKings event time is the best available lock clock. Fall back to
+    // the saved slate time only when the feed does not provide one.
+    const minutesToKickoff=minutesUntilDraftKingsKickoff(split) ?? minutesUntilKickoff(row);
+    if(minutesToKickoff!=null&&minutesToKickoff<0)return row;
     const play=playMap.get(`${String(row["Game Key"]||"")}|${row.Market}|${textKey(row.Market==="Total"?row.Side||row.Selection:row.Selection)}`);const primary=play?.signals[0];
     const locked=minutesToKickoff!=null&&minutesToKickoff<=15&&minutesToKickoff>=0;
     const stamp=nowET();
     return{...row,"Public Bets %":String(split.betsPct),"Public Money %":String(split.moneyPct),"Public Gap %":String(split.gapPct),"Public Warning":split.warning,"Public Warning Negative":split.warningNegative?"TRUE":"FALSE","Public Split Source":"DraftKings","Public Split Market":split.market,"Public Split Selection":split.market==="Total"?split.side:split.selectionTeam,"Public Split Line":split.line==null?"":String(split.line),"Public Split Odds":split.odds,"Public Split Match Confidence":locked?"Final 15-minute football market lock":"Live weekly football market","Public Split Snapshot Time":stamp,"Opening Public %":String(split.openingBetsPct??split.betsPct),"Current Public %":String(split.betsPct),"Public Change %":String(split.publicMovementPct??0),"Opening Sharp %":String(split.openingMoneyPct??split.moneyPct),"Current Sharp %":String(split.moneyPct),"Sharp Change %":String(split.sharpMovementPct??0),"Opening Public Split Line":split.openingLine==null?"":String(split.openingLine),"Opening Public Split Odds":split.openingOdds||split.odds,"Opening Public Split Snapshot Time":split.openingSnapshotTime||String(snapshotMap.get(splitSnapshotKey(split))?.["Opening Snapshot Time ET"]||stamp),"Opening Implied %":split.openingImpliedPct==null?"":String(split.openingImpliedPct),"Current Implied %":split.currentImpliedPct==null?"":String(split.currentImpliedPct),"Line Movement Signal":split.lineMovementSignal||"","Line Movement Tone":split.lineMovementTone||"","Line Movement Basis":split.lineMovementBasis||"","Line Movement Value":split.lineMovementValue==null?"":String(split.lineMovementValue),"Trend Play":play?"TRUE":"FALSE","Trend Score":play?String(Math.round(play.score)):"","Trend Tier":play?.tier||"","Trend Signals":play?.signals.map(s=>s.signal).join(" | ")||"","Trend All Time Record":primary?.records.allTime.record||"","Trend Last 30 Record":primary?.records.last30.record||"","Trend Last 7 Record":primary?.records.last7.record||"","Trend Exact Sample":play?.signals.map(s=>s.exactSample).join(" | ")||"","Trend Score Details":play?JSON.stringify({...play,frozenAt:locked?stamp:undefined,snapshotStatus:locked?"FINAL_PREGAME":"LIVE",gradingVersion:locked?FROZEN_TREND_GRADING_VERSION:undefined}):""};
   });
   await upsertSportRows(sport,"all_game_trends",ALL_GAME_TRENDS_HEADERS,trendRows,trendRowKey);
+  // The public board must render the same frozen object that was persisted.
+  // Otherwise the UI recalculates a LIVE play after lock and shows an Updated
+  // timestamp later than the advertised final-lock time.
+  const displayTrendMap=new Map<string,TrendPlay>();
+  const displayTrendKey=(play:TrendPlay)=>`${play.gameKey||textKey(play.game)}|${play.market}|${textKey(play.market==="Total"?play.side:play.selection)}`;
+  for(const play of trendPlays) displayTrendMap.set(displayTrendKey(play),play);
+  for(const row of trendRows){
+    if(isoDate(row.Date)!==today||!authoritativeFinalTrend(row)) continue;
+    try{
+      const play=JSON.parse(String(row["Trend Score Details"]||"")) as TrendPlay;
+      displayTrendMap.set(displayTrendKey(play),play);
+    }catch{/* ignore malformed legacy JSON */}
+  }
+  const displayTrendPlays=[...displayTrendMap.values()];
   const best=bestPlays(slate,sport);const overall=recordTotals(tracker);const last7=recordTotals(tracker,7);const pending=tracker.filter((r)=>!resultCode(r.Result||r.Status)).length;
   const recordSummary=[{betType:"Spread",status:"EVEN",...recordTotals(tracker.filter(r=>textKey(r["Bet Type"]||r.Market).includes("spread")))},{betType:"Total",status:"EVEN",...recordTotals(tracker.filter(r=>textKey(r["Bet Type"]||r.Market).includes("total")))}].map((r:any)=>({...r,status:r.wins>r.losses?"WINNING":r.losses>r.wins?"LOSING":"EVEN"}));
   const last7RecordSummary=[{betType:"Spread",status:"EVEN",...recordTotals(tracker.filter(r=>textKey(r["Bet Type"]||r.Market).includes("spread")),7)},{betType:"Total",status:"EVEN",...recordTotals(tracker.filter(r=>textKey(r["Bet Type"]||r.Market).includes("total")),7)}].map((r:any)=>({...r,status:r.wins>r.losses?"WINNING":r.losses>r.wins?"LOSING":"EVEN"}));
-  return {ok:true,sport,database:sportDatabaseLabel(sport),today,lastUpdated:nowET(),tiles:{last7Days:last7,overallGreen:overall,handpickedLast7:last7,handpickedOverall:overall,pendingGreen:pending,bestPlaysToday:best.length},bestPlays:best,slateToday:slate,betTrackerRows:tracker,draftKings:{ok:enriched.length>0,status:enriched.length?"LIVE":"UNAVAILABLE",updatedAt:nowET(),stale:false,splits:enriched,props:[],errors:dk.errors,displayMode:"LIVE",trackingMode:"WEEKLY",trackingWeekStart:trackingWeek.start,trackingWeekEnd:trackingWeek.end,trackedGames:trackingSlate.length},draftKingsSignalRows:history,trendRecordRows:trendRows.filter(r=>resultCode(r.Result)),trendPlays,aiPicks:[],aiPickRecordRows:[],aiSelectorStatus:{mode:"LIVE_PREVIEW",externalResearchConfigured:false,message:`${sport} AI selector is not enabled yet; model and trend records are live.`,updatedAt:nowET(),candidateCount:0,selectedCount:0},recordSummary,last7RecordSummary,handpickedRecordSummary:recordSummary,handpickedLast7RecordSummary:last7RecordSummary};
+  return {ok:true,sport,database:sportDatabaseLabel(sport),today,lastUpdated:nowET(),tiles:{last7Days:last7,overallGreen:overall,handpickedLast7:last7,handpickedOverall:overall,pendingGreen:pending,bestPlaysToday:best.length},bestPlays:best,slateToday:slate,betTrackerRows:tracker,draftKings:{ok:enriched.length>0,status:enriched.length?"LIVE":"UNAVAILABLE",updatedAt:nowET(),stale:false,splits:enriched,props:[],errors:dk.errors,displayMode:"LIVE",trackingMode:"WEEKLY",trackingWeekStart:trackingWeek.start,trackingWeekEnd:trackingWeek.end,trackedGames:trackingSlate.length},draftKingsSignalRows:history,trendRecordRows:trendRows.filter(r=>resultCode(r.Result)),trendPlays:displayTrendPlays,aiPicks:[],aiPickRecordRows:[],aiSelectorStatus:{mode:"LIVE_PREVIEW",externalResearchConfigured:false,message:`${sport} AI selector is not enabled yet; model and trend records are live.`,updatedAt:nowET(),candidateCount:0,selectedCount:0},recordSummary,last7RecordSummary,handpickedRecordSummary:recordSummary,handpickedLast7RecordSummary:last7RecordSummary};
 }
 
 // Small pure exports used by CI to guarantee football follows the MLB trend contract.
