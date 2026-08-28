@@ -1,0 +1,169 @@
+name: Fix football final trend lock
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/fix-football-final-lock.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Freeze NFL and NCAAF markets at the 15-minute lock
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("lib/footballPublicData.ts")
+          text = path.read_text()
+          original = text
+
+          def replace_once(old: str, new: str, label: str):
+              global text
+              if new in text:
+                  print(f"{label}: already applied")
+                  return
+              if old not in text:
+                  raise SystemExit(f"Could not find patch target: {label}")
+              text = text.replace(old, new, 1)
+              print(f"{label}: applied")
+
+          old = '''function minutesUntilKickoff(row: SheetRow, now = new Date()) {
+            const date = isoDate(row.Date || row["Game Date"] || "");
+            const time = parseEventTimeKey(gameTime(row));
+            if (!date || !time) return null;
+            const [year, month, day] = date.split("-").map(Number);
+            const [hour, minute] = time.split(":").map(Number);
+            if (![year, month, day, hour, minute].every(Number.isFinite)) return null;
+            const kickoffStamp = Date.UTC(year, month - 1, day, hour, minute);
+            return (kickoffStamp - nowEtMinuteStamp(now)) / 60_000;
+          }
+          '''
+          new = old + '''
+          function minutesUntilDraftKingsKickoff(split: DraftKingsSplit, now = new Date()) {
+            const date = isoDate(split.date);
+            const time = parseEventTimeKey(split.eventTime);
+            if (!date || !time) return null;
+            const [year, month, day] = date.split("-").map(Number);
+            const [hour, minute] = time.split(":").map(Number);
+            if (![year, month, day, hour, minute].every(Number.isFinite)) return null;
+            const kickoffStamp = Date.UTC(year, month - 1, day, hour, minute);
+            return (kickoffStamp - nowEtMinuteStamp(now)) / 60_000;
+          }
+          '''
+          replace_once(old, new, "DraftKings kickoff fallback")
+
+          old = '''function authoritativeFinalTrend(row: SheetRow) {
+            const raw = String(row["Trend Score Details"] || "").trim();
+            if (!raw) return false;
+            try {
+              const play = JSON.parse(raw) as TrendPlay;
+              return play.snapshotStatus === "FINAL_PREGAME" && play.gradingVersion === FROZEN_TREND_GRADING_VERSION;
+            } catch {
+              return false;
+            }
+          }
+          '''
+          new = old + '''
+          function splitHasAuthoritativeFinalTrend(rows: SheetRow[], split: DraftKingsSplit, sport: FootballSport) {
+            return rows.some((row) => {
+              if (!authoritativeFinalTrend(row) || isoDate(row.Date) !== split.date) return false;
+              if (!sameTeam(row["Away Team"], split.awayTeam, sport) || !sameTeam(row["Home Team"], split.homeTeam, sport)) return false;
+              if (String(row.Market || "") !== split.market) return false;
+              return split.market === "Total"
+                ? textKey(row.Side || row.Selection) === textKey(split.side)
+                : sameTeam(row.Selection, split.selectionTeam, sport);
+            });
+          }
+          '''
+          replace_once(old, new, "Final-trend snapshot guard")
+
+          old = '''  const currentSnapshots=enrichedTracking.map((split)=>snapshotRow({...split,snapshotTime:nowET()})); if(currentSnapshots.length) await upsertSportRows(sport,"public_split_snapshots",PUBLIC_SPLIT_HEADERS,currentSnapshots,snapshotKey);
+          '''
+          new = '''  const snapshotStamp=nowET();
+            const currentSnapshots=enrichedTracking.flatMap((split)=>{
+              const slateRow=findSlateForSplit(split,trackingSlate,sport);
+              const minutesToKickoff=minutesUntilDraftKingsKickoff(split) ?? (slateRow?minutesUntilKickoff(slateRow):null);
+              // Once a side has an authoritative FINAL_PREGAME trend, its persisted
+              // market row is immutable. After kickoff we also refuse to write a late
+              // snapshot and falsely call it a verified pregame lock.
+              if(splitHasAuthoritativeFinalTrend(trendExisting,split,sport)) return [];
+              if(minutesToKickoff!=null&&minutesToKickoff<0) return [];
+              return [snapshotRow({...split,snapshotTime:snapshotStamp})];
+            });
+            if(currentSnapshots.length) await upsertSportRows(sport,"public_split_snapshots",PUBLIC_SPLIT_HEADERS,currentSnapshots,snapshotKey);
+          '''
+          replace_once(old, new, "Stop post-lock snapshot writes")
+
+          old = '''    const minutesToKickoff=minutesUntilKickoff(row);
+              if(authoritativeFinalTrend(row)) return row;
+              if(minutesToKickoff!=null&&minutesToKickoff<0)return row;
+              const split=findSplitForSide(row,enriched,sport,row.Market as FootballMarket,String(row.Market==="Total"?row.Side||row.Selection:row.Selection));if(!split)return row;
+          '''
+          new = '''    if(authoritativeFinalTrend(row)) return row;
+              const split=findSplitForSide(row,enriched,sport,row.Market as FootballMarket,String(row.Market==="Total"?row.Side||row.Selection:row.Selection));if(!split)return row;
+              // DraftKings event time is the best available lock clock. Fall back to
+              // the saved slate time only when the feed does not provide one.
+              const minutesToKickoff=minutesUntilDraftKingsKickoff(split) ?? minutesUntilKickoff(row);
+              if(minutesToKickoff!=null&&minutesToKickoff<0)return row;
+          '''
+          replace_once(old, new, "Use DraftKings event time for final lock")
+
+          old = '''  await upsertSportRows(sport,"all_game_trends",ALL_GAME_TRENDS_HEADERS,trendRows,trendRowKey);
+            const best=bestPlays(slate,sport);'''
+          new = '''  await upsertSportRows(sport,"all_game_trends",ALL_GAME_TRENDS_HEADERS,trendRows,trendRowKey);
+            // The public board must render the same frozen object that was persisted.
+            // Otherwise the UI recalculates a LIVE play after lock and shows an Updated
+            // timestamp later than the advertised final-lock time.
+            const displayTrendMap=new Map<string,TrendPlay>();
+            const displayTrendKey=(play:TrendPlay)=>`${play.gameKey||textKey(play.game)}|${play.market}|${textKey(play.market==="Total"?play.side:play.selection)}`;
+            for(const play of trendPlays) displayTrendMap.set(displayTrendKey(play),play);
+            for(const row of trendRows){
+              if(isoDate(row.Date)!==today||!authoritativeFinalTrend(row)) continue;
+              try{
+                const play=JSON.parse(String(row["Trend Score Details"]||"")) as TrendPlay;
+                displayTrendMap.set(displayTrendKey(play),play);
+              }catch{/* ignore malformed legacy JSON */}
+            }
+            const displayTrendPlays=[...displayTrendMap.values()];
+            const best=bestPlays(slate,sport);'''
+          replace_once(old, new, "Return persisted final trend objects")
+
+          old = '''trendRecordRows:trendRows.filter(r=>resultCode(r.Result)),trendPlays,aiPicks:[]'''
+          new = '''trendRecordRows:trendRows.filter(r=>resultCode(r.Result)),trendPlays:displayTrendPlays,aiPicks:[]'''
+          replace_once(old, new, "Expose frozen trend plays")
+
+          if text == original:
+              print("No source changes required")
+          else:
+              path.write_text(text)
+          PY
+
+      - name: Verify lock code is present
+        shell: bash
+        run: |
+          grep -q 'minutesUntilDraftKingsKickoff' lib/footballPublicData.ts
+          grep -q 'splitHasAuthoritativeFinalTrend' lib/footballPublicData.ts
+          grep -q 'trendPlays:displayTrendPlays' lib/footballPublicData.ts
+
+      - name: Commit fix
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add lib/footballPublicData.ts
+          if git diff --cached --quiet; then
+            echo "No code changes to commit"
+            exit 0
+          fi
+          git commit -m "Freeze football trends at final pregame lock"
+          git push
