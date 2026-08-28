@@ -755,7 +755,7 @@ export async function buildFootballPublicData(sport:FootballSport){
   // timestamp later than the advertised final-lock time.
   const displayTrendMap=new Map<string,TrendPlay>();
   const displayTrendKey=(play:TrendPlay)=>`${play.gameKey||textKey(play.game)}|${play.market}|${textKey(play.market==="Total"?play.side:play.selection)}`;
-  for(const play of trendPlays) displayTrendMap.set(displayTrendKey(play),play);
+  for(const rawPlay of trendPlays){const play=rawPlay as TrendPlay;displayTrendMap.set(displayTrendKey(play),play);}
   for(const row of trendRows){
     if(isoDate(row.Date)!==today||!authoritativeFinalTrend(row)) continue;
     try{
