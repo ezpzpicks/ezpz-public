@@ -42,7 +42,7 @@ jobs:
               --show-error \
               --max-time 90 \
               -H "Authorization: Bearer $CRON_SECRET" \
-              "https://ezpzpicks.com/api/public-data?sport=NFL&scheduled=1" \
+              "https://ezpzpicks.com/api/cron/football-public-snapshot?sport=NFL" \
               --output /tmp/nfl_public_data.json; then
               if jq -e '.ok == true and (((.draftKings.splits // []) | length) > 0)' /tmp/nfl_public_data.json >/dev/null; then
                 success=1
@@ -72,7 +72,7 @@ jobs:
               --show-error \
               --max-time 90 \
               -H "Authorization: Bearer $CRON_SECRET" \
-              "https://ezpzpicks.com/api/public-data?sport=NCAAF&scheduled=1" \
+              "https://ezpzpicks.com/api/cron/football-public-snapshot?sport=NCAAF" \
               --output /tmp/ncaaf_public_data.json; then
               if jq -e '.ok == true and (((.draftKings.splits // []) | length) > 0)' /tmp/ncaaf_public_data.json >/dev/null; then
                 success=1
