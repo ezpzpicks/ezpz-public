@@ -1,0 +1,74 @@
+name: Fix football stale trend display after lock
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/fix-football-hide-unverified-after-lock.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Hide unverified football trends once lock time is reached
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const path = 'lib/footballPublicData.ts';
+          let source = fs.readFileSync(path, 'utf8');
+          const before = `  const displayTrendMap=new Map<string,TrendPlay>();
+          const displayTrendKey=(play:TrendPlay)=>\`${'${play.gameKey||textKey(play.game)}'}|${'${play.market}'}|${'${textKey(play.market==="Total"?play.side:play.selection)}'}\`;
+          for(const rawPlay of trendPlays){const play=rawPlay as TrendPlay;displayTrendMap.set(displayTrendKey(play),play);}
+`;
+          const after = `  const displayTrendMap=new Map<string,TrendPlay>();
+          const displayTrendKey=(play:TrendPlay)=>\`${'${play.gameKey||textKey(play.game)}'}|${'${play.market}'}|${'${textKey(play.market==="Total"?play.side:play.selection)}'}\`;
+          for(const rawPlay of trendPlays){
+            const play=rawPlay as TrendPlay;
+            const matchingSplit=enriched.find((split)=>
+              textKey(split.game)===textKey(play.game)&&
+              split.market===play.market&&
+              (play.market==="Total"
+                ? textKey(split.side)===textKey(play.side)
+                : textKey(split.selectionTeam)===textKey(play.selectionTeam))
+            );
+            const matchingSlate=slate.find((row)=>
+              String(row["Game ID"]||row["Game Key"]||"")===play.gameKey
+            );
+            const minutesToKickoff=matchingSplit
+              ? minutesUntilDraftKingsKickoff(matchingSplit) ?? (matchingSlate?minutesUntilKickoff(matchingSlate):null)
+              : matchingSlate?minutesUntilKickoff(matchingSlate):null;
+            // A live candidate is valid only before the advertised T-15 lock.
+            // At/after lock, show it only if the authoritative FINAL_PREGAME
+            // object was actually persisted below. Never leave a stale LIVE
+            // card on the public board when the background capture was missed.
+            if(minutesToKickoff!=null&&minutesToKickoff<=15) continue;
+            displayTrendMap.set(displayTrendKey(play),play);
+          }
+`;
+          if (!source.includes(before)) {
+            throw new Error('Expected football displayTrendMap block was not found.');
+          }
+          source = source.replace(before, after);
+          fs.writeFileSync(path, source);
+          NODE
+
+      - name: Commit repair
+        run: |
+          if git diff --quiet -- lib/footballPublicData.ts; then
+            echo "No repair needed."
+            exit 0
+          fi
+          git config user.name "ezpzpicks"
+          git config user.email "ryanpaez5@gmail.com"
+          git add lib/footballPublicData.ts
+          git commit -m "Hide unverified football trends after lock"
+          git push origin HEAD:main
