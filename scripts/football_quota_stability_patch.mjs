@@ -99,11 +99,11 @@ function patchFootballPublicData() {
     "weekly football trend updates",
   );
   text = replaceOnce(
-    text,
-    "  const currentSnapshots=enrichedTracking.map((split)=>snapshotRow({...split,snapshotTime:nowET()})); if(currentSnapshots.length) await upsertSportRows(sport,\"public_split_snapshots\",PUBLIC_SPLIT_HEADERS,currentSnapshots,snapshotKey);",
-    "  const currentSnapshots=enrichedTracking.map((split)=>snapshotRow({...split,snapshotTime:nowET()})); if(persist&&currentSnapshots.length) await upsertSportRows(sport,\"public_split_snapshots\",PUBLIC_SPLIT_HEADERS,currentSnapshots,snapshotKey);",
-    "scheduled football snapshot persistence",
-  );
+  text,
+  "  if(currentSnapshots.length) await upsertSportRows(sport,\"public_split_snapshots\",PUBLIC_SPLIT_HEADERS,currentSnapshots,snapshotKey);",
+  "  if(persist&&currentSnapshots.length) await upsertSportRows(sport,\"public_split_snapshots\",PUBLIC_SPLIT_HEADERS,currentSnapshots,snapshotKey);",
+  "scheduled football snapshot persistence",
+);
   text = replaceOnce(
     text,
     "  await upsertSportRows(sport,\"all_game_trends\",ALL_GAME_TRENDS_HEADERS,trendRows,trendRowKey);",
