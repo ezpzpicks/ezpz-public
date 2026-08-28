@@ -574,6 +574,45 @@ function snapshotRow(split: DraftKingsSplit): SheetRow {
   };
 }
 
+function finiteSnapshotNumber(value: unknown) {
+  if (value == null || String(value).trim() === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function splitFromPersistedSnapshot(split: DraftKingsSplit, snapshot: SheetRow | undefined): DraftKingsSplit | null {
+  if (!snapshot) return null;
+  const betsPct = finiteSnapshotNumber(snapshot["Public Bets %"] ?? snapshot["Current Public %"]) ?? split.betsPct;
+  const moneyPct = finiteSnapshotNumber(snapshot["Public Money %"] ?? snapshot["Current Sharp %"]) ?? split.moneyPct;
+  const warning = warningFor(betsPct, moneyPct);
+  const odds = String(snapshot.Odds || split.odds);
+  const movementTone = String(snapshot["Line Movement Tone"] || "");
+  const movementBasis = String(snapshot["Line Movement Basis"] || "");
+  return {
+    ...split,
+    line: numericLine(snapshot.Line) ?? split.line,
+    odds,
+    betsPct,
+    moneyPct,
+    gapPct: finiteSnapshotNumber(snapshot["Public Gap %"]) ?? Math.round((moneyPct - betsPct) * 10) / 10,
+    ...warning,
+    openingLine: numericLine(snapshot["Opening Line"]) ?? split.openingLine,
+    openingOdds: String(snapshot["Opening Odds"] || split.openingOdds || odds),
+    openingSnapshotTime: String(snapshot["Opening Snapshot Time ET"] || split.openingSnapshotTime || snapshot["Snapshot Time ET"] || ""),
+    openingBetsPct: finiteSnapshotNumber(snapshot["Opening Public %"]) ?? split.openingBetsPct ?? betsPct,
+    openingMoneyPct: finiteSnapshotNumber(snapshot["Opening Sharp %"]) ?? split.openingMoneyPct ?? moneyPct,
+    openingImpliedPct: finiteSnapshotNumber(snapshot["Opening Implied %"]) ?? split.openingImpliedPct ?? impliedPct(snapshot["Opening Odds"] || odds),
+    currentImpliedPct: finiteSnapshotNumber(snapshot["Current Implied %"]) ?? impliedPct(odds),
+    publicMovementPct: finiteSnapshotNumber(snapshot["Public Change %"]) ?? split.publicMovementPct ?? 0,
+    sharpMovementPct: finiteSnapshotNumber(snapshot["Sharp Change %"]) ?? split.sharpMovementPct ?? 0,
+    lineMovementSignal: String(snapshot["Line Movement Signal"] || ""),
+    lineMovementTone: (["negative", "caution", "positive", "neutral"].includes(movementTone) ? movementTone : "") as Tone | "",
+    lineMovementBasis: (["Implied Probability", "Spread Line", "Total Line"].includes(movementBasis) ? movementBasis : "") as DraftKingsSplit["lineMovementBasis"],
+    lineMovementValue: finiteSnapshotNumber(snapshot["Line Movement Value"]),
+    snapshotTime: String(snapshot["Snapshot Time ET"] || split.snapshotTime || ""),
+  };
+}
+
 function emptyRecord(): TrendRecord { return { record: "0-0-0", totalBets: 0, wins: 0, losses: 0, pushes: 0, winPct: 0, roiPct: 0, unitsWon: 0 }; }
 function trendRecord(rows: SignalHistoryRow[]) {
   if (!rows.length) return emptyRecord();
@@ -639,7 +678,7 @@ function buildTrendPlay(split: DraftKingsSplit, history: SignalHistoryRow[], ref
   const signals=active.map((signal)=>signalBreakdown(signal,split.market,split.sideGroup,history,referenceDate)); const withHistory=signals.filter((signal)=>signal.records.allTime.totalBets>0); const baseScore=Math.round(withHistory.length?withHistory.reduce((s,x)=>s+x.score,0)/withHistory.length:50);
   return { date:referenceDate, game:String(row.Game||`${row["Away Team"]} @ ${row["Home Team"]}`), gameKey:String(row["Game ID"]||row["Game Key"]||""), gameTime:gameTime(row), awayTeam:String(row["Away Team"]||""), homeTeam:String(row["Home Team"]||""), market:split.market,
     selection:split.market==="Total"?split.side:split.selectionTeam, selectionTeam:split.selectionTeam, side:split.side, sideGroup:split.sideGroup, line:split.line, odds:split.odds,
-    betsPct:split.betsPct,moneyPct:split.moneyPct,gapPct:split.gapPct,openingBetsPct:split.openingBetsPct,openingMoneyPct:split.openingMoneyPct,publicMovementPct:split.publicMovementPct,sharpMovementPct:split.sharpMovementPct,openingLine:split.openingLine,openingOdds:split.openingOdds,openingImpliedPct:split.openingImpliedPct,currentImpliedPct:split.currentImpliedPct,lineMovementBasis:split.lineMovementBasis,lineMovementValue:split.lineMovementValue,score:baseScore,baseScore,tier:"Pass",signals,updatedAt:nowET(),snapshotStatus:"LIVE" };
+    betsPct:split.betsPct,moneyPct:split.moneyPct,gapPct:split.gapPct,openingBetsPct:split.openingBetsPct,openingMoneyPct:split.openingMoneyPct,publicMovementPct:split.publicMovementPct,sharpMovementPct:split.sharpMovementPct,openingLine:split.openingLine,openingOdds:split.openingOdds,openingImpliedPct:split.openingImpliedPct,currentImpliedPct:split.currentImpliedPct,lineMovementBasis:split.lineMovementBasis,lineMovementValue:split.lineMovementValue,score:baseScore,baseScore,tier:"Pass",signals,updatedAt:split.snapshotTime||nowET(),snapshotStatus:"LIVE" };
 }
 
 function headToHead(plays: TrendPlay[]) {
@@ -720,16 +759,28 @@ export async function buildFootballPublicData(sport:FootballSport){
   const slate=slateAll.filter((row)=>{const date=isoDate(row.Date||row["Game Date"]||"");return !date||date===today;});
   const trackingSlate=slateAll.filter((row)=>inFootballTrackingWeek(row,sport,today));
   let trendRows=settleTrendRows(trendExisting,schedule,sport); const shells=slate.flatMap(modelTrendShells); const merged=new Map(trendRows.map((row)=>[trendRowKey(row),row]));for(const shell of shells){const key=trendRowKey(shell);merged.set(key,{...(merged.get(key)||{}),...shell,Result:resultCode(merged.get(key)?.Result)?merged.get(key)!.Result:"Pending"});}trendRows=[...merged.values()];
-  const dk=await loadDraftKingsSplits(sport,trackingSlate); const snapshotMap=new Map(snapshotExisting.map((row)=>[snapshotKey(row),row])); const enrichedTracking=dk.splits.map((split)=>movementForSplit(split,snapshotMap.get(splitSnapshotKey(split))));
+  const dk=await loadDraftKingsSplits(sport,trackingSlate); const snapshotMap=new Map(snapshotExisting.map((row)=>[snapshotKey(row),row]));
+  const enrichedTrackingLive=dk.splits.map((split)=>movementForSplit(split,snapshotMap.get(splitSnapshotKey(split))));
+  // A scheduled run can drift a few minutes. Once it is past T-15, do not
+  // use the new scrape: reconstruct the market from the last stored snapshot.
+  const enrichedTracking=enrichedTrackingLive.flatMap((split)=>{
+    const slateRow=findSlateForSplit(split,trackingSlate,sport);
+    const minutesToKickoff=minutesUntilDraftKingsKickoff(split) ?? (slateRow?minutesUntilKickoff(slateRow):null);
+    if(minutesToKickoff!=null&&minutesToKickoff<15){
+      const persisted=splitFromPersistedSnapshot(split,snapshotMap.get(splitSnapshotKey(split)));
+      return persisted?[persisted]:[];
+    }
+    return [split];
+  });
   const snapshotStamp=nowET();
-  const currentSnapshots=enrichedTracking.flatMap((split)=>{
+  const currentSnapshots=enrichedTrackingLive.flatMap((split)=>{
     const slateRow=findSlateForSplit(split,trackingSlate,sport);
     const minutesToKickoff=minutesUntilDraftKingsKickoff(split) ?? (slateRow?minutesUntilKickoff(slateRow):null);
     // Once a side has an authoritative FINAL_PREGAME trend, its persisted
     // market row is immutable. After kickoff we also refuse to write a late
     // snapshot and falsely call it a verified pregame lock.
     if(splitHasAuthoritativeFinalTrend(trendExisting,split,sport)) return [];
-    if(minutesToKickoff!=null&&minutesToKickoff<0) return [];
+    if(minutesToKickoff!=null&&minutesToKickoff<15) return [];
     return [snapshotRow({...split,snapshotTime:snapshotStamp})];
   });
   if(currentSnapshots.length) await upsertSportRows(sport,"public_split_snapshots",PUBLIC_SPLIT_HEADERS,currentSnapshots,snapshotKey);
@@ -747,7 +798,8 @@ export async function buildFootballPublicData(sport:FootballSport){
     const play=playMap.get(`${String(row["Game Key"]||"")}|${row.Market}|${textKey(row.Market==="Total"?row.Side||row.Selection:row.Selection)}`);const primary=play?.signals[0];
     const locked=minutesToKickoff!=null&&minutesToKickoff<=15&&minutesToKickoff>=0;
     const stamp=nowET();
-    return{...row,"Public Bets %":String(split.betsPct),"Public Money %":String(split.moneyPct),"Public Gap %":String(split.gapPct),"Public Warning":split.warning,"Public Warning Negative":split.warningNegative?"TRUE":"FALSE","Public Split Source":"DraftKings","Public Split Market":split.market,"Public Split Selection":split.market==="Total"?split.side:split.selectionTeam,"Public Split Line":split.line==null?"":String(split.line),"Public Split Odds":split.odds,"Public Split Match Confidence":locked?"Final 15-minute football market lock":"Live weekly football market","Public Split Snapshot Time":stamp,"Opening Public %":String(split.openingBetsPct??split.betsPct),"Current Public %":String(split.betsPct),"Public Change %":String(split.publicMovementPct??0),"Opening Sharp %":String(split.openingMoneyPct??split.moneyPct),"Current Sharp %":String(split.moneyPct),"Sharp Change %":String(split.sharpMovementPct??0),"Opening Public Split Line":split.openingLine==null?"":String(split.openingLine),"Opening Public Split Odds":split.openingOdds||split.odds,"Opening Public Split Snapshot Time":split.openingSnapshotTime||String(snapshotMap.get(splitSnapshotKey(split))?.["Opening Snapshot Time ET"]||stamp),"Opening Implied %":split.openingImpliedPct==null?"":String(split.openingImpliedPct),"Current Implied %":split.currentImpliedPct==null?"":String(split.currentImpliedPct),"Line Movement Signal":split.lineMovementSignal||"","Line Movement Tone":split.lineMovementTone||"","Line Movement Basis":split.lineMovementBasis||"","Line Movement Value":split.lineMovementValue==null?"":String(split.lineMovementValue),"Trend Play":play?"TRUE":"FALSE","Trend Score":play?String(Math.round(play.score)):"","Trend Tier":play?.tier||"","Trend Signals":play?.signals.map(s=>s.signal).join(" | ")||"","Trend All Time Record":primary?.records.allTime.record||"","Trend Last 30 Record":primary?.records.last30.record||"","Trend Last 7 Record":primary?.records.last7.record||"","Trend Exact Sample":play?.signals.map(s=>s.exactSample).join(" | ")||"","Trend Score Details":play?JSON.stringify({...play,frozenAt:locked?stamp:undefined,snapshotStatus:locked?"FINAL_PREGAME":"LIVE",gradingVersion:locked?FROZEN_TREND_GRADING_VERSION:undefined}):""};
+    const marketStamp=locked&&split.snapshotTime?split.snapshotTime:stamp;
+    return{...row,"Public Bets %":String(split.betsPct),"Public Money %":String(split.moneyPct),"Public Gap %":String(split.gapPct),"Public Warning":split.warning,"Public Warning Negative":split.warningNegative?"TRUE":"FALSE","Public Split Source":"DraftKings","Public Split Market":split.market,"Public Split Selection":split.market==="Total"?split.side:split.selectionTeam,"Public Split Line":split.line==null?"":String(split.line),"Public Split Odds":split.odds,"Public Split Match Confidence":locked?"Final 15-minute football market lock":"Live weekly football market","Public Split Snapshot Time":marketStamp,"Opening Public %":String(split.openingBetsPct??split.betsPct),"Current Public %":String(split.betsPct),"Public Change %":String(split.publicMovementPct??0),"Opening Sharp %":String(split.openingMoneyPct??split.moneyPct),"Current Sharp %":String(split.moneyPct),"Sharp Change %":String(split.sharpMovementPct??0),"Opening Public Split Line":split.openingLine==null?"":String(split.openingLine),"Opening Public Split Odds":split.openingOdds||split.odds,"Opening Public Split Snapshot Time":split.openingSnapshotTime||String(snapshotMap.get(splitSnapshotKey(split))?.["Opening Snapshot Time ET"]||marketStamp),"Opening Implied %":split.openingImpliedPct==null?"":String(split.openingImpliedPct),"Current Implied %":split.currentImpliedPct==null?"":String(split.currentImpliedPct),"Line Movement Signal":split.lineMovementSignal||"","Line Movement Tone":split.lineMovementTone||"","Line Movement Basis":split.lineMovementBasis||"","Line Movement Value":split.lineMovementValue==null?"":String(split.lineMovementValue),"Trend Play":play?"TRUE":"FALSE","Trend Score":play?String(Math.round(play.score)):"","Trend Tier":play?.tier||"","Trend Signals":play?.signals.map(s=>s.signal).join(" | ")||"","Trend All Time Record":primary?.records.allTime.record||"","Trend Last 30 Record":primary?.records.last30.record||"","Trend Last 7 Record":primary?.records.last7.record||"","Trend Exact Sample":play?.signals.map(s=>s.exactSample).join(" | ")||"","Trend Score Details":play?JSON.stringify({...play,frozenAt:locked?marketStamp:undefined,snapshotStatus:locked?"FINAL_PREGAME":"LIVE",gradingVersion:locked?FROZEN_TREND_GRADING_VERSION:undefined}):""};
   });
   await upsertSportRows(sport,"all_game_trends",ALL_GAME_TRENDS_HEADERS,trendRows,trendRowKey);
   // The public board must render the same frozen object that was persisted.
