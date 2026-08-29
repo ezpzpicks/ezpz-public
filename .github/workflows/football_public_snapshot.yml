@@ -15,9 +15,8 @@ on:
       - scripts/football_weekly_market_patch.mjs
       - scripts/football_dk_event_group_patch.mjs
   schedule:
-    # Check NFL and CFB markets every five minutes, 24/7. The two-minute offset
-    # avoids the busiest GitHub Actions scheduling boundary while letting a newly
-    # posted DraftKings market enter the archive on the next cycle at any hour.
+    # Check NFL and CFB markets every five minutes, 24/7. This same workflow also
+    # runs on football code/feed changes so the corrected production collector is exercised immediately.
     - cron: "2,7,12,17,22,27,32,37,42,47,52,57 * * * *"
       timezone: "America/New_York"
   workflow_dispatch:
