@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { syncPostedFootballMarkets } from "../../../../../lib/footballWeeklyMarket";
-import type { FootballSport } from "../../../../../lib/sportSheets";
+import { syncPostedFootballMarkets } from "../../../../lib/footballWeeklyMarket";
+import type { FootballSport } from "../../../../lib/sportSheets";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
