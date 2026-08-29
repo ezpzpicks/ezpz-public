@@ -130,7 +130,7 @@ text = text.replace('<div className="fbInfo">', '<div className="card fbInfo">')
 
 text = text.replace(
   'const displayTab = tab === "Today’s Trend Plays" ? "Trend Plays" : tab;',
-  'const displayTab = tab === "Today’s Trend Plays" ? "Trend Plays" : tab === "EZPZ AI Picks" ? "EZPZ Picks" : tab;',
+  'const displayTab = tab === "Today’s Trend Plays" ? "Trend Plays" : String(tab) === "EZPZ AI Picks" ? "EZPZ Picks" : tab;',
 );
 
 const headBefore = '<div className="fbHead"><div><h2>{sport === "NFL" ? "NFL" : "College Football"} {displayTab}</h2><p>Regression projections • Spread + Total • sport-specific DraftKings trends</p></div><span className={`fbStatus ${data.draftKings?.status === "LIVE" || weeklyData?.trendPlays?.length ? "live" : ""}`}>{data.draftKings?.status === "LIVE" || weeklyData?.trendPlays?.length ? "DraftKings live" : "DraftKings pending"}</span></div>';
