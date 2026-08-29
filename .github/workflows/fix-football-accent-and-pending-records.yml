@@ -1,0 +1,94 @@
+name: Fix football accent matching and pending trend records
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/fix-football-accent-and-pending-records.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fix selected-side matching and completed-result parsing
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: Path, old: str, new: str, label: str):
+              text = path.read_text()
+              if new in text:
+                  print(f"{label}: already applied")
+                  return False
+              if old not in text:
+                  raise SystemExit(f"Could not find patch target: {label}")
+              path.write_text(text.replace(old, new, 1))
+              print(f"{label}: applied")
+              return True
+
+          board = Path("app/FootballBoard.tsx")
+          old = '''function textKey(value: unknown) {
+            return String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+          }
+          '''
+          new = '''function textKey(value: unknown) {
+            return String(value || "")
+              .normalize("NFD")
+              .replace(/[\\u0300-\\u036f]/g, "")
+              .toLowerCase()
+              .replace(/−/g, "-")
+              .replace(/[^a-z0-9]+/g, " ")
+              .replace(/\\s+/g, " ")
+              .trim();
+          }
+          '''
+          replace_once(board, old, new, "Normalize football team names before DraftKings matching")
+
+          market = Path("lib/footballWeeklyMarket.ts")
+          old = '''function resultCode(value: unknown): ResultCode | "" {
+            const key = String(value || "").trim().toUpperCase();
+            if (key.startsWith("W")) return "W";
+            if (key.startsWith("L")) return "L";
+            if (key.startsWith("P")) return "P";
+            return "";
+          }
+          '''
+          new = '''function resultCode(value: unknown): ResultCode | "" {
+            const key = String(value || "").trim().toUpperCase();
+            if (["W", "WIN", "WON"].includes(key)) return "W";
+            if (["L", "LOSS", "LOST"].includes(key)) return "L";
+            if (["P", "PUSH", "VOID", "CANCELLED", "CANCELED"].includes(key)) return "P";
+            // PENDING and every other unfinished status must never enter trend history.
+            return "";
+          }
+          '''
+          replace_once(market, old, new, "Ignore PENDING rows in football trend records")
+          PY
+
+      - name: Verify patches
+        shell: bash
+        run: |
+          grep -q '.normalize("NFD")' app/FootballBoard.tsx
+          grep -q 'PENDING and every other unfinished status' lib/footballWeeklyMarket.ts
+          git diff --check
+
+      - name: Commit fixes
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/FootballBoard.tsx lib/footballWeeklyMarket.ts
+          if git diff --cached --quiet; then
+            echo "No source changes required"
+            exit 0
+          fi
+          git commit -m "Fix football DraftKings matching and trend history"
+          git push
