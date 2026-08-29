@@ -3,6 +3,15 @@ import { readFileSync, writeFileSync } from "node:fs";
 const path = "app/FootballBoard.tsx";
 let source = readFileSync(path, "utf8");
 
+// The football board now owns the weekly selector, game date/time display,
+// chronological ordering, and collapsed/expandable market rows directly.
+// When that implementation is present, the legacy build-time patch must be a
+// no-op rather than trying to rewrite old anchors that no longer exist.
+if (source.includes("trendWeekControls") && source.includes("const gameDate =") && source.includes("displayedTrendGroups")) {
+  console.log("Football weekly UI is implemented natively; legacy patch skipped.");
+  process.exit(0);
+}
+
 if (!source.includes("gameKey: string; date?: string; gameTime?: string;")) {
   source = source.replace(
     "game: string; gameKey: string; gameTime?: string; market:",
