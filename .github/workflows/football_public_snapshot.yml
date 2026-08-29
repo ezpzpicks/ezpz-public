@@ -12,6 +12,8 @@ on:
       - lib/footballWeeklyMarket.ts
       - app/FootballBoard.tsx
       - scripts/football_weekly_display_policy_patch.mjs
+      - scripts/football_weekly_market_patch.mjs
+      - scripts/football_dk_event_group_patch.mjs
   schedule:
     # Check NFL and CFB markets every five minutes, 24/7. The two-minute offset
     # avoids the busiest GitHub Actions scheduling boundary while letting a newly
