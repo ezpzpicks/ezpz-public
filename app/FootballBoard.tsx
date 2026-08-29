@@ -70,7 +70,14 @@ function num(value: unknown, digits = 1) {
 }
 
 function textKey(value: unknown) {
-  return String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/−/g, "-")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function signedPct(value: unknown) {

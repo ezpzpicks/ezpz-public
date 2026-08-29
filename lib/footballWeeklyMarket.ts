@@ -362,9 +362,10 @@ function splitTrendKey(split: Split) {
 
 function resultCode(value: unknown): ResultCode | "" {
   const key = String(value || "").trim().toUpperCase();
-  if (key.startsWith("W")) return "W";
-  if (key.startsWith("L")) return "L";
-  if (key.startsWith("P")) return "P";
+  if (["W", "WIN", "WON"].includes(key)) return "W";
+  if (["L", "LOSS", "LOST"].includes(key)) return "L";
+  if (["P", "PUSH", "VOID", "CANCELLED", "CANCELED"].includes(key)) return "P";
+  // PENDING and every other unfinished status must never enter trend history.
   return "";
 }
 
