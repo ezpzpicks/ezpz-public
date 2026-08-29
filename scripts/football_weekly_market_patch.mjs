@@ -4,8 +4,10 @@ const path = "lib/footballWeeklyMarket.ts";
 let text = fs.readFileSync(path, "utf8");
 
 const groupsBefore = '  const groups = sport === "NFL" ? ["NFL"] : ["College Football", "NCAAF", "CFB"];';
-const groupsAfter = '  const groups = sport === "NFL" ? ["42648"] : ["88808", "94682", "212333"];';
+const groupsOldIds = '  const groups = sport === "NFL" ? ["42648"] : ["88808", "94682", "212333"];';
+const groupsAfter = '  const groups = sport === "NFL" ? ["84240"] : ["NCAA Football"];';
 if (text.includes(groupsBefore)) text = text.replace(groupsBefore, groupsAfter);
+else if (text.includes(groupsOldIds)) text = text.replace(groupsOldIds, groupsAfter);
 else if (!text.includes(groupsAfter)) throw new Error("Could not patch weekly football DraftKings event groups");
 
 const horizonsBefore = '  for (const group of groups) {\n    for (const horizon of ["n7days", ""]) {';
@@ -28,4 +30,4 @@ if (text.includes(numericBefore)) text = text.replace(numericBefore, numericAfte
 else if (!text.includes(numericAfter)) throw new Error("Could not patch weekly football numeric line parser");
 
 fs.writeFileSync(path, text);
-console.log("Aligned weekly football discovery with the live DraftKings football event groups and date windows.");
+console.log("Aligned weekly football discovery with the current DraftKings NFL mixed feed and NCAA Football feed.");
