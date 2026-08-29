@@ -1,7 +1,7 @@
 import fs from "node:fs";
 
-const boardPath = "app/FootballBoard.tsx";
-let text = fs.readFileSync(boardPath, "utf8");
+const path = "app/FootballBoard.tsx";
+let text = fs.readFileSync(path, "utf8");
 
 if (!text.includes("function slateIdentity(row: SheetRow)")) {
   const anchor = `function signedPct(value: unknown) {`;
@@ -45,25 +45,5 @@ if (text.includes('play.tier === "Strong" || play.tier === "Elite"')) throw new 
 if (!text.includes("const filteredTrends = weekTrends;")) throw new Error("All-four weekly football display policy did not apply");
 if (!text.includes("const key = slateIdentity(row);")) throw new Error("Full Slate matchup dedupe did not apply");
 
-fs.writeFileSync(boardPath, text);
-
-// Keep the weekly football discovery aligned with the event-group IDs already
-// proven by the live football public-data collector. The previous weekly code
-// queried literal labels (NFL / College Football / NCAAF / CFB), which can return
-// zero rows even while DraftKings has football splits posted.
-const marketPath = "lib/footballWeeklyMarket.ts";
-let market = fs.readFileSync(marketPath, "utf8");
-const oldGroups = '  const groups = sport === "NFL" ? ["NFL"] : ["College Football", "NCAAF", "CFB"];';
-const provenGroups = '  const groups = sport === "NFL" ? ["42648"] : ["88808", "94682", "212333"];';
-if (market.includes(oldGroups)) market = market.replace(oldGroups, provenGroups);
-else if (!market.includes(provenGroups)) throw new Error("Could not align weekly football DraftKings event groups");
-
-const oldHorizons = '    for (const horizon of ["n7days", ""]) {';
-const robustHorizons = '    for (const horizon of sport === "NFL" ? ["n7days", "n30days", ""] : ["n30days", "n7days", ""]) {';
-if (market.includes(oldHorizons)) market = market.replace(oldHorizons, robustHorizons);
-else if (!market.includes(robustHorizons)) throw new Error("Could not align weekly football DraftKings date windows");
-
-if (!market.includes(provenGroups)) throw new Error("Weekly football DraftKings event-group fix did not apply");
-fs.writeFileSync(marketPath, market);
-
-console.log("Weekly football UI now shows all four sides (including Pass) and weekly discovery uses the proven NFL/CFB DraftKings event groups.");
+fs.writeFileSync(path, text);
+console.log("Weekly football UI now shows all four sides for each stored game, including Pass and Good tiers.");
