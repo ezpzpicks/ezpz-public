@@ -1,18 +1,20 @@
 name: EZPZ Football Public Snapshots
 
 on:
-  # A workflow-only push also runs one capture so tracking changes establish or
-  # verify a baseline immediately; normal operation continues on the five-minute schedule.
   push:
     branches:
       - main
     paths:
       - .github/workflows/football_public_snapshot.yml
       - app/api/cron/football-slate-sync/route.ts
+      - app/api/cron/football-market-discovery/route.ts
+      - app/api/football-weekly-market/route.ts
+      - lib/footballWeeklyMarket.ts
+      - app/FootballBoard.tsx
   schedule:
-    # Persist NFL/NCAAF public split + line/odds movement snapshots every 5 minutes
-    # during the normal football activity window. Offset by two minutes to avoid
-    # the busiest GitHub Actions scheduling boundaries.
+    # Check football markets every five minutes. The two-minute offset avoids
+    # the busiest GitHub Actions scheduling boundary while still keeping the
+    # market archive close to real time.
     - cron: "2,7,12,17,22,27,32,37,42,47,52,57 10-23 * * *"
       timezone: "America/New_York"
     - cron: "2,7,12,17,22,27,32,37,42,47,52,57 0 * * *"
@@ -28,89 +30,101 @@ concurrency:
 jobs:
   capture:
     runs-on: ubuntu-latest
-    timeout-minutes: 6
+    timeout-minutes: 8
     steps:
       - name: Sync NFL schedule into public slate
+        continue-on-error: true
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           test -n "$CRON_SECRET" || { echo "Missing repository secret: CRON_SECRET"; exit 1; }
-          sync_success=0
           for attempt in 1 2 3; do
-            if curl --fail-with-body \
-              --silent \
-              --show-error \
-              --max-time 60 \
+            if curl --fail-with-body --silent --show-error --max-time 60 \
               -H "Authorization: Bearer $CRON_SECRET" \
               "https://ezpzpicks.com/api/cron/football-slate-sync" \
               --output /tmp/nfl_slate_sync.json; then
-              if jq -e '.ok == true and (.slateGamesToday // 0) > 0' /tmp/nfl_slate_sync.json >/dev/null; then
-                sync_success=1
-                break
-              fi
+              cat /tmp/nfl_slate_sync.json
+              exit 0
             fi
-            echo "NFL slate sync attempt $attempt did not produce a usable daily slate; retrying."
+            echo "NFL slate sync attempt $attempt failed; retrying."
             sleep 8
           done
-          if [ "$sync_success" -ne 1 ]; then
-            echo "NFL schedule sync failed."
-            cat /tmp/nfl_slate_sync.json 2>/dev/null || true
-            exit 1
-          fi
+          echo "NFL schedule sync unavailable this cycle; market discovery will still run."
+          exit 1
 
-      - name: Capture NFL snapshot
+      - name: Discover posted NFL markets
+        continue-on-error: true
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
-          success=0
+          test -n "$CRON_SECRET" || { echo "Missing repository secret: CRON_SECRET"; exit 1; }
           for attempt in 1 2 3; do
-            if curl --fail-with-body \
-              --silent \
-              --show-error \
-              --max-time 90 \
+            if curl --fail-with-body --silent --show-error --max-time 100 \
+              -H "Authorization: Bearer $CRON_SECRET" \
+              "https://ezpzpicks.com/api/cron/football-market-discovery?sport=NFL" \
+              --output /tmp/nfl_discovery.json; then
+              cat /tmp/nfl_discovery.json
+              jq -e '.ok == true' /tmp/nfl_discovery.json >/dev/null && exit 0
+            fi
+            echo "NFL market discovery attempt $attempt failed; retrying."
+            sleep 8
+          done
+          exit 1
+
+      - name: Capture NFL graded snapshot
+        continue-on-error: true
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          for attempt in 1 2 3; do
+            if curl --fail-with-body --silent --show-error --max-time 90 \
               -H "Authorization: Bearer $CRON_SECRET" \
               "https://ezpzpicks.com/api/cron/football-public-snapshot?sport=NFL" \
               --output /tmp/nfl_public_data.json; then
-              if jq -e '.ok == true and (((.draftKings.splits // []) | length) > 0)' /tmp/nfl_public_data.json >/dev/null; then
-                success=1
-                break
-              fi
+              cat /tmp/nfl_public_data.json | jq '{ok, sport, draftKings: {status: .draftKings.status, splitCount: ((.draftKings.splits // []) | length)}}'
+              exit 0
             fi
-            echo "NFL snapshot attempt $attempt returned no usable market rows; retrying."
+            echo "NFL graded snapshot attempt $attempt failed; retrying."
             sleep 8
           done
-          if [ "$success" -ne 1 ]; then
-            echo "NFL snapshot failed to return usable DraftKings market rows."
-            jq '{ok, sport, draftKings: {status: .draftKings.status, splitCount: ((.draftKings.splits // []) | length), errors: .draftKings.errors}}' /tmp/nfl_public_data.json || true
-            exit 1
-          fi
+          exit 1
 
       - name: Space Google Sheets writes
-        run: sleep 10
+        run: sleep 8
 
-      - name: Capture NCAAF snapshot
+      - name: Discover posted CFB markets
+        continue-on-error: true
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
-          success=0
+          test -n "$CRON_SECRET" || { echo "Missing repository secret: CRON_SECRET"; exit 1; }
           for attempt in 1 2 3; do
-            if curl --fail-with-body \
-              --silent \
-              --show-error \
-              --max-time 90 \
+            if curl --fail-with-body --silent --show-error --max-time 100 \
+              -H "Authorization: Bearer $CRON_SECRET" \
+              "https://ezpzpicks.com/api/cron/football-market-discovery?sport=NCAAF" \
+              --output /tmp/cfb_discovery.json; then
+              cat /tmp/cfb_discovery.json
+              jq -e '.ok == true' /tmp/cfb_discovery.json >/dev/null && exit 0
+            fi
+            echo "CFB market discovery attempt $attempt failed; retrying."
+            sleep 8
+          done
+          exit 1
+
+      - name: Capture CFB graded snapshot
+        continue-on-error: true
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          for attempt in 1 2 3; do
+            if curl --fail-with-body --silent --show-error --max-time 90 \
               -H "Authorization: Bearer $CRON_SECRET" \
               "https://ezpzpicks.com/api/cron/football-public-snapshot?sport=NCAAF" \
               --output /tmp/ncaaf_public_data.json; then
-              if jq -e '.ok == true and (((.draftKings.splits // []) | length) > 0)' /tmp/ncaaf_public_data.json >/dev/null; then
-                success=1
-                break
-              fi
+              cat /tmp/ncaaf_public_data.json | jq '{ok, sport, draftKings: {status: .draftKings.status, splitCount: ((.draftKings.splits // []) | length)}}'
+              exit 0
             fi
-            echo "NCAAF snapshot attempt $attempt returned no usable market rows; retrying."
+            echo "CFB graded snapshot attempt $attempt failed; retrying."
             sleep 8
           done
-          if [ "$success" -ne 1 ]; then
-            echo "NCAAF snapshot failed to return usable DraftKings market rows."
-            jq '{ok, sport, draftKings: {status: .draftKings.status, splitCount: ((.draftKings.splits // []) | length), errors: .draftKings.errors}}' /tmp/ncaaf_public_data.json || true
-            exit 1
-          fi
+          exit 1
