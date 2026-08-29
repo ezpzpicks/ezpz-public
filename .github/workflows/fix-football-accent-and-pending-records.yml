@@ -71,6 +71,22 @@ jobs:
           }
           '''
           replace_once(market, old, new, "Ignore PENDING rows in football trend records")
+
+          patch = Path("scripts/football_slate_split_match_patch.mjs")
+          old = '''const keyBlock = `function textKey(value: unknown) {
+            return String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+          }`;'''
+          new = '''const keyBlock = `function textKey(value: unknown) {
+            return String(value || "")
+              .normalize("NFD")
+              .replace(/[\\\\u0300-\\\\u036f]/g, "")
+              .toLowerCase()
+              .replace(/−/g, "-")
+              .replace(/[^a-z0-9]+/g, " ")
+              .replace(/\\\\s+/g, " ")
+              .trim();
+          }`;'''
+          replace_once(patch, old, new, "Keep prebuild split helpers compatible with normalized textKey")
           PY
 
       - name: Verify patches
@@ -78,6 +94,8 @@ jobs:
         run: |
           grep -q '.normalize("NFD")' app/FootballBoard.tsx
           grep -q 'PENDING and every other unfinished status' lib/footballWeeklyMarket.ts
+          grep -q 'const keyBlock = `function textKey' scripts/football_slate_split_match_patch.mjs
+          grep -q '\\.normalize("NFD")' scripts/football_slate_split_match_patch.mjs
           git diff --check
 
       - name: Commit fixes
@@ -85,7 +103,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add app/FootballBoard.tsx lib/footballWeeklyMarket.ts
+          git add app/FootballBoard.tsx lib/footballWeeklyMarket.ts scripts/football_slate_split_match_patch.mjs
           if git diff --cached --quiet; then
             echo "No source changes required"
             exit 0
