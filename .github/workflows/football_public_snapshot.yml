@@ -12,14 +12,10 @@ on:
       - lib/footballWeeklyMarket.ts
       - app/FootballBoard.tsx
   schedule:
-    # Check football markets every five minutes. The two-minute offset avoids
-    # the busiest GitHub Actions scheduling boundary while still keeping the
-    # market archive close to real time.
-    - cron: "2,7,12,17,22,27,32,37,42,47,52,57 10-23 * * *"
-      timezone: "America/New_York"
-    - cron: "2,7,12,17,22,27,32,37,42,47,52,57 0 * * *"
-      timezone: "America/New_York"
-    - cron: "2 1 * * *"
+    # Check NFL and CFB markets every five minutes, 24/7. The two-minute offset
+    # avoids the busiest GitHub Actions scheduling boundary while letting a newly
+    # posted DraftKings market enter the archive on the next cycle at any hour.
+    - cron: "2,7,12,17,22,27,32,37,42,47,52,57 * * * *"
       timezone: "America/New_York"
   workflow_dispatch:
 
