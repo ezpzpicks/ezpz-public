@@ -122,6 +122,15 @@ function scheduledLockTime(gameTime?: string) {
   return `${lockHour12}:${String(minute).padStart(2, "0")} ${suffix} ET`;
 }
 
+function gameTimeSortValue(gameTime?: string) {
+  const raw = String(gameTime || "");
+  const match = raw.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+  if (!match) return Number.POSITIVE_INFINITY;
+  let hour = Number(match[1]) % 12;
+  if (match[3].toUpperCase() === "PM") hour += 12;
+  return hour * 60 + Number(match[2]);
+}
+
 function compactTimestamp(value?: string) {
   const raw = String(value || "").trim();
   return raw || "—";
@@ -363,7 +372,10 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
   const displayedTrendGroups = [...trendGroups.values()].sort((a, b) => {
     const aDate = a.plays.find((play) => play.date)?.date || "";
     const bDate = b.plays.find((play) => play.date)?.date || "";
-    return aDate.localeCompare(bDate) || a.game.localeCompare(b.game);
+    if (aDate !== bDate) return aDate.localeCompare(bDate);
+    const aTime = gameTimeSortValue(a.plays.find((play) => play.gameTime)?.gameTime);
+    const bTime = gameTimeSortValue(b.plays.find((play) => play.gameTime)?.gameTime);
+    return aTime - bTime || a.game.localeCompare(b.game);
   });
 
   const slateRows = useMemo(() => {
