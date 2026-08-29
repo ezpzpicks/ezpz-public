@@ -31,7 +31,8 @@ type TrendPlay = {
   publicMovementPct?: number; sharpMovementPct?: number; openingLine?: number | null; openingOdds?: string;
   openingImpliedPct?: number | null; currentImpliedPct?: number | null;
   comparisonGap?: number; opponentScore?: number | null; updatedAt?: string; frozenAt?: string;
-  snapshotStatus?: "LIVE" | "FINAL_PREGAME";
+  lockWarning?: string;
+  snapshotStatus?: "LIVE" | "FINAL_PREGAME" | "MISSED_LOCK";
   score: number; tier: "Pass" | "Good" | "Strong" | "Elite";
   signals: TrendSignal[]; lineMovementSignal?: string; lineMovementBasis?: string; lineMovementValue?: number | null;
 };
@@ -256,11 +257,12 @@ function TrendSelectionRow({ play, selectionRank, initiallyOpen }: { play: Trend
           </div>
         ) : null}
         {play.lineMovementSignal ? <div className="trendMovement">{play.lineMovementSignal}</div> : null}
+        {play.lockWarning ? <div className="trendMovement">{play.lockWarning}</div> : null}
         <div className="trendTrackingStrip">
           <span>Bets {pct(play.openingBetsPct)} → {pct(play.betsPct)}</span>
           <span>Line {marketLine(play, play.openingLine)} → {marketLine(play, play.line)}</span>
           <span>Exact sample: {primary?.exactSample || 0} bets</span>
-          <span>{play.snapshotStatus === "FINAL_PREGAME" ? "Locked" : "Locks"} {scheduledLockTime(play.gameTime)}</span>
+          <span>{play.snapshotStatus === "FINAL_PREGAME" ? "Locked" : play.snapshotStatus === "MISSED_LOCK" ? "Lock missed" : "Locks"} {scheduledLockTime(play.gameTime)}</span>
           <span>Updated {compactTimestamp(play.updatedAt)}</span>
         </div>
       </div>
@@ -279,12 +281,13 @@ function TrendGameCard({ game, plays }: { game: string; plays: TrendPlay[] }) {
   const gameDate = ordered.find((play) => play.date)?.date || "";
   const lockTime = scheduledLockTime(gameTime);
   const isLocked = ordered.some((play) => play.snapshotStatus === "FINAL_PREGAME");
+  const lockMissed = !isLocked && ordered.some((play) => play.snapshotStatus === "MISSED_LOCK");
 
   return (
     <article className={`card trendGameCard ${topScore >= 75 ? "top" : ""}`}>
       <div className="trendGameHeader">
         <div className="cardTitle">{game}</div>
-        {gameTime || gameDate ? <div className="trendGameTimeBox"><strong>{gameTime || "TBD"}</strong>{gameDate ? <small>{gameDate}</small> : null}<small>{isLocked ? "Locked" : "Locks"} {lockTime}</small></div> : null}
+        {gameTime || gameDate ? <div className="trendGameTimeBox"><strong>{gameTime || "TBD"}</strong>{gameDate ? <small>{gameDate}</small> : null}<small>{isLocked ? "Locked" : lockMissed ? "Lock missed" : "Locks"} {lockTime}</small></div> : null}
       </div>
       <div className="trendSelectionStack">
         {ordered.map((play, index) => (

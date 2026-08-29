@@ -141,7 +141,8 @@ type TrendPlay = {
   signals: TrendSignal[];
   updatedAt: string;
   frozenAt?: string;
-  snapshotStatus?: "LIVE" | "FINAL_PREGAME";
+  lockWarning?: string;
+  snapshotStatus?: "LIVE" | "FINAL_PREGAME" | "MISSED_LOCK";
   gradingVersion?: string;
 };
 
@@ -821,11 +822,19 @@ export async function buildFootballPublicData(sport:FootballSport){
   const minutesToKickoff=matchingSplit
     ? minutesUntilDraftKingsKickoff(matchingSplit) ?? (matchingSlate?minutesUntilKickoff(matchingSlate):null)
     : matchingSlate?minutesUntilKickoff(matchingSlate):null;
-  // A live candidate is valid only before the advertised T-15 lock.
-  // At/after lock, show it only if the authoritative FINAL_PREGAME
-  // object was actually persisted below. Never leave a stale LIVE
-  // card on the public board when the background capture was missed.
-  if(minutesToKickoff!=null&&minutesToKickoff<=15) continue;
+  // Never silently remove a trend card at T-15. If the authoritative
+  // FINAL_PREGAME object was missed, keep the last verified view visible
+  // and label it clearly. The persisted final object below still wins
+  // whenever a valid lock was captured.
+  if(minutesToKickoff!=null&&minutesToKickoff<=15){
+    const lastVerified=matchingSplit?.snapshotTime||play.updatedAt||"unavailable";
+    displayTrendMap.set(displayTrendKey(play),{
+      ...play,
+      snapshotStatus:"MISSED_LOCK",
+      lockWarning:`Lock capture missed — last verified ${lastVerified}.`,
+    });
+    continue;
+  }
   displayTrendMap.set(displayTrendKey(play),play);
 }
   for(const row of trendRows){

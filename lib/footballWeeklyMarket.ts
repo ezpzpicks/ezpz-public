@@ -114,7 +114,8 @@ export type WeeklyTrendPlay = {
   signals: Signal[];
   updatedAt: string;
   frozenAt?: string;
-  snapshotStatus: "LIVE" | "FINAL_PREGAME";
+  lockWarning?: string;
+  snapshotStatus: "LIVE" | "FINAL_PREGAME" | "MISSED_LOCK";
 };
 
 type HistoryRow = {
@@ -486,13 +487,15 @@ function signalBreakdown(signalKey: string, signal: string, tone: Tone, market: 
   };
 }
 
-function minutesUntil(split: Split) {
-  if (!split.date || !split.eventTime) return null;
-  const match = split.eventTime.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+const MAX_MISSED_LOCK_FRESHNESS_MINUTES = 20;
+
+function minutesUntilEvent(date: string, eventTime: string) {
+  if (!date || !eventTime) return null;
+  const match = eventTime.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
   if (!match) return null;
   let hour = Number(match[1]) % 12;
   if (match[3].toUpperCase() === "PM") hour += 12;
-  const [year, month, day] = split.date.split("-").map(Number);
+  const [year, month, day] = date.split("-").map(Number);
   const kickoff = Date.UTC(year, month - 1, day, hour, Number(match[2]));
   const now = new Date();
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -502,6 +505,23 @@ function minutesUntil(split: Split) {
   const get = (type: string) => Number(parts.find((part) => part.type === type)?.value || 0);
   const nowStamp = Date.UTC(get("year"), get("month") - 1, get("day"), get("hour"), get("minute"));
   return (kickoff - nowStamp) / 60_000;
+}
+
+function minutesUntil(split: Split) {
+  return minutesUntilEvent(split.date, split.eventTime);
+}
+
+function minutesUntilPlay(play: Pick<WeeklyTrendPlay, "date" | "gameTime">) {
+  return minutesUntilEvent(play.date, play.gameTime);
+}
+
+function snapshotAgeMinutes(play: Pick<WeeklyTrendPlay, "updatedAt">) {
+  const normalized = String(play.updatedAt || "")
+    .replace(/ EDT$/, " -0400")
+    .replace(/ EST$/, " -0500");
+  const stamp = Date.parse(normalized);
+  if (!Number.isFinite(stamp)) return null;
+  return Math.max(0, (Date.now() - stamp) / 60_000);
 }
 
 function existingNumber(row: SheetRow | undefined, field: string, fallback: number) {
@@ -677,23 +697,65 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
   const existingTrendMap = new Map(existingTrends.map((row) => [trendKey(row), row]));
   const history = historyFromAllGameTrends(allGameTrends);
   const liveCandidates: WeeklyTrendPlay[] = [];
+  const handledLockKeys = new Set<string>();
   for (const split of dk.splits) {
-    const existing = existingTrendMap.get(splitTrendKey(split));
+    const key = splitTrendKey(split);
+    const existing = existingTrendMap.get(key);
     const minutes = minutesUntil(split);
-    if (minutes != null && minutes < 0) continue;
     if (minutes != null && minutes <= 15) {
+      handledLockKeys.add(key);
       if (existing && String(existing["Details JSON"] || "").trim()) {
         try {
           const saved = JSON.parse(String(existing["Details JSON"])) as WeeklyTrendPlay;
           if (saved.snapshotStatus !== "FINAL_PREGAME") {
-            const frozen = { ...saved, week: footballWeekLabel(sport, saved.date), snapshotStatus: "FINAL_PREGAME" as const, frozenAt: saved.updatedAt };
-            liveCandidates.push(frozen);
+            const ageMinutes = snapshotAgeMinutes(saved);
+            const missedLock = ageMinutes == null || ageMinutes > MAX_MISSED_LOCK_FRESHNESS_MINUTES;
+            liveCandidates.push({
+              ...saved,
+              week: footballWeekLabel(sport, saved.date),
+              snapshotStatus: missedLock ? "MISSED_LOCK" as const : "FINAL_PREGAME" as const,
+              frozenAt: missedLock ? undefined : saved.updatedAt,
+              lockWarning: missedLock
+                ? `Lock capture missed — last verified ${saved.updatedAt}.`
+                : minutes < 0
+                  ? "Finalized from the last verified pregame snapshot after DraftKings stopped updating."
+                  : undefined,
+            });
           }
         } catch { /* keep existing row unchanged */ }
       }
       continue;
     }
     liveCandidates.push({ ...buildPlay(split, existing, history), week: footballWeekLabel(sport, split.date) });
+  }
+
+  // DraftKings can remove or suspend a game before the T-15 capture. Walk
+  // the stored rows as a second lock pass so the card never disappears.
+  // A snapshot no more than 20 minutes old is safe to freeze as the last
+  // verified pregame state; older data remains visible but is explicitly
+  // marked MISSED_LOCK and is not treated as a verified final lock.
+  for (const row of existingTrends) {
+    const key = trendKey(row);
+    if (handledLockKeys.has(key)) continue;
+    const raw = String(row["Details JSON"] || "").trim();
+    if (!raw) continue;
+    try {
+      const saved = JSON.parse(raw) as WeeklyTrendPlay;
+      if (saved.snapshotStatus !== "LIVE") continue;
+      const minutes = minutesUntilPlay(saved);
+      if (minutes == null || minutes > 15) continue;
+      const ageMinutes = snapshotAgeMinutes(saved);
+      const missedLock = ageMinutes == null || ageMinutes > MAX_MISSED_LOCK_FRESHNESS_MINUTES;
+      liveCandidates.push({
+        ...saved,
+        week: footballWeekLabel(sport, saved.date),
+        snapshotStatus: missedLock ? "MISSED_LOCK" as const : "FINAL_PREGAME" as const,
+        frozenAt: missedLock ? undefined : saved.updatedAt,
+        lockWarning: missedLock
+          ? `Lock capture missed — last verified ${saved.updatedAt}.`
+          : "DraftKings was unavailable at lock; finalized from the last verified pregame snapshot.",
+      });
+    } catch { /* keep malformed legacy row unchanged */ }
   }
   const scored = headToHead(liveCandidates);
   const rows = scored.map(weeklyRow);
