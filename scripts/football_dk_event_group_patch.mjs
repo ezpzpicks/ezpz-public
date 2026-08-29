@@ -4,21 +4,22 @@ const path = "lib/footballPublicData.ts";
 let text = fs.readFileSync(path, "utf8");
 
 const queryBefore = '  const queries = sport === "NFL" ? ["NFL"] : ["College Football", "NCAAF", "CFB"];';
-const queryAfter = '  const queries = sport === "NFL" ? ["42648"] : ["88808", "94682", "212333"];';
+const queryOldIds = '  const queries = sport === "NFL" ? ["42648"] : ["88808", "94682", "212333"];';
+const queryAfter = '  const queries = sport === "NFL" ? ["84240"] : ["NCAA Football"];';
 if (text.includes(queryBefore)) text = text.replace(queryBefore, queryAfter);
+else if (text.includes(queryOldIds)) text = text.replace(queryOldIds, queryAfter);
 else if (!text.includes(queryAfter)) throw new Error("Could not find football DraftKings event-group query block");
 
-// DraftKings' short date-window filter can intermittently return no CFB rows even
-// when the college-football event group contains the current week's games. Fetch a
-// broader CFB window, then keep relying on splitMatchesSlate to restrict results to
-// the active football week. NFL can keep the smaller seven-day request.
+// DraftKings' mixed live feed contains NFL markets among other sports, so NFL
+// relies on the existing slate matcher to keep only real NFL games. College
+// football has a dedicated current feed and needs the broader 30-day window.
 const dateWindowBefore = '          itm_content: group, tb_edate: "n7days", tb_eg: group, tb_page: String(page),';
 const dateWindowAfter = '          itm_content: group, tb_edate: sport === "NFL" ? "n7days" : "n30days", tb_eg: group, tb_page: String(page),';
 if (text.includes(dateWindowBefore)) text = text.replace(dateWindowBefore, dateWindowAfter);
 else if (!text.includes(dateWindowAfter)) throw new Error("Could not find football DraftKings date-window block");
 
 // A later page can contain the football games even when the current page has
-// no matches. Only stop when DraftKings actually returns an empty page.
+// no slate matches. Only stop when DraftKings actually returns an empty page.
 const stopBefore = '        if (!parsed.length || added === 0) break;';
 const stopAfter = '        if (!parsed.length) break;';
 if (text.includes(stopBefore)) text = text.replace(stopBefore, stopAfter);
@@ -70,4 +71,4 @@ if (text.includes(teamBefore)) text = text.replace(teamBefore, teamAfter);
 else if (!text.includes(teamAfter)) throw new Error("Could not find football team matcher");
 
 fs.writeFileSync(path, text);
-console.log("patched football DraftKings filters, date windows, pagination, line parsing, and team matching");
+console.log("patched football DraftKings current feeds, date windows, pagination, line parsing, and team matching");
