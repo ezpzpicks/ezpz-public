@@ -29,10 +29,9 @@ text = text.replace(
   `<div><strong>{activeWeek || "Waiting for DraftKings"}</strong><small>{storedGamesForWeek.length} games stored • Strong/Elite trend plays surface automatically</small></div>`,
 );
 
-text = text.replace(
-  `{displayedTrendGroups.length ? <div className="trendGameGrid">{displayedTrendGroups.map((group) => <TrendGameCard key={group.plays[0]?.gameKey || group.game} game={group.game} plays={group.plays} />)}</div> : <div className="fbEmpty">No {sport} DraftKings Spread/Total markets are stored for {activeWeek || "this week"} yet.</div>}`,
-  `{displayedTrendGroups.length ? <div className="trendGameGrid">{displayedTrendGroups.map((group) => <TrendGameCard key={group.plays[0]?.gameKey || group.game} game={group.game} plays={group.plays} />)}</div> : <div className="fbEmpty">No Strong/Elite {sport} Trend Plays for {activeWeek || "this week"} yet. {storedGamesForWeek.length ? `${storedGamesForWeek.length} DraftKings-posted games are already stored and being tracked.` : "Games will appear automatically as DraftKings posts them."}</div>}`,
-);
+const emptyBefore = `{displayedTrendGroups.length ? <div className="trendGameGrid">{displayedTrendGroups.map((group) => <TrendGameCard key={group.plays[0]?.gameKey || group.game} game={group.game} plays={group.plays} />)}</div> : <div className="fbEmpty">No {sport} DraftKings Spread/Total markets are stored for {activeWeek || "this week"} yet.</div>}`;
+const emptyAfter = `{displayedTrendGroups.length ? <div className="trendGameGrid">{displayedTrendGroups.map((group) => <TrendGameCard key={group.plays[0]?.gameKey || group.game} game={group.game} plays={group.plays} />)}</div> : <div className="fbEmpty">No Strong/Elite {sport} Trend Plays for {activeWeek || "this week"} yet. {storedGamesForWeek.length ? storedGamesForWeek.length + " DraftKings-posted games are already stored and being tracked." : "Games will appear automatically as DraftKings posts them."}</div>}`;
+text = text.replace(emptyBefore, emptyAfter);
 
 if (!text.includes('play.tier === "Strong" || play.tier === "Elite"')) throw new Error("Strong/Elite weekly display policy did not apply");
 if (!text.includes("const key = slateIdentity(row);")) throw new Error("Full Slate matchup dedupe did not apply");
