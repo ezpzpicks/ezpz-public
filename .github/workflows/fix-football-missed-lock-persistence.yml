@@ -1,0 +1,261 @@
+name: Fix football missed lock persistence
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/fix-football-missed-lock-persistence.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Keep football trend cards visible and persist missed locks
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: Path, old: str, new: str, label: str):
+              source = path.read_text()
+              if new in source:
+                  print(f"{label}: already applied")
+                  return
+              if old not in source:
+                  raise SystemExit(f"{label}: expected source block not found")
+              path.write_text(source.replace(old, new, 1))
+              print(f"{label}: applied")
+
+          weekly = Path("lib/footballWeeklyMarket.ts")
+          replace_once(
+              weekly,
+              '  frozenAt?: string;\n  snapshotStatus: "LIVE" | "FINAL_PREGAME";',
+              '  frozenAt?: string;\n  lockWarning?: string;\n  snapshotStatus: "LIVE" | "FINAL_PREGAME" | "MISSED_LOCK";',
+              "weekly trend status type",
+          )
+
+          old_minutes = '''function minutesUntil(split: Split) {
+            if (!split.date || !split.eventTime) return null;
+            const match = split.eventTime.match(/(\\d{1,2}):(\\d{2})\\s*(AM|PM)/i);
+            if (!match) return null;
+            let hour = Number(match[1]) % 12;
+            if (match[3].toUpperCase() === "PM") hour += 12;
+            const [year, month, day] = split.date.split("-").map(Number);
+            const kickoff = Date.UTC(year, month - 1, day, hour, Number(match[2]));
+            const now = new Date();
+            const parts = new Intl.DateTimeFormat("en-US", {
+              timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit",
+              hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+            }).formatToParts(now);
+            const get = (type: string) => Number(parts.find((part) => part.type === type)?.value || 0);
+            const nowStamp = Date.UTC(get("year"), get("month") - 1, get("day"), get("hour"), get("minute"));
+            return (kickoff - nowStamp) / 60_000;
+          }'''
+          new_minutes = '''const MAX_MISSED_LOCK_FRESHNESS_MINUTES = 20;
+
+          function minutesUntilEvent(date: string, eventTime: string) {
+            if (!date || !eventTime) return null;
+            const match = eventTime.match(/(\\d{1,2}):(\\d{2})\\s*(AM|PM)/i);
+            if (!match) return null;
+            let hour = Number(match[1]) % 12;
+            if (match[3].toUpperCase() === "PM") hour += 12;
+            const [year, month, day] = date.split("-").map(Number);
+            const kickoff = Date.UTC(year, month - 1, day, hour, Number(match[2]));
+            const now = new Date();
+            const parts = new Intl.DateTimeFormat("en-US", {
+              timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit",
+              hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+            }).formatToParts(now);
+            const get = (type: string) => Number(parts.find((part) => part.type === type)?.value || 0);
+            const nowStamp = Date.UTC(get("year"), get("month") - 1, get("day"), get("hour"), get("minute"));
+            return (kickoff - nowStamp) / 60_000;
+          }
+
+          function minutesUntil(split: Split) {
+            return minutesUntilEvent(split.date, split.eventTime);
+          }
+
+          function minutesUntilPlay(play: Pick<WeeklyTrendPlay, "date" | "gameTime">) {
+            return minutesUntilEvent(play.date, play.gameTime);
+          }
+
+          function snapshotAgeMinutes(play: Pick<WeeklyTrendPlay, "updatedAt">) {
+            const normalized = String(play.updatedAt || "")
+              .replace(/ EDT$/, " -0400")
+              .replace(/ EST$/, " -0500");
+            const stamp = Date.parse(normalized);
+            if (!Number.isFinite(stamp)) return null;
+            return Math.max(0, (Date.now() - stamp) / 60_000);
+          }'''
+          replace_once(weekly, old_minutes, new_minutes, "weekly time helpers")
+
+          old_sync = '''  const existingTrendMap = new Map(existingTrends.map((row) => [trendKey(row), row]));
+            const history = historyFromAllGameTrends(allGameTrends);
+            const liveCandidates: WeeklyTrendPlay[] = [];
+            for (const split of dk.splits) {
+              const existing = existingTrendMap.get(splitTrendKey(split));
+              const minutes = minutesUntil(split);
+              if (minutes != null && minutes < 0) continue;
+              if (minutes != null && minutes <= 15) {
+                if (existing && String(existing["Details JSON"] || "").trim()) {
+                  try {
+                    const saved = JSON.parse(String(existing["Details JSON"])) as WeeklyTrendPlay;
+                    if (saved.snapshotStatus !== "FINAL_PREGAME") {
+                      const frozen = { ...saved, week: footballWeekLabel(sport, saved.date), snapshotStatus: "FINAL_PREGAME" as const, frozenAt: saved.updatedAt };
+                      liveCandidates.push(frozen);
+                    }
+                  } catch { /* keep existing row unchanged */ }
+                }
+                continue;
+              }
+              liveCandidates.push({ ...buildPlay(split, existing, history), week: footballWeekLabel(sport, split.date) });
+            }
+            const scored = headToHead(liveCandidates);'''
+          new_sync = '''  const existingTrendMap = new Map(existingTrends.map((row) => [trendKey(row), row]));
+            const history = historyFromAllGameTrends(allGameTrends);
+            const liveCandidates: WeeklyTrendPlay[] = [];
+            const handledLockKeys = new Set<string>();
+            for (const split of dk.splits) {
+              const key = splitTrendKey(split);
+              const existing = existingTrendMap.get(key);
+              const minutes = minutesUntil(split);
+              if (minutes != null && minutes <= 15) {
+                handledLockKeys.add(key);
+                if (existing && String(existing["Details JSON"] || "").trim()) {
+                  try {
+                    const saved = JSON.parse(String(existing["Details JSON"])) as WeeklyTrendPlay;
+                    if (saved.snapshotStatus !== "FINAL_PREGAME") {
+                      const ageMinutes = snapshotAgeMinutes(saved);
+                      const missedLock = ageMinutes == null || ageMinutes > MAX_MISSED_LOCK_FRESHNESS_MINUTES;
+                      liveCandidates.push({
+                        ...saved,
+                        week: footballWeekLabel(sport, saved.date),
+                        snapshotStatus: missedLock ? "MISSED_LOCK" as const : "FINAL_PREGAME" as const,
+                        frozenAt: missedLock ? undefined : saved.updatedAt,
+                        lockWarning: missedLock
+                          ? `Lock capture missed — last verified ${saved.updatedAt}.`
+                          : minutes < 0
+                            ? "Finalized from the last verified pregame snapshot after DraftKings stopped updating."
+                            : undefined,
+                      });
+                    }
+                  } catch { /* keep existing row unchanged */ }
+                }
+                continue;
+              }
+              liveCandidates.push({ ...buildPlay(split, existing, history), week: footballWeekLabel(sport, split.date) });
+            }
+
+            // DraftKings can remove or suspend a game before the T-15 capture. Walk
+            // the stored rows as a second lock pass so the card never disappears.
+            // A snapshot no more than 20 minutes old is safe to freeze as the last
+            // verified pregame state; older data remains visible but is explicitly
+            // marked MISSED_LOCK and is not treated as a verified final lock.
+            for (const row of existingTrends) {
+              const key = trendKey(row);
+              if (handledLockKeys.has(key)) continue;
+              const raw = String(row["Details JSON"] || "").trim();
+              if (!raw) continue;
+              try {
+                const saved = JSON.parse(raw) as WeeklyTrendPlay;
+                if (saved.snapshotStatus !== "LIVE") continue;
+                const minutes = minutesUntilPlay(saved);
+                if (minutes == null || minutes > 15) continue;
+                const ageMinutes = snapshotAgeMinutes(saved);
+                const missedLock = ageMinutes == null || ageMinutes > MAX_MISSED_LOCK_FRESHNESS_MINUTES;
+                liveCandidates.push({
+                  ...saved,
+                  week: footballWeekLabel(sport, saved.date),
+                  snapshotStatus: missedLock ? "MISSED_LOCK" as const : "FINAL_PREGAME" as const,
+                  frozenAt: missedLock ? undefined : saved.updatedAt,
+                  lockWarning: missedLock
+                    ? `Lock capture missed — last verified ${saved.updatedAt}.`
+                    : "DraftKings was unavailable at lock; finalized from the last verified pregame snapshot.",
+                });
+              } catch { /* keep malformed legacy row unchanged */ }
+            }
+            const scored = headToHead(liveCandidates);'''
+          replace_once(weekly, old_sync, new_sync, "weekly missed-lock second pass")
+
+          public_data = Path("lib/footballPublicData.ts")
+          replace_once(
+              public_data,
+              '  frozenAt?: string;\n  snapshotStatus?: "LIVE" | "FINAL_PREGAME";',
+              '  frozenAt?: string;\n  lockWarning?: string;\n  snapshotStatus?: "LIVE" | "FINAL_PREGAME" | "MISSED_LOCK";',
+              "public trend status type",
+          )
+
+          old_display = '''  // A live candidate is valid only before the advertised T-15 lock.
+            // At/after lock, show it only if the authoritative FINAL_PREGAME
+            // object was actually persisted below. Never leave a stale LIVE
+            // card on the public board when the background capture was missed.
+            if(minutesToKickoff!=null&&minutesToKickoff<=15) continue;
+            displayTrendMap.set(displayTrendKey(play),play);'''
+          new_display = '''  // Never silently remove a trend card at T-15. If the authoritative
+            // FINAL_PREGAME object was missed, keep the last verified view visible
+            // and label it clearly. The persisted final object below still wins
+            // whenever a valid lock was captured.
+            if(minutesToKickoff!=null&&minutesToKickoff<=15){
+              const lastVerified=matchingSplit?.snapshotTime||play.updatedAt||"unavailable";
+              displayTrendMap.set(displayTrendKey(play),{
+                ...play,
+                snapshotStatus:"MISSED_LOCK",
+                lockWarning:`Lock capture missed — last verified ${lastVerified}.`,
+              });
+              continue;
+            }
+            displayTrendMap.set(displayTrendKey(play),play);'''
+          replace_once(public_data, old_display, new_display, "public missed-lock display")
+
+          board = Path("app/FootballBoard.tsx")
+          replace_once(
+              board,
+              '  comparisonGap?: number; opponentScore?: number | null; updatedAt?: string; frozenAt?: string;\n  snapshotStatus?: "LIVE" | "FINAL_PREGAME";',
+              '  comparisonGap?: number; opponentScore?: number | null; updatedAt?: string; frozenAt?: string;\n  lockWarning?: string;\n  snapshotStatus?: "LIVE" | "FINAL_PREGAME" | "MISSED_LOCK";',
+              "board trend status type",
+          )
+          replace_once(
+              board,
+              '        {play.lineMovementSignal ? <div className="trendMovement">{play.lineMovementSignal}</div> : null}\n        <div className="trendTrackingStrip">',
+              '        {play.lineMovementSignal ? <div className="trendMovement">{play.lineMovementSignal}</div> : null}\n        {play.lockWarning ? <div className="trendMovement">{play.lockWarning}</div> : null}\n        <div className="trendTrackingStrip">',
+              "board lock warning",
+          )
+          replace_once(
+              board,
+              '          <span>{play.snapshotStatus === "FINAL_PREGAME" ? "Locked" : "Locks"} {scheduledLockTime(play.gameTime)}</span>',
+              '          <span>{play.snapshotStatus === "FINAL_PREGAME" ? "Locked" : play.snapshotStatus === "MISSED_LOCK" ? "Lock missed" : "Locks"} {scheduledLockTime(play.gameTime)}</span>',
+              "board row lock label",
+          )
+          replace_once(
+              board,
+              '  const isLocked = ordered.some((play) => play.snapshotStatus === "FINAL_PREGAME");',
+              '  const isLocked = ordered.some((play) => play.snapshotStatus === "FINAL_PREGAME");\n  const lockMissed = !isLocked && ordered.some((play) => play.snapshotStatus === "MISSED_LOCK");',
+              "board game lock state",
+          )
+          replace_once(
+              board,
+              '{gameTime || gameDate ? <div className="trendGameTimeBox"><strong>{gameTime || "TBD"}</strong>{gameDate ? <small>{gameDate}</small> : null}<small>{isLocked ? "Locked" : "Locks"} {lockTime}</small></div> : null}',
+              '{gameTime || gameDate ? <div className="trendGameTimeBox"><strong>{gameTime || "TBD"}</strong>{gameDate ? <small>{gameDate}</small> : null}<small>{isLocked ? "Locked" : lockMissed ? "Lock missed" : "Locks"} {lockTime}</small></div> : null}',
+              "board game lock label",
+          )
+          PY
+
+      - name: Commit repair
+        run: |
+          if git diff --quiet -- lib/footballWeeklyMarket.ts lib/footballPublicData.ts app/FootballBoard.tsx; then
+            echo "No repair needed."
+            exit 0
+          fi
+          git config user.name "ezpzpicks"
+          git config user.email "ryanpaez5@gmail.com"
+          git add lib/footballWeeklyMarket.ts lib/footballPublicData.ts app/FootballBoard.tsx
+          git commit -m "Keep football trends visible after missed locks"
+          git push origin HEAD:main
