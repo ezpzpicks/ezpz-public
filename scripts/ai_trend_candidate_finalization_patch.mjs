@@ -116,63 +116,16 @@ if (text.includes(oldLiveLockBlock)) {
   throw new Error("Trend live candidate lock target not found");
 }
 
-// HOT remains the only Best Play performance/form gate, but -150 is a hard
-// global betting constraint for every AI Pick.
-const oldHotBlock = `    const hotBestPlay =
-      bestPlayBacked && candidate.pitcherBetTypeForm === "HOT";
-    const blocked = bestPlayBacked ? false : baseBlocked;`;
-const newHotBlock = `    const bestPlayOddsFailure = bestPlayBacked
-      ? candidate.protectionReasons.find(
-          (reason) =>
-            reason === "Playable odds are missing" ||
-            reason.includes("maximum price"),
-        ) || ""
-      : "";
-    const hotBestPlay =
-      bestPlayBacked && candidate.pitcherBetTypeForm === "HOT";
-    const blocked = bestPlayBacked ? Boolean(bestPlayOddsFailure) : baseBlocked;`;
-if (text.includes(oldHotBlock)) {
-  text = text.replace(oldHotBlock, newHotBlock);
-  changed = true;
-} else if (!text.includes("const bestPlayOddsFailure = bestPlayBacked")) {
-  throw new Error("Best Play odds-cap target not found");
-}
-
-const oldBestThreshold = `    const thresholdFailure = bestPlayBacked
-      ? hotBestPlay
-        ? ""
-        : (candidate.bestPlayType || "Best Play") + " is " + (candidate.pitcherBetTypeForm || "SAMPLE") + " over its rolling Last 7; only HOT Best Play bet types qualify for AI Picks"
-      : trendOnlyCandidate && rawTrendScore < 69`;
-const newBestThreshold = `    const thresholdFailure = bestPlayBacked
-      ? bestPlayOddsFailure
-        ? bestPlayOddsFailure
-        : hotBestPlay
-          ? ""
-          : (candidate.bestPlayType || "Best Play") + " is " + (candidate.pitcherBetTypeForm || "SAMPLE") + " over its rolling Last 7; only HOT Best Play bet types qualify for AI Picks"
-      : trendOnlyCandidate && rawTrendScore < 69`;
-if (text.includes(oldBestThreshold)) {
-  text = text.replace(oldBestThreshold, newBestThreshold);
-  changed = true;
-} else if (!text.includes("? bestPlayOddsFailure")) {
-  throw new Error("Best Play threshold odds-cap target not found");
-}
-
-const oldPreliminary = `    const preliminarySelected = bestPlayBacked
-      ? hotBestPlay
-      : !blocked && !thresholdFailure;`;
-const newPreliminary = `    const preliminarySelected = bestPlayBacked
-      ? hotBestPlay && !bestPlayOddsFailure
-      : !blocked && !thresholdFailure;`;
-if (text.includes(oldPreliminary)) {
-  text = text.replace(oldPreliminary, newPreliminary);
-  changed = true;
-} else if (!text.includes("? hotBestPlay && !bestPlayOddsFailure")) {
-  throw new Error("Best Play preliminary selection target not found");
-}
+// Do not rewrite Best Play qualification here. The selector in route.ts now
+// owns the tiered rolling Last-7 policy (HOT / NEUTRAL / SAMPLE, with COLD
+// blocked) and its existing protectionReasons already enforce hard wager
+// protections such as the price cap. The legacy HOT-only replacement that used
+// to run before this script has been disabled, so looking for its generated
+// bestPlayOddsFailure block would make every build fail before Next.js starts.
 
 if (changed) {
   fs.writeFileSync(path, text, "utf8");
-  console.log("Applied candidate-level Trend Play locks, frozen-trend finalization trigger, and global -150 AI price cap.");
+  console.log("Applied candidate-level Trend Play locks and frozen-trend finalization trigger while preserving tiered EZPZ Picks qualification.");
 } else {
-  console.log("Candidate-level Trend Play locks, frozen-trend finalization trigger, and -150 AI price cap already applied.");
+  console.log("Candidate-level Trend Play locks and frozen-trend finalization trigger already applied; tiered EZPZ Picks qualification preserved.");
 }
