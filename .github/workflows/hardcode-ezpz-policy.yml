@@ -1,7 +1,5 @@
-name: Finalize direct EZPZ source policy
+name: Finalize EZPZ source policy
 
-# One-time source cleanup. This edits and commits the actual TypeScript policy;
-# normal builds do not run a policy patch chain.
 on:
   push:
     paths:
@@ -16,125 +14,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Make HOT and Trend gates explicit in source
-        shell: bash
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-
-          path = Path("app/api/public-data/route.ts")
-          text = path.read_text()
-
-          # Rewrite the active Last-7 Best Play gate as a single HOT-only path.
-          fn_start = text.index("function aiRecordAdjustments(")
-          fn_end = text.index("\nfunction aiApplyMarketContext", fn_start)
-          fn = text[fn_start:fn_end]
-          tail_start = fn.index('  if (form !== EZPZ_BEST_PLAY_POLICY.requiredForm) {')
-          prefix = fn[:tail_start]
-          prefix = prefix.replace(
-              "  // Every Best Play market uses the same rolling Last-7-Bets qualification\n"
-              "  // system displayed on the public site. This includes pitcher props, A/B\n"
-              "  // Moneylines, Total Over/Under, and Elite NRFI/YRFI. Historical form changes\n"
-              "  // the mandatory score/probability/advantage gates; it does not inflate the\n"
-              "  // underlying EZPZ score. Cold buckets are deterministically excluded until\n"
-              "  // their rolling seven naturally improves.\n",
-              "  // Every Best Play market uses the same rolling Last-7-Bets form. The\n"
-              "  // Best Play EZPZ path is deliberately HOT-only: seven completed bets are\n"
-              "  // required and at least five of those seven must be wins. Neutral, Cold,\n"
-              "  // and Small Sample can never qualify through the Best Play path.\n",
-          )
-          strict_tail = '''  if (form !== EZPZ_BEST_PLAY_POLICY.requiredForm) {
-    const formLabel =
-      form === "NEUTRAL"
-        ? "Neutral"
-        : form === "COLD"
-          ? "Cold"
-          : "Need 7 Bets";
-    const reason =
-      `${recordType} Last 7 Bets is ${formLabel} (${lastSeven.record}); ` +
-      "Best Play EZPZ Picks are HOT-only (7 completed bets with 5+ wins)";
-
-    candidate.historicalNotes.push(
-      form === "SAMPLE"
-        ? `${recordType} Last 7 Bets: Need 7 Bets • ${lastSeven.totalBets}/7 completed`
-        : `${recordType} Last 7 Bets: ${formLabel} • ${lastSeven.record}`,
-    );
-
-    // Best + Trend is two independent paths. A non-HOT Best Play cannot qualify
-    // through Best Play, but it must not erase a separately valid Trend path.
-    if (candidate.trendPlay) {
-      candidate.dataStatus.push(
-        `${reason} • Best Play path excluded; Trend path remains independently eligible`,
-      );
-    } else {
-      candidate.protectionReasons.push(reason);
-      candidate.dataStatus.push(`${reason} • blocked`);
-    }
-    return;
-  }
-
-  candidate.dataStatus.push(
-    `${recordType} Last 7 Bets: Hot • ${lastSeven.record} • minimum score ${profile.score} • minimum probability ${profile.probability}% • minimum advantage ${profile.advantage}%`,
-  );
-  candidate.historicalNotes.push(
-    `${recordType} Last 7 Bets: Hot • ${lastSeven.record}`,
-  );
-  candidate.whySelected.push(
-    `${recordType} is Hot over its last 7 completed bets (${lastSeven.record}); Best Play gates are score 74+, estimated probability 50%+, estimated advantage 1.5%+, and odds no worse than -150`,
-  );
-}'''
-          text = text[:fn_start] + prefix + strict_tail + text[fn_end:]
-
-          # Make Trend final qualification defensive as well as upstream: the
-          # candidate must still be an official non-Pass Trend and every active
-          # signal must still be green at final selection.
-          final_start = text.index("function finalizeAiCandidates(")
-          final_end = text.index("\nfunction aiFullGameMarketSourceRank", final_start)
-          finalizer = text[final_start:final_end]
-          old = '''    const qualifiesByTrend =
-      trendBacked &&
-      rawTrendScore >= 69 &&
-      aiScore >= 80;'''
-          new = '''    const trendSignalsAllGreen = Boolean(
-      candidate.trendPlay && aiTrendSignalsAllGreen(candidate.trendPlay),
-    );
-    const qualifiesByTrend =
-      trendBacked &&
-      trendSignalsAllGreen &&
-      candidate.trendPlay?.tier !== "Pass" &&
-      rawTrendScore >= 69 &&
-      aiScore >= 80;'''
-          if old not in finalizer:
-              raise SystemExit("Could not find Trend final qualification block")
-          finalizer = finalizer.replace(old, new, 1)
-          text = text[:final_start] + finalizer + text[final_end:]
-
-          # Source-level invariants: these must all be visible in route.ts itself.
-          required = [
-              'requiredForm: "HOT" as const',
-              'maxFavoritePrice: -150',
-              'minimumNetRoiAdvantage: 10',
-              'if (form !== EZPZ_BEST_PLAY_POLICY.requiredForm)',
-              'candidate.trendPlay?.tier !== "Pass"',
-              'aiTrendSignalsAllGreen(candidate.trendPlay)',
-              'netRoiAdvantage >= EZPZ_TREND_POLICY.minimumNetRoiAdvantage',
-              'signals.every((signal) => signal.tone === "positive")',
-          ]
-          for marker in required:
-              if marker not in text:
-                  raise SystemExit(f"Missing direct-source invariant: {marker}")
-
-          path.write_text(text)
-          PY
-
+      - name: Finalize source rules
+        run: node scripts/hardcode_ezpz_policy_source.mjs
       - name: Install dependencies
         run: npm install --ignore-scripts --package-lock=false
-
-      - name: Type-check production build
+      - name: Verify production build
         run: npm run build
-
-      - name: Commit source policy
+      - name: Commit source rules
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
