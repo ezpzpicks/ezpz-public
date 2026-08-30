@@ -1,0 +1,501 @@
+name: Hard-code EZPZ policy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/hardcode-ezpz-policy.yml
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Materialize current build patches into source
+        run: npm run prebuild
+
+      - name: Hard-code EZPZ qualification rules
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+          import re
+
+          route_path = Path("app/api/public-data/route.ts")
+          page_path = Path("app/page.tsx")
+          package_path = Path("package.json")
+
+          route = route_path.read_text()
+          page = page_path.read_text()
+
+          def replace_once(text, old, new, label):
+              if old not in text:
+                  raise SystemExit(f"Missing migration target: {label}")
+              return text.replace(old, new, 1)
+
+          def regex_once(text, pattern, replacement, label):
+              next_text, count = re.subn(pattern, replacement, text, count=1, flags=re.S)
+              if count != 1:
+                  raise SystemExit(f"Expected one migration target for {label}; found {count}")
+              return next_text
+
+          # The build-time patches are intentionally run once above so their current
+          # effective behavior is committed to source. These assertions prevent a
+          # partial migration if a prerequisite build patch ever stops applying.
+          required_materialized = [
+              "All-time is display-only for trend grading",
+              "Recent-window availability, not all-time history, chooses the grading scope.",
+              "netRoiAdvantage >= 10",
+              "function aiTrendSignalsAllGreen(play: TrendPlay)",
+              "playableOdds < -150",
+              "function finalizeAiCandidates(",
+          ]
+          for marker in required_materialized:
+              if marker not in route:
+                  raise SystemExit(f"Expected materialized source marker is missing: {marker}")
+          if "netRoiAdvantage >= 10" not in page:
+              raise SystemExit("Expected materialized +10% net ROI gate is missing from page.tsx")
+
+          route = re.sub(
+              r'const AI_PICK_SELECTOR_VERSION = "[^"]+";',
+              'const AI_PICK_SELECTOR_VERSION = "ezpz-picks-hardcoded-v6-hot-only-roi10";',
+              route,
+              count=1,
+          )
+
+          policy_anchor = "const AI_MINIMUM_ESTIMATED_ADVANTAGE = 5;\n"
+          policy_block = '''const AI_MINIMUM_ESTIMATED_ADVANTAGE = 5;
+
+// EZPZ Picks qualification policy is source-controlled here. Do not move these
+// rules back into build-time patch scripts.
+const EZPZ_BEST_PLAY_POLICY = {
+  requiredForm: "HOT" as const,
+  maxFavoritePrice: -150,
+  minimumScore: 74,
+  minimumProbability: 50,
+  minimumAdvantage: 1.5,
+};
+
+const EZPZ_TREND_POLICY = {
+  requireAllSignalsGreen: true,
+  minimumNetRoiAdvantage: 10,
+};
+'''
+          if "const EZPZ_BEST_PLAY_POLICY" not in route:
+              route = replace_once(route, policy_anchor, policy_block, "policy constants")
+
+          # Best Plays have one and only one qualification profile: HOT.
+          route = regex_once(
+              route,
+              r'function aiPitcherRequiredScore\([\s\S]*?\n}\n\n(?=type AiPitcherQualificationProfile)',
+              '''function aiPitcherRequiredScore(
+  _record: RecordTotals,
+  _form: AiPitcherBetTypeForm,
+) {
+  return EZPZ_BEST_PLAY_POLICY.minimumScore;
+}
+
+''',
+              "Best Play required score",
+          )
+          route = regex_once(
+              route,
+              r'function aiPitcherQualificationProfile\([\s\S]*?\n}\n\n(?=function aiHistoricalRecordType)',
+              '''function aiPitcherQualificationProfile(
+  _form: AiPitcherBetTypeForm | undefined,
+  _record: RecordTotals | null = null,
+): AiPitcherQualificationProfile {
+  return {
+    score: EZPZ_BEST_PLAY_POLICY.minimumScore,
+    probability: EZPZ_BEST_PLAY_POLICY.minimumProbability,
+    advantage: EZPZ_BEST_PLAY_POLICY.minimumAdvantage,
+    enforceProbability: true,
+  };
+}
+
+''',
+              "Best Play qualification profile",
+          )
+
+          record_adjustments = '''function aiRecordAdjustments(candidate: AiSelectorCandidate, completedTrackerRows: SheetRow[]) {
+  const recordType = aiHistoricalRecordType(candidate);
+  if (!recordType) return;
+
+  // Trend-only candidates use the independent Trend Play path below. The HOT
+  // Last-7 rule applies only to candidates backed by a Best Play.
+  if (!candidate.bestPlayType) {
+    candidate.dataStatus.push(
+      "Trend-only candidate: Best Play HOT gate does not apply",
+    );
+    return;
+  }
+
+  const lastSeven = aiLastSevenBetsSummaryForType(completedTrackerRows, recordType);
+  const form = aiPitcherBetTypeForm(lastSeven);
+  candidate.pitcherBetTypeForm = form;
+  candidate.pitcherBetTypeRecord = lastSeven.record;
+  candidate.pitcherRequiredScore = EZPZ_BEST_PLAY_POLICY.minimumScore;
+
+  const formLabel =
+    form === "HOT"
+      ? "Hot"
+      : form === "NEUTRAL"
+        ? "Neutral"
+        : form === "COLD"
+          ? "Cold"
+          : "Need 7 Bets";
+
+  candidate.historicalNotes.push(
+    form === "SAMPLE"
+      ? `${recordType} Last 7 Bets: Need 7 Bets • ${lastSeven.totalBets}/7 completed`
+      : `${recordType} Last 7 Bets: ${formLabel} • ${lastSeven.record}`,
+  );
+
+  if (form !== EZPZ_BEST_PLAY_POLICY.requiredForm) {
+    candidate.protectionReasons.push(
+      `${recordType} is ${formLabel} over its rolling Last 7 (${lastSeven.record}); Best Play EZPZ Picks require HOT form (5+ wins in 7 completed bets)`,
+    );
+    candidate.dataStatus.push(
+      `${recordType} Last 7 Bets: ${formLabel} • ${lastSeven.record} • blocked because Best Plays are HOT-only`,
+    );
+    return;
+  }
+
+  candidate.dataStatus.push(
+    `${recordType} Last 7 Bets: Hot • ${lastSeven.record} • minimum score ${EZPZ_BEST_PLAY_POLICY.minimumScore} • minimum probability ${EZPZ_BEST_PLAY_POLICY.minimumProbability}% • minimum advantage ${EZPZ_BEST_PLAY_POLICY.minimumAdvantage}%`,
+  );
+  candidate.whySelected.push(
+    `${recordType} is HOT over its last 7 completed bets (${lastSeven.record}); Best Play gates are score ${EZPZ_BEST_PLAY_POLICY.minimumScore}+, estimated probability ${EZPZ_BEST_PLAY_POLICY.minimumProbability}%+, estimated advantage ${EZPZ_BEST_PLAY_POLICY.minimumAdvantage}%+, and odds no worse than ${EZPZ_BEST_PLAY_POLICY.maxFavoritePrice}`,
+  );
+}
+function aiApplyMarketContext'''
+          route = regex_once(
+              route,
+              r'function aiRecordAdjustments\([\s\S]*?\n}\nfunction aiApplyMarketContext',
+              record_adjustments,
+              "HOT-only record adjustment gate",
+          )
+
+          # The -150 cap was previously injected by a build patch. It is now a
+          # direct source-level selector protection rule.
+          route = route.replace(
+              "playableOdds < -150",
+              "playableOdds < EZPZ_BEST_PLAY_POLICY.maxFavoritePrice",
+          )
+          if "playableOdds < EZPZ_BEST_PLAY_POLICY.maxFavoritePrice" not in route:
+              raise SystemExit("Failed to hard-code the -150 odds cap")
+
+          # The +10% net ROI rule was previously injected by a build patch. Keep
+          # its existing recent-window calculation, but bind the threshold to the
+          # source-controlled EZPZ Trend policy constant.
+          route = route.replace(
+              "netRoiAdvantage >= 10",
+              "netRoiAdvantage >= EZPZ_TREND_POLICY.minimumNetRoiAdvantage",
+          )
+          if "netRoiAdvantage >= EZPZ_TREND_POLICY.minimumNetRoiAdvantage" not in route:
+              raise SystemExit("Failed to hard-code Trend +10% net ROI gate")
+
+          # Make the all-green rule explicit and permanent in source.
+          route = regex_once(
+              route,
+              r'function aiTrendSignalsAllGreen\(play: TrendPlay\) \{[\s\S]*?\n}\n',
+              '''function aiTrendSignalsAllGreen(play: TrendPlay) {
+  const signals = play.signals || [];
+  // Every active Trend signal must be green/positive. One neutral or red signal
+  // makes the wager ineligible for the Trend EZPZ Picks path.
+  return (
+    EZPZ_TREND_POLICY.requireAllSignalsGreen &&
+    signals.length > 0 &&
+    signals.every((signal) => signal.tone === "positive")
+  );
+}
+''',
+              "all-green Trend gate",
+          )
+
+          # Replace the final selector with a single source-level policy. Best
+          # Plays can qualify only through HOT; Trend Plays remain independent
+          # and can qualify only after their all-green/+10% ROI trend grading.
+          deterministic_finalizer = '''function finalizeAiCandidates(
+  candidates: AiSelectorCandidate[],
+  _externalReviews: Map<string, AiExternalReview>,
+  _externalStatus: AiPickExternalStatus,
+  snapshotStatus: AiPickSnapshotStatus,
+  _reviewErrors: Map<string, string> = new Map(),
+) {
+  const finalized = candidates.map((candidate) => {
+    const trendBlend = aiTrendBlendWeights(candidate.trendPlay);
+    const baseScore = candidate.source === "Best + Trend"
+      ? candidate.modelScore * trendBlend.modelWeight +
+        candidate.trendScore * trendBlend.trendWeight
+      : candidate.source === "Trend Play" && !candidate.bestPlayType
+        ? aiTrendOnlyBaseScore(candidate.trendScore)
+        : candidate.modelScore || candidate.trendScore;
+    const aiScore = clampScore(baseScore + candidate.scoreAdjustment);
+    const estimatedProbability = aiRound(
+      aiClamp(candidate.baselineProbability + candidate.probabilityAdjustment, 40, 82),
+      1,
+    );
+    const implied = candidate.marketImpliedProbability || aiImpliedProbability(candidate.odds);
+    const advantage = implied ? aiRound(estimatedProbability - implied, 1) : 0;
+
+    const blocked = candidate.protectionReasons.length > 0;
+    const bestPlayBacked = Boolean(candidate.bestPlayType);
+    const trendBacked = Boolean(candidate.trendPlay);
+    const rawTrendScore = Number(candidate.trendScore || 0);
+    const hotBestPlay =
+      candidate.pitcherBetTypeForm === EZPZ_BEST_PLAY_POLICY.requiredForm;
+    const trendSignalsAllGreen = Boolean(
+      candidate.trendPlay && aiTrendSignalsAllGreen(candidate.trendPlay),
+    );
+
+    const qualifiesByBestPlay =
+      bestPlayBacked &&
+      hotBestPlay &&
+      aiScore >= EZPZ_BEST_PLAY_POLICY.minimumScore &&
+      estimatedProbability >= EZPZ_BEST_PLAY_POLICY.minimumProbability &&
+      (!implied || advantage >= EZPZ_BEST_PLAY_POLICY.minimumAdvantage);
+
+    // A non-Pass Trend tier is produced only after the source-level head-to-head
+    // gate confirms positive selected-side ROI, at least +10% net ROI versus the
+    // opposing side, and the existing opposing-Last-7-green veto. The selector
+    // additionally requires every active trend signal to be green.
+    const qualifiesByTrend =
+      trendBacked &&
+      trendSignalsAllGreen &&
+      candidate.trendPlay?.tier !== "Pass" &&
+      rawTrendScore >= 69 &&
+      aiScore >= 80;
+
+    const preliminarySelected =
+      !blocked && (qualifiesByBestPlay || qualifiesByTrend);
+
+    let thresholdFailure = "";
+    if (!preliminarySelected && !blocked) {
+      const failures: string[] = [];
+      if (bestPlayBacked) {
+        if (!hotBestPlay) {
+          failures.push(
+            (candidate.bestPlayType || "Best Play") +
+              " is not HOT over its rolling Last 7; Best Play EZPZ Picks are HOT-only",
+          );
+        } else if (aiScore < EZPZ_BEST_PLAY_POLICY.minimumScore) {
+          failures.push(
+            "qualification score " + aiScore +
+              " did not reach the " + EZPZ_BEST_PLAY_POLICY.minimumScore +
+              " HOT Best Play requirement",
+          );
+        } else if (
+          estimatedProbability < EZPZ_BEST_PLAY_POLICY.minimumProbability
+        ) {
+          failures.push(
+            "Estimated probability " + estimatedProbability.toFixed(1) +
+              "% did not reach " + EZPZ_BEST_PLAY_POLICY.minimumProbability.toFixed(1) +
+              "% for the HOT Best Play path",
+          );
+        } else if (
+          implied && advantage < EZPZ_BEST_PLAY_POLICY.minimumAdvantage
+        ) {
+          failures.push(
+            "Estimated advantage " + advantage.toFixed(1) +
+              "% did not reach " + EZPZ_BEST_PLAY_POLICY.minimumAdvantage.toFixed(1) +
+              "% for the HOT Best Play path",
+          );
+        }
+      }
+      if (trendBacked) {
+        if (!trendSignalsAllGreen) {
+          failures.push("Trend Play did not have all active trend signals green");
+        } else if (candidate.trendPlay?.tier === "Pass") {
+          failures.push(
+            "Trend Play did not pass the positive-ROI / +10% net ROI head-to-head gate",
+          );
+        } else if (rawTrendScore < 69) {
+          failures.push(
+            "Trend score " + rawTrendScore +
+              " did not reach the 69 Strong-trend minimum",
+          );
+        } else if (aiScore < 80) {
+          failures.push(
+            "qualification score " + aiScore +
+              " did not reach the 80 Trend Play requirement",
+          );
+        }
+      }
+      thresholdFailure = failures.join(" • ") ||
+        "This wager does not currently meet an EZPZ Picks qualification path";
+    }
+
+    const rejectionReason = blocked
+      ? candidate.protectionReasons.join(" • ")
+      : thresholdFailure;
+
+    const liveQualificationNote =
+      snapshotStatus === "LIVE" && preliminarySelected
+        ? qualifiesByBestPlay && qualifiesByTrend
+          ? "Live preview: qualifies through both the HOT Best Play and all-green/+10% net ROI Trend Play paths; it locks from the frozen 15-minute pregame snapshot if at least one path still passes."
+          : qualifiesByBestPlay
+            ? "Live preview: qualifies through the HOT Best Play path; it locks from the frozen 15-minute pregame snapshot if that path still passes."
+            : "Live preview: qualifies through the all-green/+10% net ROI Trend Play path; it locks from the frozen 15-minute pregame snapshot if that path still passes."
+        : "";
+
+    return {
+      ...candidate,
+      aiScore,
+      estimatedProbability,
+      marketImpliedProbability: implied,
+      estimatedAdvantage: advantage,
+      selected: preliminarySelected,
+      protectionStatus: blocked ? "BLOCKED" as const : "PASSED" as const,
+      rejectionReason,
+      confidenceReason: sanitizeAiPublicList(candidate.confidenceReason, 6),
+      whySelected: sanitizeAiPublicList(
+        liveQualificationNote
+          ? [liveQualificationNote, ...candidate.whySelected]
+          : candidate.whySelected,
+        14,
+      ),
+      historicalNotes: sanitizeAiPublicList(candidate.historicalNotes, 5),
+      risks: [],
+      researchSummary: sanitizeAiPublicText(candidate.researchSummary),
+      verdict: sanitizeAiPublicText(candidate.verdict),
+      dataStatus: [
+        ...new Set(
+          [liveQualificationNote, ...candidate.dataStatus].filter(Boolean),
+        ),
+      ].slice(0, 5),
+      externalReviewStatus: "NOT_REQUIRED" as const,
+      snapshotStatus,
+      lockedAt: snapshotStatus === "FINAL_PREGAME" ? nowET() : "",
+      updatedAt: nowET(),
+    };
+  });
+
+  const publicPicks = finalized.map(({
+    slateRow,
+    bestPlay,
+    trendPlay,
+    baselineProbability,
+    scoreAdjustment,
+    probabilityAdjustment,
+    protectionReasons,
+    ...pick
+  }) => pick as AiPick);
+
+  return applyAiFullGameMarketLimit(publicPicks);
+}
+
+'''
+          route = regex_once(
+              route,
+              r'function finalizeAiCandidates\([\s\S]*?\nfunction aiFullGameMarketSourceRank',
+              deterministic_finalizer + 'function aiFullGameMarketSourceRank',
+              "final HOT-only / Trend selector",
+          )
+
+          # Stored FINAL_PREGAME Best Play rows get the exact same HOT-only
+          # recheck before first pitch. This prevents an older Neutral/Sample
+          # decision from being restored by legacy thresholds.
+          stored_failure = '''  let failure = "";
+  if (form !== EZPZ_BEST_PLAY_POLICY.requiredForm) {
+    failure = `${recordType} is ${formLabel} over its rolling Last 7 (${lastSeven.record}); Best Play EZPZ Picks require HOT form (5+ wins in 7 completed bets)`;
+  } else if (pick.aiScore < EZPZ_BEST_PLAY_POLICY.minimumScore) {
+    failure = `qualification score ${pick.aiScore} no longer reaches the ${EZPZ_BEST_PLAY_POLICY.minimumScore}+ HOT Best Play requirement for ${recordType} (${lastSeven.record})`;
+  } else if (
+    pick.estimatedProbability < EZPZ_BEST_PLAY_POLICY.minimumProbability
+  ) {
+    failure = `Estimated probability ${pick.estimatedProbability.toFixed(1)}% no longer reaches the ${EZPZ_BEST_PLAY_POLICY.minimumProbability}% HOT Best Play requirement for ${recordType} (${lastSeven.record})`;
+  } else if (
+    hasMarketImpliedProbability &&
+    pick.estimatedAdvantage < EZPZ_BEST_PLAY_POLICY.minimumAdvantage
+  ) {
+    failure = `Estimated advantage ${pick.estimatedAdvantage.toFixed(1)}% no longer reaches the ${EZPZ_BEST_PLAY_POLICY.minimumAdvantage.toFixed(1)}% HOT Best Play requirement for ${recordType} (${lastSeven.record})`;
+  }
+
+  const cleanedStatus ='''
+          route = regex_once(
+              route,
+              r'  let failure = "";[\s\S]*?\n\n  const cleanedStatus =',
+              stored_failure,
+              "stored HOT-only recheck",
+          )
+
+          # Remove stale prompt copy that described Neutral and Sample as valid
+          # Best Play paths. The legacy review helper is no longer the selector,
+          # but its text should not contradict the source policy.
+          route = route.replace(
+              "Hot = 74 score / 50% probability / 1.5% advantage; Neutral = 80 / 52.5% / 3.25%; Small Sample = 86 / 55% / 5%; Cold is excluded before review.",
+              "Best Play eligibility is HOT-only: HOT requires 74 score / 50% probability / 1.5% advantage, and odds no worse than -150. Neutral, Small Sample, and Cold are ineligible for the Best Play path.",
+          )
+
+          # Page trend grading was materialized above. Keep its +10% threshold
+          # directly in source; no prebuild script will rewrite it anymore.
+          if "netRoiAdvantage >= 10" not in page:
+              raise SystemExit("page.tsx lost the +10% net ROI source gate")
+
+          # Final policy invariants: fail the migration rather than commit a mixed
+          # or legacy selector.
+          invariants = [
+              'requiredForm: "HOT" as const',
+              'maxFavoritePrice: -150',
+              'minimumNetRoiAdvantage: 10',
+              'playableOdds < EZPZ_BEST_PLAY_POLICY.maxFavoritePrice',
+              'form !== EZPZ_BEST_PLAY_POLICY.requiredForm',
+              'aiTrendSignalsAllGreen(candidate.trendPlay)',
+              'netRoiAdvantage >= EZPZ_TREND_POLICY.minimumNetRoiAdvantage',
+              'candidate.trendPlay?.tier !== "Pass"',
+          ]
+          for marker in invariants:
+              if marker not in route:
+                  raise SystemExit(f"Final policy invariant missing: {marker}")
+
+          route_path.write_text(route)
+          page_path.write_text(page)
+
+          # Build patches are now fully materialized in tracked source. Removing
+          # the lifecycle hook ensures Vercel/Next builds compile exactly what is
+          # committed instead of silently mutating policy at build time.
+          package = json.loads(package_path.read_text())
+          package.setdefault("scripts", {}).pop("prebuild", None)
+          package_path.write_text(json.dumps(package, indent=2) + "\n")
+          PY
+
+      - name: Verify direct-source policy
+        run: |
+          grep -q 'requiredForm: "HOT" as const' app/api/public-data/route.ts
+          grep -q 'maxFavoritePrice: -150' app/api/public-data/route.ts
+          grep -q 'minimumNetRoiAdvantage: 10' app/api/public-data/route.ts
+          grep -q 'netRoiAdvantage >= EZPZ_TREND_POLICY.minimumNetRoiAdvantage' app/api/public-data/route.ts
+          grep -q 'signals.every((signal) => signal.tone === "positive")' app/api/public-data/route.ts
+          ! grep -q '"prebuild"' package.json
+
+      - name: Install dependencies for build check
+        run: npm install --ignore-scripts --package-lock=false
+
+      - name: Build from committed source only
+        run: npm run build
+
+      - name: Commit migrated source
+        run: |
+          git config user.name "ezpzpicks"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No migration changes to commit."
+            exit 0
+          fi
+          git commit -m "Hard-code EZPZ HOT and trend qualification rules"
+          git push origin main
