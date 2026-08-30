@@ -1,6 +1,7 @@
 name: Hard-code EZPZ policy
 
 # One-time migration. Updating this file triggers the materialization job.
+# Retry 2: source migration now ignores non-policy display-copy differences.
 on:
   push:
     paths:
