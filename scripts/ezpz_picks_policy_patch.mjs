@@ -38,7 +38,7 @@ function patchRoute(text) {
 
   // This is the final selector-policy pass in prebuild. Earlier legacy patches
   // still contain old external-review/HOT-only code and can leave dangling
-  // `review` references after the deterministic-review cleanup. Replace the
+  // review references after the deterministic-review cleanup. Replace the
   // complete finalizer here so production always uses one coherent policy.
   //
   // Best Play path:
@@ -108,33 +108,42 @@ function patchRoute(text) {
       if (bestPlayBacked) {
         if (coldBestPlay) {
           failures.push(
-            `${candidate.bestPlayType || "Best Play"} is Cold over its rolling Last 7 and is excluded from the Best Play qualification path`,
+            (candidate.bestPlayType || "Best Play") +
+              " is Cold over its rolling Last 7 and is excluded from the Best Play qualification path",
           );
         } else if (aiScore < bestPlayRequiredScore) {
           failures.push(
-            `qualification score ${aiScore} did not reach the ${bestPlayRequiredScore} Best Play requirement`,
+            "qualification score " + aiScore +
+              " did not reach the " + bestPlayRequiredScore +
+              " Best Play requirement",
           );
         } else if (
           bestPlayProfile.enforceProbability &&
           estimatedProbability < bestPlayProfile.probability
         ) {
           failures.push(
-            `Estimated probability ${estimatedProbability.toFixed(1)}% did not reach ${bestPlayProfile.probability.toFixed(1)}% for the Best Play path`,
+            "Estimated probability " + estimatedProbability.toFixed(1) +
+              "% did not reach " + bestPlayProfile.probability.toFixed(1) +
+              "% for the Best Play path",
           );
         } else if (implied && advantage < bestPlayProfile.advantage) {
           failures.push(
-            `Estimated advantage ${advantage.toFixed(1)}% did not reach ${bestPlayProfile.advantage.toFixed(2)}% for the Best Play path`,
+            "Estimated advantage " + advantage.toFixed(1) +
+              "% did not reach " + bestPlayProfile.advantage.toFixed(2) +
+              "% for the Best Play path",
           );
         }
       }
       if (trendBacked) {
         if (rawTrendScore < 69) {
           failures.push(
-            `Trend score ${rawTrendScore} did not reach the 69 Strong-trend minimum`,
+            "Trend score " + rawTrendScore +
+              " did not reach the 69 Strong-trend minimum",
           );
         } else if (aiScore < 80) {
           failures.push(
-            `qualification score ${aiScore} did not reach the 80 Trend Play requirement`,
+            "qualification score " + aiScore +
+              " did not reach the 80 Trend Play requirement",
           );
         }
       }
@@ -151,7 +160,9 @@ function patchRoute(text) {
         ? qualifiesByBestPlay && qualifiesByTrend
           ? "Live preview: qualifies through both the Best Play and Strong/Elite Trend Play paths; it locks from the frozen 15-minute pregame snapshot if at least one path still passes."
           : qualifiesByBestPlay
-            ? `Live preview: qualifies through the ${candidate.pitcherBetTypeForm || "SAMPLE"} Best Play path; it locks from the frozen 15-minute pregame snapshot if that path still passes.`
+            ? "Live preview: qualifies through the " +
+              (candidate.pitcherBetTypeForm || "SAMPLE") +
+              " Best Play path; it locks from the frozen 15-minute pregame snapshot if that path still passes."
             : "Live preview: qualifies through the Strong/Elite Trend Play path; it locks from the frozen 15-minute pregame snapshot if that path still passes."
         : "";
 
