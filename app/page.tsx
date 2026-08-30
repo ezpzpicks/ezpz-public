@@ -1,5 +1,7 @@
 "use client";
 
+import FootballBoard from "./FootballBoard";
+
 import {
   type ReactNode,
   useCallback,
@@ -38,7 +40,7 @@ type PublicSignalTone = "negative" | "caution" | "positive" | "neutral";
 type DraftKingsSignalResult = {
   date: string;
   game: string;
-  market: "Moneyline" | "Total";
+  market: "Moneyline" | "Spread" | "Total";
   selection: string;
   sideGroup: "Favorite" | "Underdog" | "Over" | "Under" | "";
   betType: string;
@@ -58,7 +60,7 @@ type TrendRecordResult = {
   game: string;
   gameKey: string;
   gameTime: string;
-  market: "Moneyline" | "Total";
+  market: "Moneyline" | "Spread" | "Total";
   selection: string;
   result: "W" | "L" | "P";
   odds: number;
@@ -112,7 +114,7 @@ type TrendPlay = {
   game: string;
   awayTeam: string;
   homeTeam: string;
-  market: "Moneyline" | "Total";
+  market: "Moneyline" | "Spread" | "Total";
   selection: string;
   selectionTeam: string;
   side: "Over" | "Under" | "";
@@ -155,7 +157,8 @@ type AiPickExternalStatus =
   | "WEB_REVIEWED"
   | "NO_VERIFIED_CONTEXT"
   | "NOT_CONFIGURED"
-  | "REVIEW_ERROR";
+  | "REVIEW_ERROR"
+  | "NOT_REQUIRED";
 
 type AiPick = {
   candidateId: string;
@@ -290,7 +293,7 @@ type DraftKingsSplit = {
   game: string;
   awayTeam: string;
   homeTeam: string;
-  market: "Moneyline" | "Run Line" | "Total";
+  market: "Moneyline" | "Run Line" | "Spread" | "Total";
   selection: string;
   selectionTeam: string;
   side: "Over" | "Under" | "";
@@ -350,7 +353,7 @@ type DraftKingsData = {
 };
 
 type Sport = "MLB" | "NFL" | "NCAAF" | "NCAAM";
-type Tab = "Today’s Best Plays" | "Today’s Trend Plays" | "EZPZ AI Picks" | "Full Slate" | "Records";
+type Tab = "Today’s Best Plays" | "Today’s Trend Plays" | "EZPZ Picks" | "Full Slate" | "Records";
 
 type SportMeta = {
   name: string;
@@ -360,7 +363,7 @@ type SportMeta = {
 };
 
 const SPORTS: Sport[] = ["MLB", "NFL", "NCAAF", "NCAAM"];
-const TABS: Tab[] = ["Today’s Best Plays", "Today’s Trend Plays", "EZPZ AI Picks", "Full Slate", "Records"];
+const TABS: Tab[] = ["Today’s Best Plays", "Today’s Trend Plays", "EZPZ Picks", "Full Slate", "Records"];
 
 const SPORT_META: Record<Sport, SportMeta> = {
   MLB: {
@@ -373,16 +376,16 @@ const SPORT_META: Record<Sport, SportMeta> = {
   NFL: {
     name: "NFL",
     shortName: "NFL",
-    status: "Preseason development",
+    status: "Live model",
     description:
-      "Matchup-adjusted spreads, moneylines, totals, projected scores, and personnel reliability.",
+      "Regression spreads and totals, price-aware markets, projected scores, personnel reliability, and sport-specific trend records.",
   },
   NCAAF: {
     name: "College Football",
     shortName: "NCAAF",
-    status: "Preseason development",
+    status: "Live model",
     description:
-      "Opponent-adjusted team strength, projected possessions, availability, and game-environment modeling.",
+      "Regression-based margins, calibrated spread uncertainty, totals, availability, and sport-specific trend records.",
   },
   NCAAM: {
     name: "College Basketball",
@@ -1645,7 +1648,7 @@ function sameDraftKingsGame(
 
 function liveSplitsForRow(
   row: SheetRow | undefined,
-  market: "Moneyline" | "Total",
+  market: "Moneyline" | "Spread" | "Total",
   draftKings?: DraftKingsData | null,
 ) {
   return (draftKings?.splits || [])
@@ -2421,8 +2424,8 @@ function calculateAiPickRecord(
 ) {
   const totals = emptyRecord(
     mode === "last7"
-      ? "EZPZ AI Picks - Last 7 Days"
-      : "EZPZ AI Picks - Running Total",
+      ? "EZPZ Picks - Last 7 Days"
+      : "EZPZ Picks - Running Total",
   );
   if (!rows?.length) return totals;
 
@@ -2976,6 +2979,55 @@ function favoriteKeyFromPlay(play: Play, today: string) {
   return `OTHER|${dateKey}|${type}|${favoriteKeyText(play.play)}`;
 }
 
+function favoriteKeyFromAiPick(pick: AiPick, today: string) {
+  const dateKey = favoriteDateKey(today || pick.date);
+  const type = normalizeType(pick.bestPlayType || pick.selection || pick.play || "");
+
+  if (pick.market === "Moneyline" || isMoneylineType(type)) {
+    const team = cleanMoneylineTeam(pick.selection || pick.play || "");
+    return team ? "ML|" + dateKey + "|" + favoriteKeyText(team) : "";
+  }
+
+  if (pick.market === "Pitcher Strikeouts" || isKType(type)) {
+    const pitcher = pitcherNameKey(cleanPitcherName(pick.selection || pick.play || ""));
+    return pitcher ? "K|" + dateKey + "|" + pitcher : "";
+  }
+
+  if (pick.market === "First Inning" || isNRFIType(type)) {
+    const combined = normalizeType(
+      (pick.bestPlayType || "") + " " + (pick.selection || "") + " " + (pick.play || ""),
+    );
+    const firstInningType = isNRFIType(type)
+      ? type
+      : combined.includes("YRFI")
+        ? "YRFI"
+        : combined.includes("NRFI")
+          ? "NRFI"
+          : type;
+    return firstInningType
+      ? "FI|" + dateKey + "|" + firstInningType + "|" + favoriteKeyText(pick.game || pick.play)
+      : "";
+  }
+
+  if (pick.market === "Total" || isTotalType(type)) {
+    const combined = (
+      (pick.bestPlayType || "") + " " + (pick.selection || "") + " " + (pick.play || "")
+    ).toUpperCase();
+    const totalType = isTotalType(type)
+      ? type
+      : combined.includes("UNDER")
+        ? "TOTAL UNDER"
+        : combined.includes("OVER")
+          ? "TOTAL OVER"
+          : "";
+    return totalType
+      ? "TOTAL|" + dateKey + "|" + totalType + "|" + favoriteKeyText(pick.game || pick.play)
+      : "";
+  }
+
+  return "";
+}
+
 function buildFavoriteRowMap(rows: SheetRow[] | undefined, today: string) {
   const map = new Map<string, SheetRow>();
   if (!rows?.length || !today) return map;
@@ -3330,7 +3382,7 @@ function LiveMarketSplits({
   draftKings,
 }: {
   row: SheetRow;
-  market: "Moneyline" | "Total";
+  market: "Moneyline" | "Spread" | "Total";
   draftKings?: DraftKingsData | null;
 }) {
   const rows = liveSplitsForRow(row, market, draftKings);
@@ -3629,17 +3681,13 @@ function trendScaledScore(value: number, points: TrendScorePoint[]) {
   return last[1];
 }
 
-function trendWindowWeights(records: TrendWindowRecords) {
-  // No trend is penalized or disqualified for a small sample. The Last-7
-  // window simply earns more influence as recent decisions accumulate, reaching
-  // the full 50% recency weight at five decisions.
-  const last7Decisions = Number(records.last7.wins || 0) + Number(records.last7.losses || 0);
-  const last7Weight = Math.min(0.5, Math.max(0, last7Decisions) * 0.1);
-  const carry = (0.5 - last7Weight) / 2;
+function trendWindowWeights(_records: TrendWindowRecords) {
+  // All-time is display-only for trend grading. The live grade and ROI use only
+  // the two recent windows, with Last 7 weighted twice as heavily as Last 30.
   return [
-    { key: "allTime" as const, weight: 0.25 + carry },
-    { key: "last30" as const, weight: 0.25 + carry },
-    { key: "last7" as const, weight: last7Weight },
+    { key: "allTime" as const, weight: 0 },
+    { key: "last30" as const, weight: 1 / 3 },
+    { key: "last7" as const, weight: 2 / 3 },
   ];
 }
 
@@ -3769,13 +3817,26 @@ function scoreTrendMarketPlays(plays: TrendPlay[]): RankedTrendPlay[] {
     const rawGap = opponent ? metrics.score - opponent.metrics.score : 0;
     const comparisonWinner = Boolean(opponent && rawGap > 0.01);
     const comparisonGap = Math.abs(rawGap);
+    const candidateRoiPct = metrics.roiPct;
+    const opponentRoiPct = opponent?.metrics.roiPct ?? 0;
+    const netRoiAdvantage = opponent ? candidateRoiPct - opponentRoiPct : -Infinity;
+    const opponentLast7Green = Boolean(
+      opponent?.play.signals.some(
+        (signal) => trendRecordTone(signal.records.last7) === "positive",
+      ),
+    );
 
     // Head-to-head remains the directional qualifier, but it is only a
     // confirmation bonus to the historical score. The opposing-side gap can
     // add at most five points, preventing ordinary base scores from jumping to
     // 95-100 solely because the opposite side has poor history.
     const eligible = Boolean(
-      comparisonWinner && metrics.hasData && opponent?.metrics.hasData,
+      comparisonWinner &&
+        metrics.hasData &&
+        opponent?.metrics.hasData &&
+        candidateRoiPct > 0 &&
+        netRoiAdvantage >= 10 &&
+        !opponentLast7Green,
     );
     const comparisonBonus = Math.min(5, comparisonGap / 5);
     const winnerScore = clampScore(metrics.score + comparisonBonus);
@@ -4657,13 +4718,14 @@ function MarketPanel({
 }
 
 function aiExternalReviewLabel(status: AiPickExternalStatus) {
-  if (status === "WEB_REVIEWED") return "External context reviewed";
-  if (status === "NO_VERIFIED_CONTEXT") return "No verified outside context changed the play";
-  if (status === "PENDING_FINAL_REVIEW") return "External context review pending final snapshot";
-  if (status === "REVIEW_ERROR") return "External context review was unavailable";
-  return "External research is not configured";
+// NO_FINAL_AI_REVIEW_V1
+  if (status === "NOT_REQUIRED") return "Locked from the 15-minute qualification snapshot";
+  if (status === "WEB_REVIEWED") return "Legacy selector record";
+  if (status === "NO_VERIFIED_CONTEXT") return "Legacy selector record";
+  if (status === "PENDING_FINAL_REVIEW") return "Legacy selector record";
+  if (status === "REVIEW_ERROR") return "Legacy selector record";
+  return "Legacy selector record";
 }
-
 
 function cleanAiDisplayText(value: unknown) {
   return String(value || "")
@@ -4683,38 +4745,114 @@ function cleanAiDisplayList(values: string[] | undefined) {
   return [...new Set((values || []).map(cleanAiDisplayText).filter(Boolean))];
 }
 
+function aiSummaryRoi(summary: Summary | null) {
+  if (!summary || !summary.totalBets) return "—";
+  const value = Number(summary.roiPct || 0);
+  return (value > 0 ? "+" : "") + value.toFixed(1) + "%";
+}
+
+function aiSummaryRecord(summary: Summary | null) {
+  if (!summary || !summary.totalBets) return "—";
+  return summaryRecord(summary);
+}
+
+function aiTrendKey(value: unknown) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/\b(?:moneyline|ml)\b/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function aiTrendPlayForPick(pick: AiPick, trendPlays: TrendPlay[]) {
+  if (pick.market !== "Moneyline" && pick.market !== "Total") return null;
+  const sameMarket = trendPlays.filter(
+    (play) => aiTrendKey(play.game) === aiTrendKey(pick.game) && play.market === pick.market,
+  );
+  if (pick.market === "Total") {
+    const pickKey = aiTrendKey(pick.play + " " + pick.selection);
+    const wantedSide = pickKey.includes("under")
+      ? "under"
+      : pickKey.includes("over")
+        ? "over"
+        : "";
+    return sameMarket.find((play) => aiTrendKey(play.side) === wantedSide) || null;
+  }
+
+  const pickKey = aiTrendKey(pick.selection || pick.play);
+  return (
+    sameMarket.find((play) => {
+      const trendKey = aiTrendKey(play.selectionTeam || play.selection);
+      return Boolean(
+        trendKey &&
+          (pickKey === trendKey || pickKey.includes(trendKey) || trendKey.includes(pickKey)),
+      );
+    }) || null
+  );
+}
+
+function aiSignedPercent(value: number) {
+  return (value > 0 ? "+" : "") + value.toFixed(1) + "%";
+}
+
+function aiTrendNetRoiSummary(play: TrendPlay, trendPlays: TrendPlay[]) {
+  const candidateMetrics = trendPlayMetrics(play);
+  if (!candidateMetrics.hasData) return null;
+
+  const sideKey = trendSideComparisonKey(play);
+  const opponents = trendPlays
+    .filter(
+      (candidate) =>
+        aiTrendKey(candidate.game) === aiTrendKey(play.game) &&
+        trendMarketComparisonKey(candidate) === trendMarketComparisonKey(play) &&
+        trendSideComparisonKey(candidate) !== sideKey,
+    )
+    .map((candidate) => ({ play: candidate, metrics: trendPlayMetrics(candidate) }))
+    .filter((candidate) => candidate.metrics.hasData)
+    .sort((a, b) => {
+      if (b.metrics.score !== a.metrics.score) return b.metrics.score - a.metrics.score;
+      if (b.metrics.roiPct !== a.metrics.roiPct) return b.metrics.roiPct - a.metrics.roiPct;
+      return b.metrics.winPct - a.metrics.winPct;
+    });
+
+  const opponent = opponents[0];
+  if (!opponent) return null;
+
+  return {
+    candidateRoiPct: candidateMetrics.roiPct,
+    opponentRoiPct: opponent.metrics.roiPct,
+    netRoiPct: candidateMetrics.roiPct - opponent.metrics.roiPct,
+    opponentLabel: trendPickLabel(opponent.play),
+  };
+}
+
 function AiPickSelectorCard({
   pick,
+  todaySummary,
+  last7DaysSummary,
   lastSevenBetsSummary,
+  overallSummary,
+  trendPlay,
+  trendPlays,
+  handpicked = false,
 }: {
   pick: AiPick;
+  todaySummary: Summary | null;
+  last7DaysSummary: Summary | null;
   lastSevenBetsSummary: Summary | null;
+  overallSummary: Summary | null;
+  trendPlay: TrendPlay | null;
+  trendPlays: TrendPlay[];
+  handpicked?: boolean;
 }) {
   const schedule = scheduleInfoFromRaw(pick.gameTime, pick.date);
   const bestPlayGate = pick.bestPlayType
     ? aiBestPlayGateInfo(lastSevenBetsSummary)
     : null;
   const isFinalReview =
-    pick.snapshotStatus === "FINAL_PREGAME" &&
-    pick.externalReviewStatus === "WEB_REVIEWED" &&
-    pick.protectionStatus === "PASSED";
-  const cleanedConfidence = cleanAiDisplayList(pick.confidenceReason);
-  const cleanedWhy = cleanAiDisplayList(pick.whySelected);
-  const confidenceReason = cleanedConfidence.length
-    ? cleanedConfidence
-    : [
-        isFinalReview
-          ? "This play cleared the AI score, probability, value, and protection thresholds after final verification."
-          : "This candidate currently clears the preliminary score, probability, value, and protection thresholds; final AI review is still pending.",
-      ];
-  const why = cleanedWhy.length
-    ? cleanedWhy
-    : [
-        isFinalReview
-          ? "The candidate passed the final EZPZ AI selection threshold and protection checks."
-          : "The candidate currently passes the preliminary EZPZ AI selection threshold and protection checks.",
-      ];
+    pick.snapshotStatus === "FINAL_PREGAME" && pick.protectionStatus === "PASSED";
   const historicalNotes = cleanAiDisplayList(pick.historicalNotes);
+  const trendRoiSummary = trendPlay ? aiTrendNetRoiSummary(trendPlay, trendPlays) : null;
   const researchSummary = cleanAiDisplayText(pick.researchSummary);
   const verdict = cleanAiDisplayText(pick.verdict);
   const dataStatus = [
@@ -4736,8 +4874,11 @@ function AiPickSelectorCard({
           <div className="aiPickSummaryMeta">
             <span>{pick.game}</span>
             <span className={`aiStatusBadge ${isFinalReview ? "final" : "pending"}`}>
-              {isFinalReview ? "FINAL" : "PENDING — UNDER REVIEW"}
+              {isFinalReview ? "FINAL" : "LIVE — NOT LOCKED"}
             </span>
+            {handpicked ? (
+              <span className="handpickedPill aiHandpickedPill">⭐ HANDPICKED</span>
+            ) : null}
           </div>
           <strong>{pick.play}</strong>
         </div>
@@ -4750,113 +4891,125 @@ function AiPickSelectorCard({
           <span>EZPZ AI PICK</span>
           <strong>{pick.play}</strong>
           <small>{pick.game}</small>
-        </div>
-
-        <div className="aiPickConfidenceBlock">
-          <div className="aiPickConfidenceScore">
-            <span>AI Confidence</span>
-            <strong>{Math.round(pick.aiScore)}/100</strong>
-          </div>
-          <div className="aiPickConfidenceWhy">
-            <h3>{isFinalReview ? "Why This Pick Qualified" : "Why It Currently Qualifies"}</h3>
-            <ul>
-              {confidenceReason.map((item, index) => (
-                <li key={`confidence-${pick.candidateId}-${index}`}>{item}</li>
-              ))}
-            </ul>
-          </div>
-        </div>
-
-        <div className="aiPickMetricGrid">
-          <div className="aiPickMetric">
-            <span>AI Estimated Probability</span>
-            <strong>{pick.estimatedProbability.toFixed(1)}%</strong>
-          </div>
-          <div className="aiPickMetric">
-            <span>Market Implied Probability</span>
-            <strong>
-              {pick.marketImpliedProbability
-                ? `${pick.marketImpliedProbability.toFixed(1)}%`
-                : "—"}
-            </strong>
-          </div>
-          <div className="aiPickMetric">
-            <span>Estimated Advantage</span>
-            <strong>
-              {pick.marketImpliedProbability
-                ? `${pick.estimatedAdvantage >= 0 ? "+" : ""}${pick.estimatedAdvantage.toFixed(1)}%`
-                : "—"}
-            </strong>
-          </div>
+          {handpicked ? (
+            <div className="handpickedPill aiHandpickedPill aiHandpickedPillExpanded">⭐ HANDPICKED</div>
+          ) : null}
         </div>
 
         {bestPlayGate ? (
-          <section className={`aiPickQualificationGate ${bestPlayGate.className}`}>
+          <section className={"aiPickQualificationGate " + bestPlayGate.className}>
             <div className="aiPickQualificationGateHead">
               <div>
-                <span>Bet Type Qualification</span>
-                <strong>
-                  {normalizeType(pick.bestPlayType || "Best Play")}
-                </strong>
+                <span>Best Play Record Snapshot</span>
+                <strong>{normalizeType(pick.bestPlayType || "Best Play")}</strong>
               </div>
-              <span className={`formPill ${bestPlayGate.className}`}>
-                {bestPlayGate.className === "hot"
-                  ? "🔥"
-                  : bestPlayGate.className === "cold"
-                    ? "❄️"
-                    : bestPlayGate.className === "sample"
-                      ? "⚠️"
-                      : "➖"}{" "}
+              <span className={"formPill " + bestPlayGate.className}>
+                {bestPlayGate.className === "hot" ? "🔥 " : ""}
                 Last 7 Bets: {bestPlayGate.label}
               </span>
             </div>
             <div className="aiPickGateGrid">
               <div className="aiPickGateMetric">
+                <span>Today</span>
+                <strong>{aiSummaryRecord(todaySummary)}</strong>
+                <small>ROI {aiSummaryRoi(todaySummary)}</small>
+              </div>
+              <div className="aiPickGateMetric">
+                <span>Last 7 Days</span>
+                <strong>{aiSummaryRecord(last7DaysSummary)}</strong>
+                <small>ROI {aiSummaryRoi(last7DaysSummary)}</small>
+              </div>
+              <div className="aiPickGateMetric">
                 <span>Last 7 Bets</span>
-                <strong>{summaryRecord(lastSevenBetsSummary)}</strong>
+                <strong>{aiSummaryRecord(lastSevenBetsSummary)}</strong>
+                <small>ROI {aiSummaryRoi(lastSevenBetsSummary)}</small>
               </div>
               <div className="aiPickGateMetric">
-                <span>Required AI Score</span>
-                <strong>{bestPlayGate.score == null ? "Excluded" : `${bestPlayGate.score}+`}</strong>
-              </div>
-              <div className="aiPickGateMetric">
-                <span>Required Probability</span>
-                <strong>
-                  {bestPlayGate.probability == null
-                    ? "Excluded"
-                    : `${bestPlayGate.probability}%+`}
-                </strong>
-              </div>
-              <div className="aiPickGateMetric">
-                <span>Required Advantage</span>
-                <strong>
-                  {bestPlayGate.advantage == null
-                    ? "Excluded"
-                    : `+${bestPlayGate.advantage}%`}
-                </strong>
+                <span>Overall</span>
+                <strong>{aiSummaryRecord(overallSummary)}</strong>
+                <small>Final Net ROI {aiSummaryRoi(overallSummary)}</small>
               </div>
             </div>
           </section>
         ) : null}
 
-        <section className="aiPickDetailSection">
-          <h3>{isFinalReview ? "Why It Was Selected" : "Why It Is Pending"}</h3>
-          <ul>
-            {why.map((item, index) => <li key={`why-${pick.candidateId}-${index}`}>{item}</li>)}
-          </ul>
-        </section>
+        {!pick.bestPlayType && trendPlay?.signals?.length ? (
+          <section className="aiPickDetailSection historical aiTrendEvidence">
+            <div className="aiTrendEvidenceHead">
+              <div>
+                <h3>Trend Evidence</h3>
+                <p>Historical market-signal performance behind this Trend Play.</p>
+              </div>
+              {pick.trendTier ? <span className="aiTrendTierPill">{pick.trendTier}</span> : null}
+            </div>
 
+            {trendRoiSummary ? (
+              <div className="aiTrendNetRoiCard">
+                <div className="aiTrendNetRoiMain">
+                  <div>
+                    <span>Final Net ROI</span>
+                    <small>Recent-window ROI edge versus the opposing side</small>
+                  </div>
+                  <strong className={trendRoiSummary.netRoiPct >= 0 ? "positive" : "negative"}>
+                    {aiSignedPercent(trendRoiSummary.netRoiPct)}
+                  </strong>
+                </div>
+                <div className="aiTrendNetRoiBreakdown">
+                  <span>
+                    Selected side <b>{aiSignedPercent(trendRoiSummary.candidateRoiPct)}</b>
+                  </span>
+                  <span>
+                    Opposing side <b>{aiSignedPercent(trendRoiSummary.opponentRoiPct)}</b>
+                  </span>
+                </div>
+              </div>
+            ) : null}
 
-        {historicalNotes.length ? (
+            <div className="aiTrendSignalList">
+              {trendPlay.signals.map((signal, index) => (
+                <div className="aiTrendSignalCard" key={signal.signalKey + "-" + index}>
+                  <div className="aiTrendSignalName">{signal.signal}</div>
+                  <div className="aiTrendSignalStats">
+                    <div>
+                      <span>Overall</span>
+                      <strong>{signal.records.allTime.record}</strong>
+                      <small className={signal.records.allTime.roiPct >= 0 ? "positive" : "negative"}>
+                        {aiSignedPercent(signal.records.allTime.roiPct)} ROI
+                      </small>
+                    </div>
+                    <div>
+                      <span>Last 30</span>
+                      <strong>{signal.records.last30.record}</strong>
+                      <small className={signal.records.last30.roiPct >= 0 ? "positive" : "negative"}>
+                        {aiSignedPercent(signal.records.last30.roiPct)} ROI
+                      </small>
+                    </div>
+                    <div>
+                      <span>Last 7</span>
+                      <strong>{signal.records.last7.record}</strong>
+                      <small className={signal.records.last7.roiPct >= 0 ? "positive" : "negative"}>
+                        {aiSignedPercent(signal.records.last7.roiPct)} ROI
+                      </small>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        ) : !pick.bestPlayType && historicalNotes.length ? (
           <section className="aiPickDetailSection historical">
-            <h3>Historical Matchup Notes</h3>
+            <h3>Trend Evidence</h3>
+            <p>
+              Each saved record pair is one trend signal: all-time record first, recent record second. These are not team-vs-team matchup records.
+            </p>
             <ul>
               {historicalNotes.map((item, index) => (
-                <li key={`history-${pick.candidateId}-${index}`}>{item}</li>
+                <li key={"trend-history-" + pick.candidateId + "-" + index}>{item}</li>
               ))}
             </ul>
           </section>
         ) : null}
+
         {researchSummary ? (
           <section className="aiPickDetailSection research">
             <h3>AI Research Summary</h3>
@@ -6047,12 +6200,12 @@ function SportDevelopmentContent({
     );
   }
 
-  if (tab === "EZPZ AI Picks") {
+  if (tab === "EZPZ Picks") {
     return (
       <>
         <div className="sectionHead">
           <div>
-            <h2>{meta.name} EZPZ AI Pick Selector</h2>
+            <h2>{meta.name} EZPZ Picks</h2>
           </div>
           <span className="countPill">0 picks</span>
         </div>
@@ -6181,7 +6334,7 @@ export default function Home() {
   const activeLoadRef = useRef<Promise<void> | null>(null);
   const activeLoadControllerRef = useRef<AbortController | null>(null);
 
-  const loadData = useCallback(async (silent = false) => {
+  const loadData = useCallback(async (silent = false, forceFresh = false) => {
     // Reuse an active request instead of starting overlapping public-data
     // requests. Final AI review can take longer than the polling interval.
     if (activeLoadRef.current) {
@@ -6200,7 +6353,13 @@ export default function Home() {
 
     const request = (async () => {
       try {
-        const response = await fetch("/api/public-data", {
+        const endpoint =
+          activeSport === "NFL" || activeSport === "NCAAF"
+            ? `/api/public-data?sport=${activeSport}${forceFresh ? "&refresh=1" : ""}`
+            : forceFresh
+              ? "/api/public-data?refresh=1"
+              : "/api/public-data";
+        const response = await fetch(endpoint, {
           cache: "no-store",
           signal: controller.signal,
         });
@@ -6239,14 +6398,31 @@ export default function Home() {
       }
       if (!silent && isCurrentRequest) setRefreshing(false);
     }
-  }, []);
+  }, [activeSport]);
 
   useEffect(() => {
     void loadData();
-    const refreshWhenVisible = () => {
-      if (document.visibilityState === "visible") void loadData(true);
+
+    const isAutoRefreshWindowET = () => {
+      const parts = new Intl.DateTimeFormat("en-US", {
+        timeZone: "America/New_York",
+        hour: "2-digit",
+        minute: "2-digit",
+        hourCycle: "h23",
+      }).formatToParts(new Date());
+      const hour = Number(parts.find((part) => part.type === "hour")?.value || 0);
+      const minute = Number(parts.find((part) => part.type === "minute")?.value || 0);
+      const minuteOfDay = hour * 60 + minute;
+      return minuteOfDay >= 10 * 60 + 30 && minuteOfDay <= 22 * 60 + 30;
     };
-    const interval = window.setInterval(refreshWhenVisible, 60_000);
+
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible" && isAutoRefreshWindowET()) {
+        void loadData(true);
+      }
+    };
+
+    const interval = window.setInterval(refreshWhenVisible, 5 * 60_000);
     document.addEventListener("visibilitychange", refreshWhenVisible);
     return () => {
       window.clearInterval(interval);
@@ -6257,6 +6433,10 @@ export default function Home() {
     };
   }, [loadData]);
 
+  const trackerTodayRecordSummary = useMemo(
+    () => calculateTrackerRecordSummary(data?.betTrackerRows, "today", data?.today || ""),
+    [data?.betTrackerRows, data?.today],
+  );
   const trackerLast7RecordSummary = useMemo(
     () => calculateTrackerRecordSummary(data?.betTrackerRows, "last7", data?.today || ""),
     [data?.betTrackerRows, data?.today],
@@ -6376,13 +6556,23 @@ export default function Home() {
         <div className="error">
           <strong>Could not load projections.</strong>
           <span>{error}</span>
-          <button type="button" className="refreshBtn" onClick={() => void loadData()}>
+          <button type="button" className="refreshBtn" onClick={() => void loadData(false, true)}>
             Try again
           </button>
         </div>
       );
     }
     if (!data) return <LoadingState />;
+
+    if (activeSport === "NFL" || activeSport === "NCAAF") {
+      return (
+        <FootballBoard
+          sport={activeSport}
+          tab={active}
+          data={data as any}
+        />
+      );
+    }
 
     if (activeSport !== "MLB") {
       return (
@@ -6394,8 +6584,14 @@ export default function Home() {
       );
     }
 
+    const todayByType = new Map(
+      trackerTodayRecordSummary.map((row) => [normalizeType(row.betType), row]),
+    );
     const recentByType = new Map(
       mergedLast7RecordSummary.map((row) => [normalizeType(row.betType), row]),
+    );
+    const overallByType = new Map(
+      mergedOverallRecordSummary.map((row) => [normalizeType(row.betType), row]),
     );
     const lastSevenBetsByType = new Map<string, Summary>(
       trackerLastSevenBetsRecordSummary.map((row) => [
@@ -6528,15 +6724,15 @@ export default function Home() {
       );
     }
 
-    if (active === "EZPZ AI Picks") {
+    if (active === "EZPZ Picks") {
       return (
         <section>
           <div className="sectionHead aiSelectorHead">
             <div>
-              <h2>EZPZ AI Pick Selector</h2>
+              <h2>EZPZ Picks</h2>
               <p className="aiSelectorStatusText">
                 {data.aiSelectorStatus?.message ||
-                  "The selector is reviewing today’s Best Plays and Trend Plays."}
+                  "The selector is evaluating today’s Best Plays and Trend Plays with deterministic EZPZ gates."}
               </p>
             </div>
             <span className="countPill">{aiPicks.length} picks</span>
@@ -6548,17 +6744,37 @@ export default function Home() {
                 <AiPickSelectorCard
                   key={pick.candidateId}
                   pick={pick}
+                  todaySummary={
+                    pick.bestPlayType
+                      ? todayByType.get(normalizeType(pick.bestPlayType)) || null
+                      : null
+                  }
+                  last7DaysSummary={
+                    pick.bestPlayType
+                      ? recentByType.get(normalizeType(pick.bestPlayType)) || null
+                      : null
+                  }
                   lastSevenBetsSummary={
                     pick.bestPlayType
                       ? lastSevenBetsByType.get(normalizeType(pick.bestPlayType)) || null
                       : null
                   }
+                  overallSummary={
+                    pick.bestPlayType
+                      ? overallByType.get(normalizeType(pick.bestPlayType)) || null
+                      : null
+                  }
+                  trendPlay={aiTrendPlayForPick(pick, trendPlays)}
+                  trendPlays={trendPlays}
+                  handpicked={Boolean(
+                    favoriteRowMap.get(favoriteKeyFromAiPick(pick, data.today)),
+                  )}
                 />
               ))}
             </div>
           ) : (
             <div className="empty">
-              No EZPZ AI Picks currently pass every selection and protection rule.
+              No EZPZ Picks currently pass every selection and protection rule.
             </div>
           )}
         </section>
@@ -6653,7 +6869,7 @@ export default function Home() {
         </div>
 
         <div className="sectionHead trendRecordsHead">
-          <h2>EZPZ AI Pick Selector</h2>
+          <h2>EZPZ Picks</h2>
         </div>
 
         <div className="qualifiedGrid aiRecordGrid">
@@ -6663,13 +6879,13 @@ export default function Home() {
             return (
               <>
                 <Tile
-                  label="EZPZ AI Picks - Last 7 Days"
+                  label="EZPZ Picks - Last 7 Days"
                   value={last7.record}
                   meta={`${last7.winPct}% • ${last7.unitsWon}u • ROI ${last7.roiPct}%`}
                   green={last7.totalBets > 0 && last7.wins >= last7.losses}
                 />
                 <Tile
-                  label="EZPZ AI Picks - Running Total"
+                  label="EZPZ Picks - Running Total"
                   value={overall.record}
                   meta={`${overall.winPct}% • ${overall.unitsWon}u • ROI ${overall.roiPct}%`}
                   green={overall.totalBets > 0 && overall.wins >= overall.losses}
@@ -6733,6 +6949,8 @@ export default function Home() {
     data,
     error,
     mergedLast7RecordSummary,
+    mergedOverallRecordSummary,
+    trackerTodayRecordSummary,
     trackerLastSevenBetsRecordSummary,
     draftKings,
     draftKingsError,
@@ -6766,7 +6984,7 @@ export default function Home() {
           <button
             type="button"
             className="refreshBtn"
-            onClick={() => void loadData()}
+            onClick={() => void loadData(false, true)}
             disabled={refreshing}
             aria-label={`Refresh ${activeSportMeta.shortName} public board`}
           >
@@ -6787,6 +7005,18 @@ export default function Home() {
             key={sport}
             className={`sportTabBtn ${activeSport === sport ? "active" : ""}`}
             onClick={() => {
+              // Clear the prior sport payload before loading the newly selected sport.
+              // This prevents an MLB stale response from being rendered under NFL/NCAAF
+              // when a sport-specific request is delayed or rate-limited.
+              if (sport !== activeSport) {
+                activeLoadControllerRef.current?.abort();
+                activeLoadRef.current = null;
+                setData(null);
+                setDraftKings(null);
+                setDraftKingsError("");
+                setError("");
+                setRefreshing(false);
+              }
               setActiveSport(sport);
               setActive("Today’s Best Plays");
             }}
@@ -6843,38 +7073,33 @@ export default function Home() {
                 green={bestPlays.length > 0}
               />
             </>
-          ) : (
+          ) : activeSport === "NFL" || activeSport === "NCAAF" ? (
             <>
               <Tile
                 label="Best Plays - Last 7 Days"
-                value="0-0-0"
-                meta="0.0% • 0.00u • ROI 0.0%"
+                value={data.tiles.last7Days.record}
+                meta={`${data.tiles.last7Days.winPct}% • ${data.tiles.last7Days.unitsWon}u • ROI ${data.tiles.last7Days.roiPct}%`}
+                green={data.tiles.last7Days.totalBets > 0}
               />
               <Tile
                 label="Best Plays - Running Total"
-                value="0-0-0"
-                meta="Tracking begins with official plays"
+                value={data.tiles.overallGreen.record}
+                meta={`${data.tiles.overallGreen.winPct}% • ${data.tiles.overallGreen.unitsWon}u • ROI ${data.tiles.overallGreen.roiPct}%`}
+                green={data.tiles.overallGreen.totalBets > 0}
               />
-              <Tile
-                label="Today’s Handpicked"
-                value="0"
-                meta="No selections posted"
-              />
-              <Tile
-                label="Model Stage"
-                value="PRESEASON"
-                meta={activeSportMeta.status}
-              />
-              <Tile
-                label="Today’s Best Plays"
-                value="0"
-                meta="Public format is ready"
-              />
-              <Tile
-                label="Published Matchups"
-                value="0"
-                meta="Slate connection pending"
-              />
+              <Tile label="Today’s Best Plays" value={String(data.bestPlays.length)} meta="Spread + Total" green={data.bestPlays.length > 0} />
+              <Tile label="Today’s Trend Plays" value={String((data.trendPlays || []).filter((play) => play.tier !== "Pass").length)} meta="Sport-specific DraftKings records" />
+              <Tile label="Model Stage" value="LIVE" meta={activeSportMeta.status} green />
+              <Tile label="Published Matchups" value={String(data.slateToday.length)} meta="Separate sport database" green={data.slateToday.length > 0} />
+            </>
+          ) : (
+            <>
+              <Tile label="Best Plays - Last 7 Days" value="0-0-0" meta="0.0% • 0.00u • ROI 0.0%" />
+              <Tile label="Best Plays - Running Total" value="0-0-0" meta="Tracking begins with official plays" />
+              <Tile label="Today’s Handpicked" value="0" meta="No selections posted" />
+              <Tile label="Model Stage" value="PRESEASON" meta={activeSportMeta.status} />
+              <Tile label="Today’s Best Plays" value="0" meta="Public format is ready" />
+              <Tile label="Published Matchups" value="0" meta="Slate connection pending" />
             </>
           )}
         </section>
@@ -8996,6 +9221,251 @@ export default function Home() {
         .trendRecordAuditRow.resultL b { color: #ff7c8b; }
         .trendRecordAuditRow.resultP b { color: #f6c85f; }
 
+        /* AI record / ROI visual polish */
+        .aiPickGateMetric {
+          position: relative;
+          overflow: hidden;
+          min-height: 82px;
+          padding: 13px;
+          border-color: rgba(79, 156, 255, 0.19);
+          border-radius: 15px;
+          background: linear-gradient(145deg, rgba(7, 20, 38, 0.91), rgba(4, 11, 22, 0.91));
+          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03), 0 10px 24px rgba(0, 0, 0, 0.13);
+        }
+
+        .aiPickGateMetric::before {
+          content: "";
+          position: absolute;
+          inset: 0 18% auto 18%;
+          height: 2px;
+          background: linear-gradient(90deg, #2f8cff, #24c7ff, #2bd875);
+          opacity: 0.72;
+        }
+
+        .aiPickGateMetric span {
+          color: #8fa9c9;
+          font-weight: 850;
+          letter-spacing: 0.075em;
+        }
+
+        .aiPickGateMetric strong {
+          color: #f6fbff;
+          font-size: 20px;
+          font-variant-numeric: tabular-nums;
+          letter-spacing: -0.02em;
+        }
+
+        .aiPickGateMetric small {
+          color: #aac0d9;
+          font-size: 10px;
+          font-weight: 750;
+        }
+
+        .aiTrendEvidence {
+          padding: 18px;
+          border-color: rgba(43, 216, 117, 0.22);
+          background: linear-gradient(145deg, rgba(7, 28, 34, 0.85), rgba(6, 16, 29, 0.85));
+        }
+
+        .aiTrendEvidenceHead {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 12px;
+          margin-bottom: 14px;
+        }
+
+        .aiTrendEvidenceHead h3 {
+          margin: 0 0 5px;
+        }
+
+        .aiTrendEvidenceHead p {
+          color: #9fb5cf;
+          font-size: 12px;
+          line-height: 1.45;
+        }
+
+        .aiTrendTierPill {
+          flex: 0 0 auto;
+          border: 1px solid rgba(43, 216, 117, 0.26);
+          border-radius: 999px;
+          padding: 6px 9px;
+          color: #bff3d2;
+          background: rgba(20, 118, 64, 0.16);
+          font-size: 9px;
+          font-weight: 900;
+          letter-spacing: 0.06em;
+          text-transform: uppercase;
+          white-space: nowrap;
+        }
+
+        .aiTrendNetRoiCard {
+          margin-bottom: 12px;
+          padding: 14px;
+          border: 1px solid rgba(58, 166, 215, 0.28);
+          border-radius: 17px;
+          background:
+            radial-gradient(circle at 92% 18%, rgba(43, 216, 117, 0.13), transparent 38%),
+            linear-gradient(135deg, rgba(10, 33, 48, 0.96), rgba(7, 19, 33, 0.96));
+          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03), 0 12px 28px rgba(0, 0, 0, 0.18);
+        }
+
+        .aiTrendNetRoiMain {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 14px;
+        }
+
+        .aiTrendNetRoiMain > div {
+          display: grid;
+          gap: 4px;
+        }
+
+        .aiTrendNetRoiMain span {
+          color: #9bb6d6;
+          font-size: 9px;
+          font-weight: 900;
+          letter-spacing: 0.085em;
+          text-transform: uppercase;
+        }
+
+        .aiTrendNetRoiMain small {
+          color: #8da6c3;
+          font-size: 10px;
+        }
+
+        .aiTrendNetRoiMain > strong {
+          font-size: 31px;
+          font-weight: 950;
+          font-variant-numeric: tabular-nums;
+          letter-spacing: -0.045em;
+          line-height: 1;
+        }
+
+        .aiTrendNetRoiMain > strong.positive,
+        .aiTrendSignalStats small.positive {
+          color: #55e59a;
+        }
+
+        .aiTrendNetRoiMain > strong.negative,
+        .aiTrendSignalStats small.negative {
+          color: #ff8a96;
+        }
+
+        .aiTrendNetRoiBreakdown {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 8px;
+          margin-top: 12px;
+          padding-top: 10px;
+          border-top: 1px solid rgba(114, 166, 202, 0.14);
+        }
+
+        .aiTrendNetRoiBreakdown span {
+          padding: 8px 9px;
+          border: 1px solid rgba(106, 152, 189, 0.12);
+          border-radius: 10px;
+          color: #8fa8c6;
+          background: rgba(255, 255, 255, 0.02);
+          font-size: 10px;
+        }
+
+        .aiTrendNetRoiBreakdown b {
+          float: right;
+          color: #edf7ff;
+          font-variant-numeric: tabular-nums;
+        }
+
+        .aiTrendSignalList {
+          display: grid;
+          gap: 9px;
+        }
+
+        .aiTrendSignalCard {
+          padding: 12px 13px;
+          border: 1px solid rgba(86, 137, 178, 0.17);
+          border-radius: 15px;
+          background: linear-gradient(145deg, rgba(7, 17, 31, 0.86), rgba(4, 10, 20, 0.86));
+          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.025);
+        }
+
+        .aiTrendSignalName {
+          margin-bottom: 10px;
+          color: #e8f3ff;
+          font-size: 10px;
+          font-weight: 900;
+          letter-spacing: 0.045em;
+          text-transform: uppercase;
+        }
+
+        .aiTrendSignalStats {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 7px;
+        }
+
+        .aiTrendSignalStats > div {
+          display: grid;
+          gap: 3px;
+          min-width: 0;
+          padding: 8px;
+          border: 1px solid rgba(106, 143, 175, 0.11);
+          border-radius: 11px;
+          background: rgba(255, 255, 255, 0.016);
+        }
+
+        .aiTrendSignalStats span {
+          color: #829bb8;
+          font-size: 8px;
+          font-weight: 850;
+          letter-spacing: 0.07em;
+          text-transform: uppercase;
+        }
+
+        .aiTrendSignalStats strong {
+          color: #f3f8ff;
+          font-size: 15px;
+          font-weight: 900;
+          font-variant-numeric: tabular-nums;
+        }
+
+        .aiTrendSignalStats small {
+          font-size: 9px;
+          font-weight: 850;
+          font-variant-numeric: tabular-nums;
+        }
+
+        @media (max-width: 520px) {
+          .aiTrendEvidence {
+            padding: 14px;
+          }
+
+          .aiTrendNetRoiMain > strong {
+            font-size: 28px;
+          }
+
+          .aiTrendNetRoiBreakdown {
+            grid-template-columns: 1fr;
+          }
+
+          .aiTrendSignalStats {
+            gap: 5px;
+          }
+
+          .aiTrendSignalStats > div {
+            padding: 7px 6px;
+          }
+
+          .aiTrendSignalStats strong {
+            font-size: 13px;
+          }
+
+          .aiTrendSignalStats small {
+            font-size: 8px;
+          }
+        }
+
         @media (max-width: 720px) {
           .trendRecordAuditRow {
             grid-template-columns: 1fr auto;
@@ -9944,6 +10414,21 @@ export default function Home() {
           gap: 8px;
           align-items: center;
           min-width: 0;
+        }
+
+        .aiHandpickedPill {
+          padding: 4px 8px;
+          font-size: 9px;
+          line-height: 1;
+          letter-spacing: 0.055em;
+          box-shadow: none;
+        }
+
+        .aiHandpickedPillExpanded {
+          width: fit-content;
+          margin-top: 5px;
+          padding: 5px 9px;
+          font-size: 10px;
         }
 
         .aiPickSummaryMeta > span:first-child {

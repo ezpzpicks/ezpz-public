@@ -169,8 +169,9 @@ function parseEventTime(value: unknown) {
 }
 
 function numericLine(value: unknown) {
-  const match = String(value || "").replace(/[−–—]/g, "-").match(/[+-]?\d+(?:\.\d+)?/);
-  const n = match ? Number(match[0]) : NaN;
+  const matches = String(value || "").replace(/[−–—]/g, "-").match(/[+-]?\d+(?:\.\d+)?/g);
+  const raw = matches?.length ? matches[matches.length - 1] : "";
+  const n = raw ? Number(raw) : NaN;
   return Number.isFinite(n) ? n : null;
 }
 
@@ -291,32 +292,156 @@ async function fetchHtml(params: Record<string, string>) {
   return response.text();
 }
 
-async function loadPostedSplits(sport: FootballSport) {
-  const groups = sport === "NFL" ? ["NFL"] : ["College Football", "NCAAF", "CFB"];
+const NFL_MARKET_TEAM_ALIASES: Record<string, string[]> = {
+  ARI: ["Arizona Cardinals", "Cardinals", "Arizona", "ARI", "ARZ"],
+  ATL: ["Atlanta Falcons", "Falcons", "Atlanta", "ATL"],
+  BAL: ["Baltimore Ravens", "Ravens", "Baltimore", "BAL", "BLT"],
+  BUF: ["Buffalo Bills", "Bills", "Buffalo", "BUF"],
+  CAR: ["Carolina Panthers", "Panthers", "Carolina", "CAR"],
+  CHI: ["Chicago Bears", "Bears", "Chicago", "CHI"],
+  CIN: ["Cincinnati Bengals", "Bengals", "Cincinnati", "CIN"],
+  CLE: ["Cleveland Browns", "Browns", "Cleveland", "CLE", "CLV"],
+  DAL: ["Dallas Cowboys", "Cowboys", "Dallas", "DAL"],
+  DEN: ["Denver Broncos", "Broncos", "Denver", "DEN"],
+  DET: ["Detroit Lions", "Lions", "Detroit", "DET"],
+  GB: ["Green Bay Packers", "Packers", "Green Bay", "GB"],
+  HOU: ["Houston Texans", "Texans", "Houston", "HOU", "HST"],
+  IND: ["Indianapolis Colts", "Colts", "Indianapolis", "IND"],
+  JAX: ["Jacksonville Jaguars", "Jaguars", "Jacksonville", "JAX", "JAC"],
+  KC: ["Kansas City Chiefs", "Chiefs", "Kansas City", "KC"],
+  LV: ["Las Vegas Raiders", "Raiders", "Las Vegas", "LV", "OAK"],
+  LAC: ["Los Angeles Chargers", "LA Chargers", "Chargers", "LAC"],
+  LAR: ["Los Angeles Rams", "LA Rams", "Rams", "LAR", "LA"],
+  MIA: ["Miami Dolphins", "Dolphins", "Miami", "MIA"],
+  MIN: ["Minnesota Vikings", "Vikings", "Minnesota", "MIN"],
+  NE: ["New England Patriots", "Patriots", "New England", "NE"],
+  NO: ["New Orleans Saints", "Saints", "New Orleans", "NO"],
+  NYG: ["New York Giants", "NY Giants", "Giants", "NYG"],
+  NYJ: ["New York Jets", "NY Jets", "Jets", "NYJ"],
+  PHI: ["Philadelphia Eagles", "Eagles", "Philadelphia", "PHI"],
+  PIT: ["Pittsburgh Steelers", "Steelers", "Pittsburgh", "PIT"],
+  SEA: ["Seattle Seahawks", "Seahawks", "Seattle", "SEA"],
+  SF: ["San Francisco 49ers", "49ers", "San Francisco", "SF"],
+  TB: ["Tampa Bay Buccaneers", "Buccaneers", "Tampa Bay", "TB"],
+  TEN: ["Tennessee Titans", "Titans", "Tennessee", "TEN"],
+  WAS: ["Washington Commanders", "Commanders", "Washington", "WAS", "WSH"],
+};
+
+function nflMarketTeamCode(value: unknown) {
+  const key = textKey(value);
+  if (!key) return "";
+  for (const [code, aliases] of Object.entries(NFL_MARKET_TEAM_ALIASES)) {
+    if (textKey(code) === key || aliases.some((alias) => {
+      const aliasKey = textKey(alias);
+      return aliasKey === key || aliasKey.endsWith(` ${key}`) || key.endsWith(` ${aliasKey}`);
+    })) return code;
+  }
+  return "";
+}
+
+function canonicalScheduleDate(row: SheetRow) {
+  const raw = String(row.Date || row["Game Date"] || "").trim();
+  const iso = raw.match(/(20\d{2})[-/](\d{1,2})[-/](\d{1,2})/);
+  if (iso) return `${iso[1]}-${iso[2].padStart(2, "0")}-${iso[3].padStart(2, "0")}`;
+  const us = raw.match(/(\d{1,2})\/(\d{1,2})(?:\/(20\d{2}))?/);
+  if (us) return `${us[3] || todayET().slice(0, 4)}-${us[1].padStart(2, "0")}-${us[2].padStart(2, "0")}`;
+  return "";
+}
+
+function collegeMarketTeamMatch(leftValue: unknown, rightValue: unknown) {
+  const left = textKey(leftValue).replace(/\buniversity\b/g, "").replace(/\bthe\b/g, "").replace(/\s+/g, " ").trim();
+  const right = textKey(rightValue).replace(/\buniversity\b/g, "").replace(/\bthe\b/g, "").replace(/\s+/g, " ").trim();
+  if (!left || !right) return false;
+  if (left === right || left.endsWith(` ${right}`) || right.endsWith(` ${left}`)) return true;
+  const l = new Set(left.split(" ").filter((token) => token.length > 2));
+  const r = new Set(right.split(" ").filter((token) => token.length > 2));
+  const overlap = [...l].filter((token) => r.has(token)).length;
+  return overlap >= Math.min(2, Math.max(1, Math.min(l.size, r.size)));
+}
+
+function canonicalGameRow(split: Pick<Split, "date" | "awayTeam" | "homeTeam">, sport: FootballSport, rows: SheetRow[]) {
+  return rows.find((row) => {
+    if (canonicalScheduleDate(row) !== split.date) return false;
+    if (sport === "NFL") {
+      const rowAway = nflMarketTeamCode(row["Away Team"]);
+      const rowHome = nflMarketTeamCode(row["Home Team"]);
+      const splitAway = nflMarketTeamCode(split.awayTeam);
+      const splitHome = nflMarketTeamCode(split.homeTeam);
+      return !!rowAway && !!rowHome && !!splitAway && !!splitHome && rowAway === splitAway && rowHome === splitHome;
+    }
+    return collegeMarketTeamMatch(row["Away Team"], split.awayTeam) && collegeMarketTeamMatch(row["Home Team"], split.homeTeam);
+  });
+}
+
+function validFootballMarketSplit(split: Split, sport: FootballSport, rows: SheetRow[]) {
+  const matched = canonicalGameRow(split, sport, rows);
+  // Every football market — NFL and CFB alike — must match a real stored matchup.
+  // Team nickname aliases alone are not sufficient because a mixed DK feed can
+  // contain non-football clubs with names such as Lions or Eagles.
+  if (!matched) return false;
+  if (sport === "NFL") {
+    const awayCode = nflMarketTeamCode(split.awayTeam);
+    const homeCode = nflMarketTeamCode(split.homeTeam);
+    if (!awayCode || !homeCode || awayCode === homeCode) return false;
+  }
+
+  if (split.market === "Spread") {
+    if (split.line == null || Math.abs(split.line) > 60) return false;
+    if (sport === "NFL") {
+      const selectionCode = nflMarketTeamCode(split.selectionTeam);
+      return !!selectionCode && [nflMarketTeamCode(split.awayTeam), nflMarketTeamCode(split.homeTeam)].includes(selectionCode);
+    }
+    return collegeMarketTeamMatch(split.selectionTeam, split.awayTeam) || collegeMarketTeamMatch(split.selectionTeam, split.homeTeam);
+  }
+
+  if (split.side !== "Over" && split.side !== "Under") return false;
+  return split.line != null && split.line >= 20 && split.line <= 100;
+}
+
+function storedFootballWeek(sport: FootballSport, split: Pick<Split, "date" | "awayTeam" | "homeTeam">, rows: SheetRow[]) {
+  const matched = canonicalGameRow(split, sport, rows);
+  const rawWeek = String(matched?.Week || "").trim();
+  if (sport === "NCAAF" && /^\d+$/.test(rawWeek)) return `Week ${Number(rawWeek)}`;
+  if (sport === "NFL" && /^\d+$/.test(rawWeek)) return `Week ${Number(rawWeek)}`;
+  return footballWeekLabel(sport, split.date);
+}
+
+async function loadPostedSplits(sport: FootballSport, canonicalRows: SheetRow[]) {
+  const groups = sport === "NFL" ? ["84240"] : ["NCAA Football"];
   const map = new Map<string, Split>();
   const errors: string[] = [];
+  const horizons = sport === "NFL" ? ["n7days"] : ["n30days"];
+  const marketFilters = sport === "NFL" ? ["Spread", "Total"] : [""];
   for (const group of groups) {
-    for (const horizon of ["n7days", ""]) {
-      try {
-        for (let page = 1; page <= 10; page += 1) {
-          const parsed = parseBettingSplits(await fetchHtml({
-            itm_content: group,
-            tb_eg: group,
-            tb_page: String(page),
-            ...(horizon ? { tb_edate: horizon } : {}),
-          }));
-          if (!parsed.length) break;
-          for (const split of parsed) {
-            const key = `${split.date}|${textKey(split.game)}|${split.market}|${textKey(split.selection)}`;
-            map.set(key, split);
+    for (const horizon of horizons) {
+      for (const marketFilter of marketFilters) {
+        try {
+          for (let page = 1; page <= 10; page += 1) {
+            const parsed = parseBettingSplits(await fetchHtml({
+              itm_content: group,
+              tb_eg: group,
+              tb_page: String(page),
+              ...(horizon ? { tb_edate: horizon } : {}),
+              ...(marketFilter ? { tb_emt: marketFilter } : {}),
+            }));
+            if (!parsed.length) break;
+            for (const split of parsed) {
+              const key = `${split.date}|${textKey(split.game)}|${split.market}|${textKey(split.selection)}`;
+              map.set(key, split);
+            }
           }
+        } catch (error) {
+          errors.push(`${group}${horizon ? `/${horizon}` : ""}${marketFilter ? `/${marketFilter}` : ""}: ${error instanceof Error ? error.message : String(error)}`);
         }
-      } catch (error) {
-        errors.push(`${group}${horizon ? `/${horizon}` : ""}: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
   }
-  return { splits: [...map.values()], errors };
+  const discovered = [...map.values()];
+  const validated = discovered.filter((split) => validFootballMarketSplit(split, sport, canonicalRows));
+  if (validated.length !== discovered.length) {
+    errors.push(`Football validation rejected ${discovered.length - validated.length} non-${sport} or malformed market sides.`);
+  }
+  return { splits: validated, errors };
 }
 
 function firstMondayOfSeptember(year: number) {
@@ -664,12 +789,15 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
     ensureSportWorksheet(sport, POSTED_GAMES_TAB, POSTED_GAME_HEADERS),
     ensureSportWorksheet(sport, WEEKLY_TRENDS_TAB, WEEKLY_TREND_HEADERS),
   ]);
-  const [existingGames, existingTrends, allGameTrends, dk] = await Promise.all([
+  const [existingGames, existingTrends, allGameTrends, scheduleRows, slateRows] = await Promise.all([
     readSportWorksheet(sport, POSTED_GAMES_TAB, POSTED_GAME_HEADERS),
     readSportWorksheet(sport, WEEKLY_TRENDS_TAB, WEEKLY_TREND_HEADERS),
     readSportWorksheet(sport, "all_game_trends"),
-    loadPostedSplits(sport),
+    readSportWorksheet(sport, "schedule"),
+    readSportWorksheet(sport, "daily_slate"),
   ]);
+  const canonicalRows = [...scheduleRows, ...slateRows, ...allGameTrends];
+  const dk = await loadPostedSplits(sport, canonicalRows);
   const now = nowET();
   const gameMap = new Map(existingGames.map((row) => [postedGameKey(row), row]));
   const postedRows: SheetRow[] = [];
@@ -680,7 +808,7 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
     const existing = gameMap.get(key);
     postedRows.push({
       Date: split.date,
-      Week: footballWeekLabel(sport, split.date),
+      Week: storedFootballWeek(sport, split, canonicalRows),
       "Game Key": key,
       "Game Time": split.eventTime,
       Game: split.game,
@@ -777,17 +905,28 @@ export async function readWeeklyFootballMarket(sport: FootballSport) {
     ensureSportWorksheet(sport, POSTED_GAMES_TAB, POSTED_GAME_HEADERS),
     ensureSportWorksheet(sport, WEEKLY_TRENDS_TAB, WEEKLY_TREND_HEADERS),
   ]);
-  const [games, rows] = await Promise.all([
+  const [games, rows, scheduleRows, slateRows, allGameTrends] = await Promise.all([
     readSportWorksheet(sport, POSTED_GAMES_TAB, POSTED_GAME_HEADERS),
     readSportWorksheet(sport, WEEKLY_TRENDS_TAB, WEEKLY_TREND_HEADERS),
+    readSportWorksheet(sport, "schedule"),
+    readSportWorksheet(sport, "daily_slate"),
+    readSportWorksheet(sport, "all_game_trends"),
   ]);
+  const canonicalRows = [...scheduleRows, ...slateRows, ...allGameTrends];
   const trendPlays: WeeklyTrendPlay[] = [];
   for (const row of rows) {
     const raw = String(row["Details JSON"] || "").trim();
     if (!raw) continue;
     try {
       const play = JSON.parse(raw) as WeeklyTrendPlay;
-      trendPlays.push({ ...play, week: String(row.Week || play.week || footballWeekLabel(sport, play.date)) });
+      const storedSplit = {
+        date: play.date, eventTime: play.gameTime, game: play.game, awayTeam: play.awayTeam, homeTeam: play.homeTeam,
+        market: play.market, selection: play.selection, selectionTeam: play.selectionTeam, side: play.side, sideGroup: play.sideGroup,
+        line: play.line, odds: play.odds, moneyPct: play.moneyPct, betsPct: play.betsPct, gapPct: play.gapPct,
+        warningKey: "", warning: "", warningTone: "neutral" as Tone, warningNegative: false,
+      } as Split;
+      if (!validFootballMarketSplit(storedSplit, sport, canonicalRows)) continue;
+      trendPlays.push({ ...play, week: String(row.Week || play.week || storedFootballWeek(sport, play, canonicalRows)) });
     } catch { /* ignore malformed display row */ }
   }
   const splits = trendPlays.map((play) => ({
@@ -804,5 +943,11 @@ export async function readWeeklyFootballMarket(sport: FootballSport) {
     warning: play.signals[0]?.signal || "",
     lineMovementSignal: play.lineMovementSignal || "",
   }));
-  return { ok: true, sport, games, trendPlays, splits, updatedAt: nowET() };
+  const validGames = games.filter((row) => {
+    const probe = {
+      date: canonicalScheduleDate(row), awayTeam: String(row["Away Team"] || ""), homeTeam: String(row["Home Team"] || ""),
+    };
+    return !!probe.date && !!canonicalGameRow(probe, sport, canonicalRows);
+  });
+  return { ok: true, sport, games: validGames, trendPlays, splits, updatedAt: nowET() };
 }

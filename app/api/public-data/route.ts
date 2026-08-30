@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { google } from "googleapis";
 import { readWorksheet as readWorksheetUncached } from "../../../lib/googleSheets";
+import { buildFootballPublicData } from "../../../lib/footballPublicData";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -128,14 +129,32 @@ const ALL_GAME_TRENDS_HEADERS = [
 ];
 
 const AI_PICK_SELECTOR_TAB = "ai_pick_selector";
-const AI_PICK_SELECTOR_VERSION = "hybrid-web-context-v19-trend-review-calibration";
+const AI_BUILDER_MATCHUP_DETAILS_TAB = "matchup_details_today";
+const AI_BUILDER_CONTEXT_KEY = "__EZPZ_BUILDER_CONTEXT_JSON";
+const AI_PICK_SELECTOR_VERSION = "ezpz-picks-hardcoded-v6-hot-only-roi10";
 const AI_MINIMUM_ESTIMATED_ADVANTAGE = 5;
+
+// PERMANENT EZPZ PICKS POLICY. These are normal source rules, not build patches.
+// Best Play path: HOT only, with a maximum price of -150.
+// Trend path: every signal green plus at least +10% net ROI vs the opposing side.
+const EZPZ_BEST_PLAY_POLICY = {
+  requiredForm: "HOT" as const,
+  maxFavoritePrice: -150,
+  minimumScore: 74,
+  minimumProbability: 50,
+  minimumAdvantage: 1.5,
+};
+
+const EZPZ_TREND_POLICY = {
+  requireAllSignalsGreen: true,
+  minimumNetRoiAdvantage: 10,
+};
 const AI_PICK_SELECTOR_HEADERS = [
   "Date", "Candidate ID", "Game Key", "Game Time", "Game", "Away Team", "Home Team",
   "Market", "Play", "Selection", "Line", "Odds", "Source",
   "Best Play Type", "Trend Tier", "Model Score", "Trend Score",
   "AI Score", "Estimated Probability", "Market Implied Probability", "Estimated Advantage",
-  "Selected", "Protection Status", "Rejection Reason", "AI Confidence Reason",
+  "Selected", "Protection Status", "Rejection Reason", "EZPZ Confidence Reason",
   "Why Selected", "Historical Matchup Notes", "Risks", "AI Research Summary", "AI Verdict",
   "Data Status", "External Review Status", "Snapshot Status", "Locked At", "Updated At",
   "Result", "Units", "Result Updated", "Selector Version", "Details JSON",
@@ -267,7 +286,8 @@ type AiPickExternalStatus =
   | "WEB_REVIEWED"
   | "NO_VERIFIED_CONTEXT"
   | "NOT_CONFIGURED"
-  | "REVIEW_ERROR";
+  | "REVIEW_ERROR"
+  | "NOT_REQUIRED";
 
 type AiPick = {
   candidateId: string;
@@ -579,7 +599,7 @@ type CachedPublicRouteResponse = {
   contentType: string;
 };
 
-const PUBLIC_ROUTE_CACHE_TTL_MS = 45_000;
+const PUBLIC_ROUTE_CACHE_TTL_MS = 5 * 60_000;
 const PUBLIC_ROUTE_STALE_MS = 30 * 60_000;
 let publicRouteCache: CachedPublicRouteResponse | null = null;
 let publicRouteInFlight: Promise<CachedPublicRouteResponse> | null = null;
@@ -2252,10 +2272,11 @@ function minutesBeforeScheduledStart(row: SheetRow, now = Date.now()) {
 
 function isFifteenMinuteTrackingWindow(row: SheetRow, now = Date.now()) {
   const minutes = minutesBeforeScheduledStart(row, now);
-  // GitHub wakes the route near common MLB start times. The tolerance handles
-  // uncommon start minutes and normal scheduler delay while still creating
-  // exactly one dedicated tracking snapshot per game.
-  return minutes != null && minutes >= 7 && minutes <= 23;
+  // Target the first successful poll inside 15 minutes before first pitch.
+  // With the 5-minute workflow cadence this normally lands 10-15 minutes out.
+  // If that poll is delayed or missed, any remaining pregame poll is still a
+  // fallback. alreadyCapturedGameKeys keeps the first lock immutable.
+  return minutes != null && minutes > 0 && minutes <= 15;
 }
 
 function isAiFinalReviewWindow(row: SheetRow, now = Date.now()) {
@@ -3069,8 +3090,41 @@ async function persistFinalPregameDraftKings(
     result.slateRowsUpdated = slateUpdates.length;
     result.trackerRowsUpdated = trackerUpdates.length;
     result.allGameTrendRowsUpdated = trendUpdates.length;
-    result.status =
-      snapshotRecords.length || slateUpdates.length || trackerUpdates.length || trendUpdates.length
+
+    // AI_FINAL_SNAPSHOT_SETTLEMENT_V1: the first tracking pass writes public_split_snapshots and
+    // all_game_trends from the matrix that existed at the start of the request.
+    // When a new ~15-minute snapshot is created, immediately run one Sheets-only
+    // scheduled settlement pass. That second pass re-reads the now-durable
+    // tracking snapshot and guarantees the exact FINAL_PREGAME state is copied
+    // into all_game_trends before the selector continues. It does not run a
+    // separate AI/web review and cannot overwrite an existing tracking snapshot.
+    if (trackingCapture && trackingGameKeys.size > 0) {
+      const settlement = await persistFinalPregameDraftKings(
+        livePayload,
+        today,
+        "scheduled",
+      );
+      if (settlement.status === "ERROR" && settlement.error) {
+        result.error = `Final snapshot settlement: ${settlement.error}`;
+      } else {
+        result.slateRowsUpdated = Math.max(
+          result.slateRowsUpdated,
+          settlement.slateRowsUpdated,
+        );
+        result.trackerRowsUpdated = Math.max(
+          result.trackerRowsUpdated,
+          settlement.trackerRowsUpdated,
+        );
+        result.allGameTrendRowsUpdated = Math.max(
+          result.allGameTrendRowsUpdated,
+          settlement.allGameTrendRowsUpdated,
+        );
+      }
+    }
+
+    result.status = result.error
+      ? "ERROR"
+      : snapshotRecords.length || slateUpdates.length || trackerUpdates.length || trendUpdates.length
         ? "SAVED"
         : "NO_CHANGES";
     draftKingsPersistenceCache = { key: persistenceKey, savedAt: Date.now(), result };
@@ -3527,6 +3581,9 @@ function normalizeType(value: unknown) {
     .toUpperCase()
     .trim();
 
+  // Keep game totals out of pitcher OVER/UNDER Last-7 records.
+  if (text.includes("TOTAL OVER") || text.includes("GAME TOTAL OVER")) return "TOTAL OVER";
+  if (text.includes("TOTAL UNDER") || text.includes("GAME TOTAL UNDER")) return "TOTAL UNDER";
   if (text.includes("STRONG OVER")) return "STRONG OVER";
   if (text.includes("LEAN OVER")) return "LEAN OVER";
   if (/\bOVER\b/.test(text)) return "OVER";
@@ -4143,6 +4200,199 @@ function applyHistoricalTrendOverride(
   return normalized;
 }
 
+function buildAiHistoricalTrendRecordRows(
+  rows: SheetRow[],
+): TrendRecordResult[] {
+  const archivedTier = (value: unknown): "Good" | "Strong" | "Elite" | null => {
+    const key = textKey(value);
+    if (key.includes("elite")) return "Elite";
+    if (key.includes("strong")) return "Strong";
+    if (key.includes("good")) return "Good";
+    return null;
+  };
+
+  const logicalKey = (record: TrendRecordResult) => {
+    const selectionKey =
+      record.market === "Total"
+        ? textKey(record.selection).includes("under")
+          ? "under"
+          : textKey(record.selection).includes("over")
+            ? "over"
+            : textKey(record.selection)
+        : textKey(teamFromSelection(record.selection));
+    const gameIdentity = [
+      isoPublicDate(record.date),
+      textKey(record.game),
+      textKey(record.gameTime || record.gameKey),
+    ].join("|");
+    return [gameIdentity, record.market, selectionKey].join("|");
+  };
+
+  const byKey = new Map<string, TrendRecordResult>();
+  for (const row of rows) {
+    const source = String(row.Source || "").trim();
+    if (source !== "Trend Play" && source !== "Best + Trend") continue;
+    if (String(row["Snapshot Status"] || "").trim().toUpperCase() !== "FINAL_PREGAME") continue;
+
+    const marketValue = String(row.Market || "").trim();
+    if (marketValue !== "Moneyline" && marketValue !== "Total") continue;
+    const market = marketValue as "Moneyline" | "Total";
+    const result = resultCode(row.Result);
+    if (!result) continue;
+
+    const frozenTier = archivedTier(row["Trend Tier"]);
+    if (!frozenTier) continue;
+    const scoreValue = Number(row["Trend Score"]);
+    const frozenScore = Number.isFinite(scoreValue) ? scoreValue : 0;
+    const date = isoPublicDate(row.Date || "");
+    if (!date) continue;
+
+    const rawSelection = String(row.Selection || row.Play || "").trim();
+    const side =
+      market === "Total"
+        ? textKey(rawSelection).includes("under")
+          ? "Under"
+          : textKey(rawSelection).includes("over")
+            ? "Over"
+            : textKey(row.Play).includes("under")
+              ? "Under"
+              : textKey(row.Play).includes("over")
+                ? "Over"
+                : ""
+        : "";
+    if (market === "Total" && !side) continue;
+
+    const game = String(row.Game || "").trim();
+    const gameKey = String(row["Game Key"] || "").trim().replace(/\.0$/, "");
+    const gameTime = String(row["Game Time"] || "").trim();
+    const awayTeam = String(row["Away Team"] || "").trim();
+    const homeTeam = String(row["Home Team"] || "").trim();
+    const line = market === "Total" ? numericLine(row.Line || row.Play || "") : null;
+    const odds = parseAmericanOdds(row.Odds);
+    const savedUnits = Number(row.Units);
+    const calculatedUnits =
+      result === "P"
+        ? 0
+        : result === "L"
+          ? -1
+          : odds > 0
+            ? odds / 100
+            : odds < 0
+              ? 100 / Math.abs(odds)
+              : 1;
+    const units = Number.isFinite(savedUnits) && (result === "P" || Math.abs(savedUnits) > 0.000001)
+      ? savedUnits
+      : calculatedUnits;
+    const frozenAt = String(
+      row["Locked At"] || row["Updated At"] || row["Result Updated"] || "",
+    ).trim();
+    const selection =
+      market === "Total"
+        ? String(row.Play || (side + " " + String(row.Line || ""))).trim()
+        : rawSelection;
+    if (!selection) continue;
+
+    const sideGroup: TrendPlay["sideGroup"] =
+      market === "Total"
+        ? side
+        : odds < 0
+          ? "Favorite"
+          : odds > 0
+            ? "Underdog"
+            : "";
+    const archivedPlay: TrendPlay = {
+      game,
+      awayTeam,
+      homeTeam,
+      market,
+      selection,
+      selectionTeam: market === "Moneyline" ? teamFromSelection(rawSelection) : "",
+      side,
+      sideGroup,
+      line,
+      odds: String(row.Odds || ""),
+      betsPct: 0,
+      moneyPct: 0,
+      gapPct: 0,
+      score: frozenScore,
+      tier: frozenTier,
+      signals: [],
+      updatedAt: frozenAt,
+      frozenAt,
+      snapshotStatus: "FINAL_PREGAME",
+      gradingVersion: FROZEN_TREND_GRADING_VERSION,
+      recordDate: date,
+      recordGameKey: gameKey,
+      recordGameTime: gameTime,
+    };
+
+    const candidate: TrendRecordResult = {
+      date,
+      game,
+      gameKey,
+      gameTime,
+      market,
+      selection,
+      result,
+      odds,
+      units,
+      frozenTier,
+      frozenScore,
+      frozenAt,
+      snapshotStatus: "FINAL_PREGAME",
+      trendScoreDetails: JSON.stringify(archivedPlay),
+      recoveredFromSavedPregameSnapshot: true,
+      recoveryNote: "ai_pick_selector FINAL_PREGAME archive",
+    };
+
+    const key = logicalKey(candidate);
+    const existing = byKey.get(key);
+    if (!existing) {
+      byKey.set(key, candidate);
+      continue;
+    }
+    const candidateTime = Date.parse(candidate.frozenAt || "");
+    const existingTime = Date.parse(existing.frozenAt || "");
+    if (
+      (Number.isFinite(candidateTime) ? candidateTime : 0) >=
+      (Number.isFinite(existingTime) ? existingTime : 0)
+    ) {
+      byKey.set(key, candidate);
+    }
+  }
+
+  return [...byKey.values()];
+}
+
+function mergeTrendRecordRows(
+  primaryRows: TrendRecordResult[],
+  archivedRows: TrendRecordResult[],
+): TrendRecordResult[] {
+  const logicalKey = (record: TrendRecordResult) => {
+    const selectionKey =
+      record.market === "Total"
+        ? textKey(record.selection).includes("under")
+          ? "under"
+          : textKey(record.selection).includes("over")
+            ? "over"
+            : textKey(record.selection)
+        : textKey(teamFromSelection(record.selection));
+    const gameIdentity = [
+      isoPublicDate(record.date),
+      textKey(record.game),
+      textKey(record.gameTime || record.gameKey),
+    ].join("|");
+    return [gameIdentity, record.market, selectionKey].join("|");
+  };
+
+  const merged = new Map<string, TrendRecordResult>();
+  for (const row of archivedRows) merged.set(logicalKey(row), row);
+  // The official frozen all_game_trends/current source is authoritative on any
+  // overlap. AI history only fills dates/plays that predate that archive.
+  for (const row of primaryRows) merged.set(logicalKey(row), row);
+  return [...merged.values()];
+}
+
 function buildTrendRecordRows(
   completedRows: SheetRow[],
   authoritativeFrozenPlays: TrendPlay[],
@@ -4568,18 +4818,13 @@ function trendScaledScore(value: number, points: TrendScorePoint[]) {
   return last[1];
 }
 
-function trendWindowWeights(records: TrendWindowRecords) {
-  // There is deliberately no minimum-bet penalty or disqualifier. Recency only
-  // controls how much the Last-7 window can move the grade. It reaches the full
-  // 50% weight once five recent decisions exist; unused weight is split evenly
-  // between all-time and Last-30 history.
-  const last7Decisions = Number(records.last7.wins || 0) + Number(records.last7.losses || 0);
-  const last7Weight = Math.min(0.5, Math.max(0, last7Decisions) * 0.1);
-  const carry = (0.5 - last7Weight) / 2;
+function trendWindowWeights(_records: TrendWindowRecords) {
+  // All-time is display-only for trend grading. The live grade and ROI use only
+  // the two recent windows, with Last 7 weighted twice as heavily as Last 30.
   return [
-    { key: "allTime" as const, weight: 0.25 + carry },
-    { key: "last30" as const, weight: 0.25 + carry },
-    { key: "last7" as const, weight: last7Weight },
+    { key: "allTime" as const, weight: 0 },
+    { key: "last30" as const, weight: 1 / 3 },
+    { key: "last7" as const, weight: 2 / 3 },
   ];
 }
 
@@ -4658,23 +4903,26 @@ function buildTrendSignalBreakdown(
   const overall = trendWindows(sameSignal, referenceDate);
 
   // Exact market + side history receives full weight regardless of bet count.
-  // Broader history is only a fallback when the exact category has no results.
-  const displayRecords = exact.allTime.totalBets
+  // Broader history is only a fallback when the exact category has no recent
+  // results. Recent-window availability, not all-time history, chooses the grading scope.
+  const hasRecent = (records: TrendWindowRecords) =>
+    records.last30.totalBets > 0 || records.last7.totalBets > 0;
+  const displayRecords = hasRecent(exact)
     ? exact
-    : marketRecords.allTime.totalBets
+    : hasRecent(marketRecords)
       ? marketRecords
       : overall;
-  const weights: TrendDatasetWeights = exact.allTime.totalBets
+  const weights: TrendDatasetWeights = hasRecent(exact)
     ? { exact: 1, market: 0, overall: 0 }
-    : marketRecords.allTime.totalBets
+    : hasRecent(marketRecords)
       ? { exact: 0, market: 1, overall: 0 }
-      : overall.allTime.totalBets
+      : hasRecent(overall)
         ? { exact: 0, market: 0, overall: 1 }
         : { exact: 0, market: 0, overall: 0 };
   const metrics = trendWindowMetrics(displayRecords);
-  const recordScope = exact.allTime.totalBets
+  const recordScope = hasRecent(exact)
     ? `${market} • ${sideGroup}`
-    : marketRecords.allTime.totalBets
+    : hasRecent(marketRecords)
       ? `${market} • all sides`
       : "All tracked markets";
 
@@ -4944,8 +5192,19 @@ function scoreHeadToHeadTrendPlays(plays: TrendPlay[]) {
     const rawGap = metrics.score - opponent.metrics.score;
     const comparisonGap = Math.abs(rawGap);
     const comparisonWinner = rawGap > 0.01;
+    const candidateRoiPct = metrics.roiPct;
+    const opponentRoiPct = opponent.metrics.roiPct;
+    const netRoiAdvantage = candidateRoiPct - opponentRoiPct;
+    const opponentLast7Green = opponent.play.signals.some(
+      (signal) => trendRecordTone(signal.records.last7) === "positive",
+    );
     const eligible = Boolean(
-      comparisonWinner && metrics.hasData && opponent.metrics.hasData,
+      comparisonWinner &&
+        metrics.hasData &&
+        opponent.metrics.hasData &&
+        candidateRoiPct > 0 &&
+        netRoiAdvantage >= EZPZ_TREND_POLICY.minimumNetRoiAdvantage &&
+        !opponentLast7Green,
     );
     // Head-to-head is confirmation, not the score itself. The old formula could
     // add the entire opposing-side gap and turn a base score in the 60s/70s into
@@ -6524,7 +6783,13 @@ function aiRowsForType(rows: SheetRow[], type: string) {
       );
     }
     if (["OVER", "UNDER", "LEAN OVER", "LEAN UNDER", "STRONG OVER", "STRONG UNDER"].includes(normalized)) {
-      return trackerMarket(row) !== "Total" && normalizeType(row["Bet Type"] || row.Market || "") === normalized;
+      const market = textKey(row.Market || "");
+      const isPitcherStrikeoutMarket =
+        market.includes("pitcher strikeout") || market.includes("pitcher k");
+      return (
+        isPitcherStrikeoutMarket &&
+        normalizeType(row["Bet Type"] || row.Market || "") === normalized
+      );
     }
     return aiCanonicalBestPlayType(row["Bet Type"] || row.Market || "") === normalized;
   });
@@ -6559,13 +6824,11 @@ function aiPitcherBetTypeForm(record: RecordTotals): AiPitcherBetTypeForm {
   return "NEUTRAL";
 }
 
-function aiPitcherRequiredScore(_record: RecordTotals, form: AiPitcherBetTypeForm) {
-  // Last-7 form changes the mandatory grade rather than changing the underlying
-  // EZPZ score. Every Hot bucket receives the same 74 minimum regardless of
-  // whether the rolling record is 5-2, 6-1, or 7-0.
-  if (form === "HOT") return 74;
-  if (form === "NEUTRAL") return 80;
-  return 86; // SAMPLE stays strict; COLD is blocked before paid AI review.
+function aiPitcherRequiredScore(
+  _record: RecordTotals,
+  _form: AiPitcherBetTypeForm,
+) {
+  return EZPZ_BEST_PLAY_POLICY.minimumScore;
 }
 
 type AiPitcherQualificationProfile = {
@@ -6576,19 +6839,15 @@ type AiPitcherQualificationProfile = {
 };
 
 function aiPitcherQualificationProfile(
-  form: AiPitcherBetTypeForm | undefined,
-  record: RecordTotals | null = null,
+  _form: AiPitcherBetTypeForm | undefined,
+  _record: RecordTotals | null = null,
 ): AiPitcherQualificationProfile {
-  const normalizedForm = form || "SAMPLE";
-  const score = aiPitcherRequiredScore(record || ({ wins: 0 } as RecordTotals), normalizedForm);
-
-  if (normalizedForm === "HOT") {
-    return { score, probability: 50, advantage: 1.5, enforceProbability: true };
-  }
-  if (normalizedForm === "NEUTRAL") {
-    return { score, probability: 52.5, advantage: 3.25, enforceProbability: true };
-  }
-  return { score, probability: 55, advantage: 5, enforceProbability: true };
+  return {
+    score: EZPZ_BEST_PLAY_POLICY.minimumScore,
+    probability: EZPZ_BEST_PLAY_POLICY.minimumProbability,
+    advantage: EZPZ_BEST_PLAY_POLICY.minimumAdvantage,
+    enforceProbability: true,
+  };
 }
 
 function aiHistoricalRecordType(candidate: AiSelectorCandidate) {
@@ -6651,7 +6910,7 @@ function aiRecordAdjustments(candidate: AiSelectorCandidate, completedTrackerRow
   candidate.pitcherBetTypeRecord = lastSeven.record;
   candidate.pitcherRequiredScore = profile.score;
 
-  if (form === "COLD") {
+  if (form !== EZPZ_BEST_PLAY_POLICY.requiredForm) {
     candidate.protectionReasons.push(
       `${recordType} is Cold over its last 7 completed bets (${lastSeven.record}); Cold Best Play bet types are excluded from AI Picks until the rolling record improves`,
     );
@@ -6809,8 +7068,14 @@ function aiProtectionChecks(candidate: AiSelectorCandidate) {
   if (!candidate.slateRow) candidate.protectionReasons.push("The candidate could not be matched to today’s saved slate");
   // Game-start gating is enforced in the selector lifecycle so an interrupted
   // FINAL_PREGAME review can retry without allowing a new live/in-game pick.
-  if (!String(candidate.odds || "").trim() || !parseAmericanOdds(candidate.odds)) {
+  const playableOdds = parseAmericanOdds(candidate.odds);
+  if (!String(candidate.odds || "").trim() || !playableOdds) {
     candidate.protectionReasons.push("Playable odds are missing");
+  } else if (playableOdds < EZPZ_BEST_PLAY_POLICY.maxFavoritePrice) {
+    candidate.protectionReasons.push(
+      "EZPZ Pick odds " + playableOdds + " exceed the -150 maximum price",
+    );
+    candidate.dataStatus.push("EZPZ Picks odds cap: -150 maximum");
   }
   if ((candidate.market === "Total" || candidate.market === "Pitcher Strikeouts") && !String(candidate.line || "").trim()) {
     candidate.protectionReasons.push("The betting line is missing");
@@ -6818,6 +7083,22 @@ function aiProtectionChecks(candidate: AiSelectorCandidate) {
   if (!Number.isFinite(candidate.modelScore) || !Number.isFinite(candidate.trendScore)) {
     candidate.protectionReasons.push("A required selector score is invalid");
   }
+}
+
+function aiBestPlayRecordTypeForSelector(
+  market: AiPickMarket | "",
+  playLabel: unknown,
+  bestPlayType: unknown,
+) {
+  if (market === "Pitcher Strikeouts") {
+    const summaryGrade = normalizeType(playLabel);
+    if (
+      ["STRONG OVER", "OVER", "LEAN OVER", "STRONG UNDER", "UNDER", "LEAN UNDER"].includes(summaryGrade)
+    ) {
+      return summaryGrade;
+    }
+  }
+  return aiCanonicalBestPlayType(bestPlayType);
 }
 
 function aiCandidateFromBestPlay(
@@ -6851,7 +7132,7 @@ function aiCandidateFromBestPlay(
     line: identity.line,
     odds,
     source: "Best Play",
-    bestPlayType: aiCanonicalBestPlayType(play.playType),
+    bestPlayType: aiBestPlayRecordTypeForSelector(identity.market, play.play, play.playType),
     trendTier: "",
     modelScore,
     trendScore: 0,
@@ -6887,13 +7168,22 @@ function aiCandidateFromBestPlay(
   };
 }
 
+function aiTrendSignalsAllGreen(play: TrendPlay) {
+  const signals = play.signals || [];
+  return (
+    EZPZ_TREND_POLICY.requireAllSignalsGreen &&
+    signals.length > 0 &&
+    signals.every((signal) => signal.tone === "positive")
+  );
+}
+
 function aiMergeTrendCandidate(
   candidateMap: Map<string, AiSelectorCandidate>,
   play: TrendPlay,
   slateRows: SheetRow[],
   today: string,
 ) {
-  if (play.tier === "Pass") return;
+  if (play.tier === "Pass" || !aiTrendSignalsAllGreen(play)) return;
   const slateRow = slateRows.find(
     (row) =>
       normalizeTeam(row["Away Team"] || "") === normalizeTeam(play.awayTeam) &&
@@ -7100,6 +7390,162 @@ function aiGameResearchRequestKey(candidates: AiSelectorCandidate[]) {
   return `${AI_PICK_SELECTOR_VERSION}|${anchor?.gameKey || "unknown-game"}|${candidateIds}`;
 }
 
+function aiCompactStoredBuilderValue(value: any, depth = 0): any {
+  if (value == null) return value;
+  if (typeof value === "number" || typeof value === "boolean") return value;
+  if (typeof value === "string") return value.slice(0, 240);
+  if (depth >= 4) return undefined;
+  if (Array.isArray(value)) {
+    return value
+      .slice(0, 4)
+      .map((item) => aiCompactStoredBuilderValue(item, depth + 1))
+      .filter((item) => item !== undefined);
+  }
+  if (typeof value === "object") {
+    const out: Record<string, any> = {};
+    for (const [key, nested] of Object.entries(value).slice(0, 28)) {
+      if (["batter_matchup_rows", "raw_rows", "rows"].includes(String(key))) continue;
+      const compact = aiCompactStoredBuilderValue(nested, depth + 1);
+      if (compact !== undefined) out[key] = compact;
+    }
+    return out;
+  }
+  return String(value).slice(0, 240);
+}
+
+function aiCompactStoredBuilderPitcher(value: any) {
+  if (!value || typeof value !== "object") return {};
+  const keys = [
+    "pitcher", "team", "opponent", "expected_ks", "raw_expected_ks", "six_ip_ks",
+    "line", "odds", "edge", "variance", "volatility", "recent_form_note",
+    "recent_accuracy_note", "six_inning_override_note", "weapon_floor_note",
+    "k_context_note", "k_context", "grade", "raw_grade", "k_score",
+    "selected_probability", "implied_probability", "price_edge", "publication_note",
+    "grade_restriction_reason", "workload_support", "nine_hitter_passed",
+    "lineup_hitters_found", "early_exit_risk", "grade_diagnostic",
+  ];
+  const out: Record<string, any> = {};
+  for (const key of keys) {
+    if (value[key] !== undefined && value[key] !== "") {
+      out[key] = aiCompactStoredBuilderValue(value[key], 0);
+    }
+  }
+  for (const section of ["recent_form", "lineup", "arsenal"]) {
+    if (value[section] !== undefined) {
+      out[section] = aiCompactStoredBuilderValue(value[section], 0);
+    }
+  }
+  return out;
+}
+
+function aiStoredBuilderContextFromMatchupRow(row: SheetRow) {
+  let details: any = {};
+  const rawDetails = String(row["Details JSON"] || "").trim();
+  if (rawDetails) {
+    try {
+      const parsed = JSON.parse(rawDetails);
+      if (parsed && typeof parsed === "object") details = parsed;
+    } catch {
+      details = {};
+    }
+  }
+  const pitchers = details?.pitchers && typeof details.pitchers === "object"
+    ? details.pitchers
+    : {};
+  return {
+    source: "EZPZ MLB builder / matchup_details_today",
+    date: String(row["Date"] || ""),
+    savedTimeET: String(row["Saved Time ET"] || ""),
+    gameKey: String(row["Game Key"] || ""),
+    gameLabel: String(row["Game Label"] || ""),
+    awayTeam: String(row["Away Team"] || ""),
+    homeTeam: String(row["Home Team"] || ""),
+    awayPitcher: String(row["Away Pitcher"] || ""),
+    homePitcher: String(row["Home Pitcher"] || ""),
+    summary: String(row["Summary"] || "").slice(0, 500),
+    pitchers: {
+      away: aiCompactStoredBuilderPitcher(pitchers?.away),
+      home: aiCompactStoredBuilderPitcher(pitchers?.home),
+    },
+    moneyline: aiCompactStoredBuilderValue(details?.moneyline || {}, 0),
+    firstInning: aiCompactStoredBuilderValue(details?.nrfi || {}, 0),
+    totalRuns: aiCompactStoredBuilderValue(details?.total_runs || {}, 0),
+  };
+}
+
+function aiFindStoredBuilderMatchupRow(
+  slateRow: SheetRow,
+  matchupRows: SheetRow[],
+  today: string,
+) {
+  const targetDate = normalizeDate(slateRow["Date"] || today) || today;
+  const targetKey = normalizeText(slateRow["Game Key"] || "");
+  const targetLabel = normalizeText(
+    slateRow["Game Label"] || slateRow["Game"] || slateRow["Matchup"] || "",
+  );
+  const targetAway = normalizeText(slateRow["Away Team"] || "");
+  const targetHome = normalizeText(slateRow["Home Team"] || "");
+  const candidates = matchupRows
+    .filter((row) => {
+      const rowDate = normalizeDate(row["Date"] || "");
+      return !rowDate || rowDate === targetDate;
+    })
+    .slice()
+    .reverse();
+
+  if (targetKey) {
+    const exactKey = candidates.find(
+      (row) => normalizeText(row["Game Key"] || "") === targetKey,
+    );
+    if (exactKey) return exactKey;
+  }
+  if (targetAway && targetHome) {
+    const teamMatch = candidates.find(
+      (row) =>
+        normalizeText(row["Away Team"] || "") === targetAway &&
+        normalizeText(row["Home Team"] || "") === targetHome,
+    );
+    if (teamMatch) return teamMatch;
+  }
+  if (targetLabel) {
+    const labelMatch = candidates.find(
+      (row) => normalizeText(row["Game Label"] || "") === targetLabel,
+    );
+    if (labelMatch) return labelMatch;
+  }
+  return null;
+}
+
+function attachAiBuilderContextToSlateRows(
+  slateRows: SheetRow[],
+  matchupRows: SheetRow[],
+  today: string,
+) {
+  if (!matchupRows.length) return slateRows;
+  return slateRows.map((row) => {
+    const matchupRow = aiFindStoredBuilderMatchupRow(row, matchupRows, today);
+    if (!matchupRow) return row;
+    return {
+      ...row,
+      [AI_BUILDER_CONTEXT_KEY]: JSON.stringify(
+        aiStoredBuilderContextFromMatchupRow(matchupRow),
+      ),
+    };
+  });
+}
+
+async function safeReadAiBuilderMatchupRows() {
+  try {
+    return await readWorksheet(AI_BUILDER_MATCHUP_DETAILS_TAB);
+  } catch (error) {
+    console.warn(
+      "AI structured builder context unavailable; continuing with slate/web context:",
+      error instanceof Error ? error.message : String(error),
+    );
+    return [] as SheetRow[];
+  }
+}
+
 function aiCandidateResearchPayload(candidate: AiSelectorCandidate) {
   const firstInningContext = aiFirstInningDirectionContext(
     candidate.market,
@@ -7301,6 +7747,19 @@ function aiGameResearchPayload(candidates: AiSelectorCandidate[]) {
       )
     : {};
 
+  let builderGameContext: Record<string, any> = {};
+  const builderContextRaw = String(
+    anchor.slateRow?.[AI_BUILDER_CONTEXT_KEY] || "",
+  ).trim();
+  if (builderContextRaw) {
+    try {
+      const parsed = JSON.parse(builderContextRaw);
+      if (parsed && typeof parsed === "object") builderGameContext = parsed;
+    } catch {
+      builderGameContext = {};
+    }
+  }
+
   return {
     gameKey: anchor.gameKey,
     date: anchor.date,
@@ -7308,6 +7767,8 @@ function aiGameResearchPayload(candidates: AiSelectorCandidate[]) {
     gameTime: anchor.gameTime,
     awayTeam: anchor.awayTeam,
     homeTeam: anchor.homeTeam,
+    builderContextAvailable: Object.keys(builderGameContext).length > 0,
+    builderGameContext,
     modelGameContext,
     candidates: candidates.map((candidate) => aiCandidateResearchPayload(candidate)),
   };
@@ -7541,19 +8002,22 @@ async function fetchSingleAiGameExternalReviews(
     : scheduledStartMs - Date.now();
   if (remainingPregameMs != null && remainingPregameMs <= 15_000) {
     throw new Error(
-      "Final AI review was skipped because the scheduled start was too close or had passed",
+      "Final selector review was skipped because the scheduled start was too close or had passed",
     );
   }
 
-  const model = String(process.env.EZPZ_AI_SELECTOR_MODEL || "gpt-5-mini").trim();
+  const configuredAiSelectorModel = String(process.env.EZPZ_AI_SELECTOR_MODEL || "").trim();
+  const model = (!configuredAiSelectorModel || configuredAiSelectorModel === "gpt-5-mini")
+    ? "gpt-5.6-terra"
+    : configuredAiSelectorModel;
   const configuredSearchContextSize = String(
-    process.env.EZPZ_AI_SEARCH_CONTEXT_SIZE || "low",
+    process.env.EZPZ_AI_SEARCH_CONTEXT_SIZE || "medium",
   ).trim();
   const searchContextSize: "low" | "medium" | "high" = ["low", "medium", "high"].includes(
     configuredSearchContextSize,
   )
     ? (configuredSearchContextSize as "low" | "medium" | "high")
-    : "low";
+    : "medium";
   const configuredMaxRaw = Number(
     process.env.EZPZ_AI_MAX_GAME_OUTPUT_TOKENS || 2600,
   );
@@ -7595,7 +8059,7 @@ async function fetchSingleAiGameExternalReviews(
       store: false,
       // OpenAI limits this routing key to 64 characters. Keep it short and
       // stable so same-version game reviews still share prompt-cache affinity.
-      prompt_cache_key: "ezpz-ai-game-v13",
+      prompt_cache_key: "ezpz-ai-game-v14",
       tools: [
         {
           type: "web_search",
@@ -7609,7 +8073,12 @@ async function fetchSingleAiGameExternalReviews(
         },
       ],
       tool_choice: "required",
-      max_tool_calls: 1,
+      // Fixed-source research checklist. Allow enough searches to inspect each
+      // relevant source without forcing unnecessary lookups for every market.
+      max_tool_calls: Math.max(
+        1,
+        Math.min(8, Math.floor(Number(process.env.EZPZ_AI_MAX_WEB_SEARCH_CALLS || 7) || 7)),
+      ),
       parallel_tool_calls: false,
       reasoning: { effort: "low" },
       max_output_tokens: maxOutputTokens,
@@ -7619,17 +8088,237 @@ async function fetchSingleAiGameExternalReviews(
           content: [
             {
               type: "input_text",
-              text: `You are the final pregame MLB research analyst for EZPZ AI Picks. Use one web search to research this one game, then evaluate every supplied candidate using the same verified pregame facts. Never use information from after first pitch and do not invent statistics.
+              text: `You are the final pregame MLB research analyst for EZPZ Picks. Start with the supplied EZPZ builder/model data, then answer the fixed research questions below using the exact URLs provided. Your job is to look, compare, and grade the evidence—not to search broadly for reasons to agree with the wager. Never use information from after first pitch and do not invent statistics.
 
-Use modelGameContext as the primary quantitative source. Verify only decision-relevant details: probable/confirmed starters, projected lineups, recent 3-5-start form, workload/leash, bullpen availability, meaningful matchup or split evidence, and weather/park only if material. State plainly when a split or history sample is unavailable or too small.
+FIXED RESEARCH CHECKLIST — USE THESE EXACT SOURCES
+Use builderGameContext/modelGameContext as the baseline quantitative case. Do not re-research the model or trend itself. For every applicable question below, return exactly one evidence direction internally: SUPPORTS, OPPOSES, or NEUTRAL. A fact is SUPPORTS/OPPOSES only when it materially changes the expected outcome of this exact wager. Merely confirming what was already expected is NEUTRAL.
 
-The shared fields must be concise but matchup-specific: startingPitching names both starters and any prop pitcher; bullpenAnalysis covers availability or says no material concern was verified; recentTeamForm covers both teams; historicalMatchup includes sample context or says no meaningful sample exists.
+1) STARTING PITCHING ADVANTAGE — Who is the better starting pitcher today, and does that pitching advantage SUPPORT, OPPOSE, or have a NEUTRAL effect on this pick?
+SOURCE: https://www.rotowire.com/baseball/projected-starters.php
+COMPARE: both scheduled/probable starters, their recent effectiveness and workload context from EZPZ, and any meaningful role difference or starter change. Decide which starter has the matchup advantage, then determine whether that advantage actually matters for this exact wager. If neither starter creates a meaningful edge for the pick, mark NEUTRAL.
 
-Return candidateReviews in exactly the same order as the supplied candidates, with exactly one item for each. approved=true means the wager still deserves publication after research. approved=false is a final veto only for materially negative evidence discovered in the matchup research; it is not a numeric-threshold veto. Never set approved=false solely because aiScoreBeforeResearch is below a downstream selector threshold. Use a small adjustment from -6 to +6, and use 0 when research does not change the supplied quantitative case. Each candidate needs two or three concise WHY bullets focused on the actual reason it cleared or failed—never a public risk list. For any candidate backed by a Best Play, its exact Best Play bet type uses the rolling Last-7-Bets quantitative gates: Hot = 74 score / 50% probability / 1.5% advantage; Neutral = 80 / 52.5% / 3.25%; Small Sample = 86 / 55% / 5%; Cold is excluded before review. This applies to pitcher props, A/B Moneylines, Total Over/Under, and Elite NRFI/YRFI. A Trend-Play-only candidate is not subject to the model bet-type form gate. It must be a Strong/Elite trend (Trend Score 69+), and the selector will require the final adjusted AI score to reach 80+ after your research adjustment; there is no minimum historical bet count or small-sample veto. Do not reject a trend-only candidate because aiScoreBeforeResearch is below 80. First evaluate the actual matchup and assign the research adjustment. If the research is neutral, use adjustment=0 and approved=true unless the research itself uncovers a material negative reason to veto. The selector, not the reviewer, applies the final 80+ score gate after the adjustment. Small sample, trend strength alone is insufficient, lack of extra corroboration, or a pre-research score shortfall are not valid reasons for approved=false. For a trend-only play, approved=false must reflect a concrete researched matchup problem such as a materially unfavorable confirmed starter, lineup, bullpen, weather, or relevant split/context issue. The AI remains the final qualitative decider on matchup evidence, while the selector remains the final numeric gatekeeper.
+2) LINEUP MATCHUP — How do today's confirmed/projected lineups match up against the opposing starting pitcher, and does that matchup SUPPORT, OPPOSE, or have a NEUTRAL effect on this pick?
+SOURCE: https://www.rotowire.com/baseball/daily-lineups.php
+COMPARE: the actual/projected hitters against the opposing starter using handedness, strikeout/contact profile, platoon strength, meaningful scratches/rest, and batting-order changes. Focus on which lineup has the more favorable matchup against the opposing pitcher and whether that matchup materially affects this exact wager. A normal or expected lineup without a meaningful matchup edge = NEUTRAL.
 
-For Pitcher Strikeouts, treat the supplied AI score as the strikeout model's differentiated assessment, not a win probability or automatic approval. Preserve the model's score distinctions unless verified research justifies the permitted small adjustment. Test the projection versus line, opposing lineup K/contact tendencies, pitcher arsenal/whiff fit, recent starts, innings/pitch count/leash, relevant history sample, and whether today’s lineup differs from generic team rates. A negative net assessment must be approved=false.
+3) GAME TOTAL — STARTER RUN PREVENTION — APPLY ONLY TO FULL-GAME OVER/UNDER CANDIDATES. Does the actual run-prevention profile of BOTH starting pitchers support or oppose this total?
+QUESTION FOR AN UNDER: Have both starters shown enough recent and contextual run prevention to make a low-scoring game more likely?
+QUESTION FOR AN OVER: Has one or both starters shown enough recent or contextual run-prevention weakness to make a high-scoring game more likely?
+
+SOURCE A — probable starters + linked pitcher profiles: https://www.rotowire.com/baseball/projected-starters.php
+USE: confirm both starters, then use the linked RotoWire pitcher profiles for season ERA/WHIP, recent game logs, home/away splits, handedness splits and workload context when available.
+
+SOURCE B — recent game results/box scores: https://www.espn.com/mlb/scoreboard
+USE: verify each starter's LAST 3 STARTS. Record innings pitched, total runs allowed, earned runs allowed, hits, walks, home runs and pitch count when available. State the runs/earned runs allowed in each of the three starts rather than using vague labels such as "good recent form" or "struggling."
+
+SOURCE C — day/night and other official pitching splits: https://www.mlb.com/stats/pitching
+USE: select the split that matches today's game. If this is a night game, compare each starter's Night Games ERA/WHIP; if it is a day game, use Day Games. Also use Home/Away when relevant. Compare the split to the pitcher's overall season ERA so the AI can identify a real contextual difference instead of merely repeating the season number.
+
+SOURCE D — exact ballpark history: https://www.baseball-reference.com/
+USE: search the exact starting pitcher, open the pitcher's Pitching Splits, and check Ballparks/Game-Level for the stadium hosting today's game. Report starts, innings and ERA/runs allowed at THIS specific ballpark when available. If the sample is fewer than 3 starts or roughly 15 innings, label it SMALL SAMPLE and do not give it strong weight.
+
+TOTALS STARTER COMPARISON — FOR EACH STARTER REPORT/COMPARE:
+- Runs and earned runs allowed in EACH of the last 3 starts, plus innings/workload.
+- Current-season ERA and WHIP.
+- Day-game or night-game ERA/WHIP matching today's scheduled start time.
+- Home or road ERA/WHIP matching today's venue.
+- Specific history at today's ballpark, with sample size.
+- Meaningful history versus today's opponent/current lineup only when the sample is large enough to matter.
+- Whether these factors collectively SUPPORT, OPPOSE, or are NEUTRAL for the exact Over/Under side.
+
+UNDER INTERPRETATION — Favor SUPPORT only when the combined starter evidence points toward run suppression. Strong Under support usually requires both starters to be reasonably trustworthy, or one elite run-prevention starter plus no major vulnerability from the other starter. A starter allowing elevated runs recently, carrying an adverse day/night or venue split, or showing a meaningful matchup weakness is OPPOSES evidence for the Under.
+
+OVER INTERPRETATION — Apply the same exact evidence in the opposite direction. Favor SUPPORT when one or both starters show meaningful scoring vulnerability: elevated runs allowed across the last 3 starts, poor season ERA/WHIP, adverse day/night or home/road split, poor history at today's ballpark with a meaningful sample, or a lineup matchup that is especially favorable for the offense. One clearly vulnerable starter can materially support an Over even if the other starter is solid. Conversely, two strong recent run-prevention profiles with favorable contextual splits are OPPOSES evidence for the Over.
+
+TOTALS MODEL ALIGNMENT — Before approving the research case, compare the EZPZ model total projection with the betting line. For an UNDER, a model projection materially ABOVE the line is opposing evidence; for an OVER, a model projection materially BELOW the line is opposing evidence. A disagreement of 0.5 runs or more is STRONG OPPOSES evidence and must be explicitly addressed rather than ignored.
+
+WEIGHTING — Recent starts and current-season performance matter more than old career splits. Day/night, home/away and ballpark history are supporting context, not automatic reasons to approve. One tiny historical sample must never outweigh three recent starts or the current EZPZ projection.
+
+FINAL TOTALS JUDGMENT — Combine BOTH starting pitchers first, then the lineup matchup, bullpen usage and weather/park questions below. For an UNDER, strong support means both starters are reasonably aligned with run prevention and there is no major opposing factor. For an OVER, strong support can come from one clearly vulnerable starter or multiple scoring-positive factors. If the evidence is mixed, mark NEUTRAL rather than forcing support.
+
+4) BULLPEN USAGE — Has either bullpen been heavily used recently, are important relievers on back-to-back/heavy workloads, or is there a meaningful rest advantage that changes this wager?
+SOURCE: https://www.rotowire.com/baseball/bullpen-usage.php
+COMPARE: both teams' bullpen usage over the last five days, with emphasis on recent pitch counts and likely high-leverage relievers. A normally rested bullpen = NEUTRAL. Only a meaningful workload/rest imbalance should SUPPORT or OPPOSE.
+
+5) RECENT FORM / WORKLOAD — Do the starters' last 3-5 outings or the teams' recent results show a material change that the EZPZ baseline may not fully capture?
+SOURCE: https://www.espn.com/mlb/scoreboard
+COMPARE: recent box scores/results for innings, pitch count when available, strikeouts, walks, runs allowed, scoring and run prevention. Small routine fluctuations = NEUTRAL. Use recent form only when it is clearly relevant to this wager.
+
+6) INJURIES / ABSENCES — Is there a current injury, scratch, activation, or absence that materially changes this wager?
+SOURCE: https://www.rotowire.com/baseball/news.php?injuries=all
+COMPARE: relevant current injury news against today's lineup and EZPZ assumptions. Ignore injuries that do not materially affect the wager. No meaningful injury news = NEUTRAL.
+
+7) PITCHER STRIKEOUT MATCHUP — APPLY ONLY TO PITCHER-K CANDIDATES. Does the actual opposing lineup and the pitcher's current strikeout/whiff profile materially support or oppose the EZPZ K projection and betting line?
+SOURCE: https://baseballsavant.mlb.com/statcast_search
+COMPARE: projection vs line, actual opposing hitters' K/contact tendencies, pitcher strikeout/whiff/pitch-mix or velocity context, and recent workload. Do not use generic team K rate when the actual lineup is available. If the evidence does not materially change the EZPZ case, mark NEUTRAL.
+
+8) WEATHER / PARK — APPLY ONLY WHEN MATERIAL. Do current game conditions materially help or hurt this wager?
+SOURCE: https://www.rotowire.com/baseball/weather.php
+COMPARE: wind, temperature, precipitation/delay risk, roof/dome status and only meaningful park-condition effects. Ordinary weather or an indoor/domed game = NEUTRAL. Do not award support simply because weather is not a problem.
+
+GAME-LEVEL RESEARCH REUSE — RESEARCH ONCE, APPLY TO EVERY CANDIDATE
+The candidates supplied in this request belong to the SAME GAME. Before using web search, inspect all candidate markets for this game and build ONE unique research plan. Never repeat the same factual/source lookup because the same game has a Moneyline, Total, Pitcher-K, First-Inning candidate, multiple candidate sides, or multiple candidate reviews. Once a fact is retrieved for this game, reuse that exact fact in every applicable candidate review. The factual research is market-neutral; only the interpretation changes by wager type.
+
+MARKET-AWARE STARTER BUNDLE — RESEARCH THE FACTS THAT MATTER TO THE CANDIDATES FIRST:
+Build the starter plan from the markets actually present in this game. Do NOT automatically spend four starter-source calls on every game.
+- If MONEYLINE or TOTAL candidates exist, compare both starters using the supplied EZPZ context first, then fill only meaningful gaps. RotoWire probable starters, ESPN/official recent game logs, MLB split pages, and Baseball-Reference history are available sources, but do not fetch a field that EZPZ already supplies clearly.
+- If the game contains only PITCHER STRIKEOUTS and/or FIRST INNING candidates, do NOT spend calls on generic MLB Day/Night splits, bullpen tables, broad injury pages, or full-game starter comparisons unless they directly affect workload/leash or the first inning. Prioritize the prop pitcher's exact recent starts, opponent/venue history, today's opposing lineup, and K/contact matchup.
+- For a pitcher-K candidate, the recent-start history workflow below has priority over generic starter research. Do not use ESPN scoreboard as the only attempt for historical data.
+- Reuse any starter facts already retrieved for another candidate in this game.
+
+SHARED LINEUP BUNDLE — ONE LOOKUP PER GAME, reused by MONEYLINE + TOTAL + PITCHER K + FIRST INNING:
+https://www.rotowire.com/baseball/daily-lineups.php
+Retrieve both actual/projected lineups once. Reuse the same hitters, handedness, scratches/rest and batting-order information everywhere. For MONEYLINE, compare which lineup has the better matchup against the opposing starter. For TOTAL, judge whether the two lineups increase or suppress scoring. For PITCHER K, use the exact opposing lineup for K/contact matchup. For FIRST INNING, focus the same lineup data on the top of each batting order. Never re-fetch the lineup simply because the wager type changes.
+
+SHARED BULLPEN BUNDLE — ONE LOOKUP PER GAME, reused by MONEYLINE + TOTAL:
+https://www.rotowire.com/baseball/bullpen-usage.php
+Retrieve both teams' last-five-day usage, high-leverage workload and likely availability once. For MONEYLINE, interpret it as the ability to protect/hold a lead. For TOTAL, interpret the same workload as late-inning run suppression/vulnerability. Do not perform a second bullpen lookup for another candidate in this game.
+
+SHARED INJURY BUNDLE — AT MOST ONE LOOKUP PER GAME when relevant, reused by all markets:
+https://www.rotowire.com/baseball/news.php?injuries=all
+Only retrieve current injuries/scratches/activations that can affect today's actual game. Reuse the result across every candidate. If the supplied confirmed lineup already resolves an absence and there is no material unresolved injury question, do not spend another search merely to confirm that nothing changed.
+
+SHARED WEATHER/PARK BUNDLE — AT MOST ONE LOOKUP PER GAME when material, reused by MONEYLINE + TOTAL + FIRST INNING and pitcher K when conditions affect workload:
+https://www.rotowire.com/baseball/weather.php
+Retrieve conditions once. An indoor/domed game or ordinary non-material weather does not require repeated lookup or commentary.
+
+PITCHER-K HISTORY WORKFLOW — REQUIRED WHEN AT LEAST ONE PITCHER STRIKEOUTS CANDIDATE EXISTS:
+The goal is to leave the user with real numeric history, not a generic "history unavailable" note. These are explicitly approved additional sources for pitcher-K history and override any generic instruction that limits research to the earlier fixed-source list.
+
+PRIORITY 1 — EXACT RECENT STARTS:
+- First use exact recent-start rows already present in EZPZ structured context when they contain the needed numbers.
+- Otherwise use the pitcher's Baseball-Reference game log/player page as the primary historical source. If Baseball-Reference is not cleanly retrievable, immediately fall back to StatMuse with a targeted pitcher game-log query. ESPN/official box scores are additional fallback sources, not the only historical attempt.
+- Capture the last 5 starts before today's game whenever available: date, opponent, innings pitched, pitch count when available, and strikeouts.
+- Calculate and report: strikeouts in each of the last 5 starts, average strikeouts, average pitch count when available, and the exact Over/Under record versus TODAY'S listed prop line. Example format: "Last 5 K: 3, 2, 3, 2, 6 — Under 4.5 in 4/5; 3.2 K/start; 74.6 pitches/start."
+- A recent-start series is decision-relevant even when opponent-specific history is small or unavailable. Do not replace it with a sentence saying no history was found.
+
+PRIORITY 2 — OPPONENT + VENUE HISTORY:
+- Retrieve the pitcher's most recent starts against today's opponent, preferably the last 3-5 meetings when they exist. Baseball-Reference and StatMuse are approved. Report date, venue, IP and K for each usable start and summarize the Over/Under record versus today's prop line.
+- When useful, identify starts at today's exact ballpark and state the sample size. Do not imply that a 1-2 start venue sample is predictive; label it small-sample context.
+- If the primary history source fails, attempt the approved fallback before saying the data is unavailable. "Not available" is acceptable only after a targeted fallback attempt or when no prior matchup actually exists.
+
+PRIORITY 3 — TODAY'S ACTUAL LINEUP + K/CONTACT FIT:
+- Use the shared RotoWire daily lineup once. Then use Baseball Savant only for incremental pitcher whiff/K/pitch-mix/velocity and actual-hitter contact/K information that is not already supplied by EZPZ.
+- Do not waste Savant calls re-fetching recent starts, pitch counts, lineups, injuries, bullpen, weather, or season ERA/WHIP.
+- If hitter-level data cannot be retrieved, keep that component NEUTRAL. Do not let missing hitter-level data erase the real recent-start history gathered above.
+
+PITCHER-K CALL PRIORITY / SKIP RULES:
+- For a K candidate, exact recent starts and the Over/Under record versus today's line outrank bullpen, generic injuries, generic weather, generic team form, and broad season split lookups.
+- Skip bullpen web research for pitcher-K unless there is a specific workload/leash reason it could cause an earlier hook. If the card schema requires a bullpen field, use supplied structured context or say it was not decision-relevant; do not spend a search merely to fill the field.
+- Skip broad injury research once today's confirmed opposing lineup resolves the hitters who matter, unless a late scratch/activation is genuinely unresolved.
+- Skip weather entirely for a confirmed indoor/domed game. For ordinary outdoor weather, search only if conditions could materially affect pitcher grip, delay risk, or workload.
+- Stay inside the existing web-call ceiling by dropping low-value lookups before dropping recent K history. Do not raise the search count simply to fill every generic shared field.
+
+HISTORICAL OUTPUT REQUIREMENTS FOR PITCHER-K CARDS:
+- Historical Matchup Notes must include the recent-start numeric summary whenever those starts exist.
+- Also include opponent/venue history when a real sample exists, with sample size and direction versus today's line.
+- Distinguish RECENT FORM from OPPONENT HISTORY so the user can see what is broadly current versus matchup-specific.
+- Never write "no historical factor was weighted" when recent starts were successfully retrieved; recent starts are historical evidence even if head-to-head history is absent.
+- Verify baseball innings notation exactly. In box-score notation, 5.1 IP means five innings plus one out and 5.2 IP means five innings plus two outs. Never silently convert 5.1 to 5.2 or vice versa.
+- When two sources disagree on an exact box-score value, prefer an official/box-score game log and note the conflict rather than inventing a blended value.
+
+FIRST-INNING-ONLY EXTRA — use only when the existing structured first-inning signal plus the shared starter/lineup facts leave a material unresolved first-inning question. For NRFI/YRFI-only reviews, prioritize the two starters' current first-inning/recent-start context and the top of each confirmed batting order. Do not spend web calls on bullpen usage because relievers do not normally affect the first inning. Skip broad injury research once the confirmed lineups resolve availability, and skip weather for a confirmed dome/indoor game. Do not broadly re-search full-game facts already supplied by EZPZ.
+
+SEARCH-EFFICIENCY RULES:
+- Research the GAME, not each bet. One source result can and should support multiple candidate reviews.
+- Before every web call, ask: "Do I already have this exact fact from the supplied EZPZ context or an earlier lookup in this same game review?" If yes, reuse it and do not search again.
+- Never search the same exact URL/source twice for the same game unless the first result was genuinely unusable or contradictory.
+- Never re-research the EZPZ model score, projection, trend score, betting line or implied probability on the web; those are supplied structured facts.
+- Opposite interpretations do not require opposite searches. Example: the same 5.20 night ERA can OPPOSE an Under, SUPPORT an Over, and weaken that pitcher's team's Moneyline without another lookup.
+- If Moneyline + Total candidates coexist, the four-source starter bundle must be gathered only once and then interpreted for both markets.
+- If Moneyline/Total + Pitcher-K coexist, reuse the same daily lineup and recent-start/workload data; Savant is the principal incremental K-specific source.
+- Keep the existing maximum search-call allowance as a ceiling for difficult games, not a target. Use fewer calls whenever the unique source plan can answer the game completely. For pitcher-K candidates, never sacrifice the required last-five-start history to fill lower-value bullpen/injury/weather/shared fields; use Baseball-Reference with StatMuse as the targeted fallback before declaring history unavailable.
+
+MONEYLINE-SPECIFIC FIXED CHECKLIST — APPLY ONLY TO FULL-GAME MONEYLINE CANDIDATES
+For a moneyline, do not merely confirm the game context. Compare the two teams directly and determine which team has the stronger path to winning TODAY. Use the exact sources below and grade each section SUPPORTS, OPPOSES, or NEUTRAL for the selected moneyline side.
+
+A) STARTING PITCHER COMPARISON — Which starting pitcher gives his team the better chance to win today, and does that pitching edge SUPPORT, OPPOSE, or have a NEUTRAL effect on the selected moneyline?
+SOURCE 1 — probable starters + linked pitcher profiles: https://www.rotowire.com/baseball/projected-starters.php
+SOURCE 2 — recent game results/box scores: https://www.espn.com/mlb/scoreboard
+SOURCE 3 — official pitching splits: https://www.mlb.com/stats/pitching
+SOURCE 4 — exact ballpark history: https://www.baseball-reference.com/
+FOR BOTH STARTERS, COMPARE:
+- Runs and earned runs allowed in EACH of the last 3 starts, plus innings and pitch count/workload when available.
+- Current-season ERA and WHIP.
+- Day-game or night-game ERA/WHIP matching today's scheduled start time.
+- Home or road ERA/WHIP matching today's venue.
+- History at today's exact ballpark: starts, innings and ERA/runs allowed when available.
+- Meaningful history versus today's opponent/current lineup only when the sample is large enough to matter.
+- Likely workload/leash and whether one starter is more likely to provide length.
+WEIGHTING: Recent starts and current-season performance matter more than old career splits. Ballpark/opponent history with fewer than 3 starts or about 15 innings is SMALL SAMPLE and cannot drive the verdict. End this section by naming which starter has the meaningful edge today, or NEITHER if the comparison is essentially even.
+
+B) LINEUP MATCHUP — Which team has the better lineup matchup against the opposing starting pitcher, and does that edge SUPPORT, OPPOSE, or have a NEUTRAL effect on the selected moneyline?
+SOURCE: https://www.rotowire.com/baseball/daily-lineups.php
+COMPARE: today's actual/projected hitters, starter handedness, platoon fit, strikeout/contact profile supplied by EZPZ, important scratches/rest, and batting-order changes. Compare BOTH lineups against the opposing starter. A merely confirmed/expected lineup is NEUTRAL; support requires an actual matchup advantage.
+
+C) BULLPEN ADVANTAGE — Which team has the more usable bullpen today, and does that edge SUPPORT, OPPOSE, or have a NEUTRAL effect on the selected moneyline?
+SOURCE: https://www.rotowire.com/baseball/bullpen-usage.php
+COMPARE: both teams over the last five days, emphasizing closer/setup/high-leverage relievers, back-to-back appearances, recent pitch counts, likely availability, and whether one bullpen is materially more capable of protecting a lead or keeping the game close. A normally rested bullpen without a comparative edge is NEUTRAL.
+
+D) INJURIES / ABSENCES — Is either team missing a player whose absence materially changes its chance to win today?
+SOURCE: https://www.rotowire.com/baseball/news.php?injuries=all
+COMPARE: only current injuries, scratches, activations or absences relevant to today's lineup, starting pitching, catcher, or high-leverage bullpen roles. Ignore injuries that do not materially affect the selected moneyline. No meaningful injury difference = NEUTRAL.
+
+E) WEATHER / PARK — Do today's conditions materially favor either team or pitching profile enough to affect the moneyline?
+SOURCE: https://www.rotowire.com/baseball/weather.php
+COMPARE: wind, temperature, precipitation/delay risk, roof/dome status and park effects only when they create a team-specific or pitcher-specific advantage. Ordinary conditions = NEUTRAL.
+
+F) EZPZ MODEL ALIGNMENT — Does the supplied EZPZ quantitative case agree with the selected moneyline?
+SOURCE: supplied builderGameContext/modelGameContext only; do not re-research the model on the web.
+COMPARE: the selected side's model direction, projected win probability/edge when available, and the market implied probability. If the EZPZ model materially favors the opponent or shows a negative edge for the selected moneyline, that is STRONG OPPOSES evidence and must be explicitly addressed. Trend strength or neutral qualitative research cannot erase a direct model conflict.
+
+FINAL MONEYLINE JUDGMENT — Combine the sections in this order: starting-pitcher comparison, lineup matchup, bullpen advantage, injuries/absences, weather/park, then EZPZ model alignment. The selected moneyline should receive positive research support only when the comparative evidence creates a real advantage for that team. Do not award positive support merely because the starter is confirmed, the lineup is normal, the bullpen is rested, there are no injuries, or weather is ordinary. If the major advantages split between the teams or are weak, mark the research NEUTRAL instead of forcing approval.
+
+GRADING RULES
+- Use only the fixed sources above plus the supplied EZPZ structured data unless a direct current contradiction requires clarification.
+- Do not browse broadly for generic articles, season narratives, opinions, betting picks, or reasons to confirm the wager.
+- Confirmed expected starter = NEUTRAL unless the actual starter comparison creates a meaningful pitching advantage for or against the pick. Expected lineup = NEUTRAL unless the actual lineup-to-pitcher matchup creates a meaningful edge. Rested bullpen with no special edge = NEUTRAL. No injury issue = NEUTRAL. Normal weather = NEUTRAL.
+- For full-game totals, explicitly include both starters' last-3-start run allowance, season ERA/WHIP, matching day/night split, matching home/away split, and exact-ballpark history when available. Small-sample venue history is context only. Apply these same inputs symmetrically: run-prevention strength SUPPORTS an Under and OPPOSES an Over; run-prevention weakness OPPOSES an Under and SUPPORTS an Over. One clearly vulnerable starter may materially support an Over. A 0.5+ run conflict between the EZPZ projection and the selected total side is STRONG OPPOSES evidence and cannot be omitted from the verdict.
+- For moneylines, explicitly compare BOTH starters using last-3 run allowance, season ERA/WHIP, matching day/night split, matching home/away split, and exact-ballpark history when available; then compare today's lineups and bullpen availability. Small-sample venue/opponent history is context only. A direct EZPZ model conflict with the selected moneyline is STRONG OPPOSES evidence and cannot be omitted from the verdict.
+- Research adjustment must be 0 when the relevant evidence is neutral or balanced.
+- A positive adjustment requires at least one verified, wager-specific SUPPORTS finding. One modest material support is usually +1; stronger support may be +2; multiple independent strong supports may justify +3. Reserve +4 to +6 for rare, truly major verified pregame changes.
+- Negative adjustments follow the same scale for OPPOSES evidence. A critical conflict may justify approved=false.
+- Do not turn missing information into negative evidence, and do not turn mere verification into positive evidence.
+
+SUMMARY OUTPUT — NUMBERS FIRST
+- researchSummary must be a compact list of the DIRECT COMPARATIVE ADVANTAGES for the exact wager. Show the actual numbers from the fixed sources whenever they are available, even when the difference is small or grades NEUTRAL.
+- Never replace an available comparison with phrases such as "no advantage found," "no meaningful edge," "nothing notable," or "research did not corroborate." If the numbers exist, show them and name which side the numbers favor.
+- Examples of the required style: "Starter edge: PHI — last 3 ER 1/2/1 vs NYM 4/3/2; night ERA 2.61 vs 3.48." "Bullpen: PHI high-leverage arms 28 pitches last 2 days vs NYM 61 — PHI rest edge." "Model: Under 8.5; EZPZ projection 7.7 — 0.8-run Under edge."
+- A small edge may still be NEUTRAL for grading, but the summary must still report it: for example, "Night ERA 3.42 vs 3.66 — slight selected-side edge (NEUTRAL weight)."
+- For last-3-start pitcher comparisons, list the exact runs/earned runs allowed by start rather than saying "better recent form."
+- For day/night, home/away, ballpark, ERA/WHIP, K rate, pitch count, model projection, implied probability, or bullpen workload, include the exact values whenever the source provides them.
+- Omit generic process commentary, threshold explanations, confirmations, and filler. Do not explain that a source was searched. Do not spend summary space saying normal lineup/no injuries/normal weather unless it directly creates a comparison advantage.
+- If a requested number truly is unavailable, omit that comparison unless its absence materially affects the decision; do not substitute vague prose.
+- WHY should contain at most the 1-2 strongest direct advantages/conflicts and should use the same exact numbers instead of generic narrative.
+
+MISSING INFORMATION IS NEUTRAL, NOT NEGATIVE. Failure to find or verify a requested fact is never evidence against a wager. If a lineup, bullpen detail, split, injury update, or other requested item remains unavailable after the required source attempts, state that it was not verified and assign 0 adjustment for that missing fact. Never reduce adjustment, set approved=false, or describe the case as weakened merely because research did not find corroborating information. A negative adjustment requires actual verified evidence that is adverse to the wager.
+
+Keep the shared fields concise, numeric, and comparison-first. Research each unique source/fact once per game, reuse it across every applicable candidate in this request, then interpret the same facts by wager type. Use the fixed checklist and exact URLs above. Show the actual comparison values and name the side with the edge even when the difference is small. Clearly distinguish SUPPORTS, OPPOSES, and NEUTRAL for grading, but never hide an available numeric edge behind phrases like 'no advantage found.' Do not award positive support for merely confirming expected starters, a normal lineup, an ordinarily rested bullpen, no material injury, or normal weather.
+
+Return candidateReviews in exactly the same order as the supplied candidates, with exactly one item for each. approved=true means the wager still deserves publication after research. approved=true means the matchup research gives enough qualitative support to publish the wager; it must not mean merely that no catastrophic veto was found. Never set approved=false solely because aiScoreBeforeResearch is below a downstream selector threshold, because the selector applies that numeric gate after research. However, for a borderline candidate near its required score/probability/advantage thresholds, neutral or ambiguous research is not sufficient for approved=true. Borderline plays should be approved only when the verified matchup context positively supports or meaningfully validates the wager. A clearly strong quantitative candidate can remain approved when research is neutral and no material contradiction is found. Use a small adjustment from -6 to +6, and use 0 when research does not change the supplied quantitative case. Each candidate needs two or three concise WHY bullets focused on the actual reason it cleared or failed—never a public risk list. For any candidate backed by a Best Play, its exact Best Play bet type uses the rolling Last-7-Bets quantitative gates: Best Play eligibility is HOT-only: HOT requires 74 score / 50% probability / 1.5% advantage, with odds no worse than -150. Neutral, Small Sample, and Cold are ineligible. This applies to pitcher props, A/B Moneylines, Total Over/Under, and Elite NRFI/YRFI. A Trend-Play-only candidate is not subject to the model bet-type form gate. It must be a Strong/Elite trend (Trend Score 69+), and the selector will require the final adjusted qualification score to reach 80+ after your research adjustment; there is no minimum historical bet count or small-sample veto. Do not reject a trend-only candidate solely because aiScoreBeforeResearch is below 80; the selector applies the final adjusted 80+ gate after research. But neutral research is no longer automatic approval. For trend-only candidates that are borderline—especially an qualification score within 3 points of 80, modest advantage, or a case driven mainly by the trend signal—approved=true requires verified matchup evidence that positively corroborates the wager. If the research is neutral, mixed, or fails to add meaningful matchup support to a borderline case, approved=false is appropriate even without one catastrophic conflict. For a clearly strong trend-only quantitative case comfortably above the threshold, neutral research may remain approved when no material contradiction is found. Concrete unfavorable starter, lineup, bullpen, weather, split, or matchup evidence should still produce approved=false. The AI is the qualitative filter; the selector remains the final numeric gatekeeper.
+
+For Pitcher Strikeouts, treat the supplied qualification score as the strikeout model's differentiated assessment, not a win probability or automatic approval. Preserve the model's score distinctions unless verified research justifies the permitted small adjustment. For pitcher strikeouts, use the fixed RotoWire lineup source and Baseball Savant source above. Compare the EZPZ projection to the line, the actual opposing lineup's K/contact profile, the pitcher's whiff/arsenal context, and recent workload. Grade the matchup SUPPORTS, OPPOSES, or NEUTRAL; missing data is neutral and mere confirmation is not positive evidence.
 
 YRFI is pro-scoring and NRFI is anti-scoring. ELITE YRFI conflicts with a full-game Under; ELITE NRFI conflicts with a full-game Over. If firstInningSignal says CONFLICTS, approve=false and do not cite it positively.
+
+STRICT QUALITATIVE REVIEW — MODEL DOES NOT OVERRIDE CONTRADICTIONS
+The model, trend score, and quantitative qualification gates are the candidate-generation layer. They are already priced into the supplied baseline and MUST NOT be used as a reason to dismiss contradictory research. Your final-review job is adversarial: actively try to disprove each wager. A sentence such as "the model edge outweighs recent form" is not a valid approval rationale by itself.
+
+Treat evidence by direction and strength:
+- NEUTRAL evidence does not help or hurt the wager.
+- One modest but real OPPOSES finding should normally be adjustment -1 to -2.
+- One material OPPOSES finding should normally be adjustment -2 to -3.
+- A strong/repeated contradiction to the core wager should normally be adjustment -4 to -6 and may require approved=false.
+- Two independent material OPPOSES findings should normally result in approved=false even when the model score is excellent.
+- One major conflict that directly attacks the wager's core assumption should result in approved=false unless there is separate, current, wager-specific evidence that convincingly explains why the conflict should not carry forward today.
+- Positive adjustments are intentionally harder to earn: +1 for one verified material support, +2 for strong support, +3 only for multiple independent strong supports, and +4 to +6 only for rare major pregame changes. Do not use positive adjustment merely because the model already likes the play.
+
+For any approved candidate that has a material contradiction, selectionComparison/finalVerdict MUST name the independent current evidence that overcomes that contradiction. The model projection, AI score, trend score, Best Play label, and prior qualification are not independent offsetting evidence. If no such current evidence exists, use approved=false.
+
+PITCHER STRIKEOUT STRICTNESS
+Recent strikeout results are a genuine contradiction test, not a footnote. Compare the proposed side with the last 3-5 starts and with the most recent 1-2 starts. If the proposed side would have lost in at least 3 of the last 5 starts, or if each of the last two starts materially cleared the opposite side of the current line, treat that as a MATERIAL OPPOSES finding. Do not reduce it to -1 simply because the projection has a large edge. To approve despite that conflict, cite a separate today-specific reason such as a materially different confirmed lineup K/contact profile, a verified workload/leash change, a meaningful current arsenal/whiff/velocity change, or another concrete matchup change. If research cannot identify a convincing independent reason, approved=false. Conversely, routine variance around the line is not automatically a veto; grade the magnitude and recency of the contradiction.
+
+The intended outcome is selectivity, not a fixed daily quota. Do not target a number of picks. Apply the same strict standard independently to every candidate so weak or conflicted slates can produce very few selections and unusually strong slates can produce more.
 
 Keep selectionComparison and finalVerdict direct and wager-specific. Do not include URLs, citations, source labels, domains, markdown, or generic filler. Return only the required JSON object.`,
             },
@@ -7839,54 +8528,54 @@ async function requestAiExternalReviews(
   };
 }
 
+function aiPriorityReviewCandidate(candidate: AiSelectorCandidate) {
+  const bestPlayLabel = `${candidate.bestPlayType || ""} ${candidate.bestPlay?.playType || ""}`.toUpperCase();
+  // COLD is a hard exclusion. A Strong/Elite label must never override the
+  // exact Last-7 pitcher bet-type form shown on the Best Plays card.
+  if (candidate.pitcherBetTypeForm === "COLD") return false;
+  return (
+    candidate.pitcherBetTypeForm === "HOT" ||
+    /\b(STRONG|ELITE)\b/.test(bestPlayLabel) ||
+    candidate.trendTier === "Strong" ||
+    candidate.trendTier === "Elite"
+  );
+}
+
+function aiPriorityReviewLabel(candidate: AiSelectorCandidate) {
+  const labels: string[] = [];
+  const rawBestPlay = String(candidate.bestPlay?.playType || candidate.bestPlayType || "").trim();
+  if (/\b(STRONG|ELITE)\b/i.test(rawBestPlay)) labels.push(rawBestPlay);
+  if (candidate.trendTier === "Strong" || candidate.trendTier === "Elite") {
+    labels.push(`${candidate.trendTier} Trend Play`);
+  }
+  if (candidate.pitcherBetTypeForm === "HOT") {
+    labels.push(
+      `HOT Last-7 Best Play (${candidate.pitcherBetTypeRecord || "0-0-0"})`,
+    );
+  }
+  return labels.join(" + ") || "priority Strong/Elite/HOT qualification";
+}
+
+function aiPriorityHardProtectionReasons(candidate: AiSelectorCandidate) {
+  return candidate.protectionReasons.filter((reason) => {
+    const text = String(reason || "").toLowerCase();
+    return (
+      text.includes("could not be matched to today") ||
+      text.includes("playable odds are missing") ||
+      text.includes("betting line is missing") ||
+      text.includes("required selector score is invalid")
+    );
+  });
+}
+
 function finalizeAiCandidates(
   candidates: AiSelectorCandidate[],
-  externalReviews: Map<string, AiExternalReview>,
-  externalStatus: AiPickExternalStatus,
+  _externalReviews: Map<string, AiExternalReview>,
+  _externalStatus: AiPickExternalStatus,
   snapshotStatus: AiPickSnapshotStatus,
-  reviewErrors: Map<string, string> = new Map(),
+  _reviewErrors: Map<string, string> = new Map(),
 ) {
   const finalized = candidates.map((candidate) => {
-    const deterministicallyBlocked = candidate.protectionReasons.length > 0;
-    const review = externalReviews.get(candidate.candidateId);
-    if (review) {
-      const reviewScoreAdjustment =
-        candidate.source === "Trend Play" && !candidate.bestPlayType
-          ? aiClamp(review.adjustment, -5, 5)
-          : review.adjustment * 1.4;
-      candidate.scoreAdjustment += reviewScoreAdjustment;
-      candidate.probabilityAdjustment += review.adjustment * 0.55;
-      candidate.confidenceReason.push(...review.confidenceReason);
-      candidate.confidenceReason.push(review.selectionComparison);
-      candidate.whySelected.push(...review.why);
-      candidate.whySelected.push(`Starting pitching: ${review.startingPitching}`);
-      candidate.whySelected.push(`Bullpen: ${review.bullpenAnalysis}`);
-      candidate.whySelected.push(`Recent form: ${review.recentTeamForm}`);
-      candidate.whySelected.push(`Historical matchup: ${review.historicalMatchup}`);
-      candidate.whySelected.push(`Why it cleared: ${review.selectionComparison}`);
-      candidate.historicalNotes.push(...review.historicalNotes);
-      candidate.historicalNotes.push(review.historicalMatchup);
-      candidate.risks = [];
-      candidate.researchSummary = [
-        review.startingPitching,
-        review.bullpenAnalysis,
-        review.recentTeamForm,
-        review.historicalMatchup,
-        review.researchSummary,
-      ].filter(Boolean).join(" ");
-      candidate.verdict = review.finalVerdict || review.verdict || candidate.verdict;
-      if (review.contextSummary) candidate.dataStatus.push(`External context: ${review.contextSummary}`);
-      if (!review.approved) {
-        candidate.protectionReasons.push(
-          `Final AI review rejected this wager: ${review.finalVerdict || review.verdict || review.selectionComparison}`,
-        );
-      }
-      if (review.criticalConflict) {
-        candidate.protectionReasons.push(
-          review.criticalConflictReason || "Verified external context invalidated a saved assumption",
-        );
-      }
-    }
     const trendBlend = aiTrendBlendWeights(candidate.trendPlay);
     const baseScore = candidate.source === "Best + Trend"
       ? candidate.modelScore * trendBlend.modelWeight +
@@ -7901,83 +8590,99 @@ function finalizeAiCandidates(
     );
     const implied = candidate.marketImpliedProbability || aiImpliedProbability(candidate.odds);
     const advantage = implied ? aiRound(estimatedProbability - implied, 1) : 0;
-    // A FINAL_PREGAME row is publishable only when this candidate actually
-    // received a complete external review. Previously a failed/missed review
-    // could still inherit the live selector score, remain selected, and be
-    // displayed as a pending AI pick after the game started.
-    if (snapshotStatus === "FINAL_PREGAME" && !review && !deterministicallyBlocked) {
-      const failureDetail = sanitizeAiPublicText(
-        reviewErrors.get(candidate.candidateId) || "",
-      ).slice(0, 320);
-      const reason = externalStatus === "NOT_CONFIGURED"
-        ? "Final external AI review is not configured"
-        : externalStatus === "REVIEW_ERROR"
-          ? failureDetail
-            ? `Final external AI review did not complete: ${failureDetail}`
-            : "Final external AI review did not complete successfully"
-          : "Final external AI review is incomplete";
-      candidate.protectionReasons.push(reason);
-      if (externalStatus === "REVIEW_ERROR") {
-        candidate.dataStatus.push(`Final AI review failure: ${failureDetail || "no specific API error was returned"}`);
-      }
-    }
+
     const blocked = candidate.protectionReasons.length > 0;
     const bestPlayBacked = Boolean(candidate.bestPlayType);
-    const trendOnlyCandidate = !bestPlayBacked && candidate.source === "Trend Play";
+    const trendBacked = Boolean(candidate.trendPlay);
+    const rawTrendScore = Number(candidate.trendScore || 0);
 
-    // Any candidate backed by a Best Play uses the same rolling Last-7-Bets
-    // form gate, regardless of market. Trend-only candidates must first be a
-    // Strong/Elite trend (69+) and then earn an adjusted AI score of 80+; there
-    // is deliberately no minimum historical bet count.
     const bestPlayProfile = aiPitcherQualificationProfile(
       candidate.pitcherBetTypeForm,
     );
     const bestPlayRequiredScore =
       candidate.pitcherRequiredScore || bestPlayProfile.score;
-    const selectionThresholds = trendOnlyCandidate
-      ? {
-          score: 80,
-          probability: 0,
-          advantage: 0,
-          enforceProbability: false,
-          enforceAdvantage: false,
+    const hotBestPlay = candidate.pitcherBetTypeForm === EZPZ_BEST_PLAY_POLICY.requiredForm;
+
+    const qualifiesByBestPlay =
+      bestPlayBacked &&
+      hotBestPlay &&
+      aiScore >= bestPlayRequiredScore &&
+      (!bestPlayProfile.enforceProbability ||
+        estimatedProbability >= bestPlayProfile.probability) &&
+      (!implied || advantage >= bestPlayProfile.advantage);
+
+    const qualifiesByTrend =
+      trendBacked &&
+      rawTrendScore >= 69 &&
+      aiScore >= 80;
+
+    const preliminarySelected =
+      !blocked && (qualifiesByBestPlay || qualifiesByTrend);
+
+    let thresholdFailure = "";
+    if (!preliminarySelected && !blocked) {
+      const failures: string[] = [];
+      if (bestPlayBacked) {
+        if (!hotBestPlay) {
+          failures.push(
+            (candidate.bestPlayType || "Best Play") +
+              " is not HOT over its rolling Last 7 and is excluded because Best Play EZPZ Picks are HOT-only",
+          );
+        } else if (aiScore < bestPlayRequiredScore) {
+          failures.push(
+            "qualification score " + aiScore +
+              " did not reach the " + bestPlayRequiredScore +
+              " Best Play requirement",
+          );
+        } else if (
+          bestPlayProfile.enforceProbability &&
+          estimatedProbability < bestPlayProfile.probability
+        ) {
+          failures.push(
+            "Estimated probability " + estimatedProbability.toFixed(1) +
+              "% did not reach " + bestPlayProfile.probability.toFixed(1) +
+              "% for the Best Play path",
+          );
+        } else if (implied && advantage < bestPlayProfile.advantage) {
+          failures.push(
+            "Estimated advantage " + advantage.toFixed(1) +
+              "% did not reach " + bestPlayProfile.advantage.toFixed(2) +
+              "% for the Best Play path",
+          );
         }
-      : bestPlayBacked
-        ? {
-            score: bestPlayRequiredScore,
-            probability: bestPlayProfile.probability,
-            advantage: bestPlayProfile.advantage,
-            enforceProbability: bestPlayProfile.enforceProbability,
-            enforceAdvantage: true,
-          }
-        : {
-            score: 74,
-            probability: 55,
-            advantage: AI_MINIMUM_ESTIMATED_ADVANTAGE,
-            enforceProbability: true,
-            enforceAdvantage: true,
-          };
-    const qualificationScore = aiScore;
-    const rawTrendScore = Number(candidate.trendScore || 0);
-    const thresholdFailure =
-      trendOnlyCandidate && rawTrendScore < 69
-        ? `Trend score ${rawTrendScore} did not reach the 69 Strong-trend minimum`
-        : qualificationScore < selectionThresholds.score
-          ? `AI score ${qualificationScore} did not reach the ${selectionThresholds.score} premium-play threshold`
-        : selectionThresholds.enforceProbability &&
-            estimatedProbability < selectionThresholds.probability
-          ? `Estimated probability ${estimatedProbability.toFixed(1)}% did not reach ${selectionThresholds.probability}%`
-          : selectionThresholds.enforceAdvantage && implied && advantage < selectionThresholds.advantage
-            ? `Estimated advantage ${advantage.toFixed(1)}% did not reach ${selectionThresholds.advantage.toFixed(1)}%`
-            : "";
-    const preliminarySelected = !blocked && !thresholdFailure;
+      }
+      if (trendBacked) {
+        if (rawTrendScore < 69) {
+          failures.push(
+            "Trend score " + rawTrendScore +
+              " did not reach the 69 Strong-trend minimum",
+          );
+        } else if (aiScore < 80) {
+          failures.push(
+            "qualification score " + aiScore +
+              " did not reach the 80 Trend Play requirement",
+          );
+        }
+      }
+      thresholdFailure = failures.join(" • ") ||
+        "This wager does not currently meet an EZPZ Picks qualification path";
+    }
+
     const rejectionReason = blocked
       ? candidate.protectionReasons.join(" • ")
       : thresholdFailure;
-    const liveBestPlayReviewNote =
-      snapshotStatus === "LIVE" && bestPlayBacked && preliminarySelected
-        ? `Pending final review: ${candidate.bestPlayType} is ${candidate.pitcherBetTypeForm || "SAMPLE"} over its last 7 completed bets (${candidate.pitcherBetTypeRecord || "0-0-0"}); final selection requires AI score ${bestPlayRequiredScore}+, estimated probability ${bestPlayProfile.probability.toFixed(1)}%+, estimated advantage ${bestPlayProfile.advantage.toFixed(2)}%+, and final AI approval.`
+
+    const liveQualificationNote =
+      snapshotStatus === "LIVE" && preliminarySelected
+        ? qualifiesByBestPlay && qualifiesByTrend
+          ? "Live preview: qualifies through both the Best Play and Strong/Elite Trend Play paths; it locks from the frozen 15-minute pregame snapshot if at least one path still passes."
+          : qualifiesByBestPlay
+            ? "Live preview: qualifies through the " +
+              (candidate.pitcherBetTypeForm || "SAMPLE") +
+              " Best Play path; it locks from the frozen 15-minute pregame snapshot if that path still passes."
+            : "Live preview: qualifies through the Strong/Elite Trend Play path; it locks from the frozen 15-minute pregame snapshot if that path still passes."
         : "";
+
     return {
       ...candidate,
       aiScore,
@@ -7989,8 +8694,8 @@ function finalizeAiCandidates(
       rejectionReason,
       confidenceReason: sanitizeAiPublicList(candidate.confidenceReason, 6),
       whySelected: sanitizeAiPublicList(
-        liveBestPlayReviewNote
-          ? [liveBestPlayReviewNote, ...candidate.whySelected]
+        liveQualificationNote
+          ? [liveQualificationNote, ...candidate.whySelected]
           : candidate.whySelected,
         14,
       ),
@@ -8000,26 +8705,27 @@ function finalizeAiCandidates(
       verdict: sanitizeAiPublicText(candidate.verdict),
       dataStatus: [
         ...new Set(
-          [liveBestPlayReviewNote, ...candidate.dataStatus].filter(Boolean),
+          [liveQualificationNote, ...candidate.dataStatus].filter(Boolean),
         ),
       ].slice(0, 5),
-      externalReviewStatus: review
-        ? "WEB_REVIEWED" as const
-        : deterministicallyBlocked
-          ? "NO_VERIFIED_CONTEXT" as const
-          : externalStatus,
+      externalReviewStatus: "NOT_REQUIRED" as const,
       snapshotStatus,
       lockedAt: snapshotStatus === "FINAL_PREGAME" ? nowET() : "",
       updatedAt: nowET(),
     };
   });
 
-  const publicPicks = finalized.map(({ slateRow, bestPlay, trendPlay, baselineProbability, scoreAdjustment, probabilityAdjustment, protectionReasons, ...pick }) => pick as AiPick);
+  const publicPicks = finalized.map(({
+    slateRow,
+    bestPlay,
+    trendPlay,
+    baselineProbability,
+    scoreAdjustment,
+    probabilityAdjustment,
+    protectionReasons,
+    ...pick
+  }) => pick as AiPick);
 
-  // Moneylines and full-game totals are alternative exposures to the same game.
-  // They can be researched independently, but only the stronger approved market
-  // may survive. First-inning plays and pitcher props remain independently
-  // eligible alongside that one full-game selection.
   return applyAiFullGameMarketLimit(publicPicks);
 }
 
@@ -8142,7 +8848,7 @@ function aiPickRow(pick: AiPick): SheetRow {
     "Selected": pick.selected ? "TRUE" : "FALSE",
     "Protection Status": pick.protectionStatus,
     "Rejection Reason": pick.rejectionReason,
-    "AI Confidence Reason": pick.confidenceReason.join(" | "),
+    "EZPZ Confidence Reason": pick.confidenceReason.join(" | "),
     "Why Selected": pick.whySelected.join(" | "),
     "Historical Matchup Notes": pick.historicalNotes.join(" | "),
     "Risks": pick.risks.join(" | "),
@@ -8216,7 +8922,7 @@ function parseAiPickRow(row: SheetRow): AiPick | null {
     selected: truthyValue(row.Selected),
     protectionStatus: String(row["Protection Status"] || "PASSED") === "BLOCKED" ? "BLOCKED" : "PASSED",
     rejectionReason: String(row["Rejection Reason"] || ""),
-    confidenceReason: sanitizeAiPublicList(String(row["AI Confidence Reason"] || "").split("|"), 6),
+    confidenceReason: sanitizeAiPublicList(String(row["EZPZ Confidence Reason"] || "").split("|"), 6),
     whySelected: sanitizeAiPublicList(String(row["Why Selected"] || "").split("|"), 14),
     historicalNotes: sanitizeAiPublicList(String(row["Historical Matchup Notes"] || "").split("|"), 5),
     risks: [],
@@ -8556,6 +9262,137 @@ function aiStoredFirstInningDirectionCorrection(
   };
 }
 
+const AI_STORED_TREND_RECHECK_PREFIX = "Official final trend snapshot recheck:";
+
+function aiOfficialTrendPlayForStoredPick(
+  pick: AiPick,
+  trendPlays: TrendPlay[],
+) {
+  const pickGameKey = String(pick.gameKey || "").trim().replace(/\.0$/, "");
+  const pickAway = normalizeTeam(pick.awayTeam || "");
+  const pickHome = normalizeTeam(pick.homeTeam || "");
+
+  return trendPlays.find((play) => {
+    if (play.snapshotStatus !== "FINAL_PREGAME") return false;
+    if (play.market !== pick.market) return false;
+
+    const playGameKey = String(play.recordGameKey || "").trim().replace(/\.0$/, "");
+    const teamsMatch =
+      normalizeTeam(play.awayTeam || "") === pickAway &&
+      normalizeTeam(play.homeTeam || "") === pickHome;
+    if (pickGameKey && playGameKey) {
+      if (pickGameKey !== playGameKey) return false;
+    } else if (!teamsMatch) {
+      return false;
+    }
+
+    if (pick.market === "Moneyline") {
+      return (
+        normalizeTeam(play.selectionTeam || play.selection || "") ===
+        normalizeTeam(pick.selection || "")
+      );
+    }
+    if (pick.market === "Total") {
+      return String(play.side || "").trim() === String(pick.selection || "").trim();
+    }
+    return false;
+  }) || null;
+}
+
+function aiStoredTrendQualificationCorrection(
+  pick: AiPick,
+  trendPlays: TrendPlay[],
+  selectorNow: number,
+): AiPick | null {
+  if (
+    pick.snapshotStatus !== "FINAL_PREGAME" ||
+    (pick.source !== "Trend Play" && pick.source !== "Best + Trend") ||
+    Number(pick.trendScore || 0) <= 0
+  ) {
+    return null;
+  }
+
+  // This is only a pregame repair. Never rewrite a published decision after
+  // first pitch from data that may have become live/in-game.
+  const start = scheduledGameStart({
+    Date: pick.date,
+    "Game Time": pick.gameTime,
+  });
+  if (start != null && selectorNow >= start) return null;
+
+  const official = aiOfficialTrendPlayForStoredPick(pick, trendPlays);
+  if (!official) return null;
+
+  const officialScore = Number(official.score || 0);
+  const officialTier = String(official.tier || "Pass");
+  const scoreChanged = Math.abs(Number(pick.trendScore || 0) - officialScore) > 0.01;
+  const tierChanged = String(pick.trendTier || "") !== officialTier;
+  if (!scoreChanged && !tierChanged) return null;
+
+  const officialStrong =
+    officialScore >= 69 && (officialTier === "Strong" || officialTier === "Elite");
+  const statusLine =
+    AI_STORED_TREND_RECHECK_PREFIX +
+    " locked trend is " +
+    officialTier +
+    " " +
+    officialScore +
+    " (stored " +
+    String(pick.trendTier || "") +
+    " " +
+    String(pick.trendScore || 0) +
+    ")";
+
+  if (pick.source === "Trend Play" && !officialStrong) {
+    const rejectionReason =
+      statusLine +
+      "; trend-only AI picks require the official final score to be 69+ Strong/Elite.";
+    return {
+      ...pick,
+      selected: false,
+      protectionStatus: "BLOCKED",
+      rejectionReason,
+      trendScore: officialScore,
+      trendTier: officialTier,
+      confidenceReason: [],
+      whySelected: [rejectionReason],
+      historicalNotes: [],
+      risks: [],
+      researchSummary: "",
+      verdict: rejectionReason,
+      dataStatus: [statusLine, ...pick.dataStatus.filter((item) => !String(item).startsWith(AI_STORED_TREND_RECHECK_PREFIX))].slice(0, 5),
+      updatedAt: nowET(),
+      selectorVersion: AI_PICK_SELECTOR_VERSION,
+    };
+  }
+
+  // If an earlier final review used a different still-qualifying trend score,
+  // reopen that one pregame decision so the reviewer receives the same locked
+  // TrendPlay object now shown on the Trend Plays page. Best+Trend rows are also
+  // reopened so they can be judged with their official final trend support.
+  const reopenReason =
+    statusLine +
+    "; reopening final AI review so the locked Trend Plays score is authoritative.";
+  return {
+    ...pick,
+    selected: false,
+    protectionStatus: "PASSED",
+    rejectionReason: "",
+    trendScore: officialScore,
+    trendTier: officialTier,
+    confidenceReason: [],
+    whySelected: [reopenReason],
+    historicalNotes: [],
+    risks: [],
+    researchSummary: "",
+    verdict: "",
+    dataStatus: [statusLine, ...pick.dataStatus.filter((item) => !String(item).startsWith(AI_STORED_TREND_RECHECK_PREFIX))].slice(0, 5),
+    externalReviewStatus: "PENDING_FINAL_REVIEW",
+    updatedAt: nowET(),
+    selectorVersion: AI_PICK_SELECTOR_VERSION,
+  };
+}
+
 const AI_STORED_LAST7_GATE_PREFIX = "Last-7 qualification recheck:";
 
 function aiStoredLastSevenQualificationCorrection(
@@ -8574,18 +9411,27 @@ function aiStoredLastSevenQualificationCorrection(
   const managedByThisGate = pick.rejectionReason.startsWith(
     AI_STORED_LAST7_GATE_PREFIX,
   );
-  if (!pick.selected && !managedByThisGate) return null;
+  // Re-evaluate a pre-first-pitch pick that was blocked by an older numeric
+  // threshold so a corrected Last-7 grade can restore an already-completed AI
+  // review without paying for another research call.
+  const priorThresholdGate =
+    !pick.selected &&
+    pick.selectorVersion !== AI_PICK_SELECTOR_VERSION &&
+    /(?:grade-based requirement|record-based threshold|grade-based requirement)/i.test(
+      pick.rejectionReason,
+    );
+  if (!pick.selected && !managedByThisGate && !priorThresholdGate) return null;
 
   // Do not retroactively change a published decision after first pitch.
-  // This recheck exists only to catch Last-7 changes between final review
-  // and the scheduled start of this specific game.
+  // Legacy WEB_REVIEWED rows may still use this historical repair path.
+  // New deterministic FINAL_PREGAME rows are immutable after their snapshot.
   const start = scheduledGameStart({
     Date: pick.date,
     "Game Time": pick.gameTime,
   });
   if (start != null && selectorNow >= start) return null;
 
-  const recordType = aiCanonicalBestPlayType(pick.bestPlayType);
+  const recordType = aiBestPlayRecordTypeForSelector(pick.market, pick.play, pick.bestPlayType);
   if (!recordType) return null;
 
   const lastSeven = aiLastSevenBetsSummaryForType(
@@ -8607,10 +9453,10 @@ function aiStoredLastSevenQualificationCorrection(
     Number(pick.marketImpliedProbability || 0) > 0;
 
   let failure = "";
-  if (form === "COLD") {
+  if (form !== EZPZ_BEST_PLAY_POLICY.requiredForm) {
     failure = `${recordType} is Cold over its last 7 completed bets (${lastSeven.record}); Cold Best Play bet types are excluded until the rolling record improves`;
   } else if (pick.aiScore < profile.score) {
-    failure = `AI score ${pick.aiScore} no longer reaches the current ${profile.score}+ requirement for ${recordType} (${formLabel}, ${lastSeven.record})`;
+    failure = `qualification score ${pick.aiScore} no longer reaches the current ${profile.score}+ requirement for ${recordType} (${formLabel}, ${lastSeven.record})`;
   } else if (
     profile.enforceProbability &&
     pick.estimatedProbability < profile.probability
@@ -8652,8 +9498,8 @@ function aiStoredLastSevenQualificationCorrection(
 
   // If an earlier Last-7 recheck was the only reason this locked pick
   // was removed and the rolling bucket improves before first pitch,
-  // restore the already-completed external review without another AI call.
-  if (managedByThisGate && !pick.selected) {
+  // restore the legacy reviewed selection without another AI call.
+  if ((managedByThisGate || priorThresholdGate) && !pick.selected) {
     return {
       ...pick,
       selected: true,
@@ -8669,29 +9515,14 @@ function aiStoredLastSevenQualificationCorrection(
 }
 
 function aiStoredFinalSelectionIsLocked(pick: AiPick) {
-  // A completed FINAL_PREGAME web review is terminal for paid research:
-  // it is never re-run. The free rolling Last-7 Best Play gate may still
-  // demote or restore that stored decision before first pitch.
-  return (
-    pick.snapshotStatus === "FINAL_PREGAME" &&
-    pick.selected === true &&
-    pick.externalReviewStatus === "WEB_REVIEWED"
-  );
+  // NO_FINAL_AI_REVIEW_V1: a selected FINAL_PREGAME row is locked without any separate
+  // external AI approval. Once the deterministic 15-minute snapshot is saved,
+  // the decision is immutable until result grading.
+  return pick.snapshotStatus === "FINAL_PREGAME" && pick.selected === true;
 }
 
 function aiStoredFinalDecisionIsTerminal(pick: AiPick) {
-  if (pick.snapshotStatus !== "FINAL_PREGAME") return false;
-  if (aiStoredFinalSelectionIsLocked(pick)) return true;
-  if (pick.externalReviewStatus === "WEB_REVIEWED") return true;
-  // A temporary response timeout or output-limit error is not a final decision.
-  // requestSingleAiGameExternalReviews applies a short in-memory cool-down, and
-  // the start-time guard below permanently closes any review still unfinished
-  // at first pitch. This gives a pregame failure a safe chance to recover.
-  if (pick.externalReviewStatus === "REVIEW_ERROR") return false;
-  return (
-    pick.externalReviewStatus === "NO_VERIFIED_CONTEXT" &&
-    pick.protectionStatus === "BLOCKED"
-  );
+  return pick.snapshotStatus === "FINAL_PREGAME";
 }
 
 function aiSortByGameTime(a: AiPick, b: AiPick) {
@@ -8765,6 +9596,42 @@ async function buildAiPickSelector(args: {
     storedToday = stored.filter((pick) => pick.date === isoPublicDate(today));
   }
 
+  // Reconcile any legacy/early finalized trend-backed pick against the exact
+  // official FINAL_PREGAME TrendPlay now used by the Trend Plays board. This
+  // removes a stale trend-only pick that fell below Strong, or reopens an
+  // earlier review when the locked Strong/Elite score changed.
+  const trendSnapshotCorrections = storedToday
+    .map((pick) =>
+      aiStoredTrendQualificationCorrection(
+        pick,
+        trendPlays,
+        selectorNow,
+      ),
+    )
+    .filter((pick): pick is AiPick => Boolean(pick));
+  if (trendSnapshotCorrections.length) {
+    try {
+      await persistAiPickRows(trendSnapshotCorrections);
+    } catch (error) {
+      console.error("AI final trend snapshot correction persistence failed", error);
+    }
+    const correctedByKey = new Map(
+      trendSnapshotCorrections.map(
+        (pick) => [pick.date + "|" + pick.candidateId, pick] as const,
+      ),
+    );
+    workingStoredRows = workingStoredRows.map((row) => {
+      const parsed = parseAiPickRow(row);
+      if (!parsed) return row;
+      const replacement = correctedByKey.get(parsed.date + "|" + parsed.candidateId);
+      return replacement ? aiPickRow(replacement) : row;
+    });
+    stored = workingStoredRows
+      .map(parseAiPickRow)
+      .filter((pick): pick is AiPick => Boolean(pick));
+    storedToday = stored.filter((pick) => pick.date === isoPublicDate(today));
+  }
+
   // Re-run only the free rolling Last-7 Best Play qualification gate against
   // completed/locked AI picks before their game starts. The external web
   // review remains frozen, so this never creates another OpenAI request.
@@ -8804,100 +9671,11 @@ async function buildAiPickSelector(args: {
     );
   }
 
-  // Never leave an interrupted final-review row visible after first pitch and
-  // never restart paid research using in-game information. Keep the rejected
-  // row for the audit sheet, but make the public selection disappear.
-  const expiredFinalReviews = storedToday
-    .filter(
-      (pick) =>
-        pick.snapshotStatus === "FINAL_PREGAME" &&
-        !aiStoredFinalDecisionIsTerminal(pick),
-    )
-    .filter((pick) => {
-      const start = scheduledGameStart({
-        Date: pick.date,
-        "Game Time": pick.gameTime,
-      });
-      return start != null && selectorNow >= start;
-    })
-    .map((pick): AiPick => {
-      const reason =
-        "Final AI review did not complete before the scheduled start; the play was removed without using post-start information.";
-      return {
-        ...pick,
-        selected: false,
-        protectionStatus: "BLOCKED",
-        rejectionReason: reason,
-        confidenceReason: [],
-        whySelected: [reason],
-        historicalNotes: [],
-        risks: [],
-        researchSummary: "",
-        verdict: reason,
-        dataStatus: [...new Set([...pick.dataStatus, reason])].slice(0, 5),
-        externalReviewStatus: "NO_VERIFIED_CONTEXT",
-        updatedAt: nowET(),
-      };
-    });
-  if (expiredFinalReviews.length) {
-    try {
-      await persistAiPickRows(expiredFinalReviews);
-    } catch (error) {
-      console.error("Expired AI final-review persistence failed", error);
-    }
-    const expiredByKey = new Map(
-      expiredFinalReviews.map(
-        (pick) => [`${pick.date}|${pick.candidateId}`, pick] as const,
-      ),
-    );
-    workingStoredRows = workingStoredRows.map((row) => {
-      const parsed = parseAiPickRow(row);
-      if (!parsed) return row;
-      const replacement = expiredByKey.get(`${parsed.date}|${parsed.candidateId}`);
-      return replacement ? aiPickRow(replacement) : row;
-    });
-    stored = workingStoredRows.map(parseAiPickRow).filter((pick): pick is AiPick => Boolean(pick));
-    storedToday = stored.filter((pick) => pick.date === isoPublicDate(today));
-  }
-  // A final snapshot is not fully locked until its external review reaches a
-  // terminal status. Older rows can be FINAL_PREGAME while still carrying
-  // PENDING_FINAL_REVIEW without a recorded attempt; those unfinished rows may
-  // retry. A recorded REVIEW_ERROR is terminal so refreshes cannot buy another
-  // game-research call automatically.
+  // NO_FINAL_AI_REVIEW_V1: a game enters finalization only after the actual frozen pregame
+  // market snapshot exists. No separate review window or retry queue is used.
   const storedTodayByCandidateId = new Map(
     storedToday.map((pick) => [pick.candidateId, pick] as const),
   );
-  const currentCandidateIdsByGame = new Map<string, string[]>();
-  for (const candidate of candidates) {
-    const ids = currentCandidateIdsByGame.get(candidate.gameKey) || [];
-    ids.push(candidate.candidateId);
-    currentCandidateIdsByGame.set(candidate.gameKey, ids);
-  }
-
-  // A final decision is immutable once its review completed. Unfinished pending
-  // rows and unconfigured rows can still recover, but selector-version changes
-  // alone do not reopen a published, rejected, or failed final decision.
-  const fullyReviewedGameKeys = new Set(
-    [...currentCandidateIdsByGame.entries()]
-      .filter(([, candidateIds]) =>
-        candidateIds.length > 0 &&
-        candidateIds.every((candidateId) => {
-          const storedPick = storedTodayByCandidateId.get(candidateId);
-          return Boolean(storedPick && aiStoredFinalDecisionIsTerminal(storedPick));
-        }),
-      )
-      .map(([gameKey]) => gameKey),
-  );
-  // The AI selector must not depend exclusively on a background/scheduled
-  // request to enter final review. A normal public refresh from 23 minutes out
-  // through the remaining pregame period may finalize the candidate. This
-  // makes the final-review state self-healing if a scheduler run is late.
-
-  // The Full Slate display determines a locked game from the merged DraftKings
-  // payload, where saved 15-minute market rows are marked FINAL_PREGAME. The
-  // daily_slate row is not guaranteed to have its Public Data Status cell updated,
-  // so relying on slateHasFinalPregameSnapshot(row) alone can leave the AI card in
-  // LIVE mode even while the Full Slate correctly displays FINAL.
   const finalDraftKingsGameKeys = new Set(
     draftKings.splits
       .filter(
@@ -8905,97 +9683,50 @@ async function buildAiPickSelector(args: {
           split.snapshotStatus === "FINAL_PREGAME" &&
           (split.market === "Moneyline" || split.market === "Total"),
       )
-      .map(
-        (split) =>
-          `${isoPublicDate(split.date)}|${normalizeTeam(split.awayTeam)}|${normalizeTeam(split.homeTeam)}`,
-      ),
+      // Use the exact same date/team/time identity as draftKingsGameKey(row).
+      // The old date/team-only key could never equal a slate key that included
+      // game time, so a valid 15-minute snapshot failed to trigger AI finalization.
+      .map((split) => draftKingsMarketInstanceKey(split)),
   );
-  const storedFinalGameKeys = new Set(
+  const storedFinalCandidateIds = new Set(
     storedToday
       .filter((pick) => pick.snapshotStatus === "FINAL_PREGAME")
-      .map((pick) => pick.gameKey),
+      .map((pick) => pick.candidateId),
   );
-  const retryGameKeys = new Set(
-    storedToday
-      .filter(
-        (pick) =>
-          pick.snapshotStatus === "FINAL_PREGAME" &&
-          !aiStoredFinalDecisionIsTerminal(pick),
-      )
-      .map((pick) => pick.gameKey),
-  );
-
   const targetGameKeys = new Set(
     slateRows
       .filter((row) => {
         const gameKey = draftKingsGameKey(row);
         return (
           finalDraftKingsGameKeys.has(gameKey) ||
-          slateHasFinalPregameSnapshot(row) ||
-          isAiFinalReviewWindow(row, selectorNow) ||
-          retryGameKeys.has(gameKey)
+          slateHasFinalPregameSnapshot(row)
         );
       })
-      .map((row) => draftKingsGameKey(row))
-      .filter((key) => !fullyReviewedGameKeys.has(key)),
+      .map((row) => draftKingsGameKey(row)),
   );
   const targetCandidates = candidates.filter((candidate) => {
-    if (!targetGameKeys.has(candidate.gameKey)) return false;
-    const storedPick = storedTodayByCandidateId.get(candidate.candidateId);
-    if (storedFinalGameKeys.has(candidate.gameKey) && !storedPick) return false;
-    if (storedPick && aiStoredFinalDecisionIsTerminal(storedPick)) return false;
-    if (
-      storedPick?.externalReviewStatus === "NOT_CONFIGURED" &&
-      !process.env.OPENAI_API_KEY
-    ) {
-      return false;
-    }
-    const started = candidate.slateRow ? !isPregameRow(candidate.slateRow, selectorNow) : false;
-    // Once the scheduled start passes, the row is rejected above instead of
-    // purchasing a new review that could be contaminated by in-game context.
+    const hasFrozenTrendSnapshot =
+      candidate.trendPlay?.snapshotStatus === "FINAL_PREGAME";
+    if (!targetGameKeys.has(candidate.gameKey) && !hasFrozenTrendSnapshot) return false;
+    if (storedFinalCandidateIds.has(candidate.candidateId)) return false;
+    const started = candidate.slateRow
+      ? !isPregameRow(candidate.slateRow, selectorNow)
+      : false;
     return !started;
   });
-  // Deterministic failures can never become selected after research. Persist
-  // their blocked decision without paying for a web-search/model call.
-  const reviewCandidates = targetCandidates.filter(
-    (candidate) => candidate.protectionReasons.length === 0,
-  );
 
-  let externalReviews = new Map<string, AiExternalReview>();
-  let externalReviewErrors = new Map<string, string>();
-  let externalStatus: AiPickExternalStatus = process.env.OPENAI_API_KEY
-    ? "PENDING_FINAL_REVIEW"
-    : "NOT_CONFIGURED";
   if (targetCandidates.length) {
-    if (reviewCandidates.length) {
-      try {
-        const external = await requestAiExternalReviews(reviewCandidates);
-        externalReviews = external.reviews;
-        externalReviewErrors = external.errors;
-        externalStatus = external.status;
-      } catch (error) {
-        externalStatus = "REVIEW_ERROR";
-        const message = error instanceof Error ? error.message : String(error);
-        externalReviewErrors = new Map(
-          reviewCandidates.map((candidate) => [candidate.candidateId, message] as const),
-        );
-      }
-    } else {
-      externalStatus = "NO_VERIFIED_CONTEXT";
-    }
     const finalTargetPicks = finalizeAiCandidates(
       targetCandidates,
-      externalReviews,
-      externalStatus,
+      new Map(),
+      "NOT_REQUIRED",
       "FINAL_PREGAME",
-      externalReviewErrors,
     );
     await persistAiPickRows(finalTargetPicks);
     const finalRows = finalTargetPicks.map(aiPickRow);
-    const finalizedCandidateIds = new Set(finalTargetPicks.map((pick) => pick.candidateId));
-    // Replace only the candidates reviewed in this pass. Do not clear every row
-    // from the game, because another candidate from that game may already be a
-    // locked/published AI pick that must remain immutable.
+    const finalizedCandidateIds = new Set(
+      finalTargetPicks.map((pick) => pick.candidateId),
+    );
     workingStoredRows = [
       ...workingStoredRows.filter((row) => {
         const storedPick = parseAiPickRow(row);
@@ -9007,23 +9738,22 @@ async function buildAiPickSelector(args: {
 
   const refreshedStored = workingStoredRows.map(parseAiPickRow).filter((pick): pick is AiPick => Boolean(pick));
   const refreshedToday = refreshedStored.filter((pick) => pick.date === isoPublicDate(today));
-  // Any persisted FINAL_PREGAME row means that candidate has already reached
-  // the final-decision stage. Do not recreate a live/pending preview for the
-  // same game after that point, including when the final decision was rejection.
-  const refreshedLockedKeys = new Set(
+  // Only the exact finalized candidate is locked. Other candidate IDs from the
+  // same game (for example a Trend Play after a Best Play) remain eligible.
+  const refreshedLockedCandidateIds = new Set(
     refreshedToday
       .filter((pick) => pick.snapshotStatus === "FINAL_PREGAME")
-      .map((pick) => pick.gameKey),
+      .map((pick) => pick.candidateId),
   );
   const liveCandidates = candidates.filter(
     (candidate) =>
-      !refreshedLockedKeys.has(candidate.gameKey) &&
+      !refreshedLockedCandidateIds.has(candidate.candidateId) &&
       (!candidate.slateRow || isPregameRow(candidate.slateRow, selectorNow)),
   );
   const livePicks = finalizeAiCandidates(
     liveCandidates,
     new Map(),
-    process.env.OPENAI_API_KEY ? "PENDING_FINAL_REVIEW" : "NOT_CONFIGURED",
+    "NOT_REQUIRED",
     "LIVE",
   );
   const todayCombined = [
@@ -9061,12 +9791,12 @@ async function buildAiPickSelector(args: {
   const finalCount = selectedToday.filter((pick) => pick.snapshotStatus === "FINAL_PREGAME").length;
   const status: AiSelectorStatus = {
     mode: finalCount && finalCount === selectedToday.length ? "FINAL_PREGAME" : "LIVE_PREVIEW",
-    externalResearchConfigured: Boolean(process.env.OPENAI_API_KEY),
+    externalResearchConfigured: false,
     message: selectedToday.length
       ? finalCount
-        ? `${finalCount} selection${finalCount === 1 ? "" : "s"} locked at final pregame review`
-        : "Live selector preview; external context is reviewed and locked with the final pregame snapshot"
-      : "No candidate currently passes every EZPZ AI selection and protection rule",
+        ? `${finalCount} selection${finalCount === 1 ? "" : "s"} locked at final pregame snapshot`
+        : "Live selector preview; final selection locks from the frozen pregame snapshot using deterministic EZPZ gates"
+      : "No candidate currently passes the EZPZ Picks qualification rules",
     updatedAt: nowET(),
     candidateCount: todayCombinedWithResults.length,
     selectedCount: selectedToday.length,
@@ -9321,12 +10051,13 @@ async function buildUncachedPublicResponse(request: NextRequest) {
           : scheduledCapture
             ? "scheduled"
             : "live";
-    const [slateTodayRaw, trackerRaw, liveDraftKings, initialSavedPublicSplits, storedAiPickRows] = await Promise.all([
+    const [slateTodayRaw, trackerRaw, liveDraftKings, initialSavedPublicSplits, storedAiPickRows, matchupDetailsRaw] = await Promise.all([
       readWorksheet("daily_slate"),
       readWorksheet("bet_tracker"),
       loadDraftKingsData(),
       safeReadPublicSplitRows(),
       safeReadAiPickRows(),
+      safeReadAiBuilderMatchupRows(),
     ]);
     let savedPublicSplits = initialSavedPublicSplits;
     const savedDraftKings = snapshotPayloadFromRows(savedPublicSplits, today);
@@ -9357,6 +10088,11 @@ async function buildUncachedPublicResponse(request: NextRequest) {
 
     const slateToday = slateTodayRaw.filter(
       (row: SheetRow) => normalizeDate(row["Date"]) === today,
+    );
+    const aiSlateToday = attachAiBuilderContextToSlateRows(
+      slateToday as SheetRow[],
+      matchupDetailsRaw as SheetRow[],
+      today,
     );
     const publicDraftKings = publicDisplayDraftKingsPayload(
       draftKings,
@@ -9414,11 +10150,15 @@ async function buildUncachedPublicResponse(request: NextRequest) {
     const authoritativeFrozenTrendPlays = frozenTrendPlaysFromRows(
       allGameTrendRows,
     );
-    const trendRecordRows = buildTrendRecordRows(
-      completedAllGameTrendRows,
+    const primaryTrendRecordRows = buildTrendRecordRows(
+      trendSourceRows,
       authoritativeFrozenTrendPlays,
       slateTodayRaw as SheetRow[],
       savedPublicSplits,
+    );
+    const trendRecordRows = mergeTrendRecordRows(
+      primaryTrendRecordRows,
+      buildAiHistoricalTrendRecordRows(storedAiPickRows),
     );
     const liveTrendPlays = buildTrendPlays(
       publicDraftKings.splits,
@@ -9452,7 +10192,7 @@ async function buildUncachedPublicResponse(request: NextRequest) {
       today,
       bestPlays,
       trendPlays,
-      slateRows: slateToday,
+      slateRows: aiSlateToday,
       completedTrackerRows,
       trackerRows,
       allGameTrendRows,
@@ -9539,8 +10279,8 @@ async function buildUncachedPublicResponse(request: NextRequest) {
         aiPickRecordRows: [],
         aiSelectorStatus: {
           mode: "LIVE_PREVIEW",
-          externalResearchConfigured: Boolean(process.env.OPENAI_API_KEY),
-          message: "EZPZ AI Pick Selector is unavailable until public data reloads successfully",
+          externalResearchConfigured: false,
+          message: "EZPZ Picks is unavailable until public data reloads successfully",
           updatedAt: nowET(),
           candidateCount: 0,
           selectedCount: 0,
@@ -9615,6 +10355,40 @@ async function capturePublicRouteResponse(request: NextRequest) {
 }
 
 export async function GET(request: NextRequest) {
+  const requestedSport = String(request.nextUrl.searchParams.get("sport") || "MLB").trim().toUpperCase();
+  if (requestedSport === "NFL" || requestedSport === "NCAAF") {
+    const scheduledFootball = ["1", "true", "yes"].includes(
+      String(request.nextUrl.searchParams.get("scheduled") || "").trim().toLowerCase(),
+    );
+    const forceFreshFootball =
+      scheduledFootball || request.nextUrl.searchParams.get("refresh") === "1";
+
+    // Only the authenticated scheduled capture is allowed to mutate football
+    // snapshot/trend worksheets. Normal visitors and manual refreshes are read-only.
+    if (scheduledFootball) {
+      const cronSecret = String(process.env.CRON_SECRET || "");
+      const authorization = String(request.headers.get("authorization") || "");
+      if (!cronSecret || authorization !== `Bearer ${cronSecret}`) {
+        return NextResponse.json({ ok: false, error: "Unauthorized scheduled football capture." }, { status: 401 });
+      }
+    }
+
+    try {
+      return NextResponse.json(
+        await buildFootballPublicData(requestedSport, {
+          forceFresh: forceFreshFootball,
+          persist: scheduledFootball,
+        }),
+      );
+    } catch (error) {
+      console.error(`${requestedSport} public data failed`, error);
+      return NextResponse.json(
+        { ok: false, sport: requestedSport, error: error instanceof Error ? error.message : String(error) },
+        { status: 500 },
+      );
+    }
+  }
+
   // Background/scheduled requests must run the snapshot workflow immediately.
   // Normal public-page requests share one result for 45 seconds, matching the
   // existing DraftKings refresh interval and preventing Sheets quota bursts.
@@ -9632,6 +10406,16 @@ export async function GET(request: NextRequest) {
   }
 
   const now = Date.now();
+  const forceFresh = request.nextUrl.searchParams.get("refresh") === "1";
+  if (
+    forceFresh &&
+    (!publicRouteCache || now - publicRouteCache.savedAt >= 30_000)
+  ) {
+    const captured = await capturePublicRouteResponse(request);
+    publicRouteCache = captured;
+    return publicResponseFromCache(captured);
+  }
+
   if (
     publicRouteCache &&
     now - publicRouteCache.savedAt < PUBLIC_ROUTE_CACHE_TTL_MS

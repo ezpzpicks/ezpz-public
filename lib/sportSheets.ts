@@ -95,6 +95,50 @@ const spreadsheetIdCache = new Map<FootballSport, string>();
 const spreadsheetResolutionInFlight = new Map<FootballSport, Promise<string>>();
 const sharedContainerSports = new Set<FootballSport>();
 
+// Public sport tabs can trigger several worksheet reads at once. Cache successful
+// reads and share in-flight work so multiple visitors / tab switches do not each
+// consume the Google Sheets per-user read quota.
+const SPORT_WORKSHEET_READ_CACHE_TTL_MS = 60_000;
+const SPORT_WORKSHEET_READ_STALE_MS = 30 * 60_000;
+
+type SportWorksheetCacheEntry = {
+  savedAt: number;
+  rows: SheetRow[];
+};
+
+const sportWorksheetReadCache = new Map<string, SportWorksheetCacheEntry>();
+const sportWorksheetReadInFlight = new Map<string, Promise<SheetRow[]>>();
+
+function sportWorksheetCacheKey(sport: FootballSport, worksheetName: string) {
+  return `${sport}|${worksheetName}`;
+}
+
+function copySportRows(rows: SheetRow[], columns?: string[]) {
+  return rows.map((source) => {
+    const row: SheetRow = { ...source };
+    for (const column of columns || []) {
+      if (row[column] === undefined) row[column] = "";
+    }
+    return row;
+  });
+}
+
+function isSheetsQuotaError(error: any) {
+  const code = Number(error?.code || error?.response?.status || 0);
+  const message = String(error?.message || error?.response?.data?.error?.message || "").toUpperCase();
+  return (
+    code === 429 ||
+    (code === 403 && (message.includes("QUOTA") || message.includes("RATE LIMIT"))) ||
+    message.includes("RATE_LIMIT_EXCEEDED") ||
+    message.includes("QUOTA EXCEEDED") ||
+    message.includes("READ REQUESTS PER MINUTE PER USER")
+  );
+}
+
+function invalidateSportWorksheetReadCache(sport: FootballSport, worksheetName: string) {
+  sportWorksheetReadCache.delete(sportWorksheetCacheKey(sport, worksheetName));
+}
+
 function physicalWorksheetName(sport: FootballSport, worksheetName: string) {
   return sharedContainerSports.has(sport)
     ? `${sport === "NCAAF" ? "cfb" : "nfl"}_${worksheetName}`
@@ -177,22 +221,51 @@ export async function readSportWorksheet(
   worksheetName: string,
   columns?: string[],
 ): Promise<SheetRow[]> {
-  const spreadsheetId = await resolveSportSpreadsheetId(sport);
-  const sheets = await sheetsClient();
-  const physicalName = physicalWorksheetName(sport, worksheetName);
-  try {
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId,
-      range: quoteSheetName(physicalName),
-    });
-    return rowsToObjects((response.data.values || []) as string[][], columns);
-  } catch (error: any) {
-    const code = Number(error?.code || error?.response?.status || 0);
-    const message = String(error?.message || "");
-    if (code === 400 && /unable to parse range|requested entity was not found/i.test(message)) {
-      return [];
+  const key = sportWorksheetCacheKey(sport, worksheetName);
+  const now = Date.now();
+  const cached = sportWorksheetReadCache.get(key);
+
+  if (cached && now - cached.savedAt < SPORT_WORKSHEET_READ_CACHE_TTL_MS) {
+    return copySportRows(cached.rows, columns);
+  }
+
+  const active = sportWorksheetReadInFlight.get(key);
+  if (active) return copySportRows(await active, columns);
+
+  const operation = (async () => {
+    const spreadsheetId = await resolveSportSpreadsheetId(sport);
+    const sheets = await sheetsClient();
+    const physicalName = physicalWorksheetName(sport, worksheetName);
+    try {
+      const response = await sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: quoteSheetName(physicalName),
+      });
+      const rows = rowsToObjects((response.data.values || []) as string[][], columns);
+      sportWorksheetReadCache.set(key, { savedAt: Date.now(), rows: copySportRows(rows) });
+      return rows;
+    } catch (error: any) {
+      const code = Number(error?.code || error?.response?.status || 0);
+      const message = String(error?.message || "");
+      if (code === 400 && /unable to parse range|requested entity was not found/i.test(message)) {
+        sportWorksheetReadCache.set(key, { savedAt: Date.now(), rows: [] });
+        return [];
+      }
+      if (cached && Date.now() - cached.savedAt < SPORT_WORKSHEET_READ_STALE_MS && isSheetsQuotaError(error)) {
+        console.warn(`Using stale ${sport} ${worksheetName} worksheet cache after Sheets quota error.`);
+        return copySportRows(cached.rows, columns);
+      }
+      throw error;
     }
-    throw error;
+  })();
+
+  sportWorksheetReadInFlight.set(key, operation);
+  try {
+    return copySportRows(await operation, columns);
+  } finally {
+    if (sportWorksheetReadInFlight.get(key) === operation) {
+      sportWorksheetReadInFlight.delete(key);
+    }
   }
 }
 
@@ -251,6 +324,8 @@ export async function ensureSportWorksheet(
       });
     }
   }
+  invalidateSportWorksheetReadCache(sport, worksheetName);
+
 }
 
 export async function writeSportWorksheet(
@@ -274,6 +349,8 @@ export async function writeSportWorksheet(
     valueInputOption: "RAW",
     requestBody: { values: [headers, ...values] },
   });
+  invalidateSportWorksheetReadCache(sport, worksheetName);
+
 }
 
 export async function upsertSportRows(
