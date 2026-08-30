@@ -6897,12 +6897,10 @@ function aiRecordAdjustments(candidate: AiSelectorCandidate, completedTrackerRow
     return;
   }
 
-  // Every Best Play market uses the same rolling Last-7-Bets qualification
-  // system displayed on the public site. This includes pitcher props, A/B
-  // Moneylines, Total Over/Under, and Elite NRFI/YRFI. Historical form changes
-  // the mandatory score/probability/advantage gates; it does not inflate the
-  // underlying EZPZ score. Cold buckets are deterministically excluded until
-  // their rolling seven naturally improves.
+  // Every Best Play market uses the same rolling Last-7-Bets form. The
+  // Best Play EZPZ path is HOT-only: seven completed bets are required and at
+  // least five of those seven must be wins. Neutral, Cold, and Small Sample
+  // can never qualify through the Best Play path.
   const lastSeven = aiLastSevenBetsSummaryForType(completedTrackerRows, recordType);
   const form = aiPitcherBetTypeForm(lastSeven);
   const profile = aiPitcherQualificationProfile(form, lastSeven);
@@ -6911,31 +6909,43 @@ function aiRecordAdjustments(candidate: AiSelectorCandidate, completedTrackerRow
   candidate.pitcherRequiredScore = profile.score;
 
   if (form !== EZPZ_BEST_PLAY_POLICY.requiredForm) {
-    candidate.protectionReasons.push(
-      `${recordType} is Cold over its last 7 completed bets (${lastSeven.record}); Cold Best Play bet types are excluded from AI Picks until the rolling record improves`,
+    const formLabel =
+      form === "NEUTRAL"
+        ? "Neutral"
+        : form === "COLD"
+          ? "Cold"
+          : "Need 7 Bets";
+    const reason =
+      `${recordType} Last 7 Bets is ${formLabel} (${lastSeven.record}); ` +
+      "Best Play EZPZ Picks are HOT-only (7 completed bets with 5+ wins)";
+
+    candidate.historicalNotes.push(
+      form === "SAMPLE"
+        ? `${recordType} Last 7 Bets: Need 7 Bets • ${lastSeven.totalBets}/7 completed`
+        : `${recordType} Last 7 Bets: ${formLabel} • ${lastSeven.record}`,
     );
-    candidate.dataStatus.push(
-      `${recordType} Last 7 Bets: Cold • ${lastSeven.record} • AI review skipped`,
-    );
+
+    // Best + Trend is two independent qualification paths.
+    if (candidate.trendPlay) {
+      candidate.dataStatus.push(
+        `${reason} • Best Play path excluded; Trend path remains independently eligible`,
+      );
+    } else {
+      candidate.protectionReasons.push(reason);
+      candidate.dataStatus.push(`${reason} • blocked`);
+    }
     return;
   }
 
-  const label =
-    form === "HOT" ? "Hot" : form === "NEUTRAL" ? "Neutral" : "Need 7 Bets";
   candidate.dataStatus.push(
-    `${recordType} Last 7 Bets: ${label} • ${lastSeven.record} • minimum score ${profile.score} • minimum probability ${profile.probability}% • minimum advantage ${profile.advantage}%`,
+    `${recordType} Last 7 Bets: Hot • ${lastSeven.record} • minimum score ${profile.score} • minimum probability ${profile.probability}% • minimum advantage ${profile.advantage}%`,
   );
   candidate.historicalNotes.push(
-    form === "SAMPLE"
-      ? `${recordType} Last 7 Bets: Need 7 Bets • ${lastSeven.totalBets}/7 completed`
-      : `${recordType} Last 7 Bets: ${label} • ${lastSeven.record}`,
+    `${recordType} Last 7 Bets: Hot • ${lastSeven.record}`,
   );
-
-  if (form === "HOT") {
-    candidate.whySelected.push(
-      `${recordType} is Hot over its last 7 completed bets (${lastSeven.record}); Best Play gates are score 74+, estimated probability 50%+, and estimated advantage 1.5%+`,
-    );
-  }
+  candidate.whySelected.push(
+    `${recordType} is Hot over its last 7 completed bets (${lastSeven.record}); Best Play gates are score 74+, estimated probability 50%+, estimated advantage 1.5%+, and odds no worse than -150`,
+  );
 }
 function aiApplyMarketContext(candidate: AiSelectorCandidate, draftKings: DraftKingsPayload) {
   if (candidate.market !== "Moneyline" && candidate.market !== "Total") return;
@@ -8611,8 +8621,13 @@ function finalizeAiCandidates(
         estimatedProbability >= bestPlayProfile.probability) &&
       (!implied || advantage >= bestPlayProfile.advantage);
 
+    const trendSignalsAllGreen = Boolean(
+      candidate.trendPlay && aiTrendSignalsAllGreen(candidate.trendPlay),
+    );
     const qualifiesByTrend =
       trendBacked &&
+      trendSignalsAllGreen &&
+      candidate.trendPlay?.tier !== "Pass" &&
       rawTrendScore >= 69 &&
       aiScore >= 80;
 
