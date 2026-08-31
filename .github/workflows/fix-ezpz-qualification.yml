@@ -44,6 +44,9 @@ jobs:
         run: |
           npm install --no-package-lock
           npm run build
+          # Next.js may rewrite tsconfig during build. That generated change is
+          # not part of this policy fix and must not block the verified commit.
+          git restore --worktree --staged tsconfig.json || true
 
       - name: Commit verified policy fix
         shell: bash
