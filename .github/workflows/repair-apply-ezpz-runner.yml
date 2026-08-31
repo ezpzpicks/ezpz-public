@@ -1,0 +1,47 @@
+name: Repair EZPZ apply workflow runner
+
+on:
+  push:
+    paths:
+      - ".github/workflows/repair-apply-ezpz-runner.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Remove lockfile-only npm assumptions
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('.github/workflows/apply-ezpz-fix.yml')
+          text = path.read_text()
+          cache_line = '          cache: npm\n'
+          npm_ci = '          npm ci\n'
+          if cache_line not in text:
+              raise SystemExit('cache: npm line not found')
+          if npm_ci not in text:
+              raise SystemExit('npm ci line not found')
+          text = text.replace(cache_line, '', 1)
+          text = text.replace(npm_ci, '          npm install --no-package-lock\n', 1)
+          path.write_text(text)
+          PY
+
+      - name: Commit runner repair
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/workflows/apply-ezpz-fix.yml
+          git rm .github/workflows/repair-apply-ezpz-runner.yml
+          git commit -m "Repair EZPZ source patch workflow runner"
+          git pull --rebase origin main
+          git push origin HEAD:main
