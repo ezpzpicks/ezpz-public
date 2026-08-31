@@ -1,0 +1,116 @@
+name: Fix EZPZ total half-run matching
+
+on:
+  push:
+    paths:
+      - ".github/workflows/fix-ezpz-total-half-run-matching.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Allow half-run total line movement when grading EZPZ Picks
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("app/api/public-data/route.ts")
+          text = path.read_text()
+
+          old = '''  if (pick.market === "Total") {
+    const pickLine = numericLine(pick.line);
+    if (pickLine != null) {
+      const exactLine = matches.filter((row) => {
+        const rowLine = numericLine(
+          row.Line || row["Total Line"] || row["Odds/Line"] || row.Selection || row.Play || "",
+        );
+        return rowLine != null && Math.abs(rowLine - pickLine) < 0.001;
+      });
+      if (exactLine.length) {
+        return exactLine.find((row) => Boolean(resultCode(row.Result))) || exactLine[0] || null;
+      }
+      const noLine = matches.filter(
+        (row) =>
+          numericLine(
+            row.Line || row["Total Line"] || row["Odds/Line"] || row.Selection || row.Play || "",
+          ) == null,
+      );
+      return matches.length === 1 && noLine.length === 1 ? noLine[0] || null : null;
+    }
+  }
+'''
+
+          new = '''  if (pick.market === "Total") {
+    const pickLine = numericLine(pick.line);
+    if (pickLine != null) {
+      const rowTotalLine = (row: SheetRow) =>
+        numericLine(
+          row.Line || row["Total Line"] || row["Odds/Line"] || row.Selection || row.Play || "",
+        );
+
+      // Prefer the exact frozen total line whenever it exists.
+      const exactLine = matches.filter((row) => {
+        const rowLine = rowTotalLine(row);
+        return rowLine != null && Math.abs(rowLine - pickLine) < 0.001;
+      });
+      if (exactLine.length) {
+        return exactLine.find((row) => Boolean(resultCode(row.Result))) || exactLine[0] || null;
+      }
+
+      // EZPZ totals treat a half-run market move as the same grading line.
+      // Examples: 7 <-> 7.5, 7.5 <-> 8, 8 <-> 8.5, 9 <-> 9.5.
+      // This lets the locked EZPZ Pick inherit the completed result when the
+      // underlying tracker/trend snapshot moved by only 0.5 runs before lock.
+      const halfRunEquivalent = matches.filter((row) => {
+        const rowLine = rowTotalLine(row);
+        return rowLine != null && Math.abs(rowLine - pickLine) <= 0.5001;
+      });
+      if (halfRunEquivalent.length) {
+        return (
+          halfRunEquivalent.find((row) => Boolean(resultCode(row.Result))) ||
+          halfRunEquivalent[0] ||
+          null
+        );
+      }
+
+      const noLine = matches.filter((row) => rowTotalLine(row) == null);
+      return matches.length === 1 && noLine.length === 1 ? noLine[0] || null : null;
+    }
+  }
+'''
+
+          if old in text:
+              text = text.replace(old, new, 1)
+          elif new in text:
+              print("EZPZ half-run total result matching is already installed")
+          else:
+              raise SystemExit("Could not find aiPickTrackerMatch total-line target")
+
+          path.write_text(text)
+          PY
+
+      - name: Type-check
+        shell: bash
+        run: |
+          npm ci
+          npx tsc --noEmit
+
+      - name: Commit fix
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/api/public-data/route.ts
+          if git diff --cached --quiet; then
+            echo "No code changes to commit"
+            exit 0
+          fi
+          git commit -m "Match EZPZ total results across half-run moves"
+          git push
