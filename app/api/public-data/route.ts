@@ -9145,21 +9145,37 @@ function aiPickTrackerMatch(pick: AiPick, trackerRows: SheetRow[]): SheetRow | n
   if (pick.market === "Total") {
     const pickLine = numericLine(pick.line);
     if (pickLine != null) {
-      const exactLine = matches.filter((row) => {
-        const rowLine = numericLine(
+      const rowTotalLine = (row: SheetRow) =>
+        numericLine(
           row.Line || row["Total Line"] || row["Odds/Line"] || row.Selection || row.Play || "",
         );
+
+      // Prefer the exact frozen total line whenever it exists.
+      const exactLine = matches.filter((row) => {
+        const rowLine = rowTotalLine(row);
         return rowLine != null && Math.abs(rowLine - pickLine) < 0.001;
       });
       if (exactLine.length) {
         return exactLine.find((row) => Boolean(resultCode(row.Result))) || exactLine[0] || null;
       }
-      const noLine = matches.filter(
-        (row) =>
-          numericLine(
-            row.Line || row["Total Line"] || row["Odds/Line"] || row.Selection || row.Play || "",
-          ) == null,
-      );
+
+      // EZPZ totals treat a half-run market move as the same grading line.
+      // Examples: 7 <-> 7.5, 7.5 <-> 8, 8 <-> 8.5, 9 <-> 9.5.
+      // This lets the locked EZPZ Pick inherit the completed result when the
+      // underlying tracker/trend snapshot moved by only 0.5 runs before lock.
+      const halfRunEquivalent = matches.filter((row) => {
+        const rowLine = rowTotalLine(row);
+        return rowLine != null && Math.abs(rowLine - pickLine) <= 0.5001;
+      });
+      if (halfRunEquivalent.length) {
+        return (
+          halfRunEquivalent.find((row) => Boolean(resultCode(row.Result))) ||
+          halfRunEquivalent[0] ||
+          null
+        );
+      }
+
+      const noLine = matches.filter((row) => rowTotalLine(row) == null);
       return matches.length === 1 && noLine.length === 1 ? noLine[0] || null : null;
     }
   }
