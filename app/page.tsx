@@ -6331,8 +6331,13 @@ export default function Home() {
   const [refreshing, setRefreshing] = useState(false);
   const [activeSport, setActiveSport] = useState<Sport>("MLB");
   const [active, setActive] = useState<Tab>("Today’s Best Plays");
+  const [selectedEzpzDate, setSelectedEzpzDate] = useState("");
   const activeLoadRef = useRef<Promise<void> | null>(null);
   const activeLoadControllerRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    if (data?.today) setSelectedEzpzDate(data.today);
+  }, [activeSport, data?.today]);
 
   const loadData = useCallback(async (silent = false, forceFresh = false) => {
     // Reuse an active request instead of starting overlapping public-data
@@ -6628,9 +6633,48 @@ export default function Home() {
     // Pending candidates remain visible until final review. A finalized
     // rejection is returned with selected=false or BLOCKED and disappears;
     // an approved candidate remains and changes from PENDING to FINAL.
-    const aiPicks = (data.aiPicks || []).filter(
-      (pick) => pick.selected && pick.protectionStatus === "PASSED",
-    );
+    const currentEzpzDate = normalizedDateKey(data.today);
+    const activeEzpzDate = normalizedDateKey(selectedEzpzDate) || currentEzpzDate;
+    const historicalEzpzPickMap = new Map<string, AiPick>();
+    for (const pick of data.aiPickRecordRows || []) {
+      if (!pick.selected || pick.protectionStatus !== "PASSED") continue;
+      const dateKey = normalizedDateKey(pick.date);
+      if (!dateKey) continue;
+      const key = `${dateKey}|${pick.candidateId}`;
+      const existing = historicalEzpzPickMap.get(key);
+      const shouldReplace =
+        !existing ||
+        (pick.snapshotStatus === "FINAL_PREGAME" &&
+          existing.snapshotStatus !== "FINAL_PREGAME") ||
+        Boolean(pick.result && !existing.result);
+      if (shouldReplace) historicalEzpzPickMap.set(key, pick);
+    }
+    const historicalEzpzPicks = [...historicalEzpzPickMap.values()];
+    const availableEzpzDates = Array.from(
+      new Set([
+        currentEzpzDate,
+        ...historicalEzpzPicks.map((pick) => normalizedDateKey(pick.date)),
+      ]),
+    )
+      .filter((date): date is string => Boolean(date))
+      .sort((a, b) => b.localeCompare(a));
+    const aiPicks =
+      activeEzpzDate === currentEzpzDate
+        ? (data.aiPicks || []).filter(
+            (pick) => pick.selected && pick.protectionStatus === "PASSED",
+          )
+        : historicalEzpzPicks.filter(
+            (pick) => normalizedDateKey(pick.date) === activeEzpzDate,
+          );
+    const activeEzpzDateLabel = (() => {
+      const [year, month, day] = activeEzpzDate.split("-").map(Number);
+      if (!year || !month || !day) return activeEzpzDate || data.today;
+      return new Intl.DateTimeFormat("en-US", {
+        month: "long",
+        day: "numeric",
+        year: "numeric",
+      }).format(new Date(year, month - 1, day, 12));
+    })();
 
     if (active === "Today’s Best Plays") {
       return (
@@ -6725,56 +6769,138 @@ export default function Home() {
     }
 
     if (active === "EZPZ Picks") {
+      const viewingToday = activeEzpzDate === currentEzpzDate;
       return (
         <section>
           <div className="sectionHead aiSelectorHead">
             <div>
               <h2>EZPZ Picks</h2>
               <p className="aiSelectorStatusText">
-                {data.aiSelectorStatus?.message ||
-                  "The selector is evaluating today’s Best Plays and Trend Plays with deterministic EZPZ gates."}
+                {viewingToday
+                  ? data.aiSelectorStatus?.message ||
+                    "The selector is evaluating today’s Best Plays and Trend Plays with deterministic EZPZ gates."
+                  : `Showing the locked EZPZ Picks saved for ${activeEzpzDateLabel}. Final grading is shown on each pick.`}
               </p>
             </div>
             <span className="countPill">{aiPicks.length} picks</span>
           </div>
 
+          <details className="ezpzHistoryDropdown">
+            <summary className="ezpzHistorySummary">
+              <div>
+                <strong>Pick history</strong>
+                <span>
+                  {activeEzpzDateLabel} • {aiPicks.length} saved {aiPicks.length === 1 ? "pick" : "picks"}
+                </span>
+              </div>
+              <span className="ezpzHistoryAction">Choose date ▾</span>
+            </summary>
+            <div className="ezpzHistoryBody">
+              <label className="ezpzHistoryField">
+                <span>Calendar date</span>
+                <input
+                  type="date"
+                  value={activeEzpzDate}
+                  max={currentEzpzDate || undefined}
+                  onChange={(event) => setSelectedEzpzDate(event.target.value)}
+                />
+              </label>
+              <label className="ezpzHistoryField">
+                <span>Dates with saved picks</span>
+                <select
+                  value={availableEzpzDates.includes(activeEzpzDate) ? activeEzpzDate : ""}
+                  onChange={(event) => setSelectedEzpzDate(event.target.value)}
+                >
+                  {!availableEzpzDates.includes(activeEzpzDate) ? (
+                    <option value="" disabled>No saved picks on selected date</option>
+                  ) : null}
+                  {availableEzpzDates.map((date) => (
+                    <option key={date} value={date}>
+                      {date === currentEzpzDate ? `${date} — Today` : date}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {!viewingToday ? (
+                <button
+                  type="button"
+                  className="ezpzTodayBtn"
+                  onClick={() => setSelectedEzpzDate(currentEzpzDate)}
+                >
+                  Back to today
+                </button>
+              ) : null}
+            </div>
+          </details>
+
           {aiPicks.length ? (
             <div className="aiPickStack">
-              {aiPicks.map((pick) => (
-                <AiPickSelectorCard
-                  key={pick.candidateId}
-                  pick={pick}
-                  todaySummary={
-                    pick.bestPlayType
-                      ? todayByType.get(normalizeType(pick.bestPlayType)) || null
-                      : null
-                  }
-                  last7DaysSummary={
-                    pick.bestPlayType
-                      ? recentByType.get(normalizeType(pick.bestPlayType)) || null
-                      : null
-                  }
-                  lastSevenBetsSummary={
-                    pick.bestPlayType
-                      ? lastSevenBetsByType.get(normalizeType(pick.bestPlayType)) || null
-                      : null
-                  }
-                  overallSummary={
-                    pick.bestPlayType
-                      ? overallByType.get(normalizeType(pick.bestPlayType)) || null
-                      : null
-                  }
-                  trendPlay={aiTrendPlayForPick(pick, trendPlays)}
-                  trendPlays={trendPlays}
-                  handpicked={Boolean(
-                    favoriteRowMap.get(favoriteKeyFromAiPick(pick, data.today)),
-                  )}
-                />
-              ))}
+              {aiPicks.map((pick) => {
+                const resultClass =
+                  pick.result === "W"
+                    ? "won"
+                    : pick.result === "L"
+                      ? "lost"
+                      : pick.result === "P"
+                        ? "push"
+                        : "pending";
+                const resultLabel =
+                  pick.result === "W"
+                    ? "WON"
+                    : pick.result === "L"
+                      ? "LOST"
+                      : pick.result === "P"
+                        ? "PUSH"
+                        : "PENDING";
+                return (
+                  <div
+                    className="aiPickHistoryItem"
+                    key={`${normalizedDateKey(pick.date)}-${pick.candidateId}`}
+                  >
+                    <div className={`aiPickResultStrip ${resultClass}`}>
+                      <span>{pick.result ? "Final result" : "Result"}</span>
+                      <strong>{resultLabel}</strong>
+                    </div>
+                    <AiPickSelectorCard
+                      pick={pick}
+                      todaySummary={
+                        viewingToday && pick.bestPlayType
+                          ? todayByType.get(normalizeType(pick.bestPlayType)) || null
+                          : null
+                      }
+                      last7DaysSummary={
+                        viewingToday && pick.bestPlayType
+                          ? recentByType.get(normalizeType(pick.bestPlayType)) || null
+                          : null
+                      }
+                      lastSevenBetsSummary={
+                        viewingToday && pick.bestPlayType
+                          ? lastSevenBetsByType.get(normalizeType(pick.bestPlayType)) || null
+                          : null
+                      }
+                      overallSummary={
+                        viewingToday && pick.bestPlayType
+                          ? overallByType.get(normalizeType(pick.bestPlayType)) || null
+                          : null
+                      }
+                      trendPlay={viewingToday ? aiTrendPlayForPick(pick, trendPlays) : null}
+                      trendPlays={viewingToday ? trendPlays : []}
+                      handpicked={
+                        viewingToday &&
+                        Boolean(
+                          favoriteRowMap.get(favoriteKeyFromAiPick(pick, data.today)),
+                        )
+                      }
+                    />
+                  </div>
+                );
+              })}
             </div>
           ) : (
             <div className="empty">
-              No EZPZ Picks currently pass every selection and protection rule.
+              {viewingToday
+                ? "No EZPZ Picks currently pass every selection and protection rule."
+                : `No EZPZ Picks were saved for ${activeEzpzDateLabel}. Choose another date from Pick history.`}
             </div>
           )}
         </section>
@@ -6942,6 +7068,7 @@ export default function Home() {
   }, [
     activeSport,
     active,
+    selectedEzpzDate,
     bestPlays,
     handpickedLast7,
     handpickedOverall,
