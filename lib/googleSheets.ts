@@ -1,3 +1,5 @@
+import { google } from "googleapis";
+
 export type SheetRow = Record<string, string>;
 
 // Keep these broad so your existing public-data route can import them safely.
@@ -69,14 +71,6 @@ export const TRACKER_COLUMNS = [
   "Favorite Notes",
 ];
 
-function base64Url(input: Buffer | string) {
-  return Buffer.from(input)
-    .toString("base64")
-    .replace(/=/g, "")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_");
-}
-
 function parseCredentials() {
   const raw = process.env.GOOGLE_CREDENTIALS;
   if (!raw) {
@@ -91,41 +85,30 @@ function parseCredentials() {
   }
 }
 
-async function getAccessToken() {
-  const crypto = await import("node:crypto");
-  const credentials = parseCredentials();
-  const now = Math.floor(Date.now() / 1000);
+let authPromise: Promise<google.auth.GoogleAuth> | null = null;
 
-  const header = { alg: "RS256", typ: "JWT" };
-  const claim = {
-    iss: credentials.client_email,
-    scope: "https://www.googleapis.com/auth/spreadsheets.readonly https://www.googleapis.com/auth/drive.readonly",
-    aud: "https://oauth2.googleapis.com/token",
-    exp: now + 3600,
-    iat: now,
-  };
-
-  const unsigned = `${base64Url(JSON.stringify(header))}.${base64Url(JSON.stringify(claim))}`;
-  const privateKey = String(credentials.private_key || "").replace(/\\n/g, "\n");
-  const signature = crypto.createSign("RSA-SHA256").update(unsigned).sign(privateKey);
-  const jwt = `${unsigned}.${base64Url(signature)}`;
-
-  const response = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-      assertion: jwt,
-    }),
-  });
-
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Google auth failed: ${response.status} ${text}`);
+async function getAuth() {
+  if (!authPromise) {
+    authPromise = Promise.resolve(
+      new google.auth.GoogleAuth({
+        credentials: parseCredentials(),
+        scopes: [
+          "https://www.googleapis.com/auth/spreadsheets.readonly",
+          "https://www.googleapis.com/auth/drive.readonly",
+        ],
+      }),
+    );
   }
+  return authPromise;
+}
 
-  const json = await response.json();
-  return String(json.access_token || "");
+async function getAccessToken() {
+  const auth = await getAuth();
+  const accessToken = await auth.getAccessToken();
+  if (!accessToken) {
+    throw new Error("Google auth returned an empty access token.");
+  }
+  return accessToken;
 }
 
 function extractSpreadsheetId(value: string) {
