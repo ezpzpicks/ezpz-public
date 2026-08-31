@@ -17,74 +17,19 @@ jobs:
 
       - name: Allow half-run total line movement when grading EZPZ Picks
         shell: bash
+        env:
+          OLD_BLOCK_B64: "ICBpZiAocGljay5tYXJrZXQgPT09ICJUb3RhbCIpIHsKICAgIGNvbnN0IHBpY2tMaW5lID0gbnVtZXJpY0xpbmUocGljay5saW5lKTsKICAgIGlmIChwaWNrTGluZSAhPSBudWxsKSB7CiAgICAgIGNvbnN0IGV4YWN0TGluZSA9IG1hdGNoZXMuZmlsdGVyKChyb3cpID0+IHsKICAgICAgICBjb25zdCByb3dMaW5lID0gbnVtZXJpY0xpbmUoCiAgICAgICAgICByb3cuTGluZSB8fCByb3dbIlRvdGFsIExpbmUiXSB8fCByb3dbIk9kZHMvTGluZSJdIHx8IHJvdy5TZWxlY3Rpb24gfHwgcm93LlBsYXkgfHwgIiIsCiAgICAgICAgKTsKICAgICAgICByZXR1cm4gcm93TGluZSAhPSBudWxsICYmIE1hdGguYWJzKHJvd0xpbmUgLSBwaWNrTGluZSkgPCAwLjAwMTsKICAgICAgfSk7CiAgICAgIGlmIChleGFjdExpbmUubGVuZ3RoKSB7CiAgICAgICAgcmV0dXJuIGV4YWN0TGluZS5maW5kKChyb3cpID0+IEJvb2xlYW4ocmVzdWx0Q29kZShyb3cuUmVzdWx0KSkpIHx8IGV4YWN0TGluZVswXSB8fCBudWxsOwogICAgICB9CiAgICAgIGNvbnN0IG5vTGluZSA9IG1hdGNoZXMuZmlsdGVyKAogICAgICAgIChyb3cpID0+CiAgICAgICAgICBudW1lcmljTGluZSgKICAgICAgICAgICAgcm93LkxpbmUgfHwgcm93WyJUb3RhbCBMaW5lIl0gfHwgcm93WyJPZGRzL0xpbmUiXSB8fCByb3cuU2VsZWN0aW9uIHx8IHJvdy5QbGF5IHx8ICIiLAogICAgICAgICAgKSA9PSBudWxsLAogICAgICApOwogICAgICByZXR1cm4gbWF0Y2hlcy5sZW5ndGggPT09IDEgJiYgbm9MaW5lLmxlbmd0aCA9PT0gMSA/IG5vTGluZVswXSB8fCBudWxsIDogbnVsbDsKICAgIH0KICB9Cg=="
+          NEW_BLOCK_B64: "ICBpZiAocGljay5tYXJrZXQgPT09ICJUb3RhbCIpIHsKICAgIGNvbnN0IHBpY2tMaW5lID0gbnVtZXJpY0xpbmUocGljay5saW5lKTsKICAgIGlmIChwaWNrTGluZSAhPSBudWxsKSB7CiAgICAgIGNvbnN0IHJvd1RvdGFsTGluZSA9IChyb3c6IFNoZWV0Um93KSA9PgogICAgICAgIG51bWVyaWNMaW5lKAogICAgICAgICAgcm93LkxpbmUgfHwgcm93WyJUb3RhbCBMaW5lIl0gfHwgcm93WyJPZGRzL0xpbmUiXSB8fCByb3cuU2VsZWN0aW9uIHx8IHJvdy5QbGF5IHx8ICIiLAogICAgICAgICk7CgogICAgICAvLyBQcmVmZXIgdGhlIGV4YWN0IGZyb3plbiB0b3RhbCBsaW5lIHdoZW5ldmVyIGl0IGV4aXN0cy4KICAgICAgY29uc3QgZXhhY3RMaW5lID0gbWF0Y2hlcy5maWx0ZXIoKHJvdykgPT4gewogICAgICAgIGNvbnN0IHJvd0xpbmUgPSByb3dUb3RhbExpbmUocm93KTsKICAgICAgICByZXR1cm4gcm93TGluZSAhPSBudWxsICYmIE1hdGguYWJzKHJvd0xpbmUgLSBwaWNrTGluZSkgPCAwLjAwMTsKICAgICAgfSk7CiAgICAgIGlmIChleGFjdExpbmUubGVuZ3RoKSB7CiAgICAgICAgcmV0dXJuIGV4YWN0TGluZS5maW5kKChyb3cpID0+IEJvb2xlYW4ocmVzdWx0Q29kZShyb3cuUmVzdWx0KSkpIHx8IGV4YWN0TGluZVswXSB8fCBudWxsOwogICAgICB9CgogICAgICAvLyBFWlBaIHRvdGFscyB0cmVhdCBhIGhhbGYtcnVuIG1hcmtldCBtb3ZlIGFzIHRoZSBzYW1lIGdyYWRpbmcgbGluZS4KICAgICAgLy8gRXhhbXBsZXM6IDcgPC0+IDcuNSwgNy41IDwtPiA4LCA4IDwtPiA4LjUsIDkgPC0+IDkuNS4KICAgICAgLy8gVGhpcyBsZXRzIHRoZSBsb2NrZWQgRVpQWiBQaWNrIGluaGVyaXQgdGhlIGNvbXBsZXRlZCByZXN1bHQgd2hlbiB0aGUKICAgICAgLy8gdW5kZXJseWluZyB0cmFja2VyL3RyZW5kIHNuYXBzaG90IG1vdmVkIGJ5IG9ubHkgMC41IHJ1bnMgYmVmb3JlIGxvY2suCiAgICAgIGNvbnN0IGhhbGZSdW5FcXVpdmFsZW50ID0gbWF0Y2hlcy5maWx0ZXIoKHJvdykgPT4gewogICAgICAgIGNvbnN0IHJvd0xpbmUgPSByb3dUb3RhbExpbmUocm93KTsKICAgICAgICByZXR1cm4gcm93TGluZSAhPSBudWxsICYmIE1hdGguYWJzKHJvd0xpbmUgLSBwaWNrTGluZSkgPD0gMC41MDAxOwogICAgICB9KTsKICAgICAgaWYgKGhhbGZSdW5FcXVpdmFsZW50Lmxlbmd0aCkgewogICAgICAgIHJldHVybiAoCiAgICAgICAgICBoYWxmUnVuRXF1aXZhbGVudC5maW5kKChyb3cpID0+IEJvb2xlYW4ocmVzdWx0Q29kZShyb3cuUmVzdWx0KSkpIHx8CiAgICAgICAgICBoYWxmUnVuRXF1aXZhbGVudFswXSB8fAogICAgICAgICAgbnVsbAogICAgICAgICk7CiAgICAgIH0KCiAgICAgIGNvbnN0IG5vTGluZSA9IG1hdGNoZXMuZmlsdGVyKChyb3cpID0+IHJvd1RvdGFsTGluZShyb3cpID09IG51bGwpOwogICAgICByZXR1cm4gbWF0Y2hlcy5sZW5ndGggPT09IDEgJiYgbm9MaW5lLmxlbmd0aCA9PT0gMSA/IG5vTGluZVswXSB8fCBudWxsIDogbnVsbDsKICAgIH0KICB9Cg=="
         run: |
           python - <<'PY'
+          import base64
+          import os
           from pathlib import Path
 
           path = Path("app/api/public-data/route.ts")
           text = path.read_text()
-
-          old = '''  if (pick.market === "Total") {
-    const pickLine = numericLine(pick.line);
-    if (pickLine != null) {
-      const exactLine = matches.filter((row) => {
-        const rowLine = numericLine(
-          row.Line || row["Total Line"] || row["Odds/Line"] || row.Selection || row.Play || "",
-        );
-        return rowLine != null && Math.abs(rowLine - pickLine) < 0.001;
-      });
-      if (exactLine.length) {
-        return exactLine.find((row) => Boolean(resultCode(row.Result))) || exactLine[0] || null;
-      }
-      const noLine = matches.filter(
-        (row) =>
-          numericLine(
-            row.Line || row["Total Line"] || row["Odds/Line"] || row.Selection || row.Play || "",
-          ) == null,
-      );
-      return matches.length === 1 && noLine.length === 1 ? noLine[0] || null : null;
-    }
-  }
-'''
-
-          new = '''  if (pick.market === "Total") {
-    const pickLine = numericLine(pick.line);
-    if (pickLine != null) {
-      const rowTotalLine = (row: SheetRow) =>
-        numericLine(
-          row.Line || row["Total Line"] || row["Odds/Line"] || row.Selection || row.Play || "",
-        );
-
-      // Prefer the exact frozen total line whenever it exists.
-      const exactLine = matches.filter((row) => {
-        const rowLine = rowTotalLine(row);
-        return rowLine != null && Math.abs(rowLine - pickLine) < 0.001;
-      });
-      if (exactLine.length) {
-        return exactLine.find((row) => Boolean(resultCode(row.Result))) || exactLine[0] || null;
-      }
-
-      // EZPZ totals treat a half-run market move as the same grading line.
-      // Examples: 7 <-> 7.5, 7.5 <-> 8, 8 <-> 8.5, 9 <-> 9.5.
-      // This lets the locked EZPZ Pick inherit the completed result when the
-      // underlying tracker/trend snapshot moved by only 0.5 runs before lock.
-      const halfRunEquivalent = matches.filter((row) => {
-        const rowLine = rowTotalLine(row);
-        return rowLine != null && Math.abs(rowLine - pickLine) <= 0.5001;
-      });
-      if (halfRunEquivalent.length) {
-        return (
-          halfRunEquivalent.find((row) => Boolean(resultCode(row.Result))) ||
-          halfRunEquivalent[0] ||
-          null
-        );
-      }
-
-      const noLine = matches.filter((row) => rowTotalLine(row) == null);
-      return matches.length === 1 && noLine.length === 1 ? noLine[0] || null : null;
-    }
-  }
-'''
+          old = base64.b64decode(os.environ["OLD_BLOCK_B64"]).decode()
+          new = base64.b64decode(os.environ["NEW_BLOCK_B64"]).decode()
 
           if old in text:
               text = text.replace(old, new, 1)
