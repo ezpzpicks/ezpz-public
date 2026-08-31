@@ -37,6 +37,19 @@ type TrendPlay = {
   signals: TrendSignal[]; lineMovementSignal?: string; lineMovementBasis?: string; lineMovementValue?: number | null;
 };
 
+
+type EzpzPick = {
+  source: "Best Play" | "Trend Play" | "Best + Trend";
+  game: string;
+  market: "Spread" | "Total";
+  selection: string;
+  odds: string;
+  score: number;
+  tier: string;
+  qualification: string;
+  record?: string;
+};
+
 type DraftKingsSplit = {
   game: string; awayTeam?: string; homeTeam?: string; market: "Spread" | "Total"; selection: string; selectionTeam: string;
   side: "Over" | "Under" | ""; line: number | null; odds: string; betsPct: number;
@@ -62,7 +75,7 @@ type FootballSignalHistoryRow = {
 type FootballData = {
   today: string; lastUpdated: string; database?: string; bestPlays: Play[]; slateToday: SheetRow[];
   betTrackerRows?: SheetRow[]; trendRecordRows?: SheetRow[]; draftKingsSignalRows?: FootballSignalHistoryRow[];
-  trendPlays?: TrendPlay[]; recordSummary?: Summary[];
+  trendPlays?: TrendPlay[]; aiPicks?: EzpzPick[]; recordSummary?: Summary[];
   last7RecordSummary?: Summary[]; aiSelectorStatus?: { message?: string };
   draftKings?: { status: string; updatedAt: string; splits: DraftKingsSplit[]; errors?: string[] };
 };
@@ -614,6 +627,38 @@ function TrendGameCard({ game, plays }: { game: string; plays: TrendPlay[] }) {
   );
 }
 
+
+function EzpzPickCard({ pick, index }: { pick: EzpzPick; index: number }) {
+  return (
+    <article className={`card green fade-in best footballBestCard ${index < 3 ? "top" : ""}`}>
+      <div className="cardTop">
+        <div className="rankBadge">#{index + 1}</div>
+        <div className="scorePill" aria-label={`EZPZ qualification score ${pick.score.toFixed(1)}`}>
+          <span className="scorePillLabel">EZPZ</span>
+          <strong>{pick.score.toFixed(1)}</strong>
+          <span className="scorePillSub">SCORE</span>
+        </div>
+      </div>
+      <div className="cardSub footballMatchup">{pick.game}</div>
+      <div className="projectionBlock footballProjectionBlock">
+        <div className="projection footballProjection">{pick.selection}</div>
+        <div className="grade">{pick.tier}</div>
+      </div>
+      <div className="divider" />
+      <div className="bubbleGrid footballBestMetrics">
+        <MiniBubble label="Odds" value={pick.odds} green />
+        <MiniBubble label="Market" value={pick.market} green />
+        <MiniBubble label="Source" value={pick.source} green />
+        <MiniBubble label="Last 7" value={pick.record || "Trend"} green />
+      </div>
+      <div className="modelMeta footballModelMeta">
+        <span>{pick.qualification}</span>
+        <span>Max favorite price -150</span>
+      </div>
+    </article>
+  );
+}
+
 function SlateCard({ row, splits }: { row: SheetRow; splits: DraftKingsSplit[] }) {
   const game = row.Game || `${row["Away Team"]} @ ${row["Home Team"]}`;
   const gameSplits = splits.filter((split) => textKey(split.game) === textKey(game) || splitMatchesTeams(row["Away Team"], row["Home Team"], split));
@@ -714,7 +759,10 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
       {displayedTrendGroups.length ? <div className="trendGameGrid">{displayedTrendGroups.map((group) => <TrendGameCard key={group.plays[0]?.gameKey || group.game} game={group.game} plays={group.plays} />)}</div> : <div className="empty footballEmpty">No {sport} DraftKings Spread/Total markets are stored for {activeWeek || "this week"} yet. Pass, Good, Strong, and Elite rows all display once the market is stored.</div>}
     </>;
   } else if (tab === "EZPZ Picks") {
-    content = <div className="empty footballEmpty">{data.aiSelectorStatus?.message || `${sport} EZPZ Picks are not enabled yet. Model Best Plays and sport-specific Trend Plays are live.`}</div>;
+    content = <>
+      <div className="sectionHead"><div><h2>{sport} EZPZ Picks</h2><p>{data.aiSelectorStatus?.message || "HOT Best Plays and qualifying Strong/Elite Trend Plays only."}</p></div></div>
+      {data.aiPicks?.length ? <div className="fbGrid">{data.aiPicks.map((pick, index) => <EzpzPickCard key={`${pick.game}-${pick.market}-${pick.selection}-${index}`} pick={pick} index={index} />)}</div> : <div className="empty footballEmpty">No {sport} EZPZ Picks qualify right now.</div>}
+    </>;
   } else if (tab === "Full Slate") {
     content = slateRows.length ? <div className="fbSlateStack">{slateRows.map((row, index) => <SlateCard key={`${row["Game Key"] || row["Game ID"] || row.Game}-${index}`} row={row} splits={splits} />)}</div> : <div className="empty footballEmpty">No {sport} games are posted for {data.today} yet.</div>;
   } else {

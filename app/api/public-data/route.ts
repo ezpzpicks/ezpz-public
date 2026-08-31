@@ -8627,7 +8627,8 @@ function finalizeAiCandidates(
     const qualifiesByTrend =
       trendBacked &&
       trendSignalsAllGreen &&
-      candidate.trendPlay?.tier !== "Pass" &&
+      (candidate.trendPlay?.tier === "Strong" ||
+        candidate.trendPlay?.tier === "Elite") &&
       rawTrendScore >= 69 &&
       aiScore >= 80;
 

@@ -827,12 +827,81 @@ function buildTrendPlay(split: DraftKingsSplit, history: SignalHistoryRow[], ref
     betsPct:split.betsPct,moneyPct:split.moneyPct,gapPct:split.gapPct,openingBetsPct:split.openingBetsPct,openingMoneyPct:split.openingMoneyPct,publicMovementPct:split.publicMovementPct,sharpMovementPct:split.sharpMovementPct,openingLine:split.openingLine,openingOdds:split.openingOdds,openingImpliedPct:split.openingImpliedPct,currentImpliedPct:split.currentImpliedPct,lineMovementBasis:split.lineMovementBasis,lineMovementValue:split.lineMovementValue,score:baseScore,baseScore,tier:"Pass",signals,updatedAt:split.snapshotTime||nowET(),snapshotStatus:"LIVE" };
 }
 
+function footballTrendMetrics(play: TrendPlay) {
+  const signals = (play.signals || [])
+    .map((signal) => {
+      const metrics = windowMetrics(signal.records);
+      if (!metrics.hasData) return metrics;
+      return {
+        ...metrics,
+        score: signal.exactSample > 0
+          ? metrics.score
+          : Math.min(metrics.score, TREND_BROAD_FALLBACK_SCORE_CAP),
+      };
+    })
+    .filter((metrics) => metrics.hasData);
+  if (!signals.length) return { score: play.baseScore ?? play.score ?? 0, roiPct: 0, winPct: 0, hasData: false };
+  return {
+    score: signals.reduce((sum, signal) => sum + signal.score, 0) / signals.length,
+    roiPct: signals.reduce((sum, signal) => sum + signal.roiPct, 0) / signals.length,
+    winPct: signals.reduce((sum, signal) => sum + signal.winPct, 0) / signals.length,
+    hasData: true,
+  };
+}
+
+function footballTrendRecordTone(record: TrendRecord): Tone {
+  if (record.wins > record.losses) return "positive";
+  if (record.losses > record.wins) return "negative";
+  return "neutral";
+}
+
 function headToHead(plays: TrendPlay[]) {
-  return plays.map((play)=>{
-    const opponents=plays.filter((x)=>x.gameKey===play.gameKey&&x.market===play.market&&textKey(x.selection)!==textKey(play.selection));
-    const opponent=opponents.sort((a,b)=>(b.baseScore||b.score)-(a.baseScore||a.score))[0]; if(!opponent) return {...play,score:0,tier:"Pass" as const};
-    const own=play.baseScore||play.score, other=opponent.baseScore||opponent.score, gap=own-other, eligible=gap>0.01&&play.signals.some(s=>s.records.allTime.totalBets>0)&&opponent.signals.some(s=>s.records.allTime.totalBets>0), bonus=Math.min(5,Math.abs(gap)/5); const score=eligible?Math.min(100,own+bonus):Math.min(59,Math.max(0,own-bonus));
-    return {...play,opponentScore:other,comparisonGap:Math.abs(gap),comparisonWinner:gap>0.01,score,tier:!eligible||score<60?"Pass":score>=85?"Elite":score>=69?"Strong":"Good"};
+  const baseRows = plays.map((play) => ({ play, metrics: footballTrendMetrics(play) }));
+  return baseRows.map(({ play, metrics }) => {
+    const opponents = baseRows
+      .filter((candidate) =>
+        candidate.play.gameKey === play.gameKey &&
+        candidate.play.market === play.market &&
+        textKey(candidate.play.selection) !== textKey(play.selection))
+      .sort((a, b) =>
+        b.metrics.score - a.metrics.score ||
+        b.metrics.roiPct - a.metrics.roiPct ||
+        b.metrics.winPct - a.metrics.winPct);
+    const opponent = opponents[0];
+    if (!opponent) return { ...play, baseScore: metrics.score, opponentScore: null, comparisonGap: 0, comparisonWinner: false, score: 0, tier: "Pass" as const };
+
+    const rawGap = metrics.score - opponent.metrics.score;
+    const comparisonGap = Math.abs(rawGap);
+    const comparisonWinner = rawGap > 0.01;
+    const candidateRoiPct = metrics.roiPct;
+    const opponentRoiPct = opponent.metrics.roiPct;
+    const netRoiAdvantage = candidateRoiPct - opponentRoiPct;
+    const opponentLast7Green = opponent.play.signals.some(
+      (signal) => footballTrendRecordTone(signal.records.last7) === "positive",
+    );
+    const allSignalsGreen = play.signals.length > 0 && play.signals.every((signal) => signal.tone === "positive");
+    const eligible = Boolean(
+      comparisonWinner &&
+      metrics.hasData &&
+      opponent.metrics.hasData &&
+      candidateRoiPct > 0 &&
+      netRoiAdvantage >= 10 &&
+      !opponentLast7Green &&
+      allSignalsGreen
+    );
+    const comparisonBonus = Math.min(5, comparisonGap / 5);
+    const winnerScore = Math.min(100, metrics.score + comparisonBonus);
+    const loserScore = Math.min(59, Math.max(0, metrics.score - comparisonBonus));
+    const score = eligible ? winnerScore : loserScore;
+    return {
+      ...play,
+      baseScore: metrics.score,
+      opponentScore: opponent.metrics.score,
+      comparisonGap,
+      comparisonWinner,
+      score,
+      tier: !eligible || score < 60 ? "Pass" : score >= 85 ? "Elite" : score >= 69 ? "Strong" : "Good",
+    };
   });
 }
 
@@ -986,6 +1055,130 @@ function bestPlays(slate:SheetRow[],sport:FootballSport){
   }return plays;
 }
 
+type FootballEzpzPick = {
+  source: "Best Play" | "Trend Play" | "Best + Trend";
+  game: string;
+  market: "Spread" | "Total";
+  selection: string;
+  odds: string;
+  score: number;
+  tier: string;
+  qualification: string;
+  record?: string;
+};
+
+function americanOddsText(value: unknown) {
+  const raw = String(value || "").trim();
+  const match = raw.match(/(?:^|\s)([+-]\d{3,})(?:\s|$)/);
+  if (!match) return "";
+  const odds = Number(match[1]);
+  return Number.isFinite(odds) && Math.abs(odds) >= 100 ? match[1] : "";
+}
+
+function footballLastSevenForMarket(rows: SheetRow[], market: "Spread" | "Total") {
+  const key = textKey(market);
+  const completed = rows
+    .map((row, index) => ({
+      row,
+      index,
+      stamp: Date.parse(`${isoDate(row.Date)}T12:00:00Z`) || 0,
+    }))
+    .filter(({ row }) => resultCode(row.Result || row.Status) && textKey(row["Bet Type"] || row.Market).includes(key))
+    .sort((a, b) => b.stamp - a.stamp || b.index - a.index)
+    .slice(0, 7)
+    .map(({ row }) => row);
+  return recordTotals(completed);
+}
+
+function footballBestForm(record: ReturnType<typeof recordTotals>) {
+  if (record.totalBets < 7) return "SAMPLE" as const;
+  if (record.wins >= 5) return "HOT" as const;
+  if (record.losses >= 5) return "COLD" as const;
+  return "NEUTRAL" as const;
+}
+
+function footballBestPlaySplit(play: any, splits: DraftKingsSplit[], sport: FootballSport) {
+  const sameGame = (split: DraftKingsSplit) =>
+    textKey(split.game) === textKey(play.game) ||
+    (sameTeam(play.awayTeam, split.awayTeam, sport) && sameTeam(play.homeTeam, split.homeTeam, sport));
+  const market = textKey(play.role || play.playType).includes("total") ? "Total" : "Spread";
+  if (market === "Total") {
+    const side = textKey(play.play).startsWith("under") ? "Under" : "Over";
+    return splits.find((split) => split.market === "Total" && split.side === side && sameGame(split));
+  }
+  const selection = String(play.play || "").replace(/\s+[+-]?\d+(?:\.\d+)?\s*$/, "").trim();
+  return splits.find((split) => split.market === "Spread" && sameGame(split) && sameTeam(split.selectionTeam, selection, sport));
+}
+
+function buildFootballEzpzPicks(
+  best: any[],
+  trends: TrendPlay[],
+  tracker: SheetRow[],
+  splits: DraftKingsSplit[],
+  sport: FootballSport,
+) {
+  const picks: FootballEzpzPick[] = [];
+  const formCache = new Map<"Spread" | "Total", ReturnType<typeof recordTotals>>();
+  for (const play of best) {
+    const market: "Spread" | "Total" = textKey(play.role || play.playType).includes("total") ? "Total" : "Spread";
+    const lastSeven = formCache.get(market) || footballLastSevenForMarket(tracker, market);
+    formCache.set(market, lastSeven);
+    if (footballBestForm(lastSeven) !== "HOT") continue;
+    const split = footballBestPlaySplit(play, splits, sport);
+    const odds = americanOddsText(split?.odds || play.oddsLine);
+    if (!odds || Number(odds) < -150) continue;
+    const rawScore = Number(play.score);
+    const score = Number.isFinite(rawScore) ? (rawScore <= 1 ? rawScore * 100 : rawScore) : 0;
+    picks.push({
+      source: "Best Play",
+      game: play.game,
+      market,
+      selection: play.play,
+      odds,
+      score,
+      tier: play.playType || "Best Play",
+      qualification: `HOT Last 7 Best Play (${lastSeven.record})`,
+      record: lastSeven.record,
+    });
+  }
+
+  for (const play of headToHead(trends)) {
+    if (play.tier !== "Strong" && play.tier !== "Elite") continue;
+    if (!play.signals.length || !play.signals.every((signal) => signal.tone === "positive")) continue;
+    const odds = americanOddsText(play.odds);
+    if (!odds || Number(odds) < -150) continue;
+    picks.push({
+      source: "Trend Play",
+      game: play.game,
+      market: play.market,
+      selection: play.market === "Total" ? `${play.side} ${play.line ?? ""}`.trim() : `${play.selection} ${play.line == null ? "" : `${play.line > 0 ? "+" : ""}${play.line}`}`.trim(),
+      odds,
+      score: Math.round(play.score * 10) / 10,
+      tier: `${play.tier} Trend Play`,
+      qualification: "All-green Trend Play • 10%+ net ROI advantage",
+    });
+  }
+
+  const deduped = new Map<string, FootballEzpzPick>();
+  for (const pick of picks) {
+    const key = `${textKey(pick.game)}|${pick.market}|${textKey(pick.selection)}`;
+    const existing = deduped.get(key);
+    if (!existing) {
+      deduped.set(key, pick);
+      continue;
+    }
+    deduped.set(key, {
+      ...existing,
+      source: "Best + Trend",
+      score: Math.max(existing.score, pick.score),
+      tier: `${existing.tier} + ${pick.tier}`,
+      qualification: `${existing.qualification} • ${pick.qualification}`,
+    });
+  }
+  return [...deduped.values()].sort((a, b) => b.score - a.score || a.game.localeCompare(b.game));
+}
+
+
 async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:{persist?:boolean}={}){
   const today=todayET(); const trackingWeek=footballWeekBounds(sport,today); if(persist) await Promise.all([ensureSportWorksheet(sport,"all_game_trends",ALL_GAME_TRENDS_HEADERS),ensureSportWorksheet(sport,"public_split_snapshots",PUBLIC_SPLIT_HEADERS)]);
   const [slateAll,trackerRaw,schedule,trendExisting,snapshotExisting]=await Promise.all([readSportWorksheet(sport,"daily_slate"),readSportWorksheet(sport,"bet_tracker"),readSportWorksheet(sport,"schedule"),readSportWorksheet(sport,"all_game_trends",ALL_GAME_TRENDS_HEADERS),readSportWorksheet(sport,"public_split_snapshots",PUBLIC_SPLIT_HEADERS)]);
@@ -1094,10 +1287,10 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
     }catch{/* ignore malformed legacy JSON */}
   }
   const displayTrendPlays=[...displayTrendMap.values()];
-  const best=bestPlays(slate,sport);const overall=recordTotals(tracker);const last7=recordTotals(tracker,7);const pending=tracker.filter((r)=>!resultCode(r.Result||r.Status)).length;
+  const best=bestPlays(slate,sport);const aiPicks=buildFootballEzpzPicks(best,displayTrendPlays,tracker,enriched,sport);const overall=recordTotals(tracker);const last7=recordTotals(tracker,7);const pending=tracker.filter((r)=>!resultCode(r.Result||r.Status)).length;
   const recordSummary=[{betType:"Spread",status:"EVEN",...recordTotals(tracker.filter(r=>textKey(r["Bet Type"]||r.Market).includes("spread")))},{betType:"Total",status:"EVEN",...recordTotals(tracker.filter(r=>textKey(r["Bet Type"]||r.Market).includes("total")))}].map((r:any)=>({...r,status:r.wins>r.losses?"WINNING":r.losses>r.wins?"LOSING":"EVEN"}));
   const last7RecordSummary=[{betType:"Spread",status:"EVEN",...recordTotals(tracker.filter(r=>textKey(r["Bet Type"]||r.Market).includes("spread")),7)},{betType:"Total",status:"EVEN",...recordTotals(tracker.filter(r=>textKey(r["Bet Type"]||r.Market).includes("total")),7)}].map((r:any)=>({...r,status:r.wins>r.losses?"WINNING":r.losses>r.wins?"LOSING":"EVEN"}));
-  return {ok:true,sport,database:sportDatabaseLabel(sport),today,lastUpdated:nowET(),tiles:{last7Days:last7,overallGreen:overall,handpickedLast7:last7,handpickedOverall:overall,pendingGreen:pending,bestPlaysToday:best.length},bestPlays:best,slateToday:slate,betTrackerRows:tracker,draftKings:{ok:enriched.length>0,status:enriched.length?"LIVE":"UNAVAILABLE",updatedAt:nowET(),stale:false,splits:enriched,props:[],errors:dk.errors,displayMode:"LIVE",trackingMode:"WEEKLY",trackingWeekStart:trackingWeek.start,trackingWeekEnd:trackingWeek.end,trackedGames:trackingSlate.length},draftKingsSignalRows:history,trendRecordRows:trendRows.filter(r=>resultCode(r.Result)),trendPlays:displayTrendPlays,aiPicks:[],aiPickRecordRows:[],aiSelectorStatus:{mode:"LIVE_PREVIEW",externalResearchConfigured:false,message:`${sport} AI selector is not enabled yet; model and trend records are live.`,updatedAt:nowET(),candidateCount:0,selectedCount:0},recordSummary,last7RecordSummary,handpickedRecordSummary:recordSummary,handpickedLast7RecordSummary:last7RecordSummary};
+  return {ok:true,sport,database:sportDatabaseLabel(sport),today,lastUpdated:nowET(),tiles:{last7Days:last7,overallGreen:overall,handpickedLast7:last7,handpickedOverall:overall,pendingGreen:pending,bestPlaysToday:best.length},bestPlays:best,slateToday:slate,betTrackerRows:tracker,draftKings:{ok:enriched.length>0,status:enriched.length?"LIVE":"UNAVAILABLE",updatedAt:nowET(),stale:false,splits:enriched,props:[],errors:dk.errors,displayMode:"LIVE",trackingMode:"WEEKLY",trackingWeekStart:trackingWeek.start,trackingWeekEnd:trackingWeek.end,trackedGames:trackingSlate.length},draftKingsSignalRows:history,trendRecordRows:trendRows.filter(r=>resultCode(r.Result)),trendPlays:displayTrendPlays,aiPicks,aiPickRecordRows:[],aiSelectorStatus:{mode:"LIVE",externalResearchConfigured:false,message:aiPicks.length?`${sport} EZPZ Picks are live: HOT Best Plays plus all-green Strong/Elite Trend Plays with 10%+ net ROI advantage; max price -150.`:`No ${sport} EZPZ Picks currently qualify under the HOT / all-green 10%+ ROI / Strong-Elite / -150 rules.`,updatedAt:nowET(),candidateCount:best.length+displayTrendPlays.length,selectedCount:aiPicks.length},recordSummary,last7RecordSummary,handpickedRecordSummary:recordSummary,handpickedLast7RecordSummary:last7RecordSummary};
 }
 
 const FOOTBALL_PUBLIC_DATA_CACHE_TTL_MS = 60_000;
