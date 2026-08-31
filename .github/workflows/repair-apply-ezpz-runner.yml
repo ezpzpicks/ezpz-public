@@ -45,3 +45,5 @@ jobs:
           git commit -m "Repair EZPZ source patch workflow runner"
           git pull --rebase origin main
           git push origin HEAD:main
+
+# trigger repair workflow
