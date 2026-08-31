@@ -85,7 +85,7 @@ function parseCredentials() {
   }
 }
 
-let authPromise: Promise<google.auth.GoogleAuth> | null = null;
+let authPromise: Promise<InstanceType<typeof google.auth.GoogleAuth>> | null = null;
 
 async function getAuth() {
   if (!authPromise) {
