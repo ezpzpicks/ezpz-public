@@ -33,7 +33,7 @@ jobs:
       - name: Build public site
         shell: bash
         run: |
-          npm ci
+          npm install --no-package-lock
           npm run build
 
       - name: Commit feature
