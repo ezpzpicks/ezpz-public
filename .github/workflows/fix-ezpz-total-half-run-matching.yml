@@ -44,7 +44,7 @@ jobs:
       - name: Type-check
         shell: bash
         run: |
-          npm ci
+          npm install --no-audit --no-fund
           npx tsc --noEmit
 
       - name: Commit fix
