@@ -133,6 +133,10 @@ const AI_BUILDER_MATCHUP_DETAILS_TAB = "matchup_details_today";
 const AI_BUILDER_CONTEXT_KEY = "__EZPZ_BUILDER_CONTEXT_JSON";
 const AI_PICK_SELECTOR_VERSION = "ezpz-picks-hardcoded-v6-hot-only-roi10";
 const AI_MINIMUM_ESTIMATED_ADVANTAGE = 5;
+// A durable 15-minute snapshot is allowed one short retry window after the
+// scheduled start if its selector row missed the LIVE -> FINAL_PREGAME handoff.
+// This recovery never uses ordinary live/in-game market data.
+const AI_FINAL_PREGAME_RECOVERY_GRACE_MS = 30 * 60_000;
 
 // PERMANENT EZPZ PICKS POLICY. These are normal source rules, not build patches.
 // Best Play path: HOT only, with a maximum price of -150.
@@ -9739,12 +9743,40 @@ async function buildAiPickSelector(args: {
   const targetCandidates = candidates.filter((candidate) => {
     const hasFrozenTrendSnapshot =
       candidate.trendPlay?.snapshotStatus === "FINAL_PREGAME";
+    const hasDedicatedFinalMarketSnapshot =
+      finalDraftKingsGameKeys.has(candidate.gameKey);
     if (!targetGameKeys.has(candidate.gameKey) && !hasFrozenTrendSnapshot) return false;
     if (storedFinalCandidateIds.has(candidate.candidateId)) return false;
     const started = candidate.slateRow
       ? !isPregameRow(candidate.slateRow, selectorNow)
       : false;
-    return !started;
+    if (!started) return true;
+
+    // FINAL_PREGAME_HANDOFF_RECOVERY_V1: if the dedicated frozen pregame
+    // snapshot exists but its selector write was missed, allow one bounded
+    // post-start recovery path. A generic FINAL PREGAME slate label is not
+    // sufficient here because it can be written after first pitch; recovery
+    // requires the actual dedicated market snapshot (or frozen TrendPlay).
+    const start = candidate.slateRow
+      ? scheduledGameStart(candidate.slateRow)
+      : null;
+    const withinRecoveryGrace =
+      start == null || selectorNow <= start + AI_FINAL_PREGAME_RECOVERY_GRACE_MS;
+    if (
+      withinRecoveryGrace &&
+      (hasDedicatedFinalMarketSnapshot || hasFrozenTrendSnapshot)
+    ) {
+      candidate.dataStatus = [
+        "Recovered missing FINAL_PREGAME selector row from durable pregame snapshot",
+        ...candidate.dataStatus.filter(
+          (item) =>
+            item !==
+            "Recovered missing FINAL_PREGAME selector row from durable pregame snapshot",
+        ),
+      ].slice(0, 5);
+      return true;
+    }
+    return false;
   });
 
   if (targetCandidates.length) {
@@ -10083,7 +10115,7 @@ async function buildUncachedPublicResponse(request: NextRequest) {
           : scheduledCapture
             ? "scheduled"
             : "live";
-    const [slateTodayRaw, trackerRaw, liveDraftKings, initialSavedPublicSplits, storedAiPickRows, matchupDetailsRaw] = await Promise.all([
+    const [initialSlateTodayRaw, trackerRaw, liveDraftKings, initialSavedPublicSplits, storedAiPickRows, matchupDetailsRaw] = await Promise.all([
       readWorksheet("daily_slate"),
       readWorksheet("bet_tracker"),
       loadDraftKingsData(),
@@ -10091,6 +10123,7 @@ async function buildUncachedPublicResponse(request: NextRequest) {
       safeReadAiPickRows(),
       safeReadAiBuilderMatchupRows(),
     ]);
+    let slateTodayRaw = initialSlateTodayRaw;
     let savedPublicSplits = initialSavedPublicSplits;
     const savedDraftKings = snapshotPayloadFromRows(savedPublicSplits, today);
     let finalSnapshotDraftKings = snapshotPayloadFromRows(
@@ -10106,6 +10139,12 @@ async function buildUncachedPublicResponse(request: NextRequest) {
     draftKings.persistence = persistence;
     if (persistence.status === "ERROR" && persistence.error) {
       draftKings.errors = [...draftKings.errors, `Pregame persistence: ${persistence.error}`];
+    }
+    // LIVE_TO_FINAL_HANDOFF_V1: persistFinalPregameDraftKings can update the
+    // durable slate after the Promise.all above. Re-read it in this same request
+    // so selector finalization sees the newly saved pregame state immediately.
+    if (persistence.slateRowsUpdated > 0 || persistence.finalPregameRows > 0) {
+      slateTodayRaw = await readWorksheet("daily_slate");
     }
     if (persistence.snapshotRowsUpdated > 0) {
       savedPublicSplits = await safeReadPublicSplitRows();
