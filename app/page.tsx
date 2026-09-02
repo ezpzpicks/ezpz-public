@@ -353,7 +353,7 @@ type DraftKingsData = {
 };
 
 type Sport = "MLB" | "NFL" | "NCAAF" | "NCAAM";
-type Tab = "Today’s Best Plays" | "Today’s Trend Plays" | "EZPZ Picks" | "Full Slate" | "Records";
+type Tab = "Today’s Model Plays" | "Today’s Trend Plays" | "EZPZ Picks" | "Full Slate" | "Records";
 
 type SportMeta = {
   name: string;
@@ -363,7 +363,7 @@ type SportMeta = {
 };
 
 const SPORTS: Sport[] = ["MLB", "NFL", "NCAAF", "NCAAM"];
-const TABS: Tab[] = ["Today’s Best Plays", "Today’s Trend Plays", "EZPZ Picks", "Full Slate", "Records"];
+const TABS: Tab[] = ["Today’s Model Plays", "Today’s Trend Plays", "EZPZ Picks", "Full Slate", "Records"];
 
 const SPORT_META: Record<Sport, SportMeta> = {
   MLB: {
@@ -621,7 +621,7 @@ function isBestPlay(play: Play) {
 
   // The admin model is the source of truth. The public-data endpoint still uses
   // the legacy YRFI label for a qualified Elite YRFI play. Accept that label on
-  // Today’s Best Plays only; record summaries continue to keep YRFI and
+  // Today’s Model Plays only; record summaries continue to keep YRFI and
   // ELITE YRFI completely separate.
   if (isNRFIType(play.playType)) {
     const type = normalizeType(play.playType);
@@ -2711,7 +2711,7 @@ function totalPlayFromTrackerRow(row: SheetRow): Play | null {
 
   // Market identity wins over words in the selection. Pitcher tracker rows use
   // grades such as LEAN UNDER, so inferring a game total from "UNDER" alone
-  // created a second, projection-less pitcher card in Today’s Best Plays.
+  // created a second, projection-less pitcher card in Today’s Model Plays.
   if (market && !isExplicitTotalMarket) return null;
   if (!isExplicitTotalMarket && !isTotalType(rawPlayType)) return null;
 
@@ -6186,7 +6186,7 @@ function SportDevelopmentContent({
   const meta = SPORT_META[sport];
   const dateLabel = today || "today";
 
-  if (tab === "Today’s Best Plays") {
+  if (tab === "Today’s Model Plays") {
     return (
       <>
         <div className="sectionHead">
@@ -6347,7 +6347,7 @@ export default function Home() {
   const [error, setError] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   const [activeSport, setActiveSport] = useState<Sport>("MLB");
-  const [active, setActive] = useState<Tab>("Today’s Best Plays");
+  const [active, setActive] = useState<Tab>("Today’s Model Plays");
   const [selectedEzpzDate, setSelectedEzpzDate] = useState("");
   const activeLoadRef = useRef<Promise<void> | null>(null);
   const activeLoadControllerRef = useRef<AbortController | null>(null);
@@ -6693,11 +6693,11 @@ export default function Home() {
       }).format(new Date(year, month - 1, day, 12));
     })();
 
-    if (active === "Today’s Best Plays") {
+    if (active === "Today’s Model Plays") {
       return (
         <section>
           <div className="sectionHead">
-            <h2>Today’s Best Plays</h2>
+            <h2>Today’s Model Plays</h2>
             <span className="countPill">{orderedPlays.length} plays</span>
           </div>
 
@@ -7162,7 +7162,7 @@ export default function Home() {
                 setRefreshing(false);
               }
               setActiveSport(sport);
-              setActive("Today’s Best Plays");
+              setActive("Today’s Model Plays");
             }}
           >
             {sport}
@@ -7211,7 +7211,7 @@ export default function Home() {
                 }
               />
               <Tile
-                label="Today’s Best Plays"
+                label="Today’s Model Plays"
                 value={String(bestPlays.length)}
                 meta="Pending Best Plays"
                 green={bestPlays.length > 0}
@@ -7231,7 +7231,7 @@ export default function Home() {
                 meta={`${data.tiles.overallGreen.winPct}% • ${data.tiles.overallGreen.unitsWon}u • ROI ${data.tiles.overallGreen.roiPct}%`}
                 green={data.tiles.overallGreen.totalBets > 0}
               />
-              <Tile label="Today’s Best Plays" value={String(data.bestPlays.length)} meta="Spread + Total" green={data.bestPlays.length > 0} />
+              <Tile label="Today’s Model Plays" value={String(data.bestPlays.length)} meta="Spread + Total" green={data.bestPlays.length > 0} />
               <Tile label="Today’s Trend Plays" value={String((data.trendPlays || []).filter((play) => play.tier !== "Pass").length)} meta="Sport-specific DraftKings records" />
               <Tile label="Model Stage" value="LIVE" meta={activeSportMeta.status} green />
               <Tile label="Published Matchups" value={String(data.slateToday.length)} meta="Separate sport database" green={data.slateToday.length > 0} />
@@ -7242,7 +7242,7 @@ export default function Home() {
               <Tile label="Best Plays - Running Total" value="0-0-0" meta="Tracking begins with official plays" />
               <Tile label="Today’s Handpicked" value="0" meta="No selections posted" />
               <Tile label="Model Stage" value="PRESEASON" meta={activeSportMeta.status} />
-              <Tile label="Today’s Best Plays" value="0" meta="Public format is ready" />
+              <Tile label="Today’s Model Plays" value="0" meta="Public format is ready" />
               <Tile label="Published Matchups" value="0" meta="Slate connection pending" />
             </>
           )}

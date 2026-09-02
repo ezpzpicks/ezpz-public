@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 type SheetRow = Record<string, string>;
-type Tab = "Today’s Best Plays" | "Today’s Trend Plays" | "EZPZ Picks" | "Full Slate" | "Records";
+type Tab = "Today’s Model Plays" | "Today’s Trend Plays" | "EZPZ Picks" | "Full Slate" | "Records";
 type Sport = "NFL" | "NCAAF";
 
 type RecordTotals = {
@@ -748,7 +748,7 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
   const last7Map = new Map((data.last7RecordSummary || []).map((row) => [row.betType, row]));
 
   let content;
-  if (tab === "Today’s Best Plays") {
+  if (tab === "Today’s Model Plays") {
     content = data.bestPlays.length ? <div className="fbGrid">{data.bestPlays.map((play, index) => <BestPlayCard key={`${play.game}-${play.play}-${index}`} play={play} splits={splits} index={index} />)}</div> : <div className="empty footballEmpty">No graded {sport} Best Plays are saved for {data.today}.</div>;
   } else if (tab === "Today’s Trend Plays") {
     content = <>
@@ -805,7 +805,7 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
           <p>Regression projections • Spread + Total • sport-specific DraftKings trends</p>
         </div>
         <div className="fbHeadActions">
-          {tab === "Today’s Best Plays" ? <span className="countPill">{data.bestPlays.length} plays</span> : null}
+          {tab === "Today’s Model Plays" ? <span className="countPill">{data.bestPlays.length} plays</span> : null}
           {tab === "Today’s Trend Plays" ? <span className="countPill">{displayedTrendGroups.length} games</span> : null}
           {tab === "Full Slate" ? <span className="countPill">{slateRows.length} games</span> : null}
           <span className={`fbStatus ${data.draftKings?.status === "LIVE" || weeklyData?.trendPlays?.length ? "live" : ""}`}>
