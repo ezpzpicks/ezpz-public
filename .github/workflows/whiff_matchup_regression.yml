@@ -6,7 +6,7 @@ on:
     branches:
       - analysis/whiff-matchup-regression
     paths:
-      - 'analysis/whiff_matchup_regression.py'
+      - 'analysis/whiff_matchup_regression_v2.py'
       - '.github/workflows/whiff_matchup_regression.yml'
   workflow_dispatch:
 
@@ -35,10 +35,9 @@ jobs:
           git sparse-checkout init --cone
           git sparse-checkout set data/raw/2023/monthly data/raw/2024/monthly data/raw/2025/monthly data/raw/2026/monthly
           git checkout main
-          find data/raw -name '*.parquet' -type f | sort
 
       - name: Run regression
-        run: python analysis/whiff_matchup_regression.py
+        run: python analysis/whiff_matchup_regression_v2.py
 
       - name: Upload regression outputs
         if: always()
