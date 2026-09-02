@@ -131,7 +131,7 @@ const ALL_GAME_TRENDS_HEADERS = [
 const AI_PICK_SELECTOR_TAB = "ai_pick_selector";
 const AI_BUILDER_MATCHUP_DETAILS_TAB = "matchup_details_today";
 const AI_BUILDER_CONTEXT_KEY = "__EZPZ_BUILDER_CONTEXT_JSON";
-const AI_PICK_SELECTOR_VERSION = "ezpz-picks-hardcoded-v6-hot-only-roi10";
+const AI_PICK_SELECTOR_VERSION = "ezpz-picks-hardcoded-v7-hot-best-immediate-final";
 const AI_MINIMUM_ESTIMATED_ADVANTAGE = 5;
 // A durable 15-minute snapshot is allowed one short retry window after the
 // scheduled start if its selector row missed the LIVE -> FINAL_PREGAME handoff.
@@ -148,6 +148,9 @@ const EZPZ_BEST_PLAY_POLICY = {
   minimumProbability: 50,
   minimumAdvantage: 1.5,
 };
+
+const AI_HOT_BEST_PLAY_FINAL_MARKER =
+  "HOT Best Play is final for the full day; no separate pregame finalization is required";
 
 const EZPZ_TREND_POLICY = {
   requireAllSignalsGreen: true,
@@ -6804,8 +6807,13 @@ function aiSummaryForType(rows: SheetRow[], type: string) {
   return buildTotals(normalized || "Play", aiRowsForType(rows, type));
 }
 
-function aiLastSevenBetsSummaryForType(rows: SheetRow[], type: string) {
+function aiLastSevenBetsSummaryForType(
+  rows: SheetRow[],
+  type: string,
+  beforeDate = "",
+) {
   const normalized = aiCanonicalBestPlayType(type);
+  const cutoffTime = parseNormalizedDate(beforeDate)?.getTime() || 0;
   const recentRows = aiRowsForType(rows, type)
     .map((row, index) => ({
       row,
@@ -6813,6 +6821,10 @@ function aiLastSevenBetsSummaryForType(rows: SheetRow[], type: string) {
       timestamp:
         parseNormalizedDate(row.Date || row.date || row["Bet Date"] || "")?.getTime() || 0,
     }))
+    // Freeze today's form from the seven completed wagers that existed before
+    // the board date. Results completed later today cannot turn a HOT Best Play
+    // neutral/cold or change an already-published daily qualification.
+    .filter(({ timestamp }) => !cutoffTime || (timestamp > 0 && timestamp < cutoffTime))
     .sort((a, b) => b.timestamp - a.timestamp || b.index - a.index)
     .slice(0, 7)
     .map(({ row }) => row);
@@ -6905,7 +6917,11 @@ function aiRecordAdjustments(candidate: AiSelectorCandidate, completedTrackerRow
   // Best Play EZPZ path is HOT-only: seven completed bets are required and at
   // least five of those seven must be wins. Neutral, Cold, and Small Sample
   // can never qualify through the Best Play path.
-  const lastSeven = aiLastSevenBetsSummaryForType(completedTrackerRows, recordType);
+  const lastSeven = aiLastSevenBetsSummaryForType(
+    completedTrackerRows,
+    recordType,
+    candidate.date,
+  );
   const form = aiPitcherBetTypeForm(lastSeven);
   const profile = aiPitcherQualificationProfile(form, lastSeven);
   candidate.pitcherBetTypeForm = form;
@@ -8842,6 +8858,84 @@ function applyAiFullGameMarketLimit(picks: AiPick[]) {
   return picks.map((pick) => replacements.get(pick.candidateId) || pick);
 }
 
+function aiQualifiesThroughHotBestPlayPath(
+  candidate: AiSelectorCandidate,
+  pick: AiPick,
+) {
+  if (
+    !candidate.bestPlayType ||
+    candidate.pitcherBetTypeForm !== EZPZ_BEST_PLAY_POLICY.requiredForm ||
+    pick.protectionStatus !== "PASSED"
+  ) {
+    return false;
+  }
+
+  const profile = aiPitcherQualificationProfile(
+    candidate.pitcherBetTypeForm,
+  );
+  const requiredScore = candidate.pitcherRequiredScore || profile.score;
+  const implied =
+    pick.marketImpliedProbability || aiImpliedProbability(pick.odds);
+
+  return (
+    pick.aiScore >= requiredScore &&
+    (!profile.enforceProbability ||
+      pick.estimatedProbability >= profile.probability) &&
+    (!implied || pick.estimatedAdvantage >= profile.advantage)
+  );
+}
+
+function finalizeImmediateHotBestPlays(
+  candidates: AiSelectorCandidate[],
+  storedFinalCandidateIds: Set<string>,
+) {
+  const qualifyingPicks: AiPick[] = [];
+
+  for (const candidate of candidates) {
+    if (
+      !candidate.bestPlayType ||
+      candidate.pitcherBetTypeForm !== EZPZ_BEST_PLAY_POLICY.requiredForm ||
+      storedFinalCandidateIds.has(candidate.candidateId)
+    ) {
+      continue;
+    }
+
+    const immediateCandidate: AiSelectorCandidate = {
+      ...candidate,
+      whySelected: [
+        AI_HOT_BEST_PLAY_FINAL_MARKER,
+        ...candidate.whySelected.filter(
+          (item) => item !== AI_HOT_BEST_PLAY_FINAL_MARKER,
+        ),
+      ],
+      dataStatus: [
+        AI_HOT_BEST_PLAY_FINAL_MARKER,
+        ...candidate.dataStatus.filter(
+          (item) => item !== AI_HOT_BEST_PLAY_FINAL_MARKER,
+        ),
+      ].slice(0, 5),
+    };
+    const pick = finalizeAiCandidates(
+      [immediateCandidate],
+      new Map(),
+      "NOT_REQUIRED",
+      "FINAL_PREGAME",
+    )[0];
+
+    // A Best + Trend candidate may qualify only through its trend path. Do not
+    // lock that wager early: immediate finalization belongs exclusively to the
+    // independent HOT Best Play path.
+    if (pick && aiQualifiesThroughHotBestPlayPath(immediateCandidate, pick)) {
+      qualifyingPicks.push(pick);
+    }
+  }
+
+  // Apply the one-Moneyline-or-Total-per-game rule across all newly final HOT
+  // Best Plays before persisting them. The losing comparison row is also saved
+  // as a terminal decision so it cannot reappear as a second pick on refresh.
+  return applyAiFullGameMarketLimit(qualifyingPicks);
+}
+
 function aiPickRow(pick: AiPick): SheetRow {
   return {
     "Date": pick.date,
@@ -9260,7 +9354,13 @@ function aiStoredFirstInningDirectionCorrection(
   pick: AiPick,
   slateRows: SheetRow[],
 ): AiPick | null {
-  if (!pick.selected || pick.market !== "Total") return null;
+  if (
+    !pick.selected ||
+    pick.market !== "Total" ||
+    pick.dataStatus.includes(AI_HOT_BEST_PLAY_FINAL_MARKER)
+  ) {
+    return null;
+  }
   const slateRow = aiSlateRowForStoredPick(pick, slateRows);
   const context = aiFirstInningDirectionContext(
     pick.market,
@@ -9342,6 +9442,7 @@ function aiStoredTrendQualificationCorrection(
 ): AiPick | null {
   if (
     pick.snapshotStatus !== "FINAL_PREGAME" ||
+    pick.dataStatus.includes(AI_HOT_BEST_PLAY_FINAL_MARKER) ||
     (pick.source !== "Trend Play" && pick.source !== "Best + Trend") ||
     Number(pick.trendScore || 0) <= 0
   ) {
@@ -9473,6 +9574,7 @@ function aiStoredLastSevenQualificationCorrection(
   const lastSeven = aiLastSevenBetsSummaryForType(
     completedTrackerRows,
     recordType,
+    pick.date,
   );
   const form = aiPitcherBetTypeForm(lastSeven);
   const profile = aiPitcherQualificationProfile(form, lastSeven);
@@ -9707,11 +9809,50 @@ async function buildAiPickSelector(args: {
     );
   }
 
-  // NO_FINAL_AI_REVIEW_V1: a game enters finalization only after the actual frozen pregame
-  // market snapshot exists. No separate review window or retry queue is used.
-  const storedTodayByCandidateId = new Map(
-    storedToday.map((pick) => [pick.candidateId, pick] as const),
+  let storedFinalCandidateIds = new Set(
+    storedToday
+      .filter((pick) => pick.snapshotStatus === "FINAL_PREGAME")
+      .map((pick) => pick.candidateId),
   );
+
+  // HOT_BEST_PLAY_IMMEDIATE_FINAL_V1: Best Plays do not wait for the 15-minute
+  // finalization lifecycle. As soon as a HOT Best Play clears its score,
+  // probability, value, odds, and safety gates, save it as FINAL_PREGAME and
+  // keep that decision locked for the rest of the day. Trend-only candidates
+  // continue to use the frozen pregame snapshot below. Because the source is
+  // an already-saved Best Play, this path also repairs a missed same-day write
+  // after first pitch instead of allowing the play to disappear.
+  const immediateHotBestPlayDecisions = finalizeImmediateHotBestPlays(
+    candidates,
+    storedFinalCandidateIds,
+  );
+  if (immediateHotBestPlayDecisions.length) {
+    await persistAiPickRows(immediateHotBestPlayDecisions);
+    const finalizedCandidateIds = new Set(
+      immediateHotBestPlayDecisions.map((pick) => pick.candidateId),
+    );
+    workingStoredRows = [
+      ...workingStoredRows.filter((row) => {
+        const storedPick = parseAiPickRow(row);
+        return !storedPick || !finalizedCandidateIds.has(storedPick.candidateId);
+      }),
+      ...immediateHotBestPlayDecisions.map(aiPickRow),
+    ];
+    stored = workingStoredRows
+      .map(parseAiPickRow)
+      .filter((pick): pick is AiPick => Boolean(pick));
+    storedToday = stored.filter(
+      (pick) => pick.date === isoPublicDate(today),
+    );
+    storedFinalCandidateIds = new Set(
+      storedToday
+        .filter((pick) => pick.snapshotStatus === "FINAL_PREGAME")
+        .map((pick) => pick.candidateId),
+    );
+  }
+
+  // Remaining candidates enter finalization only after the actual frozen
+  // pregame market/trend snapshot exists. No separate AI review is used.
   const finalDraftKingsGameKeys = new Set(
     draftKings.splits
       .filter(
@@ -9723,11 +9864,6 @@ async function buildAiPickSelector(args: {
       // The old date/team-only key could never equal a slate key that included
       // game time, so a valid 15-minute snapshot failed to trigger AI finalization.
       .map((split) => draftKingsMarketInstanceKey(split)),
-  );
-  const storedFinalCandidateIds = new Set(
-    storedToday
-      .filter((pick) => pick.snapshotStatus === "FINAL_PREGAME")
-      .map((pick) => pick.candidateId),
   );
   const targetGameKeys = new Set(
     slateRows
@@ -9853,12 +9989,26 @@ async function buildAiPickSelector(args: {
     .filter((pick) => pick.selected)
     .sort(aiSortByGameTime);
   const finalCount = selectedToday.filter((pick) => pick.snapshotStatus === "FINAL_PREGAME").length;
+  const immediateHotBestPlayCount = selectedToday.filter(
+    (pick) =>
+      pick.snapshotStatus === "FINAL_PREGAME" &&
+      pick.dataStatus.includes(AI_HOT_BEST_PLAY_FINAL_MARKER),
+  ).length;
+  const snapshotFinalCount = finalCount - immediateHotBestPlayCount;
+  const finalStatusMessage = [
+    immediateHotBestPlayCount
+      ? `${immediateHotBestPlayCount} HOT Best Play${immediateHotBestPlayCount === 1 ? "" : "s"} final for the full day`
+      : "",
+    snapshotFinalCount
+      ? `${snapshotFinalCount} Trend Play${snapshotFinalCount === 1 ? "" : "s"} locked at the final pregame snapshot`
+      : "",
+  ].filter(Boolean).join("; ");
   const status: AiSelectorStatus = {
     mode: finalCount && finalCount === selectedToday.length ? "FINAL_PREGAME" : "LIVE_PREVIEW",
     externalResearchConfigured: false,
     message: selectedToday.length
       ? finalCount
-        ? `${finalCount} selection${finalCount === 1 ? "" : "s"} locked at final pregame snapshot`
+        ? finalStatusMessage
         : "Live selector preview; final selection locks from the frozen pregame snapshot using deterministic EZPZ gates"
       : "No candidate currently passes the EZPZ Picks qualification rules",
     updatedAt: nowET(),

@@ -4846,8 +4846,23 @@ function AiPickSelectorCard({
   handpicked?: boolean;
 }) {
   const schedule = scheduleInfoFromRaw(pick.gameTime, pick.date);
+  const isImmediateHotBestPlayFinal = Boolean(
+    pick.bestPlayType &&
+      pick.snapshotStatus === "FINAL_PREGAME" &&
+      (pick.dataStatus || []).some((item) =>
+        item.startsWith("HOT Best Play is final for the full day"),
+      ),
+  );
   const bestPlayGate = pick.bestPlayType
-    ? aiBestPlayGateInfo(lastSevenBetsSummary)
+    ? isImmediateHotBestPlayFinal
+      ? {
+          label: "Hot" as const,
+          className: "hot" as const,
+          score: 74,
+          probability: 50,
+          advantage: 1.5,
+        }
+      : aiBestPlayGateInfo(lastSevenBetsSummary)
     : null;
   const isFinalReview =
     pick.snapshotStatus === "FINAL_PREGAME" && pick.protectionStatus === "PASSED";
@@ -4858,7 +4873,9 @@ function AiPickSelectorCard({
   const dataStatus = [
     ...(pick.dataStatus || []),
     pick.snapshotStatus === "FINAL_PREGAME"
-      ? `Final pregame selection locked ${pick.lockedAt || pick.updatedAt}`
+      ? isImmediateHotBestPlayFinal
+        ? `HOT Best Play saved as final for the full day ${pick.lockedAt || pick.updatedAt}`
+        : `Final pregame selection locked ${pick.lockedAt || pick.updatedAt}`
       : "Live selector preview; the final decision can change before the pregame lock",
     aiExternalReviewLabel(pick.externalReviewStatus),
   ];
@@ -4888,7 +4905,7 @@ function AiPickSelectorCard({
 
       <div className="aiPickExpanded">
         <div className="aiPickExpandedHead">
-          <span>EZPZ AI PICK</span>
+          <span>EZPZ PICK</span>
           <strong>{pick.play}</strong>
           <small>{pick.game}</small>
           {handpicked ? (
