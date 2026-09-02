@@ -1,0 +1,51 @@
+name: MLB V16.5 Top2 Full Refit
+
+# Isolated regression workflow; no deployment and no production changes.
+on:
+  push:
+    branches:
+      - analysis/whiff-matchup-regression
+    paths:
+      - 'analysis/current_k_model_top2_full_refit_v8.py'
+      - 'analysis/current_k_model_ablation_v6.py'
+      - '.github/workflows/current_k_model_top2_full_refit.yml'
+  workflow_dispatch:
+
+jobs:
+  regress:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout analysis branch
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install analysis dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas pyarrow numpy scipy statsmodels tabulate
+
+      - name: Fetch public MLB pitch archive (2023-2026 monthly only)
+        run: |
+          git clone --filter=blob:none --no-checkout https://github.com/lancebroz/mlb-pitcher-data.git /tmp/mlb-pitcher-data
+          cd /tmp/mlb-pitcher-data
+          git sparse-checkout init --cone
+          git sparse-checkout set data/raw/2023/monthly data/raw/2024/monthly data/raw/2025/monthly data/raw/2026/monthly
+          git checkout main
+
+      - name: Run full-population V16.5 Top-2 refit
+        run: python analysis/current_k_model_top2_full_refit_v8.py
+
+      - name: Upload refit outputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v16-5-top2-full-refit-results
+          path: |
+            analysis_output_current_k_top2_full_refit/
+            analysis/current_k_model_top2_full_refit_results.md
+          if-no-files-found: warn
