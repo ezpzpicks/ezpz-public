@@ -6,7 +6,7 @@ on:
     branches:
       - analysis/whiff-matchup-regression
     paths:
-      - 'analysis/whiff_matchup_batter_v4.py'
+      - 'analysis/whiff_matchup_individual_batter_v5.py'
       - '.github/workflows/whiff_matchup_regression.yml'
   workflow_dispatch:
 
@@ -37,12 +37,12 @@ jobs:
           git checkout main
 
       - name: Run regression
-        run: python analysis/whiff_matchup_batter_v4.py
+        run: python analysis/whiff_matchup_individual_batter_v5.py
 
       - name: Upload regression outputs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: whiff-matchup-batter-results
-          path: analysis_output/
+          name: whiff-matchup-individual-batter-results
+          path: analysis_output_individual/
           if-no-files-found: warn
