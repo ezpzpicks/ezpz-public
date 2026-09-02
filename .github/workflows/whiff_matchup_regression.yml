@@ -1,6 +1,7 @@
 name: MLB Whiff Matchup Regression
 
 # Isolated analysis workflow; does not deploy or modify production.
+# Corrected snapshot-join run.
 on:
   push:
     branches:
