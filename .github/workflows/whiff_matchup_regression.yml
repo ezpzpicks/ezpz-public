@@ -1,13 +1,12 @@
 name: MLB Whiff Matchup Regression
 
 # Isolated analysis workflow; does not deploy or modify production.
-# Corrected snapshot-join run.
 on:
   push:
     branches:
       - analysis/whiff-matchup-regression
     paths:
-      - 'analysis/whiff_matchup_regression_v2.py'
+      - 'analysis/whiff_matchup_interaction_v3.py'
       - '.github/workflows/whiff_matchup_regression.yml'
   workflow_dispatch:
 
@@ -38,12 +37,12 @@ jobs:
           git checkout main
 
       - name: Run regression
-        run: python analysis/whiff_matchup_regression_v2.py
+        run: python analysis/whiff_matchup_interaction_v3.py
 
       - name: Upload regression outputs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: whiff-matchup-regression-results
+          name: whiff-matchup-interaction-results
           path: analysis_output/
           if-no-files-found: warn
