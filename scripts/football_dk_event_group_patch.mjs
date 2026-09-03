@@ -72,3 +72,5 @@ else if (!text.includes(teamAfter)) throw new Error("Could not find football tea
 
 fs.writeFileSync(path, text);
 console.log("patched football DraftKings current feeds, date windows, pagination, line parsing, and team matching");
+
+// Verification trigger after the append-only football line-history repair.
