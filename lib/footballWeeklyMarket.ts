@@ -499,27 +499,106 @@ function profitUnits(odds: number) {
   return odds > 0 ? odds / 100 : odds < 0 ? 100 / Math.abs(odds) : 1;
 }
 
+function historyMarket(row: SheetRow): WeeklyFootballMarket | null {
+  const market = textKey(row.Market || row["Bet Type"]);
+  if (market.includes("spread")) return "Spread";
+  if (market.includes("total")) return "Total";
+  return null;
+}
+
+function historySideGroup(row: SheetRow, market: WeeklyFootballMarket): WeeklyTrendPlay["sideGroup"] {
+  if (market === "Total") {
+    const side = textKey(row.Side || row.Selection);
+    return side.startsWith("under") ? "Under" : side.startsWith("over") ? "Over" : "";
+  }
+  const line = numericLine(row["Public Split Line"] || row.Line);
+  return line == null || Math.abs(line) < 1e-9 ? "" : line < 0 ? "Favorite" : "Underdog";
+}
+
+function publicSplitSignalKey(label: unknown) {
+  const key = textKey(label);
+  if (key.includes("extreme bets") && key.includes("handle")) return "EXTREME_PUBLIC_SHARP_AGREEMENT";
+  if (key.includes("heavy bets") && key.includes("handle")) return "HEAVY_PUBLIC_SHARP_AGREEMENT";
+  if (key.includes("strong handle below bets")) return "STRONG_SHARP_REJECTION";
+  if (key.includes("handle below bets")) return "SHARP_REJECTION";
+  if (key.includes("strong handle above bets")) return "STRONG_SHARP_SUPPORT";
+  if (key.includes("handle above bets")) return "SHARP_SUPPORT";
+  if (key.includes("balanced bets") || key.includes("balanced public")) return "BALANCED_PUBLIC_SHARP_SPLIT";
+  return key.toUpperCase().replace(/\s+/g, "_");
+}
+
+function movementSignalKey(value: unknown) {
+  const key = textKey(value);
+  if (key.includes("reverse line movement")) return "REVERSE_LINE_MOVEMENT";
+  if (key.includes("line movement confirmation")) return "LINE_MOVEMENT_CONFIRMATION";
+  if (key.includes("adverse line movement")) return "ADVERSE_LINE_MOVEMENT";
+  return key.toUpperCase().replace(/\s+/g, "_");
+}
+
+function reconstructedHistorySignals(row: SheetRow) {
+  const betsPct = Number(String(row["Public Bets %"] || "").replace("%", ""));
+  const moneyPct = Number(String(row["Public Money %"] || "").replace("%", ""));
+  const storedWarning = String(row["Public Warning"] || row.Warning || "").trim();
+  if ((!Number.isFinite(betsPct) || !Number.isFinite(moneyPct)) && !storedWarning) return [] as Array<{ signalKey: string }>;
+
+  const warning = Number.isFinite(betsPct) && Number.isFinite(moneyPct)
+    ? warningFor(betsPct, moneyPct)
+    : null;
+  const signals: Array<{ signalKey: string }> = [{
+    signalKey: warning?.warningKey || publicSplitSignalKey(storedWarning),
+  }];
+
+  const movement = String(row["Line Movement Signal"] || "").trim();
+  if (movement) signals.push({ signalKey: movementSignalKey(movement) });
+  return signals.filter((signal) => signal.signalKey);
+}
+
 function historyFromAllGameTrends(rows: SheetRow[]): HistoryRow[] {
   const output: HistoryRow[] = [];
   for (const row of rows) {
     const result = resultCode(row.Result);
+    if (!result) continue;
+
     const raw = String(row["Trend Score Details"] || "").trim();
-    if (!result || !raw) continue;
-    try {
-      const play = JSON.parse(raw) as WeeklyTrendPlay;
-      const odds = parseOdds(row["Public Split Odds"] || row.Odds || play.odds);
-      for (const signal of play.signals || []) {
-        output.push({
-          date: String(row.Date || play.date || ""),
-          market: play.market,
-          sideGroup: play.sideGroup,
-          signalKey: signal.signalKey,
-          result,
-          odds,
-          units: result === "P" ? 0 : result === "L" ? -1 : profitUnits(odds),
-        });
-      }
-    } catch { /* legacy row */ }
+    if (raw) {
+      try {
+        const play = JSON.parse(raw) as WeeklyTrendPlay;
+        const odds = parseOdds(row["Public Split Odds"] || row.Odds || play.odds);
+        const savedSignals = play.signals || [];
+        for (const signal of savedSignals) {
+          output.push({
+            date: canonicalScheduleDate(row) || String(row.Date || play.date || ""),
+            market: play.market,
+            sideGroup: play.sideGroup,
+            signalKey: signal.signalType === "Line Movement"
+              ? movementSignalKey(signal.signal || signal.signalKey)
+              : signal.signalKey || publicSplitSignalKey(signal.signal),
+            result,
+            odds,
+            units: result === "P" ? 0 : result === "L" ? -1 : profitUnits(odds),
+          });
+        }
+        if (savedSignals.length) continue;
+      } catch { /* reconstruct legacy rows from saved columns below */ }
+    }
+
+    const market = historyMarket(row);
+    if (!market) continue;
+    const signals = reconstructedHistorySignals(row);
+    if (!signals.length) continue;
+    const sideGroup = historySideGroup(row, market);
+    const odds = parseOdds(row["Public Split Odds"] || row.Odds);
+    for (const signal of signals) {
+      output.push({
+        date: canonicalScheduleDate(row) || String(row.Date || ""),
+        market,
+        sideGroup,
+        signalKey: signal.signalKey,
+        result,
+        odds,
+        units: result === "P" ? 0 : result === "L" ? -1 : profitUnits(odds),
+      });
+    }
   }
   return output;
 }
@@ -687,7 +766,7 @@ function buildPlay(split: Split, existing: SheetRow | undefined, history: Histor
   const primary = signalBreakdown(split.warningKey, split.warning, split.warningTone, split.market, split.sideGroup, history, split.date);
   const signals: Signal[] = [primary];
   if (move.lineMovementSignal) {
-    const signalKey = textKey(move.lineMovementSignal).toUpperCase().replace(/\s+/g, "_");
+    const signalKey = movementSignalKey(move.lineMovementSignal);
     const lineSignal = signalBreakdown(signalKey, move.lineMovementSignal, move.lineMovementValue != null && move.lineMovementValue > 0 ? "positive" : "negative", split.market, split.sideGroup, history, split.date);
     signals.push({ ...lineSignal, signalType: "Line Movement" });
   }
