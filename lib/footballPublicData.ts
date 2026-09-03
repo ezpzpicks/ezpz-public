@@ -40,6 +40,8 @@ export const ALL_GAME_TRENDS_HEADERS = [
   "Line Movement Signal", "Line Movement Tone", "Line Movement Basis", "Line Movement Value",
   "Trend Play", "Trend Score", "Trend Tier", "Trend Signals", "Trend All Time Record",
   "Trend Last 30 Record", "Trend Last 7 Record", "Trend Exact Sample", "Trend Score Details",
+  "Trend Sample Size", "History Source", "Fallback Reason", "Result Source",
+  "Result Fallback Reason", "Result Match Key",
 ];
 
 type DraftKingsSplit = {
@@ -100,6 +102,9 @@ type TrendSignal = {
   category: string;
   recordScope: string;
   exactSample: number;
+  TrendSampleSize: number;
+  HistorySource: string;
+  FallbackReason: string;
   score: number;
   weights: { exact: number; market: number; overall: number };
   records: TrendWindowRecords;
@@ -133,6 +138,9 @@ type TrendPlay = {
   lineMovementBasis?: string;
   lineMovementValue?: number | null;
   score: number;
+  TrendSampleSize: number;
+  HistorySource: string;
+  FallbackReason: string;
   baseScore?: number;
   opponentScore?: number | null;
   comparisonGap?: number;
@@ -160,10 +168,13 @@ type SignalHistoryRow = {
   result: ResultCode;
   odds: number;
   units: number;
+  historySource: string;
+  fallbackReason: string;
 };
 
 const FROZEN_TREND_GRADING_VERSION = "football-frozen-h2h-v2-weekly-15m-lock";
 const TREND_BROAD_FALLBACK_SCORE_CAP = 69;
+const TREND_NO_HISTORY_SCORE = 50;
 
 const NFL_ALIASES: Record<string, string[]> = {
   ARI: ["Arizona Cardinals", "Cardinals", "Arizona"], ATL: ["Atlanta Falcons", "Falcons", "Atlanta"],
@@ -777,54 +788,153 @@ function windowWeights(records: TrendWindowRecords) {
 }
 function windowMetrics(records: TrendWindowRecords) {
   const usable = windowWeights(records).map(({key,weight}) => records[key].totalBets ? { record: records[key], weight } : null).filter(Boolean) as {record:TrendRecord;weight:number}[];
-  if (!usable.length) return { score:50, hasData:false, roiPct:0, winPct:0 };
+  if (!usable.length) return { score:TREND_NO_HISTORY_SCORE, hasData:false, roiPct:0, winPct:0 };
   const tw = usable.reduce((s,r)=>s+r.weight,0); const avg=(f:"roiPct"|"winPct")=>usable.reduce((s,r)=>s+r.record[f]*r.weight,0)/tw;
   const roiPct=avg("roiPct"), winPct=avg("winPct"); return { score: Math.max(0, Math.min(100, scaled(roiPct,ROI_POINTS)*.6 + scaled(winPct,WIN_POINTS)*.4)), hasData:true, roiPct, winPct };
+}
+
+function distinctText(values: unknown[]) {
+  return [...new Set(values.map((value)=>String(value || "").trim()).filter(Boolean))];
+}
+
+function trendMarket(row: SheetRow): FootballMarket | null {
+  const market = textKey(row.Market || row["Bet Type"]);
+  if (market.includes("spread")) return "Spread";
+  if (market.includes("total")) return "Total";
+  return null;
+}
+
+function trendSideGroup(row: SheetRow, market: FootballMarket): TrendPlay["sideGroup"] {
+  if (market === "Total") {
+    const side = textKey(row.Side || row.Selection);
+    return side.startsWith("under") ? "Under" : side.startsWith("over") ? "Over" : "";
+  }
+  const line = numericLine(row["Public Split Line"] || row.Line);
+  return line == null || Math.abs(line) < 1e-9 ? "" : line < 0 ? "Favorite" : "Underdog";
+}
+
+function reconstructedTrendSignals(row: SheetRow) {
+  const betsPct = Number(row["Public Bets %"]);
+  const moneyPct = Number(row["Public Money %"]);
+  const storedWarning = String(row["Public Warning"] || "").trim();
+  if ((!Number.isFinite(betsPct) || !Number.isFinite(moneyPct)) && !storedWarning) return [];
+  const warning = warningFor(
+    Number.isFinite(betsPct) ? betsPct : 50,
+    Number.isFinite(moneyPct) ? moneyPct : 50,
+  );
+  const signals: Array<{signalType:"Public Split"|"Line Movement";signalKey:string;signal:string;tone:Tone}> = [{
+    signalType: "Public Split",
+    signalKey: warning.warningKey,
+    signal: storedWarning || warning.warning,
+    tone: warning.warningTone,
+  }];
+  const movement = String(row["Line Movement Signal"] || "").trim();
+  if (movement) {
+    const storedTone = String(row["Line Movement Tone"] || "").trim().toLowerCase();
+    signals.push({
+      signalType: "Line Movement",
+      signalKey: textKey(movement).toUpperCase().replace(/\s+/g, "_"),
+      signal: movement,
+      tone: storedTone === "positive" ? "positive" : storedTone === "caution" ? "caution" : "negative",
+    });
+  }
+  return signals;
 }
 
 function historyFromTrendRows(rows: SheetRow[]): SignalHistoryRow[] {
   const output: SignalHistoryRow[] = [];
   for (const row of rows) {
     const result = resultCode(row.Result); if (!result) continue;
-    const raw = String(row["Trend Score Details"] || "").trim(); if (!raw) continue;
-    try {
-      const play = JSON.parse(raw) as TrendPlay; const odds = parseOdds(row["Public Split Odds"] || row.Odds || play.odds);
-      for (const signal of play.signals || []) output.push({
-        date: isoDate(row.Date) || play.date,
-        market: play.market,
-        sideGroup: play.sideGroup,
-        betType: String(row["Model Grade"] || row.Grade || play.market || ""),
-        modelVersion: String(row["Model Version"] || play.gradingVersion || ""),
-        qualified: ["TRUE", "YES", "1"].includes(String(row["Trend Play"] || row.Qualified || "").toUpperCase()) && !["", "PASS"].includes(String(row["Trend Tier"] || "").toUpperCase()),
-        signalType: signal.signalType,
-        signalKey: signal.signalKey,
-        signal: signal.signal,
-        tone: signal.tone,
-        result,
-        odds,
-        units: result === "P" ? 0 : result === "L" ? -1 : profitUnits(odds),
-      });
-    } catch { /* legacy/no frozen signal JSON */ }
+    const raw = String(row["Trend Score Details"] || "").trim();
+    const resultSource = String(row["Result Source"] || "all_game_trends saved result").trim();
+    const resultFallbackReason = String(row["Result Fallback Reason"] || "").trim();
+    if (raw) {
+      try {
+        const play = JSON.parse(raw) as TrendPlay; const odds = parseOdds(row["Public Split Odds"] || row.Odds || play.odds);
+        for (const signal of play.signals || []) output.push({
+          date: isoDate(row.Date) || play.date,
+          market: play.market,
+          sideGroup: play.sideGroup,
+          betType: String(row["Model Grade"] || row.Grade || play.market || ""),
+          modelVersion: String(row["Model Version"] || play.gradingVersion || ""),
+          qualified: ["TRUE", "YES", "1"].includes(String(row["Trend Play"] || row.Qualified || "").toUpperCase()) && !["", "PASS"].includes(String(row["Trend Tier"] || "").toUpperCase()),
+          signalType: signal.signalType,
+          signalKey: signal.signalKey,
+          signal: signal.signal,
+          tone: signal.tone,
+          result,
+          odds,
+          units: result === "P" ? 0 : result === "L" ? -1 : profitUnits(odds),
+          historySource: `all_game_trends frozen signal + ${resultSource}`,
+          fallbackReason: resultFallbackReason,
+        });
+        if ((play.signals || []).length) continue;
+      } catch { /* reconstruct below from the saved split columns */ }
+    }
+
+    const market = trendMarket(row);
+    if (!market) continue;
+    const signals = reconstructedTrendSignals(row);
+    if (!signals.length) continue;
+    const sideGroup = trendSideGroup(row, market);
+    const odds = parseOdds(row["Public Split Odds"] || row.Odds);
+    for (const signal of signals) output.push({
+      date: isoDate(row.Date),
+      market,
+      sideGroup,
+      betType: String(row["Model Grade"] || row.Grade || market),
+      modelVersion: String(row["Model Version"] || ""),
+      qualified: ["TRUE", "YES", "1"].includes(String(row["Trend Play"] || row.Qualified || "").toUpperCase()) && !["", "PASS"].includes(String(row["Trend Tier"] || "").toUpperCase()),
+      signalType: signal.signalType,
+      signalKey: signal.signalKey,
+      signal: signal.signal,
+      tone: signal.tone,
+      result,
+      odds,
+      units: result === "P" ? 0 : result === "L" ? -1 : profitUnits(odds),
+      historySource: `all_game_trends saved split fields + ${resultSource}`,
+      fallbackReason: distinctText([
+        resultFallbackReason,
+        "Trend Score Details missing; rebuilt the signal from saved public split fields.",
+      ]).join(" • "),
+    });
   }
   return output;
 }
 
 function signalBreakdown(signal: {signalType:"Public Split"|"Line Movement";signalKey:string;signal:string;tone:Tone}, market: FootballMarket, sideGroup: TrendPlay["sideGroup"], history: SignalHistoryRow[], referenceDate:string): TrendSignal {
-  const same = history.filter((row)=>row.signalKey===signal.signalKey); const exact=windows(same.filter((row)=>row.market===market&&row.sideGroup===sideGroup),referenceDate); const marketRows=windows(same.filter((row)=>row.market===market),referenceDate); const overall=windows(same,referenceDate);
+  const same = history.filter((row)=>row.signalKey===signal.signalKey);
+  const exactHistory = same.filter((row)=>row.market===market&&row.sideGroup===sideGroup);
+  const marketHistory = same.filter((row)=>row.market===market);
+  const exact=windows(exactHistory,referenceDate); const marketRows=windows(marketHistory,referenceDate); const overall=windows(same,referenceDate);
+  const selectedHistory=exactHistory.length?exactHistory:marketHistory.length?marketHistory:same;
   const display=exact.allTime.totalBets?exact:marketRows.allTime.totalBets?marketRows:overall; const metrics=windowMetrics(display); const exactSample=exact.allTime.totalBets;
+  const scopeFallback = exactSample
+    ? ""
+    : marketRows.allTime.totalBets
+      ? `No exact ${market} • ${sideGroup || "side"} history; using ${market} history across both sides.`
+      : overall.allTime.totalBets
+        ? `No exact or ${market} history; using all tracked markets for this signal.`
+        : "No settled history exists for this signal.";
   return { ...signal, tone: display.allTime.wins>display.allTime.losses?"positive":display.allTime.losses>display.allTime.wins?"negative":"neutral",
     category:`${signal.signal} • ${market} • ${sideGroup}`, recordScope: exactSample?`${market} • ${sideGroup}`:marketRows.allTime.totalBets?`${market} • all sides`:"All tracked markets", exactSample,
+    TrendSampleSize:display.allTime.totalBets,
+    HistorySource:distinctText(selectedHistory.map((row)=>row.historySource)).join(" + ")||"none",
+    FallbackReason:distinctText([scopeFallback,...selectedHistory.map((row)=>row.fallbackReason)]).join(" • "),
     score:Math.round(exactSample?metrics.score:Math.min(metrics.score,TREND_BROAD_FALLBACK_SCORE_CAP)), weights:exactSample?{exact:1,market:0,overall:0}:marketRows.allTime.totalBets?{exact:0,market:1,overall:0}:overall.allTime.totalBets?{exact:0,market:0,overall:1}:{exact:0,market:0,overall:0}, records:display };
 }
 
 function buildTrendPlay(split: DraftKingsSplit, history: SignalHistoryRow[], referenceDate:string, row:SheetRow): TrendPlay {
   const primary=warningFor(split.betsPct,split.moneyPct); const active: Array<{signalType:"Public Split"|"Line Movement";signalKey:string;signal:string;tone:Tone}>=[{signalType:"Public Split",signalKey:primary.warningKey,signal:primary.warning,tone:primary.warningTone}];
   if(split.lineMovementSignal) active.push({signalType:"Line Movement",signalKey:textKey(split.lineMovementSignal).toUpperCase().replace(/\s+/g,"_"),signal:split.lineMovementSignal,tone:split.lineMovementTone==="positive"?"positive":"negative"});
-  const signals=active.map((signal)=>signalBreakdown(signal,split.market,split.sideGroup,history,referenceDate)); const withHistory=signals.filter((signal)=>signal.records.allTime.totalBets>0); const baseScore=Math.round(withHistory.length?withHistory.reduce((s,x)=>s+x.score,0)/withHistory.length:50);
+  const signals=active.map((signal)=>signalBreakdown(signal,split.market,split.sideGroup,history,referenceDate)); const withHistory=signals.filter((signal)=>signal.records.allTime.totalBets>0); const baseScore=Math.round(withHistory.length?withHistory.reduce((s,x)=>s+x.score,0)/withHistory.length:TREND_NO_HISTORY_SCORE);
+  const TrendSampleSize=Math.max(0,...signals.map((signal)=>signal.TrendSampleSize));
+  const HistorySource=distinctText(signals.map((signal)=>signal.HistorySource)).join(" + ")||"none";
+  const FallbackReason=distinctText(signals.map((signal)=>signal.FallbackReason)).join(" • ");
   const trendGameDate=isoDate(row.Date||row["Game Date"]||"")||split.date||referenceDate;
   return { date:trendGameDate, game:String(row.Game||`${row["Away Team"]} @ ${row["Home Team"]}`), gameKey:String(row["Game ID"]||row["Game Key"]||""), gameTime:gameTime(row), awayTeam:String(row["Away Team"]||""), homeTeam:String(row["Home Team"]||""), market:split.market,
     selection:split.market==="Total"?split.side:split.selectionTeam, selectionTeam:split.selectionTeam, side:split.side, sideGroup:split.sideGroup, line:split.line, odds:split.odds,
-    betsPct:split.betsPct,moneyPct:split.moneyPct,gapPct:split.gapPct,openingBetsPct:split.openingBetsPct,openingMoneyPct:split.openingMoneyPct,publicMovementPct:split.publicMovementPct,sharpMovementPct:split.sharpMovementPct,openingLine:split.openingLine,openingOdds:split.openingOdds,openingImpliedPct:split.openingImpliedPct,currentImpliedPct:split.currentImpliedPct,lineMovementBasis:split.lineMovementBasis,lineMovementValue:split.lineMovementValue,score:baseScore,baseScore,tier:"Pass",signals,updatedAt:split.snapshotTime||nowET(),snapshotStatus:"LIVE" };
+    betsPct:split.betsPct,moneyPct:split.moneyPct,gapPct:split.gapPct,openingBetsPct:split.openingBetsPct,openingMoneyPct:split.openingMoneyPct,publicMovementPct:split.publicMovementPct,sharpMovementPct:split.sharpMovementPct,openingLine:split.openingLine,openingOdds:split.openingOdds,openingImpliedPct:split.openingImpliedPct,currentImpliedPct:split.currentImpliedPct,lineMovementBasis:split.lineMovementBasis,lineMovementValue:split.lineMovementValue,score:baseScore,TrendSampleSize,HistorySource,FallbackReason,baseScore,tier:"Pass",signals,updatedAt:split.snapshotTime||nowET(),snapshotStatus:"LIVE" };
 }
 
 function footballTrendMetrics(play: TrendPlay) {
@@ -945,31 +1055,156 @@ function splitHasAuthoritativeFinalTrend(rows: SheetRow[], split: DraftKingsSpli
   });
 }
 
+function resultLabel(code: ResultCode | "") {
+  return code === "W" ? "Win" : code === "L" ? "Loss" : code === "P" ? "Push" : "";
+}
+
+function rowTeams(row: SheetRow) {
+  const game = String(row.Game || row.Matchup || "").trim();
+  const parts = game.split(/\s+@\s+/);
+  return {
+    away: String(row["Away Team"] || (parts.length === 2 ? parts[0] : "")).trim(),
+    home: String(row["Home Team"] || (parts.length === 2 ? parts[1] : "")).trim(),
+  };
+}
+
+function trendSettlementLine(row: SheetRow) {
+  const publicLine = numericLine(row["Public Split Line"]);
+  if (publicLine != null) return publicLine;
+  const raw = String(row["Trend Score Details"] || "").trim();
+  if (raw) {
+    try {
+      const savedLine = Number((JSON.parse(raw) as Partial<TrendPlay>).line);
+      if (Number.isFinite(savedLine)) return savedLine;
+    } catch { /* use the model row below */ }
+  }
+  return numericLine(row.Line);
+}
+
+function trendIdentitySelection(row: SheetRow, sport: FootballSport, market = trendMarket(row)) {
+  if (market === "Total") {
+    const side = textKey(row.Side || row.Selection);
+    return side.startsWith("under") ? "under" : side.startsWith("over") ? "over" : "";
+  }
+  return market === "Spread" ? normalizeTeam(row.Selection, sport) : "";
+}
+
+function trendResultIdentity(row: SheetRow, sport: FootballSport) {
+  const caseId = String(row["Case ID"] || row.CaseID || row["Candidate ID"] || "").trim();
+  const gameId = String(row["Game ID"] || row["Game Key"] || "").trim();
+  const market = trendMarket(row);
+  const selection = trendIdentitySelection(row, sport, market) || "unknown";
+  const teams = rowTeams(row);
+  const gameIdentity = caseId
+    ? `case:${caseId}`
+    : gameId
+      ? `game:${gameId}`
+      : `teams:${isoDate(row.Date)}|${normalizeTeam(teams.away, sport)}|${normalizeTeam(teams.home, sport)}`;
+  return `${gameIdentity}|${market || "unknown"}|${selection}`;
+}
+
+function gradeTrendRow(row: SheetRow, away: number, home: number, sport: FootballSport) {
+  const market = trendMarket(row);
+  const line = trendSettlementLine(row);
+  if (!market || line == null) return "";
+  if (market === "Spread") {
+    const teams = rowTeams(row);
+    const selectedHome = sameTeam(row.Selection, teams.home, sport);
+    const selectedAway = sameTeam(row.Selection, teams.away, sport);
+    if (!selectedHome && !selectedAway) return "";
+    const value = (selectedHome ? home - away : away - home) + line;
+    return value > 0 ? "Win" : value < 0 ? "Loss" : "Push";
+  }
+  const side = trendIdentitySelection(row, sport, market);
+  if (!side) return "";
+  const value = away + home - line;
+  return Math.abs(value) < 1e-9
+    ? "Push"
+    : side === "under"
+      ? value < 0 ? "Win" : "Loss"
+      : value > 0 ? "Win" : "Loss";
+}
+
+function finalGameForTrend(row: SheetRow, finals: SheetRow[], sport: FootballSport) {
+  const rowId = String(row["Game Key"] || row["Game ID"] || "").trim();
+  const rowDate = isoDate(row.Date || row["Game Date"] || "");
+  const rowMatchup = rowTeams(row);
+  return finals.find((game)=>{
+    const gameId = String(game["Game ID"] || game["Game Key"] || "").trim();
+    if (rowId && gameId) return rowId === gameId;
+    const gameDate = isoDate(game.Date || game["Game Date"] || "");
+    if (rowDate && gameDate && rowDate !== gameDate) return false;
+    return Boolean(
+      rowMatchup.away && rowMatchup.home &&
+      sameTeam(game["Away Team"], rowMatchup.away, sport) &&
+      sameTeam(game["Home Team"], rowMatchup.home, sport)
+    );
+  });
+}
+
 function settleTrendRows(rows:SheetRow[],schedule:SheetRow[],sport:FootballSport){
   const finals=schedule.filter((row)=>truthy(row.Completed)||((row["Away Score"]??"")!==""&&(row["Home Score"]??"")!==""));
   return rows.map((row)=>{
     if(resultCode(row.Result)) return row;
-    const rowGame=String(row.Game||row.Matchup||"").trim();
-    const rowParts=rowGame.split(/\s+@\s+/);
-    const rowAway=String(row["Away Team"]||(rowParts.length===2?rowParts[0]:"")).trim();
-    const rowHome=String(row["Home Team"]||(rowParts.length===2?rowParts[1]:"")).trim();
-    const game=finals.find((g)=>{
-      const gid=String(g["Game ID"]||g["Game Key"]||"").trim();
-      const rid=String(row["Game Key"]||row["Game ID"]||"").trim();
-      if(gid&&rid&&gid===rid)return true;
-      return Boolean(rowAway&&rowHome&&sameTeam(g["Away Team"],rowAway,sport)&&sameTeam(g["Home Team"],rowHome,sport));
-    });
+    const game=finalGameForTrend(row,finals,sport);
     if(!game)return row;
-    const away=Number(game["Away Score"]),home=Number(game["Home Score"]); if(!Number.isFinite(away)||!Number.isFinite(home))return row; const line=numericLine(row["Public Split Line"]||row.Line); if(line==null)return row; let result="";
-    if(row.Market==="Spread"){
-      const selectedHome=sameTeam(row.Selection,game["Home Team"],sport);
-      const selectedAway=sameTeam(row.Selection,game["Away Team"],sport);
-      if(!selectedHome&&!selectedAway)return row;
-      const margin=selectedHome?home-away:away-home;
-      const value=margin+line;
-      result=value>0?"Win":value<0?"Loss":"Push";
-    } else {const value=away+home-line;result=Math.abs(value)<1e-9?"Push":textKey(row.Side||row.Selection)==="under"?(value<0?"Win":"Loss"):(value>0?"Win":"Loss");}
-    return {...row,Result:result,"Actual Away Runs":String(away),"Actual Home Runs":String(home),"Actual Total":String(away+home),"Result Updated":nowET()};
+    const away=finiteSnapshotNumber(game["Away Score"]),home=finiteSnapshotNumber(game["Home Score"]);
+    if(away==null||home==null)return row;
+    const result=gradeTrendRow(row,away,home,sport);
+    if(!result)return row;
+    return {...row,Result:result,"Actual Away Runs":String(away),"Actual Home Runs":String(home),"Actual Total":String(away+home),"Result Updated":nowET(),"Result Source":"schedule final","Result Fallback Reason":"","Result Match Key":trendResultIdentity(row,sport)};
+  });
+}
+
+function trackerMatchesTrendRow(tracker: SheetRow, trend: SheetRow, sport: FootballSport) {
+  const trackerCase = String(tracker["Case ID"] || tracker.CaseID || tracker["Candidate ID"] || "").trim();
+  const trendCase = String(trend["Case ID"] || trend.CaseID || trend["Candidate ID"] || "").trim();
+  const trackerId = String(tracker["Game ID"] || tracker["Game Key"] || "").trim();
+  const trendId = String(trend["Game ID"] || trend["Game Key"] || "").trim();
+  const identityMatches = trackerCase && trendCase
+    ? trackerCase === trendCase
+    : Boolean(trackerId && trendId && trackerId === trendId);
+  if (!identityMatches) return false;
+
+  const trackerMarket = trendMarket(tracker);
+  const trendRowMarket = trendMarket(trend);
+  if (!trackerMarket || trackerMarket !== trendRowMarket) return false;
+  if (trackerMarket === "Total") {
+    return trendIdentitySelection(tracker, sport, trackerMarket) === trendIdentitySelection(trend, sport, trendRowMarket);
+  }
+  return sameTeam(tracker.Selection, trend.Selection, sport);
+}
+
+function settleTrendRowsFromTracker(rows: SheetRow[], trackerRows: SheetRow[], sport: FootballSport) {
+  const completedTrackerRows = trackerRows.filter((row)=>resultCode(row.Result || row.Status));
+  return rows.map((row)=>{
+    if (resultCode(row.Result)) return row;
+    const tracker = completedTrackerRows.find((candidate)=>trackerMatchesTrendRow(candidate,row,sport));
+    if (!tracker) return row;
+
+    const away = finiteSnapshotNumber(tracker["Actual Away"] ?? tracker["Actual Away Runs"]);
+    const home = finiteSnapshotNumber(tracker["Actual Home"] ?? tracker["Actual Home Runs"]);
+    let result = away != null && home != null ? gradeTrendRow(row,away,home,sport) : "";
+    let fallbackReason = "No completed schedule row; matched the settled tracker by Case ID or Game ID + market + side and regraded the exact trend line.";
+    if (!result) {
+      const trendLine = trendSettlementLine(row);
+      const trackerLine = numericLine(tracker.Selection);
+      if (trendLine == null || trackerLine == null || Math.abs(trendLine-trackerLine)>1e-9) return row;
+      result = resultLabel(resultCode(tracker.Result || tracker.Status));
+      fallbackReason = "No completed schedule scores; copied the settled tracker result after an exact Game ID + market + side + line match.";
+    }
+    if (!result) return row;
+    return {
+      ...row,
+      Result: result,
+      ...(away != null ? {"Actual Away Runs":String(away)} : {}),
+      ...(home != null ? {"Actual Home Runs":String(home)} : {}),
+      ...(away != null && home != null ? {"Actual Total":String(away+home)} : {}),
+      "Result Updated":nowET(),
+      "Result Source":"bet_tracker exact fallback",
+      "Result Fallback Reason":fallbackReason,
+      "Result Match Key":trendResultIdentity(row,sport),
+    };
   });
 }
 
@@ -1200,6 +1435,7 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
   const slate=trackingSlate;
   let trendRows=settleTrendRows(trendExisting,settlementSchedule,sport);
   const trackerSettlement=settleBestPlayTracker(trackerRaw,settlementSchedule,sport); const tracker=trackerSettlement.settled;
+  trendRows=settleTrendRowsFromTracker(trendRows,tracker,sport);
   if(trackerSettlement.changed.length) await upsertSportRows(sport,"bet_tracker",FOOTBALL_TRACKER_HEADERS,trackerSettlement.changed,trackerKey); const shells=slate.flatMap(modelTrendShells); const merged=new Map(trendRows.map((row)=>[trendRowKey(row),row]));for(const shell of shells){const key=trendRowKey(shell);merged.set(key,{...(merged.get(key)||{}),...shell,Result:resultCode(merged.get(key)?.Result)?merged.get(key)!.Result:"Pending"});}trendRows=[...merged.values()];
   const dk=await loadDraftKingsSplits(sport,trackingSlate); const snapshotMap=new Map(snapshotExisting.map((row)=>[snapshotKey(row),row]));
   const enrichedTrackingLive=dk.splits.map((split)=>movementForSplit(split,snapshotMap.get(splitSnapshotKey(split))));
@@ -1241,7 +1477,7 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
     const locked=minutesToKickoff!=null&&minutesToKickoff<=15&&minutesToKickoff>=0;
     const stamp=nowET();
     const marketStamp=locked&&split.snapshotTime?split.snapshotTime:stamp;
-    return{...row,"Public Bets %":String(split.betsPct),"Public Money %":String(split.moneyPct),"Public Gap %":String(split.gapPct),"Public Warning":split.warning,"Public Warning Negative":split.warningNegative?"TRUE":"FALSE","Public Split Source":"DraftKings","Public Split Market":split.market,"Public Split Selection":split.market==="Total"?split.side:split.selectionTeam,"Public Split Line":split.line==null?"":String(split.line),"Public Split Odds":split.odds,"Public Split Match Confidence":locked?"Final 15-minute football market lock":"Live weekly football market","Public Split Snapshot Time":marketStamp,"Opening Public %":String(split.openingBetsPct??split.betsPct),"Current Public %":String(split.betsPct),"Public Change %":String(split.publicMovementPct??0),"Opening Sharp %":String(split.openingMoneyPct??split.moneyPct),"Current Sharp %":String(split.moneyPct),"Sharp Change %":String(split.sharpMovementPct??0),"Opening Public Split Line":split.openingLine==null?"":String(split.openingLine),"Opening Public Split Odds":split.openingOdds||split.odds,"Opening Public Split Snapshot Time":split.openingSnapshotTime||String(snapshotMap.get(splitSnapshotKey(split))?.["Opening Snapshot Time ET"]||marketStamp),"Opening Implied %":split.openingImpliedPct==null?"":String(split.openingImpliedPct),"Current Implied %":split.currentImpliedPct==null?"":String(split.currentImpliedPct),"Line Movement Signal":split.lineMovementSignal||"","Line Movement Tone":split.lineMovementTone||"","Line Movement Basis":split.lineMovementBasis||"","Line Movement Value":split.lineMovementValue==null?"":String(split.lineMovementValue),"Trend Play":play?"TRUE":"FALSE","Trend Score":play?String(Math.round(play.score)):"","Trend Tier":play?.tier||"","Trend Signals":play?.signals.map(s=>s.signal).join(" | ")||"","Trend All Time Record":primary?.records.allTime.record||"","Trend Last 30 Record":primary?.records.last30.record||"","Trend Last 7 Record":primary?.records.last7.record||"","Trend Exact Sample":play?.signals.map(s=>s.exactSample).join(" | ")||"","Trend Score Details":play?JSON.stringify({...play,frozenAt:locked?marketStamp:undefined,snapshotStatus:locked?"FINAL_PREGAME":"LIVE",gradingVersion:locked?FROZEN_TREND_GRADING_VERSION:undefined}):""};
+    return{...row,"Public Bets %":String(split.betsPct),"Public Money %":String(split.moneyPct),"Public Gap %":String(split.gapPct),"Public Warning":split.warning,"Public Warning Negative":split.warningNegative?"TRUE":"FALSE","Public Split Source":"DraftKings","Public Split Market":split.market,"Public Split Selection":split.market==="Total"?split.side:split.selectionTeam,"Public Split Line":split.line==null?"":String(split.line),"Public Split Odds":split.odds,"Public Split Match Confidence":locked?"Final 15-minute football market lock":"Live weekly football market","Public Split Snapshot Time":marketStamp,"Opening Public %":String(split.openingBetsPct??split.betsPct),"Current Public %":String(split.betsPct),"Public Change %":String(split.publicMovementPct??0),"Opening Sharp %":String(split.openingMoneyPct??split.moneyPct),"Current Sharp %":String(split.moneyPct),"Sharp Change %":String(split.sharpMovementPct??0),"Opening Public Split Line":split.openingLine==null?"":String(split.openingLine),"Opening Public Split Odds":split.openingOdds||split.odds,"Opening Public Split Snapshot Time":split.openingSnapshotTime||String(snapshotMap.get(splitSnapshotKey(split))?.["Opening Snapshot Time ET"]||marketStamp),"Opening Implied %":split.openingImpliedPct==null?"":String(split.openingImpliedPct),"Current Implied %":split.currentImpliedPct==null?"":String(split.currentImpliedPct),"Line Movement Signal":split.lineMovementSignal||"","Line Movement Tone":split.lineMovementTone||"","Line Movement Basis":split.lineMovementBasis||"","Line Movement Value":split.lineMovementValue==null?"":String(split.lineMovementValue),"Trend Play":play?"TRUE":"FALSE","Trend Score":play?String(Math.round(play.score)):"","Trend Tier":play?.tier||"","Trend Signals":play?.signals.map(s=>s.signal).join(" | ")||"","Trend All Time Record":primary?.records.allTime.record||"","Trend Last 30 Record":primary?.records.last30.record||"","Trend Last 7 Record":primary?.records.last7.record||"","Trend Exact Sample":play?.signals.map(s=>s.exactSample).join(" | ")||"","Trend Sample Size":play?String(play.TrendSampleSize):"","History Source":play?.HistorySource||"","Fallback Reason":play?.FallbackReason||"","Trend Score Details":play?JSON.stringify({...play,frozenAt:locked?marketStamp:undefined,snapshotStatus:locked?"FINAL_PREGAME":"LIVE",gradingVersion:locked?FROZEN_TREND_GRADING_VERSION:undefined}):""};
   });
   if(persist) await upsertSportRows(sport,"all_game_trends",ALL_GAME_TRENDS_HEADERS,trendRows,trendRowKey);
   // The public board must render the same frozen object that was persisted.
@@ -1350,4 +1586,4 @@ export async function buildFootballPublicData(
 }
 
 // Small pure exports used by CI to guarantee football follows the MLB trend contract.
-export const __test__ = { warningFor, movementForSplit, trendRecord, windows, windowMetrics, signalBreakdown, headToHead, parseBettingSplits, footballWeekBounds, minutesUntilKickoff };
+export const __test__ = { warningFor, movementForSplit, trendRecord, windows, windowMetrics, signalBreakdown, headToHead, parseBettingSplits, footballWeekBounds, minutesUntilKickoff, settleTrendRows, settleTrendRowsFromTracker, historyFromTrendRows, buildTrendPlay };

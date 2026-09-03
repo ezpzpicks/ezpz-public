@@ -36,7 +36,10 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const payload = await buildFootballPublicData(sport);
+    const payload = await buildFootballPublicData(sport, {
+      forceFresh: true,
+      persist: true,
+    });
     return NextResponse.json(payload, {
       headers: {
         "Cache-Control": "no-store, max-age=0",

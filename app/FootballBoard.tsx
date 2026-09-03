@@ -20,6 +20,7 @@ type Play = {
 
 type TrendSignal = {
   signal: string; score: number; exactSample: number; recordScope: string;
+  TrendSampleSize?: number; HistorySource?: string; FallbackReason?: string;
   records: { allTime: RecordTotals; last30: RecordTotals; last7: RecordTotals };
 };
 
@@ -33,6 +34,7 @@ type TrendPlay = {
   comparisonGap?: number; opponentScore?: number | null; updatedAt?: string; frozenAt?: string;
   lockWarning?: string;
   snapshotStatus?: "LIVE" | "FINAL_PREGAME" | "MISSED_LOCK";
+  TrendSampleSize?: number; HistorySource?: string; FallbackReason?: string;
   score: number; tier: "Pass" | "Good" | "Strong" | "Elite";
   signals: TrendSignal[]; lineMovementSignal?: string; lineMovementBasis?: string; lineMovementValue?: number | null;
 };
@@ -578,6 +580,8 @@ function TrendSelectionRow({ play, selectionRank, initiallyOpen }: { play: Trend
           <div className="trendSignalBox">
             <b>{primary.signal}</b>
             <span>{primary.recordScope} • exact sample {primary.exactSample}</span>
+            <span>Effective sample {primary.TrendSampleSize ?? primary.records.allTime.totalBets} • history {primary.HistorySource || play.HistorySource || "all_game_trends"}</span>
+            {(primary.FallbackReason || play.FallbackReason) ? <span>{primary.FallbackReason || play.FallbackReason}</span> : null}
           </div>
         ) : null}
         {play.lineMovementSignal ? <div className="trendMovement">{play.lineMovementSignal}</div> : null}

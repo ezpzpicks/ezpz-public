@@ -21,6 +21,12 @@ function detail(row: Record<string, string>) {
     publicBets: row["Public Bets %"], publicMoney: row["Public Money %"], splitTime: row["Public Split Snapshot Time"],
     detailsLength: raw.length, snapshotStatus: parsed?.snapshotStatus || "", gradingVersion: parsed?.gradingVersion || "",
     frozenAt: parsed?.frozenAt || "", parsedTier: parsed?.tier || "", parsedScore: parsed?.score ?? "",
+    trendSampleSize: parsed?.TrendSampleSize ?? row["Trend Sample Size"] ?? "",
+    historySource: parsed?.HistorySource || row["History Source"] || "",
+    fallbackReason: parsed?.FallbackReason || row["Fallback Reason"] || "",
+    resultSource: row["Result Source"] || "",
+    resultFallbackReason: row["Result Fallback Reason"] || "",
+    resultMatchKey: row["Result Match Key"] || "",
   };
 }
 
