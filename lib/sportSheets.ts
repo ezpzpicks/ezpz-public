@@ -374,6 +374,28 @@ export async function upsertSportRows(
   await writeSportWorksheet(sport, worksheetName, headers, [...map.values()]);
 }
 
+export async function appendSportRows(
+  sport: FootballSport,
+  worksheetName: string,
+  headers: string[],
+  rows: SheetRow[],
+) {
+  if (!rows.length) return;
+  await ensureSportWorksheet(sport, worksheetName, headers);
+  const spreadsheetId = await resolveSportSpreadsheetId(sport);
+  const sheets = await sheetsClient();
+  const physicalName = physicalWorksheetName(sport, worksheetName);
+  const values = rows.map((row) => headers.map((header) => String(row[header] ?? "")));
+  await sheets.spreadsheets.values.append({
+    spreadsheetId,
+    range: `${quoteSheetName(physicalName)}!A1`,
+    valueInputOption: "RAW",
+    insertDataOption: "INSERT_ROWS",
+    requestBody: { values },
+  });
+  invalidateSportWorksheetReadCache(sport, worksheetName);
+}
+
 export function sportDatabaseLabel(sport: FootballSport) {
   if (sharedContainerSports.has(sport)) {
     return `${sport === "NCAAF" ? "CFB" : "NFL"} namespace in shared model database`;

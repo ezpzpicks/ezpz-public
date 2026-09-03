@@ -37,6 +37,8 @@ type TrendPlay = {
   TrendSampleSize?: number; HistorySource?: string; FallbackReason?: string;
   score: number; tier: "Pass" | "Good" | "Strong" | "Elite";
   signals: TrendSignal[]; lineMovementSignal?: string; lineMovementBasis?: string; lineMovementValue?: number | null;
+  firstTrackedAt?: string; lowLine?: number | null; highLine?: number | null; lineMoveCount?: number;
+  lastLineMoveAt?: string; lineHistoryLabel?: string;
 };
 
 
@@ -556,17 +558,21 @@ function TrendSelectionRow({ play, selectionRank, initiallyOpen }: { play: Trend
 
       <div className="trendSelectionBody">
         <div className="bubbleGrid trendSelectionMetrics">
-          <MiniBubble label="Opening Bets" value={pct(play.openingBetsPct)} />
+          <MiniBubble label="First Tracked Bets" value={pct(play.openingBetsPct)} />
           <MiniBubble label="Current Bets" value={pct(play.betsPct)} />
           <MiniBubble label="Bets Change" value={signedPct(play.publicMovementPct)} />
-          <MiniBubble label="Opening Handle" value={pct(play.openingMoneyPct)} />
+          <MiniBubble label="First Tracked Handle" value={pct(play.openingMoneyPct)} />
           <MiniBubble label="Current Handle" value={pct(play.moneyPct)} />
           <MiniBubble label="Handle Change" value={signedPct(play.sharpMovementPct)} />
           <MiniBubble label="Handle − Bets" value={`${play.gapPct >= 0 ? "+" : ""}${Number(play.gapPct || 0).toFixed(1)}%`} />
-          <MiniBubble label="Opening Odds" value={play.openingOdds || "—"} />
+          <MiniBubble label="First Tracked Odds" value={play.openingOdds || "—"} />
           <MiniBubble label="Current Odds" value={play.odds || "—"} />
-          <MiniBubble label="Opening Line" value={marketLine(play, play.openingLine)} />
+          <MiniBubble label="First Tracked Line" value={marketLine(play, play.openingLine)} />
           <MiniBubble label="Current Line" value={marketLine(play, play.line)} />
+          <MiniBubble label="Line Low" value={marketLine(play, play.lowLine)} />
+          <MiniBubble label="Line High" value={marketLine(play, play.highLine)} />
+          <MiniBubble label="Line Moves" value={String(play.lineMoveCount ?? 0)} />
+          <MiniBubble label="Line Path" value={play.lineHistoryLabel || "—"} />
           <MiniBubble label="Price Move" value={priceMove(play)} />
         </div>
 
