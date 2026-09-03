@@ -80,6 +80,34 @@ if (text.includes(oldCandidateTrigger)) {
   throw new Error("Frozen Trend Play finalization trigger target not found");
 }
 
+// Do not allow a frozen Strong/Elite Trend Play to vanish silently. Every such
+// candidate must produce a terminal FINAL_PREGAME selector row (selected or
+// rejected with a reason), even if the normal game-level tracking handoff was
+// missed. The durable trend snapshot is authoritative and remains eligible for
+// recovery after first pitch.
+const oldRecoveryGrace = `    const withinRecoveryGrace =
+      start == null || selectorNow <= start + AI_FINAL_PREGAME_RECOVERY_GRACE_MS;
+    if (
+      withinRecoveryGrace &&
+      (hasDedicatedFinalMarketSnapshot || hasFrozenTrendSnapshot)
+    ) {`;
+const newRecoveryGrace = `    const frozenStrongOrEliteTrend = Boolean(
+      hasFrozenTrendSnapshot &&
+      (candidate.trendPlay?.tier === "Strong" || candidate.trendPlay?.tier === "Elite")
+    );
+    const withinRecoveryGrace =
+      start == null || selectorNow <= start + AI_FINAL_PREGAME_RECOVERY_GRACE_MS;
+    if (
+      (withinRecoveryGrace || frozenStrongOrEliteTrend) &&
+      (hasDedicatedFinalMarketSnapshot || hasFrozenTrendSnapshot)
+    ) {`;
+if (text.includes(oldRecoveryGrace)) {
+  text = text.replace(oldRecoveryGrace, newRecoveryGrace);
+  changed = true;
+} else if (!text.includes("const frozenStrongOrEliteTrend = Boolean(")) {
+  throw new Error("Frozen Strong/Elite recovery target not found");
+}
+
 // The live/pending lifecycle had a second game-level lock. Convert it to the
 // same candidate-level rule so a Best Play final does not hide a later Trend Play.
 const oldLiveLockBlock = `  // Any persisted FINAL_PREGAME row means that candidate has already reached
@@ -117,15 +145,12 @@ if (text.includes(oldLiveLockBlock)) {
 }
 
 // Do not rewrite Best Play qualification here. The selector in route.ts now
-// owns the tiered rolling Last-7 policy (HOT / NEUTRAL / SAMPLE, with COLD
-// blocked) and its existing protectionReasons already enforce hard wager
-// protections such as the price cap. The legacy HOT-only replacement that used
-// to run before this script has been disabled, so looking for its generated
-// bestPlayOddsFailure block would make every build fail before Next.js starts.
+// owns the tiered rolling Last-7 policy and its existing protectionReasons
+// enforce hard wager protections such as the price cap.
 
 if (changed) {
   fs.writeFileSync(path, text, "utf8");
-  console.log("Applied candidate-level Trend Play locks and frozen-trend finalization trigger while preserving tiered EZPZ Picks qualification.");
+  console.log("Applied fail-safe frozen Strong/Elite Trend Play terminal persistence and candidate-level locks.");
 } else {
-  console.log("Candidate-level Trend Play locks and frozen-trend finalization trigger already applied; tiered EZPZ Picks qualification preserved.");
+  console.log("Frozen Strong/Elite Trend Play terminal persistence fail-safe already applied.");
 }
