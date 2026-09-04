@@ -1129,26 +1129,50 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
     const minutes = minutesUntil(split);
     if (minutes != null && minutes <= 15) {
       handledLockKeys.add(key);
+
+      // Never rebuild a final lock after kickoff. If DraftKings still exposes a
+      // game after its listed start, preserve/finalize only the last verified
+      // pregame state so post-kick data cannot leak into the trend record.
+      if (minutes < 0) {
+        if (existing && String(existing["Details JSON"] || "").trim()) {
+          try {
+            const saved = JSON.parse(String(existing["Details JSON"])) as WeeklyTrendPlay;
+            if (saved.snapshotStatus !== "FINAL_PREGAME") {
+              const ageMinutes = snapshotAgeMinutes(saved);
+              const missedLock = ageMinutes == null || ageMinutes > MAX_MISSED_LOCK_FRESHNESS_MINUTES;
+              liveCandidates.push({
+                ...saved,
+                week: footballWeekLabel(sport, saved.date),
+                snapshotStatus: missedLock ? "MISSED_LOCK" as const : "FINAL_PREGAME" as const,
+                frozenAt: missedLock ? undefined : saved.updatedAt,
+                lockWarning: missedLock
+                  ? `Lock capture missed — last verified ${saved.updatedAt}.`
+                  : "Finalized from the last verified pregame snapshot after DraftKings stopped updating.",
+              });
+            }
+          } catch { /* keep malformed existing row unchanged */ }
+        }
+        continue;
+      }
+
+      // A split returned by DraftKings while 0-15 minutes remain is itself a
+      // verified near-lock snapshot. Rebuild from that current split instead
+      // of judging freshness from the older saved card. This also allows a
+      // prematurely marked MISSED_LOCK row to recover to FINAL_PREGAME.
       if (existing && String(existing["Details JSON"] || "").trim()) {
         try {
           const saved = JSON.parse(String(existing["Details JSON"])) as WeeklyTrendPlay;
-          if (saved.snapshotStatus !== "FINAL_PREGAME") {
-            const ageMinutes = snapshotAgeMinutes(saved);
-            const missedLock = ageMinutes == null || ageMinutes > MAX_MISSED_LOCK_FRESHNESS_MINUTES;
-            liveCandidates.push({
-              ...saved,
-              week: footballWeekLabel(sport, saved.date),
-              snapshotStatus: missedLock ? "MISSED_LOCK" as const : "FINAL_PREGAME" as const,
-              frozenAt: missedLock ? undefined : saved.updatedAt,
-              lockWarning: missedLock
-                ? `Lock capture missed — last verified ${saved.updatedAt}.`
-                : minutes < 0
-                  ? "Finalized from the last verified pregame snapshot after DraftKings stopped updating."
-                  : undefined,
-            });
-          }
-        } catch { /* keep existing row unchanged */ }
+          if (saved.snapshotStatus === "FINAL_PREGAME") continue;
+        } catch { /* rebuild from the current verified split */ }
       }
+      const freshLock = buildPlay(split, existing, history, marketHistoryRows);
+      liveCandidates.push({
+        ...freshLock,
+        week: footballWeekLabel(sport, split.date),
+        snapshotStatus: "FINAL_PREGAME" as const,
+        frozenAt: freshLock.updatedAt,
+        lockWarning: undefined,
+      });
       continue;
     }
     liveCandidates.push({ ...buildPlay(split, existing, history, marketHistoryRows), week: footballWeekLabel(sport, split.date) });
