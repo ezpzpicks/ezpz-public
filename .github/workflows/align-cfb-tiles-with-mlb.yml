@@ -1,0 +1,51 @@
+name: Align CFB tiles with MLB
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/align-cfb-tiles-with-mlb.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Apply CFB tile alignment
+        run: python scripts/align_cfb_tiles_with_mlb.py
+
+      - name: Verify CFB UI parity
+        run: |
+          grep -q '7 Days: {form.label}' app/FootballBoard.tsx
+          grep -q 'Last 7 Bets: {bestPlayGate.label}' app/FootballBoard.tsx
+          grep -q 'className="aiPickDropdown"' app/FootballBoard.tsx
+          grep -q 'Final Net ROI' app/FootballBoard.tsx
+          grep -q 'Recent-window ROI edge versus the opposing side' app/FootballBoard.tsx
+          grep -q 'Favorite Spread' app/FootballBoard.tsx
+          grep -q 'footballLastSevenForType' lib/footballPublicData.ts
+          grep -q 'HOT Last 7 ${recordType} Best Play' lib/footballPublicData.ts
+          git diff --check
+
+      - name: Build application
+        run: |
+          npm install --no-package-lock --no-audit --no-fund
+          npm run build
+
+      - name: Commit CFB tile alignment
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/FootballBoard.tsx lib/footballPublicData.ts
+          if git diff --cached --quiet; then
+            echo "No source changes required"
+            exit 0
+          fi
+          git commit -m "Match CFB tiles to MLB display logic"
+          git push
