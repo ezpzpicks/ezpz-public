@@ -1,0 +1,108 @@
+name: Split CFB bet type records by side
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/split-cfb-bet-type-records.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Split CFB Best Play records into four bet types
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: Path, old: str, new: str, label: str):
+              text = path.read_text()
+              if new in text:
+                  print(f"{label}: already applied")
+                  return False
+              if old not in text:
+                  raise SystemExit(f"Could not find patch target: {label}")
+              path.write_text(text.replace(old, new, 1))
+              print(f"{label}: applied")
+              return True
+
+          public_data = Path("lib/footballPublicData.ts")
+          old = '''  const recordSummary=[{betType:"Spread",status:"EVEN",...recordTotals(tracker.filter(r=>textKey(r["Bet Type"]||r.Market).includes("spread")))},{betType:"Total",status:"EVEN",...recordTotals(tracker.filter(r=>textKey(r["Bet Type"]||r.Market).includes("total")))}].map((r:any)=>({...r,status:r.wins>r.losses?"WINNING":r.losses>r.wins?"LOSING":"EVEN"}));
+  const last7RecordSummary=[{betType:"Spread",status:"EVEN",...recordTotals(tracker.filter(r=>textKey(r["Bet Type"]||r.Market).includes("spread")),7)},{betType:"Total",status:"EVEN",...recordTotals(tracker.filter(r=>textKey(r["Bet Type"]||r.Market).includes("total")),7)}].map((r:any)=>({...r,status:r.wins>r.losses?"WINNING":r.losses>r.wins?"LOSING":"EVEN"}));
+'''
+          new = '''  const recordGroups = sport === "NCAAF"
+    ? [
+        { betType: "Favorite Spread", rows: tracker.filter((r) => textKey(r["Bet Type"] || r.Market).includes("spread") && (trackerLine(r.Selection) ?? 0) < 0) },
+        { betType: "Underdog Spread", rows: tracker.filter((r) => textKey(r["Bet Type"] || r.Market).includes("spread") && (trackerLine(r.Selection) ?? 0) > 0) },
+        { betType: "Over", rows: tracker.filter((r) => textKey(r["Bet Type"] || r.Market).includes("total") && textKey(r.Selection).startsWith("over")) },
+        { betType: "Under", rows: tracker.filter((r) => textKey(r["Bet Type"] || r.Market).includes("total") && textKey(r.Selection).startsWith("under")) },
+      ]
+    : [
+        { betType: "Spread", rows: tracker.filter((r) => textKey(r["Bet Type"] || r.Market).includes("spread")) },
+        { betType: "Total", rows: tracker.filter((r) => textKey(r["Bet Type"] || r.Market).includes("total")) },
+      ];
+  const buildRecordSummary = (days?: number) => recordGroups.map(({ betType, rows }) => {
+    const totals = recordTotals(rows, days);
+    return { betType, status: totals.wins > totals.losses ? "WINNING" : totals.losses > totals.wins ? "LOSING" : "EVEN", ...totals };
+  });
+  const recordSummary = buildRecordSummary();
+  const last7RecordSummary = buildRecordSummary(7);
+'''
+          replace_once(public_data, old, new, "Split NCAAF record summary by spread side and total side")
+
+          board = Path("app/FootballBoard.tsx")
+          old = '''        <RecordTile label="Spread - Running Total" value={summaryMap.get("Spread")} />
+        <RecordTile label="Total - Running Total" value={summaryMap.get("Total")} />
+'''
+          new = '''        {sport === "NCAAF" ? <>
+          <RecordTile label="Favorite Spread - Running Total" value={summaryMap.get("Favorite Spread")} />
+          <RecordTile label="Underdog Spread - Running Total" value={summaryMap.get("Underdog Spread")} />
+          <RecordTile label="Over - Running Total" value={summaryMap.get("Over")} />
+          <RecordTile label="Under - Running Total" value={summaryMap.get("Under")} />
+        </> : <>
+          <RecordTile label="Spread - Running Total" value={summaryMap.get("Spread")} />
+          <RecordTile label="Total - Running Total" value={summaryMap.get("Total")} />
+        </>}
+'''
+          replace_once(board, old, new, "Show four CFB bet-type record tiles while preserving NFL")
+          PY
+
+      - name: Verify source changes
+        shell: bash
+        run: |
+          grep -q 'betType: "Favorite Spread"' lib/footballPublicData.ts
+          grep -q 'betType: "Underdog Spread"' lib/footballPublicData.ts
+          grep -q 'betType: "Over"' lib/footballPublicData.ts
+          grep -q 'betType: "Under"' lib/footballPublicData.ts
+          grep -q 'summaryMap.get("Favorite Spread")' app/FootballBoard.tsx
+          grep -q 'summaryMap.get("Underdog Spread")' app/FootballBoard.tsx
+          grep -q 'summaryMap.get("Over")' app/FootballBoard.tsx
+          grep -q 'summaryMap.get("Under")' app/FootballBoard.tsx
+          git diff --check
+
+      - name: Build
+        shell: bash
+        run: |
+          npm ci
+          npm run build
+
+      - name: Commit CFB record split
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add lib/footballPublicData.ts app/FootballBoard.tsx
+          if git diff --cached --quiet; then
+            echo "No source changes required"
+            exit 0
+          fi
+          git commit -m "Split CFB bet type records by side"
+          git push
