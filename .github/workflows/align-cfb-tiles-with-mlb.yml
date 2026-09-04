@@ -23,14 +23,14 @@ jobs:
 
       - name: Verify CFB UI parity
         run: |
-          grep -q '7 Days: {form.label}' app/FootballBoard.tsx
+          grep -q 'periodLabel = window === "last7Days" ? "7 Days" : "Last 7 Bets"' app/FootballBoard.tsx
           grep -q 'Last 7 Bets: {bestPlayGate.label}' app/FootballBoard.tsx
           grep -q 'className="aiPickDropdown"' app/FootballBoard.tsx
           grep -q 'Final Net ROI' app/FootballBoard.tsx
           grep -q 'Recent-window ROI edge versus the opposing side' app/FootballBoard.tsx
           grep -q 'Favorite Spread' app/FootballBoard.tsx
           grep -q 'footballLastSevenForType' lib/footballPublicData.ts
-          grep -q 'HOT Last 7 ${recordType} Best Play' lib/footballPublicData.ts
+          grep -Fq 'HOT Last 7 ${recordType} Best Play' lib/footballPublicData.ts
           git diff --check
 
       - name: Build application
