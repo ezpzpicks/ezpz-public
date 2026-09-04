@@ -459,7 +459,7 @@ function FbDraftKingsSignalRecords({ rows, today }: { rows: FootballSignalHistor
 
 
 type FbFormWindow = "last7Days" | "last7Bets";
-type FbRecordType = "Favorite Spread" | "Underdog Spread" | "Over" | "Under";
+type FbRecordType = "Spread" | "Total" | "Favorite Spread" | "Underdog Spread" | "Over" | "Under";
 type FbFormInfo = {
   label: "Hot" | "Cold" | "Neutral" | "Small Sample" | "Need 7 Bets";
   icon: string;
@@ -467,7 +467,12 @@ type FbFormInfo = {
   detail: string;
 };
 
-const FB_RECORD_TYPES: FbRecordType[] = ["Favorite Spread", "Underdog Spread", "Over", "Under"];
+const FB_CFB_RECORD_TYPES: FbRecordType[] = ["Favorite Spread", "Underdog Spread", "Over", "Under"];
+const FB_NFL_RECORD_TYPES: FbRecordType[] = ["Spread", "Total"];
+
+function fbRecordTypes(sport: Sport) {
+  return sport === "NCAAF" ? FB_CFB_RECORD_TYPES : FB_NFL_RECORD_TYPES;
+}
 
 function fbTrailingLine(value: unknown) {
   const match = String(value || "").replace(/[−–—]/g, "-").match(/([+-]?\d+(?:\.\d+)?)\s*$/);
@@ -526,15 +531,17 @@ function fbRecordTypeForSelection(market: "Spread" | "Total", selection: unknown
   return line < 0 ? "Favorite Spread" : "Underdog Spread";
 }
 
-function fbTrackerRecordType(row: SheetRow): FbRecordType | null {
+function fbTrackerRecordType(row: SheetRow, sport: Sport): FbRecordType | null {
   const marketKey = textKey(row["Bet Type"] || row.Market);
+  if (sport === "NFL") return marketKey.includes("total") ? "Total" : marketKey.includes("spread") ? "Spread" : null;
   if (marketKey.includes("total")) return fbRecordTypeForSelection("Total", row.Selection, fbTrailingLine(row.Selection));
   if (marketKey.includes("spread")) return fbRecordTypeForSelection("Spread", row.Selection, fbTrailingLine(row.Selection));
   return null;
 }
 
-function fbBestPlayRecordType(play: Play, split?: DraftKingsSplit): FbRecordType | null {
+function fbBestPlayRecordType(play: Play, split: DraftKingsSplit | undefined, sport: Sport): FbRecordType | null {
   const market: "Spread" | "Total" = textKey(play.role || play.playType).includes("total") ? "Total" : "Spread";
+  if (sport === "NFL") return market;
   if (market === "Total") return fbRecordTypeForSelection(market, split?.side || play.play, split?.line ?? fbTrailingLine(play.play));
   return fbRecordTypeForSelection(market, play.play, split?.line ?? fbTrailingLine(play.play));
 }
@@ -549,23 +556,24 @@ function fbPickSplit(pick: EzpzPick, splits: DraftKingsSplit[]) {
   return splits.find((split) => split.market === "Spread" && sameGame(split) && sameSlateTeam(split.selectionTeam, selection));
 }
 
-function fbEzpzRecordType(pick: EzpzPick, splits: DraftKingsSplit[]): FbRecordType | null {
+function fbEzpzRecordType(pick: EzpzPick, splits: DraftKingsSplit[], sport: Sport): FbRecordType | null {
+  if (sport === "NFL") return pick.market;
   const split = fbPickSplit(pick, splits);
   return fbRecordTypeForSelection(pick.market, pick.market === "Total" ? split?.side || pick.selection : pick.selection, split?.line ?? fbTrailingLine(pick.selection));
 }
 
-function fbTodayRecordMap(rows: SheetRow[], today: string) {
-  return new Map<string, Summary>(FB_RECORD_TYPES.map((betType) => {
-    const matching = rows.filter((row) => fbResult(row.Result || row.Status) && fbDate(row.Date) === today && fbTrackerRecordType(row) === betType);
+function fbTodayRecordMap(rows: SheetRow[], today: string, sport: Sport) {
+  return new Map<string, Summary>(fbRecordTypes(sport).map((betType) => {
+    const matching = rows.filter((row) => fbResult(row.Result || row.Status) && fbDate(row.Date) === today && fbTrackerRecordType(row, sport) === betType);
     return [betType, fbSummary(betType, fbTotals(matching, today))];
   }));
 }
 
-function fbLastSevenBetsRecordMap(rows: SheetRow[], today: string) {
-  return new Map<string, Summary>(FB_RECORD_TYPES.map((betType) => {
+function fbLastSevenBetsRecordMap(rows: SheetRow[], today: string, sport: Sport) {
+  return new Map<string, Summary>(fbRecordTypes(sport).map((betType) => {
     const matching = rows
       .map((row, index) => ({ row, index, stamp: Date.parse(`${fbDate(row.Date)}T12:00:00Z`) || 0 }))
-      .filter(({ row }) => fbResult(row.Result || row.Status) && fbTrackerRecordType(row) === betType)
+      .filter(({ row }) => fbResult(row.Result || row.Status) && fbTrackerRecordType(row, sport) === betType)
       .sort((a, b) => b.stamp - a.stamp || b.index - a.index)
       .slice(0, 7)
       .map(({ row }) => row);
@@ -635,11 +643,11 @@ function fbTrendNetRoiSummary(play: TrendPlay, trendPlays: TrendPlay[]) {
   return { candidateRoiPct, opponentRoiPct: opponent.roiPct, netRoiPct: candidateRoiPct - opponent.roiPct };
 }
 
-function BestPlayCard({ play, splits, index, recentByType, lastSevenBetsByType }: { play: Play; splits: DraftKingsSplit[]; index: number; recentByType: Map<string, Summary>; lastSevenBetsByType: Map<string, Summary> }) {
+function BestPlayCard({ play, splits, index, sport, recentByType, lastSevenBetsByType }: { play: Play; splits: DraftKingsSplit[]; index: number; sport: Sport; recentByType: Map<string, Summary>; lastSevenBetsByType: Map<string, Summary> }) {
   const split = selectedSplit(play, splits);
   const roleKey = textKey(play.role || play.playType);
   const market = roleKey.includes("total") ? "Total" : "Spread";
-  const recordType = fbBestPlayRecordType(play, split);
+  const recordType = fbBestPlayRecordType(play, split, sport);
   const recentSummary = recordType ? recentByType.get(recordType) || null : null;
   const lastSevenBetsSummary = recordType ? lastSevenBetsByType.get(recordType) || null : null;
   const scoreValue = Number(play.score);
@@ -835,6 +843,7 @@ function EzpzPickCard({
   recentByType,
   lastSevenBetsByType,
   overallByType,
+  sport,
 }: {
   pick: EzpzPick;
   splits: DraftKingsSplit[];
@@ -844,10 +853,11 @@ function EzpzPickCard({
   recentByType: Map<string, Summary>;
   lastSevenBetsByType: Map<string, Summary>;
   overallByType: Map<string, Summary>;
+  sport: Sport;
 }) {
-  const trendPlay = pick.source === "Trend Play" ? fbTrendPlayForPick(pick, trendPlays) : null;
+  const trendPlay = pick.source !== "Best Play" ? fbTrendPlayForPick(pick, trendPlays) : null;
   const trendRoiSummary = trendPlay ? fbTrendNetRoiSummary(trendPlay, trendPlays) : null;
-  const recordType = pick.source !== "Trend Play" ? fbEzpzRecordType(pick, splits) : null;
+  const recordType = pick.source !== "Trend Play" ? fbEzpzRecordType(pick, splits, sport) : null;
   const todaySummary = recordType ? todayByType.get(recordType) || null : null;
   const last7DaysSummary = recordType ? recentByType.get(recordType) || null : null;
   const lastSevenBetsSummary = recordType ? lastSevenBetsByType.get(recordType) || null : null;
@@ -1075,12 +1085,12 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
   const summaryMap = new Map<string, Summary>((data.recordSummary || []).map((row) => [row.betType, row]));
   const last7Map = new Map<string, Summary>((data.last7RecordSummary || []).map((row) => [row.betType, row]));
   const trackerRows = data.betTrackerRows || [];
-  const todayByType = fbTodayRecordMap(trackerRows, data.today);
-  const lastSevenBetsByType = fbLastSevenBetsRecordMap(trackerRows, data.today);
+  const todayByType = fbTodayRecordMap(trackerRows, data.today, sport);
+  const lastSevenBetsByType = fbLastSevenBetsRecordMap(trackerRows, data.today, sport);
 
   let content;
   if (tab === "Today’s Model Plays") {
-    content = data.bestPlays.length ? <div className="fbGrid">{data.bestPlays.map((play, index) => <BestPlayCard key={`${play.game}-${play.play}-${index}`} play={play} splits={splits} index={index} recentByType={last7Map} lastSevenBetsByType={lastSevenBetsByType} />)}</div> : <div className="empty footballEmpty">No graded {sport} Best Plays are saved for {data.today}.</div>;
+    content = data.bestPlays.length ? <div className="fbGrid">{data.bestPlays.map((play, index) => <BestPlayCard key={`${play.game}-${play.play}-${index}`} play={play} splits={splits} index={index} sport={sport} recentByType={last7Map} lastSevenBetsByType={lastSevenBetsByType} />)}</div> : <div className="empty footballEmpty">No graded {sport} Best Plays are saved for {data.today}.</div>;
   } else if (tab === "Today’s Trend Plays") {
     content = <>
       <div className="trendWeekControls">
@@ -1092,7 +1102,7 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
   } else if (tab === "EZPZ Picks") {
     content = <>
       <div className="sectionHead"><div><h2>{sport} EZPZ Picks</h2><p>{data.aiSelectorStatus?.message || "HOT Best Plays and qualifying Strong/Elite Trend Plays only."}</p></div></div>
-      {data.aiPicks?.length ? <div className="aiPickStack">{data.aiPicks.map((pick, index) => <EzpzPickCard key={`${pick.game}-${pick.market}-${pick.selection}-${index}`} pick={pick} splits={splits} trendPlays={trends} slateRows={slateRows} todayByType={todayByType} recentByType={last7Map} lastSevenBetsByType={lastSevenBetsByType} overallByType={summaryMap} />)}</div> : <div className="empty footballEmpty">No {sport} EZPZ Picks qualify right now.</div>}
+      {data.aiPicks?.length ? <div className="aiPickStack">{data.aiPicks.map((pick, index) => <EzpzPickCard key={`${pick.game}-${pick.market}-${pick.selection}-${index}`} pick={pick} splits={splits} trendPlays={trends} slateRows={slateRows} todayByType={todayByType} recentByType={last7Map} lastSevenBetsByType={lastSevenBetsByType} overallByType={summaryMap} sport={sport} />)}</div> : <div className="empty footballEmpty">No {sport} EZPZ Picks qualify right now.</div>}
     </>;
   } else if (tab === "Full Slate") {
     content = slateRows.length ? <div className="fbSlateStack">{slateRows.map((row, index) => <SlateCard key={`${row["Game Key"] || row["Game ID"] || row.Game}-${index}`} row={row} splits={splits} />)}</div> : <div className="empty footballEmpty">No {sport} games are posted for {data.today} yet.</div>;
