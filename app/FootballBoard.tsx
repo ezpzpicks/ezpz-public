@@ -785,8 +785,15 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
       <div className="qualifiedGrid">
         <RecordTile label="Best Plays - Last 7 Days" value={last7Best} />
         <RecordTile label="Best Plays - Running Total" value={overallBest} />
-        <RecordTile label="Spread - Running Total" value={summaryMap.get("Spread")} />
-        <RecordTile label="Total - Running Total" value={summaryMap.get("Total")} />
+        {sport === "NCAAF" ? <>
+          <RecordTile label="Favorite Spread - Running Total" value={summaryMap.get("Favorite Spread")} />
+          <RecordTile label="Underdog Spread - Running Total" value={summaryMap.get("Underdog Spread")} />
+          <RecordTile label="Over - Running Total" value={summaryMap.get("Over")} />
+          <RecordTile label="Under - Running Total" value={summaryMap.get("Under")} />
+        </> : <>
+          <RecordTile label="Spread - Running Total" value={summaryMap.get("Spread")} />
+          <RecordTile label="Total - Running Total" value={summaryMap.get("Total")} />
+        </>}
       </div>
       <div className="sectionHead"><div><h2>Trend Records</h2><p>Same record system used on MLB, adapted for CFB Spread + Total trends</p></div></div>
       <div className="advancedRecordsStack">

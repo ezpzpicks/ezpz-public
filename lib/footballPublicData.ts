@@ -1524,8 +1524,23 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
   }
   const displayTrendPlays=[...displayTrendMap.values()];
   const best=bestPlays(slate,sport);const aiPicks=buildFootballEzpzPicks(best,displayTrendPlays,tracker,enriched,sport);const overall=recordTotals(tracker);const last7=recordTotals(tracker,7);const pending=tracker.filter((r)=>!resultCode(r.Result||r.Status)).length;
-  const recordSummary=[{betType:"Spread",status:"EVEN",...recordTotals(tracker.filter(r=>textKey(r["Bet Type"]||r.Market).includes("spread")))},{betType:"Total",status:"EVEN",...recordTotals(tracker.filter(r=>textKey(r["Bet Type"]||r.Market).includes("total")))}].map((r:any)=>({...r,status:r.wins>r.losses?"WINNING":r.losses>r.wins?"LOSING":"EVEN"}));
-  const last7RecordSummary=[{betType:"Spread",status:"EVEN",...recordTotals(tracker.filter(r=>textKey(r["Bet Type"]||r.Market).includes("spread")),7)},{betType:"Total",status:"EVEN",...recordTotals(tracker.filter(r=>textKey(r["Bet Type"]||r.Market).includes("total")),7)}].map((r:any)=>({...r,status:r.wins>r.losses?"WINNING":r.losses>r.wins?"LOSING":"EVEN"}));
+  const recordGroups = sport === "NCAAF"
+    ? [
+        { betType: "Favorite Spread", rows: tracker.filter((r) => textKey(r["Bet Type"] || r.Market).includes("spread") && (trackerLine(r.Selection) ?? 0) < 0) },
+        { betType: "Underdog Spread", rows: tracker.filter((r) => textKey(r["Bet Type"] || r.Market).includes("spread") && (trackerLine(r.Selection) ?? 0) > 0) },
+        { betType: "Over", rows: tracker.filter((r) => textKey(r["Bet Type"] || r.Market).includes("total") && textKey(r.Selection).startsWith("over")) },
+        { betType: "Under", rows: tracker.filter((r) => textKey(r["Bet Type"] || r.Market).includes("total") && textKey(r.Selection).startsWith("under")) },
+      ]
+    : [
+        { betType: "Spread", rows: tracker.filter((r) => textKey(r["Bet Type"] || r.Market).includes("spread")) },
+        { betType: "Total", rows: tracker.filter((r) => textKey(r["Bet Type"] || r.Market).includes("total")) },
+      ];
+  const buildRecordSummary = (days?: number) => recordGroups.map(({ betType, rows }) => {
+    const totals = recordTotals(rows, days);
+    return { betType, status: totals.wins > totals.losses ? "WINNING" : totals.losses > totals.wins ? "LOSING" : "EVEN", ...totals };
+  });
+  const recordSummary = buildRecordSummary();
+  const last7RecordSummary = buildRecordSummary(7);
   return {ok:true,sport,database:sportDatabaseLabel(sport),today,lastUpdated:nowET(),tiles:{last7Days:last7,overallGreen:overall,handpickedLast7:last7,handpickedOverall:overall,pendingGreen:pending,bestPlaysToday:best.length},bestPlays:best,slateToday:slate,betTrackerRows:tracker,draftKings:{ok:enriched.length>0,status:enriched.length?"LIVE":"UNAVAILABLE",updatedAt:nowET(),stale:false,splits:enriched,props:[],errors:dk.errors,displayMode:"LIVE",trackingMode:"WEEKLY",trackingWeekStart:trackingWeek.start,trackingWeekEnd:trackingWeek.end,trackedGames:trackingSlate.length},draftKingsSignalRows:history,trendRecordRows:trendRows.filter(r=>resultCode(r.Result)),trendPlays:displayTrendPlays,aiPicks,aiPickRecordRows:[],aiSelectorStatus:{mode:"LIVE",externalResearchConfigured:false,message:aiPicks.length?`${sport} EZPZ Picks are live: HOT Best Plays plus all-green Strong/Elite Trend Plays with 10%+ net ROI advantage; max price -150.`:`No ${sport} EZPZ Picks currently qualify under the HOT / all-green 10%+ ROI / Strong-Elite / -150 rules.`,updatedAt:nowET(),candidateCount:best.length+displayTrendPlays.length,selectedCount:aiPicks.length},recordSummary,last7RecordSummary,handpickedRecordSummary:recordSummary,handpickedLast7RecordSummary:last7RecordSummary};
 }
 
