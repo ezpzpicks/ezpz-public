@@ -1,0 +1,48 @@
+name: Fix football tile scope
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/fix-football-tile-scope.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Apply football tile scope fix
+        run: python scripts/fix_football_tile_scope.py
+
+      - name: Verify football tile behavior
+        run: |
+          grep -q 'FB_NFL_RECORD_TYPES' app/FootballBoard.tsx
+          grep -q 'fbTrackerRecordType(row, sport)' app/FootballBoard.tsx
+          grep -q 'pick.source !== "Best Play" ? fbTrendPlayForPick' app/FootballBoard.tsx
+          grep -q 'sport={sport} recentByType' app/FootballBoard.tsx
+          grep -q 'overallByType={summaryMap} sport={sport}' app/FootballBoard.tsx
+          git diff --check
+
+      - name: Build application
+        run: |
+          npm install --no-package-lock --no-audit --no-fund
+          npm run build
+
+      - name: Commit scope fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/FootballBoard.tsx
+          if git diff --cached --quiet; then
+            echo "No source changes required"
+            exit 0
+          fi
+          git commit -m "Keep football tile records sport specific"
+          git push
