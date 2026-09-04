@@ -457,10 +457,191 @@ function FbDraftKingsSignalRecords({ rows, today }: { rows: FootballSignalHistor
   );
 }
 
-function BestPlayCard({ play, splits, index }: { play: Play; splits: DraftKingsSplit[]; index: number }) {
+
+type FbFormWindow = "last7Days" | "last7Bets";
+type FbRecordType = "Favorite Spread" | "Underdog Spread" | "Over" | "Under";
+type FbFormInfo = {
+  label: "Hot" | "Cold" | "Neutral" | "Small Sample" | "Need 7 Bets";
+  icon: string;
+  className: "hot" | "cold" | "neutral" | "sample";
+  detail: string;
+};
+
+const FB_RECORD_TYPES: FbRecordType[] = ["Favorite Spread", "Underdog Spread", "Over", "Under"];
+
+function fbTrailingLine(value: unknown) {
+  const match = String(value || "").replace(/[−–—]/g, "-").match(/([+-]?\d+(?:\.\d+)?)\s*$/);
+  const parsed = match ? Number(match[1]) : Number.NaN;
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function fbFormInfo(summary: Summary | null, window: FbFormWindow): FbFormInfo {
+  const record = summary ? `${summary.wins}-${summary.losses}-${summary.pushes}` : "0-0-0";
+  const totalBets = summary?.totalBets || 0;
+
+  if (window === "last7Bets") {
+    if (!summary || totalBets < 7) {
+      return { label: "Need 7 Bets", icon: "➖", className: "sample", detail: `${record} • ${totalBets}/7 completed` };
+    }
+    if (summary.wins >= 5) return { label: "Hot", icon: "🔥", className: "hot", detail: `${record} most recent` };
+    if (summary.losses >= 5) return { label: "Cold", icon: "❄️", className: "cold", detail: `${record} most recent` };
+    return { label: "Neutral", icon: "➖", className: "neutral", detail: `${record} most recent` };
+  }
+
+  if (!summary || totalBets < 5) {
+    return { label: "Small Sample", icon: "⚠️", className: "sample", detail: `${record} • ${totalBets}/5 minimum` };
+  }
+  if (summary.wins > summary.losses && summary.winPct >= 60) {
+    return { label: "Hot", icon: "🔥", className: "hot", detail: `${record} in 7 days` };
+  }
+  if (summary.losses > summary.wins && summary.winPct <= 40) {
+    return { label: "Cold", icon: "❄️", className: "cold", detail: `${record} in 7 days` };
+  }
+  return { label: "Neutral", icon: "➖", className: "neutral", detail: `${record} in 7 days` };
+}
+
+function FbFormTag({ summary, window }: { summary: Summary | null; window: FbFormWindow }) {
+  const form = fbFormInfo(summary, window);
+  const periodLabel = window === "last7Days" ? "7 Days" : "Last 7 Bets";
+  return (
+    <div className={`formPill ${form.className}`} title="Record context only; this does not change the current model score.">
+      {form.icon} {periodLabel}: {form.label}{" "}
+      <span style={{ opacity: 0.72 }}>• {form.detail}</span>
+    </div>
+  );
+}
+
+function fbComparableGame(value: unknown) {
+  return textKey(value).replace(/\b(?:at|vs|versus)\b/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function fbRecordTypeForSelection(market: "Spread" | "Total", selection: unknown, line: number | null): FbRecordType | null {
+  if (market === "Total") {
+    const side = textKey(selection);
+    if (side.startsWith("over")) return "Over";
+    if (side.startsWith("under")) return "Under";
+    return null;
+  }
+  if (line == null || Math.abs(line) < 1e-9) return null;
+  return line < 0 ? "Favorite Spread" : "Underdog Spread";
+}
+
+function fbTrackerRecordType(row: SheetRow): FbRecordType | null {
+  const marketKey = textKey(row["Bet Type"] || row.Market);
+  if (marketKey.includes("total")) return fbRecordTypeForSelection("Total", row.Selection, fbTrailingLine(row.Selection));
+  if (marketKey.includes("spread")) return fbRecordTypeForSelection("Spread", row.Selection, fbTrailingLine(row.Selection));
+  return null;
+}
+
+function fbBestPlayRecordType(play: Play, split?: DraftKingsSplit): FbRecordType | null {
+  const market: "Spread" | "Total" = textKey(play.role || play.playType).includes("total") ? "Total" : "Spread";
+  if (market === "Total") return fbRecordTypeForSelection(market, split?.side || play.play, split?.line ?? fbTrailingLine(play.play));
+  return fbRecordTypeForSelection(market, play.play, split?.line ?? fbTrailingLine(play.play));
+}
+
+function fbPickSplit(pick: EzpzPick, splits: DraftKingsSplit[]) {
+  const sameGame = (split: DraftKingsSplit) => fbComparableGame(split.game) === fbComparableGame(pick.game);
+  if (pick.market === "Total") {
+    const side = textKey(pick.selection).startsWith("under") ? "Under" : "Over";
+    return splits.find((split) => split.market === "Total" && split.side === side && sameGame(split));
+  }
+  const selection = String(pick.selection || "").replace(/\s+[+-]?\d+(?:\.\d+)?\s*$/, "").trim();
+  return splits.find((split) => split.market === "Spread" && sameGame(split) && sameSlateTeam(split.selectionTeam, selection));
+}
+
+function fbEzpzRecordType(pick: EzpzPick, splits: DraftKingsSplit[]): FbRecordType | null {
+  const split = fbPickSplit(pick, splits);
+  return fbRecordTypeForSelection(pick.market, pick.market === "Total" ? split?.side || pick.selection : pick.selection, split?.line ?? fbTrailingLine(pick.selection));
+}
+
+function fbTodayRecordMap(rows: SheetRow[], today: string) {
+  return new Map<string, Summary>(FB_RECORD_TYPES.map((betType) => {
+    const matching = rows.filter((row) => fbResult(row.Result || row.Status) && fbDate(row.Date) === today && fbTrackerRecordType(row) === betType);
+    return [betType, fbSummary(betType, fbTotals(matching, today))];
+  }));
+}
+
+function fbLastSevenBetsRecordMap(rows: SheetRow[], today: string) {
+  return new Map<string, Summary>(FB_RECORD_TYPES.map((betType) => {
+    const matching = rows
+      .map((row, index) => ({ row, index, stamp: Date.parse(`${fbDate(row.Date)}T12:00:00Z`) || 0 }))
+      .filter(({ row }) => fbResult(row.Result || row.Status) && fbTrackerRecordType(row) === betType)
+      .sort((a, b) => b.stamp - a.stamp || b.index - a.index)
+      .slice(0, 7)
+      .map(({ row }) => row);
+    return [betType, fbSummary(betType, fbTotals(matching, today))];
+  }));
+}
+
+function fbAiSummaryRecord(summary: Summary | null) {
+  return summary?.totalBets ? `${summary.wins}-${summary.losses}-${summary.pushes}` : "—";
+}
+
+function fbAiSummaryRoi(summary: Summary | null) {
+  if (!summary?.totalBets) return "—";
+  const value = Number(summary.roiPct || 0);
+  return `${value > 0 ? "+" : ""}${value.toFixed(1)}%`;
+}
+
+function fbSignedPercent(value: number) {
+  return `${value > 0 ? "+" : ""}${value.toFixed(1)}%`;
+}
+
+function fbTrendPlayForPick(pick: EzpzPick, trendPlays: TrendPlay[]) {
+  const sameMarket = trendPlays.filter((play) => fbComparableGame(play.game) === fbComparableGame(pick.game) && play.market === pick.market);
+  if (pick.market === "Total") {
+    const wantedSide = textKey(pick.selection).startsWith("under") ? "under" : "over";
+    return sameMarket.find((play) => textKey(play.side) === wantedSide) || null;
+  }
+  const pickTeam = textKey(String(pick.selection || "").replace(/\s+[+-]?\d+(?:\.\d+)?\s*$/, ""));
+  return sameMarket.find((play) => {
+    const trendTeam = textKey(play.selectionTeam || play.selection);
+    return Boolean(trendTeam && (pickTeam === trendTeam || pickTeam.includes(trendTeam) || trendTeam.includes(pickTeam)));
+  }) || null;
+}
+
+function fbTrendSignalRoi(signal: TrendSignal) {
+  const records = signal.records;
+  const last7Decisions = records.last7.wins + records.last7.losses;
+  const last7Weight = Math.min(0.5, Math.max(0, last7Decisions) * 0.1);
+  const carry = (0.5 - last7Weight) / 2;
+  const windows = [
+    { record: records.allTime, weight: 0.25 + carry },
+    { record: records.last30, weight: 0.25 + carry },
+    { record: records.last7, weight: last7Weight },
+  ].filter((item) => item.record.totalBets > 0 && item.weight > 0);
+  if (!windows.length) return null;
+  const totalWeight = windows.reduce((sum, item) => sum + item.weight, 0);
+  return windows.reduce((sum, item) => sum + item.record.roiPct * item.weight, 0) / totalWeight;
+}
+
+function fbTrendPlayRoi(play: TrendPlay) {
+  const signalRois = (play.signals || []).map(fbTrendSignalRoi).filter((value): value is number => value != null && Number.isFinite(value));
+  return signalRois.length ? signalRois.reduce((sum, value) => sum + value, 0) / signalRois.length : null;
+}
+
+function fbTrendNetRoiSummary(play: TrendPlay, trendPlays: TrendPlay[]) {
+  const candidateRoiPct = fbTrendPlayRoi(play);
+  if (candidateRoiPct == null) return null;
+  const sideKey = play.market === "Total" ? textKey(play.side) : textKey(play.selectionTeam || play.selection);
+  const opponents = trendPlays
+    .filter((candidate) => fbComparableGame(candidate.game) === fbComparableGame(play.game) && candidate.market === play.market)
+    .filter((candidate) => (candidate.market === "Total" ? textKey(candidate.side) : textKey(candidate.selectionTeam || candidate.selection)) !== sideKey)
+    .map((candidate) => ({ play: candidate, roiPct: fbTrendPlayRoi(candidate) }))
+    .filter((candidate): candidate is { play: TrendPlay; roiPct: number } => candidate.roiPct != null && Number.isFinite(candidate.roiPct))
+    .sort((a, b) => b.roiPct - a.roiPct);
+  const opponent = opponents[0];
+  if (!opponent) return null;
+  return { candidateRoiPct, opponentRoiPct: opponent.roiPct, netRoiPct: candidateRoiPct - opponent.roiPct };
+}
+
+function BestPlayCard({ play, splits, index, recentByType, lastSevenBetsByType }: { play: Play; splits: DraftKingsSplit[]; index: number; recentByType: Map<string, Summary>; lastSevenBetsByType: Map<string, Summary> }) {
   const split = selectedSplit(play, splits);
   const roleKey = textKey(play.role || play.playType);
   const market = roleKey.includes("total") ? "Total" : "Spread";
+  const recordType = fbBestPlayRecordType(play, split);
+  const recentSummary = recordType ? recentByType.get(recordType) || null : null;
+  const lastSevenBetsSummary = recordType ? lastSevenBetsByType.get(recordType) || null : null;
   const scoreValue = Number(play.score);
   const scoreLabel = Number.isFinite(scoreValue)
     ? (scoreValue <= 1 ? scoreValue * 100 : scoreValue).toFixed(1)
@@ -495,6 +676,13 @@ function BestPlayCard({ play, splits, index }: { play: Play; splits: DraftKingsS
         <MiniBubble label="Market" value={market} green />
       </div>
 
+      {recordType ? (
+        <div className="formRow">
+          <FbFormTag summary={recentSummary} window="last7Days" />
+          <FbFormTag summary={lastSevenBetsSummary} window="last7Bets" />
+        </div>
+      ) : null}
+
       {split ? (
         <div className="publicSplitPanel footballPublicSplitPanel">
           <div className="publicSplitTitle">
@@ -516,7 +704,7 @@ function BestPlayCard({ play, splits, index }: { play: Play; splits: DraftKingsS
       )}
 
       <div className="modelMeta footballModelMeta">
-        <span>Regression model</span>
+        <span>{recordType || "Regression model"}</span>
         <span>Spread + Total workflow</span>
       </div>
     </article>
@@ -638,34 +826,164 @@ function TrendGameCard({ game, plays }: { game: string; plays: TrendPlay[] }) {
 }
 
 
-function EzpzPickCard({ pick, index }: { pick: EzpzPick; index: number }) {
+function EzpzPickCard({
+  pick,
+  splits,
+  trendPlays,
+  slateRows,
+  todayByType,
+  recentByType,
+  lastSevenBetsByType,
+  overallByType,
+}: {
+  pick: EzpzPick;
+  splits: DraftKingsSplit[];
+  trendPlays: TrendPlay[];
+  slateRows: SheetRow[];
+  todayByType: Map<string, Summary>;
+  recentByType: Map<string, Summary>;
+  lastSevenBetsByType: Map<string, Summary>;
+  overallByType: Map<string, Summary>;
+}) {
+  const trendPlay = pick.source === "Trend Play" ? fbTrendPlayForPick(pick, trendPlays) : null;
+  const trendRoiSummary = trendPlay ? fbTrendNetRoiSummary(trendPlay, trendPlays) : null;
+  const recordType = pick.source !== "Trend Play" ? fbEzpzRecordType(pick, splits) : null;
+  const todaySummary = recordType ? todayByType.get(recordType) || null : null;
+  const last7DaysSummary = recordType ? recentByType.get(recordType) || null : null;
+  const lastSevenBetsSummary = recordType ? lastSevenBetsByType.get(recordType) || null : null;
+  const overallSummary = recordType ? overallByType.get(recordType) || null : null;
+  const bestPlayGate = recordType ? fbFormInfo(lastSevenBetsSummary, "last7Bets") : null;
+  const slateRow = slateRows.find((row) => fbComparableGame(row.Game || `${row["Away Team"]} @ ${row["Home Team"]}`) === fbComparableGame(pick.game));
+  const timeLabel = trendPlay?.gameTime || String(slateRow?.["Game Time"] || slateRow?.Time || "TBD");
+  const isFinal = pick.source !== "Trend Play" || trendPlay?.snapshotStatus === "FINAL_PREGAME";
+
   return (
-    <article className={`card green fade-in best footballBestCard ${index < 3 ? "top" : ""}`}>
-      <div className="cardTop">
-        <div className="rankBadge">#{index + 1}</div>
-        <div className="scorePill" aria-label={`EZPZ qualification score ${pick.score.toFixed(1)}`}>
-          <span className="scorePillLabel">EZPZ</span>
-          <strong>{pick.score.toFixed(1)}</strong>
-          <span className="scorePillSub">SCORE</span>
+    <details className="aiPickDropdown">
+      <summary className="aiPickSummary">
+        <div className="aiPickSummaryTime">
+          <strong>{timeLabel}</strong>
+          <span>{pick.market}</span>
         </div>
+        <div className="aiPickSummaryMain">
+          <div className="aiPickSummaryMeta">
+            <span>{pick.game}</span>
+            <span className={`aiStatusBadge ${isFinal ? "final" : "pending"}`}>
+              {isFinal ? "FINAL" : "LIVE — NOT LOCKED"}
+            </span>
+          </div>
+          <strong>{pick.selection}</strong>
+        </div>
+        <div className="aiPickSummaryOdds">{pick.odds || "—"}</div>
+        <span className="aiPickChevron" aria-hidden="true">⌄</span>
+      </summary>
+
+      <div className="aiPickExpanded">
+        <div className="aiPickExpandedHead">
+          <span>EZPZ PICK</span>
+          <strong>{pick.selection}</strong>
+          <small>{pick.game}</small>
+        </div>
+
+        {bestPlayGate && recordType ? (
+          <section className={`aiPickQualificationGate ${bestPlayGate.className}`}>
+            <div className="aiPickQualificationGateHead">
+              <div>
+                <span>Best Play Record Snapshot</span>
+                <strong>{recordType}</strong>
+              </div>
+              <span className={`formPill ${bestPlayGate.className}`}>
+                {bestPlayGate.icon} Last 7 Bets: {bestPlayGate.label}
+              </span>
+            </div>
+            <div className="aiPickGateGrid">
+              <div className="aiPickGateMetric">
+                <span>Today</span>
+                <strong>{fbAiSummaryRecord(todaySummary)}</strong>
+                <small>ROI {fbAiSummaryRoi(todaySummary)}</small>
+              </div>
+              <div className="aiPickGateMetric">
+                <span>Last 7 Days</span>
+                <strong>{fbAiSummaryRecord(last7DaysSummary)}</strong>
+                <small>ROI {fbAiSummaryRoi(last7DaysSummary)}</small>
+              </div>
+              <div className="aiPickGateMetric">
+                <span>Last 7 Bets</span>
+                <strong>{fbAiSummaryRecord(lastSevenBetsSummary)}</strong>
+                <small>ROI {fbAiSummaryRoi(lastSevenBetsSummary)}</small>
+              </div>
+              <div className="aiPickGateMetric">
+                <span>Overall</span>
+                <strong>{fbAiSummaryRecord(overallSummary)}</strong>
+                <small>Final Net ROI {fbAiSummaryRoi(overallSummary)}</small>
+              </div>
+            </div>
+          </section>
+        ) : null}
+
+        {trendPlay?.signals?.length ? (
+          <section className="aiPickDetailSection historical aiTrendEvidence">
+            <div className="aiTrendEvidenceHead">
+              <div>
+                <h3>Trend Evidence</h3>
+                <p>Historical market-signal performance behind this Trend Play.</p>
+              </div>
+              <span className="aiTrendTierPill">{trendPlay.tier}</span>
+            </div>
+
+            {trendRoiSummary ? (
+              <div className="aiTrendNetRoiCard">
+                <div className="aiTrendNetRoiMain">
+                  <div>
+                    <span>Final Net ROI</span>
+                    <small>Recent-window ROI edge versus the opposing side</small>
+                  </div>
+                  <strong className={trendRoiSummary.netRoiPct >= 0 ? "positive" : "negative"}>
+                    {fbSignedPercent(trendRoiSummary.netRoiPct)}
+                  </strong>
+                </div>
+                <div className="aiTrendNetRoiBreakdown">
+                  <span>Selected side <b>{fbSignedPercent(trendRoiSummary.candidateRoiPct)}</b></span>
+                  <span>Opposing side <b>{fbSignedPercent(trendRoiSummary.opponentRoiPct)}</b></span>
+                </div>
+              </div>
+            ) : null}
+
+            <div className="aiTrendSignalList">
+              {trendPlay.signals.map((signal, signalIndex) => (
+                <div className="aiTrendSignalCard" key={`${signal.signal}-${signalIndex}`}>
+                  <div className="aiTrendSignalName">{signal.signal}</div>
+                  <div className="aiTrendSignalStats">
+                    <div>
+                      <span>Overall</span>
+                      <strong>{signal.records.allTime.record}</strong>
+                      <small className={signal.records.allTime.roiPct >= 0 ? "positive" : "negative"}>{fbSignedPercent(signal.records.allTime.roiPct)} ROI</small>
+                    </div>
+                    <div>
+                      <span>Last 30</span>
+                      <strong>{signal.records.last30.record}</strong>
+                      <small className={signal.records.last30.roiPct >= 0 ? "positive" : "negative"}>{fbSignedPercent(signal.records.last30.roiPct)} ROI</small>
+                    </div>
+                    <div>
+                      <span>Last 7</span>
+                      <strong>{signal.records.last7.record}</strong>
+                      <small className={signal.records.last7.roiPct >= 0 ? "positive" : "negative"}>{fbSignedPercent(signal.records.last7.roiPct)} ROI</small>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        ) : null}
+
+        <section className="aiPickDetailSection data">
+          <h3>Data Status</h3>
+          <ul>
+            <li>{pick.qualification}</li>
+            <li>Max favorite price -150</li>
+          </ul>
+        </section>
       </div>
-      <div className="cardSub footballMatchup">{pick.game}</div>
-      <div className="projectionBlock footballProjectionBlock">
-        <div className="projection footballProjection">{pick.selection}</div>
-        <div className="grade">{pick.tier}</div>
-      </div>
-      <div className="divider" />
-      <div className="bubbleGrid footballBestMetrics">
-        <MiniBubble label="Odds" value={pick.odds} green />
-        <MiniBubble label="Market" value={pick.market} green />
-        <MiniBubble label="Source" value={pick.source} green />
-        <MiniBubble label="Last 7" value={pick.record || "Trend"} green />
-      </div>
-      <div className="modelMeta footballModelMeta">
-        <span>{pick.qualification}</span>
-        <span>Max favorite price -150</span>
-      </div>
-    </article>
+    </details>
   );
 }
 
@@ -754,12 +1072,15 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
     return [...map.values()];
   }, [weeklyData?.games, data.slateToday, data.today]);
 
-  const summaryMap = new Map((data.recordSummary || []).map((row) => [row.betType, row]));
-  const last7Map = new Map((data.last7RecordSummary || []).map((row) => [row.betType, row]));
+  const summaryMap = new Map<string, Summary>((data.recordSummary || []).map((row) => [row.betType, row]));
+  const last7Map = new Map<string, Summary>((data.last7RecordSummary || []).map((row) => [row.betType, row]));
+  const trackerRows = data.betTrackerRows || [];
+  const todayByType = fbTodayRecordMap(trackerRows, data.today);
+  const lastSevenBetsByType = fbLastSevenBetsRecordMap(trackerRows, data.today);
 
   let content;
   if (tab === "Today’s Model Plays") {
-    content = data.bestPlays.length ? <div className="fbGrid">{data.bestPlays.map((play, index) => <BestPlayCard key={`${play.game}-${play.play}-${index}`} play={play} splits={splits} index={index} />)}</div> : <div className="empty footballEmpty">No graded {sport} Best Plays are saved for {data.today}.</div>;
+    content = data.bestPlays.length ? <div className="fbGrid">{data.bestPlays.map((play, index) => <BestPlayCard key={`${play.game}-${play.play}-${index}`} play={play} splits={splits} index={index} recentByType={last7Map} lastSevenBetsByType={lastSevenBetsByType} />)}</div> : <div className="empty footballEmpty">No graded {sport} Best Plays are saved for {data.today}.</div>;
   } else if (tab === "Today’s Trend Plays") {
     content = <>
       <div className="trendWeekControls">
@@ -771,7 +1092,7 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
   } else if (tab === "EZPZ Picks") {
     content = <>
       <div className="sectionHead"><div><h2>{sport} EZPZ Picks</h2><p>{data.aiSelectorStatus?.message || "HOT Best Plays and qualifying Strong/Elite Trend Plays only."}</p></div></div>
-      {data.aiPicks?.length ? <div className="fbGrid">{data.aiPicks.map((pick, index) => <EzpzPickCard key={`${pick.game}-${pick.market}-${pick.selection}-${index}`} pick={pick} index={index} />)}</div> : <div className="empty footballEmpty">No {sport} EZPZ Picks qualify right now.</div>}
+      {data.aiPicks?.length ? <div className="aiPickStack">{data.aiPicks.map((pick, index) => <EzpzPickCard key={`${pick.game}-${pick.market}-${pick.selection}-${index}`} pick={pick} splits={splits} trendPlays={trends} slateRows={slateRows} todayByType={todayByType} recentByType={last7Map} lastSevenBetsByType={lastSevenBetsByType} overallByType={summaryMap} />)}</div> : <div className="empty footballEmpty">No {sport} EZPZ Picks qualify right now.</div>}
     </>;
   } else if (tab === "Full Slate") {
     content = slateRows.length ? <div className="fbSlateStack">{slateRows.map((row, index) => <SlateCard key={`${row["Game Key"] || row["Game ID"] || row.Game}-${index}`} row={row} splits={splits} />)}</div> : <div className="empty footballEmpty">No {sport} games are posted for {data.today} yet.</div>;

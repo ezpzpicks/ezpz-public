@@ -1310,15 +1310,24 @@ function americanOddsText(value: unknown) {
   return Number.isFinite(odds) && Math.abs(odds) >= 100 ? match[1] : "";
 }
 
-function footballLastSevenForMarket(rows: SheetRow[], market: "Spread" | "Total") {
-  const key = textKey(market);
+type FootballBestRecordType = "Spread" | "Total" | "Favorite Spread" | "Underdog Spread" | "Over" | "Under";
+
+function footballTrackerRecordType(row: SheetRow, sport: FootballSport): FootballBestRecordType | "" {
+  const marketKey = textKey(row["Bet Type"] || row.Market);
+  if (sport !== "NCAAF") return marketKey.includes("total") ? "Total" : marketKey.includes("spread") ? "Spread" : "";
+  if (marketKey.includes("total")) {
+    const side = textKey(row.Selection);
+    return side.startsWith("under") ? "Under" : side.startsWith("over") ? "Over" : "";
+  }
+  if (!marketKey.includes("spread")) return "";
+  const line = trackerLine(row.Selection);
+  return line == null || Math.abs(line) < 1e-9 ? "" : line < 0 ? "Favorite Spread" : "Underdog Spread";
+}
+
+function footballLastSevenForType(rows: SheetRow[], recordType: FootballBestRecordType, sport: FootballSport) {
   const completed = rows
-    .map((row, index) => ({
-      row,
-      index,
-      stamp: Date.parse(`${isoDate(row.Date)}T12:00:00Z`) || 0,
-    }))
-    .filter(({ row }) => resultCode(row.Result || row.Status) && textKey(row["Bet Type"] || row.Market).includes(key))
+    .map((row, index) => ({ row, index, stamp: Date.parse(`${isoDate(row.Date)}T12:00:00Z`) || 0 }))
+    .filter(({ row }) => resultCode(row.Result || row.Status) && footballTrackerRecordType(row, sport) === recordType)
     .sort((a, b) => b.stamp - a.stamp || b.index - a.index)
     .slice(0, 7)
     .map(({ row }) => row);
@@ -1345,6 +1354,15 @@ function footballBestPlaySplit(play: any, splits: DraftKingsSplit[], sport: Foot
   return splits.find((split) => split.market === "Spread" && sameGame(split) && sameTeam(split.selectionTeam, selection, sport));
 }
 
+function footballBestPlayRecordType(play: any, split: DraftKingsSplit | undefined, sport: FootballSport): FootballBestRecordType {
+  const market: "Spread" | "Total" = textKey(play.role || play.playType).includes("total") ? "Total" : "Spread";
+  if (sport !== "NCAAF") return market;
+  if (market === "Total") return split?.side === "Under" || textKey(play.play).startsWith("under") ? "Under" : "Over";
+  if (split?.sideGroup === "Favorite" || split?.sideGroup === "Underdog") return `${split.sideGroup} Spread` as FootballBestRecordType;
+  const line = split?.line ?? trackerLine(play.play);
+  return line != null && line > 0 ? "Underdog Spread" : "Favorite Spread";
+}
+
 function buildFootballEzpzPicks(
   best: any[],
   trends: TrendPlay[],
@@ -1353,13 +1371,14 @@ function buildFootballEzpzPicks(
   sport: FootballSport,
 ) {
   const picks: FootballEzpzPick[] = [];
-  const formCache = new Map<"Spread" | "Total", ReturnType<typeof recordTotals>>();
+  const formCache = new Map<FootballBestRecordType, ReturnType<typeof recordTotals>>();
   for (const play of best) {
     const market: "Spread" | "Total" = textKey(play.role || play.playType).includes("total") ? "Total" : "Spread";
-    const lastSeven = formCache.get(market) || footballLastSevenForMarket(tracker, market);
-    formCache.set(market, lastSeven);
-    if (footballBestForm(lastSeven) !== "HOT") continue;
     const split = footballBestPlaySplit(play, splits, sport);
+    const recordType = footballBestPlayRecordType(play, split, sport);
+    const lastSeven = formCache.get(recordType) || footballLastSevenForType(tracker, recordType, sport);
+    formCache.set(recordType, lastSeven);
+    if (footballBestForm(lastSeven) !== "HOT") continue;
     const odds = americanOddsText(split?.odds || play.oddsLine);
     if (!odds || Number(odds) < -150) continue;
     const rawScore = Number(play.score);
@@ -1372,7 +1391,7 @@ function buildFootballEzpzPicks(
       odds,
       score,
       tier: play.playType || "Best Play",
-      qualification: `HOT Last 7 Best Play (${lastSeven.record})`,
+      qualification: `HOT Last 7 ${recordType} Best Play (${lastSeven.record})`,
       record: lastSeven.record,
     });
   }
