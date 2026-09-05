@@ -1,0 +1,146 @@
+from pathlib import Path
+
+
+def replace_once(text: str, old: str, new: str, label: str) -> str:
+    if old not in text:
+        raise SystemExit(f"{label}: expected source block not found")
+    return text.replace(old, new, 1)
+
+
+# 1) Build football EZPZ candidates from today's slate/trends only.
+path = Path("lib/footballPublicData.ts")
+text = path.read_text()
+old = '''  const displayTrendPlays=[...displayTrendMap.values()];
+  const best=bestPlays(slate,sport);const aiPicks=buildFootballEzpzPicks(best,displayTrendPlays,tracker,enriched,sport);const overall=recordTotals(tracker);const last7=recordTotals(tracker,7);const pending=tracker.filter((r)=>!resultCode(r.Result||r.Status)).length;'''
+new = '''  const displayTrendPlays=[...displayTrendMap.values()];
+  // EZPZ is a daily card, even though the football trend board tracks the full market week.
+  // Keep the weekly trend payload for the Trend Plays tab, but only today's games may enter EZPZ.
+  const todaySlate=slate.filter((row)=>isoDate(row.Date||row["Game Date"]||"")===today);
+  const todayTrendPlays=displayTrendPlays.filter((play)=>isoDate(play.date)===today);
+  const todayEnriched=enriched.filter((split)=>isoDate(split.date)===today);
+  const best=bestPlays(todaySlate,sport);
+  const aiPicks=buildFootballEzpzPicks(best,todayTrendPlays,tracker,todayEnriched,sport);
+  const overall=recordTotals(tracker);const last7=recordTotals(tracker,7);const pending=tracker.filter((r)=>!resultCode(r.Result||r.Status)).length;'''
+text = replace_once(text, old, new, "football daily EZPZ source")
+
+old = '''return {ok:true,sport,database:sportDatabaseLabel(sport),today,lastUpdated:nowET(),tiles:{last7Days:last7,overallGreen:overall,handpickedLast7:last7,handpickedOverall:overall,pendingGreen:pending,bestPlaysToday:best.length},bestPlays:best,slateToday:slate,betTrackerRows:tracker,draftKings:{ok:enriched.length>0,status:enriched.length?"LIVE":"UNAVAILABLE",updatedAt:nowET(),stale:false,splits:enriched,props:[],errors:dk.errors,displayMode:"LIVE",trackingMode:"WEEKLY",trackingWeekStart:trackingWeek.start,trackingWeekEnd:trackingWeek.end,trackedGames:trackingSlate.length},draftKingsSignalRows:history,trendRecordRows:trendRows.filter(r=>resultCode(r.Result)),trendPlays:displayTrendPlays,aiPicks,aiPickRecordRows:[],aiSelectorStatus:{mode:"LIVE",externalResearchConfigured:false,message:aiPicks.length?`${sport} EZPZ Picks are live: HOT Best Plays plus all-green Strong/Elite Trend Plays with 10%+ net ROI advantage; max price -150.`:`No ${sport} EZPZ Picks currently qualify under the HOT / all-green 10%+ ROI / Strong-Elite / -150 rules.`,updatedAt:nowET(),candidateCount:best.length+displayTrendPlays.length,selectedCount:aiPicks.length},recordSummary,last7RecordSummary,handpickedRecordSummary:recordSummary,handpickedLast7RecordSummary:last7RecordSummary};'''
+new = '''return {ok:true,sport,database:sportDatabaseLabel(sport),today,lastUpdated:nowET(),tiles:{last7Days:last7,overallGreen:overall,handpickedLast7:last7,handpickedOverall:overall,pendingGreen:pending,bestPlaysToday:best.length},bestPlays:best,slateToday:todaySlate,betTrackerRows:tracker,draftKings:{ok:enriched.length>0,status:enriched.length?"LIVE":"UNAVAILABLE",updatedAt:nowET(),stale:false,splits:enriched,props:[],errors:dk.errors,displayMode:"LIVE",trackingMode:"WEEKLY",trackingWeekStart:trackingWeek.start,trackingWeekEnd:trackingWeek.end,trackedGames:trackingSlate.length},draftKingsSignalRows:history,trendRecordRows:trendRows.filter(r=>resultCode(r.Result)),trendPlays:displayTrendPlays,aiPicks,aiPickRecordRows:[],aiSelectorStatus:{mode:"LIVE",externalResearchConfigured:false,message:aiPicks.length?`${sport} EZPZ Picks are live for ${today}: HOT Best Plays plus all-green Strong/Elite Trend Plays with 10%+ net ROI advantage; max price -150.`:`No ${sport} EZPZ Picks for ${today} currently qualify under the HOT / all-green 10%+ ROI / Strong-Elite / -150 rules.`,updatedAt:nowET(),candidateCount:best.length+todayTrendPlays.length,selectedCount:aiPicks.length},recordSummary,last7RecordSummary,handpickedRecordSummary:recordSummary,handpickedLast7RecordSummary:last7RecordSummary};'''
+text = replace_once(text, old, new, "football public payload today scope")
+path.write_text(text)
+
+
+# 2) Defense-in-depth in the NCAAF public route: never return a non-today EZPZ pick.
+path = Path("app/api/ncaaf-public-data/route.ts")
+text = path.read_text()
+old = '''    const bestPlays = (data.bestPlays || []).filter((play: FootballPlay) =>
+      todaySlate.some((row: SheetRow) => playMatchesSlateRow(play, row)),
+    );
+
+    return NextResponse.json({
+      ...data,
+      bestPlays,
+      tiles: {
+        ...data.tiles,
+        bestPlaysToday: bestPlays.length,
+      },
+    });'''
+new = '''    const bestPlays = (data.bestPlays || []).filter((play: FootballPlay) =>
+      todaySlate.some((row: SheetRow) => playMatchesSlateRow(play, row)),
+    );
+    const aiPicks = (data.aiPicks || []).filter((pick: FootballPlay) =>
+      todaySlate.some((row: SheetRow) => playMatchesSlateRow(pick, row)),
+    );
+
+    return NextResponse.json({
+      ...data,
+      bestPlays,
+      aiPicks,
+      aiSelectorStatus: data.aiSelectorStatus
+        ? { ...data.aiSelectorStatus, selectedCount: aiPicks.length }
+        : data.aiSelectorStatus,
+      tiles: {
+        ...data.tiles,
+        bestPlaysToday: bestPlays.length,
+      },
+    });'''
+text = replace_once(text, old, new, "NCAAF API today-only aiPicks")
+path.write_text(text)
+
+
+# 3) Validate EZPZ cards against the same current trend payload that produced the pick.
+path = Path("app/FootballBoard.tsx")
+text = path.read_text()
+anchor = '''function fbTrendNetRoiSummary(play: TrendPlay, trendPlays: TrendPlay[]) {
+  const candidateRoiPct = fbTrendPlayRoi(play);
+  if (candidateRoiPct == null) return null;
+  const sideKey = play.market === "Total" ? textKey(play.side) : textKey(play.selectionTeam || play.selection);
+  const opponents = trendPlays
+    .filter((candidate) => fbSameGame(candidate.game, play.game) && candidate.market === play.market)
+    .filter((candidate) => (candidate.market === "Total" ? textKey(candidate.side) : textKey(candidate.selectionTeam || candidate.selection)) !== sideKey)
+    .map((candidate) => ({ play: candidate, roiPct: fbTrendPlayRoi(candidate) }))
+    .filter((candidate): candidate is { play: TrendPlay; roiPct: number } => candidate.roiPct != null && Number.isFinite(candidate.roiPct))
+    .sort((a, b) => b.roiPct - a.roiPct);
+  const opponent = opponents[0];
+  if (!opponent) return null;
+  return { candidateRoiPct, opponentRoiPct: opponent.roiPct, netRoiPct: candidateRoiPct - opponent.roiPct };
+}
+'''
+helper = anchor + '''
+function fbTrendPickPassesEzpzRules(pick: EzpzPick, trendPlays: TrendPlay[]) {
+  if (pick.source !== "Trend Play") return true;
+  const play = fbTrendPlayForPick(pick, trendPlays);
+  if (!play || (play.tier !== "Strong" && play.tier !== "Elite")) return false;
+  if (!play.signals?.length) return false;
+
+  // Backend signal.tone is positive exactly when the all-time historical record is winning.
+  // Recreate that test from the record payload so the public card cannot show "all-green"
+  // while its currently displayed signal evidence is actually losing.
+  const allSignalsGreen = play.signals.every(
+    (signal) => signal.records.allTime.wins > signal.records.allTime.losses,
+  );
+  if (!allSignalsGreen) return false;
+
+  const roi = fbTrendNetRoiSummary(play, trendPlays);
+  if (!roi || roi.candidateRoiPct <= 0 || roi.netRoiPct < 10) return false;
+
+  const sideKey = play.market === "Total" ? textKey(play.side) : textKey(play.selectionTeam || play.selection);
+  const opposingSides = trendPlays
+    .filter((candidate) => fbSameGame(candidate.game, play.game) && candidate.market === play.market)
+    .filter((candidate) => (candidate.market === "Total" ? textKey(candidate.side) : textKey(candidate.selectionTeam || candidate.selection)) !== sideKey);
+  const opponentLast7Green = opposingSides.some((candidate) =>
+    (candidate.signals || []).some(
+      (signal) => signal.records.last7.wins > signal.records.last7.losses,
+    ),
+  );
+  return !opponentLast7Green;
+}
+'''
+text = replace_once(text, anchor, helper, "football current trend qualification helper")
+
+old = '''  const summaryMap = new Map<string, Summary>((data.recordSummary || []).map((row) => [row.betType, row]));
+  const last7Map = new Map<string, Summary>((data.last7RecordSummary || []).map((row) => [row.betType, row]));
+  const trackerRows = data.betTrackerRows || [];
+  const todayByType = fbTodayRecordMap(trackerRows, data.today, sport);
+  const lastSevenBetsByType = fbLastSevenBetsRecordMap(trackerRows, data.today, sport);
+
+  let content;'''
+new = '''  const summaryMap = new Map<string, Summary>((data.recordSummary || []).map((row) => [row.betType, row]));
+  const last7Map = new Map<string, Summary>((data.last7RecordSummary || []).map((row) => [row.betType, row]));
+  const trackerRows = data.betTrackerRows || [];
+  const todayByType = fbTodayRecordMap(trackerRows, data.today, sport);
+  const lastSevenBetsByType = fbLastSevenBetsRecordMap(trackerRows, data.today, sport);
+  const ezpzTrendSource = data.trendPlays || [];
+  const todayEzpzPicks = (data.aiPicks || []).filter((pick) => {
+    const onTodaySlate = slateRows.some((row) =>
+      fbSameGame(row.Game || `${row["Away Team"]} @ ${row["Home Team"]}`, pick.game),
+    );
+    return onTodaySlate && fbTrendPickPassesEzpzRules(pick, ezpzTrendSource);
+  });
+
+  let content;'''
+text = replace_once(text, old, new, "football EZPZ current-day frontend filter")
+
+old = '''      {data.aiPicks?.length ? <div className="aiPickStack">{data.aiPicks.map((pick, index) => <EzpzPickCard key={`${pick.game}-${pick.market}-${pick.selection}-${index}`} pick={pick} splits={splits} trendPlays={trends} slateRows={slateRows} todayByType={todayByType} recentByType={last7Map} lastSevenBetsByType={lastSevenBetsByType} overallByType={summaryMap} sport={sport} />)}</div> : <div className="empty footballEmpty">No {sport} EZPZ Picks qualify right now.</div>}'''
+new = '''      {todayEzpzPicks.length ? <div className="aiPickStack">{todayEzpzPicks.map((pick, index) => <EzpzPickCard key={`${pick.game}-${pick.market}-${pick.selection}-${index}`} pick={pick} splits={splits} trendPlays={ezpzTrendSource} slateRows={slateRows} todayByType={todayByType} recentByType={last7Map} lastSevenBetsByType={lastSevenBetsByType} overallByType={summaryMap} sport={sport} />)}</div> : <div className="empty footballEmpty">No {sport} EZPZ Picks qualify for {data.today} right now.</div>}'''
+text = replace_once(text, old, new, "football EZPZ render source")
+path.write_text(text)
