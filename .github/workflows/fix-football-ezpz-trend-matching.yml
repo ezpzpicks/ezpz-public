@@ -1,0 +1,50 @@
+name: Fix football EZPZ trend matching
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/fix-football-ezpz-trend-matching.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Apply football EZPZ trend matching fix
+        run: python scripts/fix_football_ezpz_trend_matching.py
+
+      - name: Verify football EZPZ trend evidence wiring
+        run: |
+          grep -q 'function fbSameGame' app/FootballBoard.tsx
+          grep -q 'fbSameGame(play.game, pick.game)' app/FootballBoard.tsx
+          grep -q 'fbSameGame(candidate.game, play.game)' app/FootballBoard.tsx
+          grep -q 'function displayFootballTime' app/FootballBoard.tsx
+          grep -q 'displayFootballTime(trendPlay?.gameTime' app/FootballBoard.tsx
+          grep -q 'Historical market-signal performance behind this Trend Play.' app/FootballBoard.tsx
+          grep -q 'Final Net ROI' app/FootballBoard.tsx
+          git diff --check
+
+      - name: Build application
+        run: |
+          npm install --no-package-lock --no-audit --no-fund
+          npm run build
+
+      - name: Commit football EZPZ trend matching fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/FootballBoard.tsx
+          if git diff --cached --quiet; then
+            echo "No source changes required"
+            exit 0
+          fi
+          git commit -m "Fix CFB EZPZ trend evidence matching"
+          git push
