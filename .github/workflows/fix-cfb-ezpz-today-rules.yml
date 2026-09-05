@@ -26,12 +26,12 @@ jobs:
       - name: Verify CFB EZPZ policy wiring
         shell: bash
         run: |
-          grep -q 'const todaySlate=slate.filter' lib/footballPublicData.ts
-          grep -q 'const todayTrendPlays=displayTrendPlays.filter' lib/footballPublicData.ts
-          grep -q 'buildFootballEzpzPicks(best,todayTrendPlays,tracker,todayEnriched,sport)' lib/footballPublicData.ts
-          grep -q 'const aiPicks = (data.aiPicks || []).filter' app/api/ncaaf-public-data/route.ts
-          grep -q 'function fbTrendPickPassesEzpzRules' app/FootballBoard.tsx
-          grep -q 'trendPlays={ezpzTrendSource}' app/FootballBoard.tsx
+          grep -Fq 'const todaySlate=slate.filter' lib/footballPublicData.ts
+          grep -Fq 'const todayTrendPlays=displayTrendPlays.filter' lib/footballPublicData.ts
+          grep -Fq 'buildFootballEzpzPicks(best,todayTrendPlays,tracker,todayEnriched,sport)' lib/footballPublicData.ts
+          grep -Fq 'const aiPicks = (data.aiPicks || []).filter' app/api/ncaaf-public-data/route.ts
+          grep -Fq 'function fbTrendPickPassesEzpzRules' app/FootballBoard.tsx
+          grep -Fq 'trendPlays={ezpzTrendSource}' app/FootballBoard.tsx
           git diff --check
 
       - name: Build application
