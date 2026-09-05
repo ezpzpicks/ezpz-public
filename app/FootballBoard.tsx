@@ -198,6 +198,22 @@ function compactTimestamp(value?: string) {
   return raw || "—";
 }
 
+
+function displayFootballTime(value?: string) {
+  const raw = String(value || "").trim();
+  if (!raw) return "TBD";
+  const simple = raw.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)(?:\s+ET)?$/i);
+  if (simple) return `${Number(simple[1])}:${simple[2]} ${simple[3].toUpperCase()}`;
+  const stamp = Date.parse(raw);
+  if (!Number.isFinite(stamp)) return raw;
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  }).format(new Date(stamp));
+}
+
 function selectedSplit(play: Play, splits: DraftKingsSplit[]) {
   const role = textKey(play.role || play.playType);
   const sameGame = (split: DraftKingsSplit) => textKey(split.game) === textKey(play.game) ||
@@ -520,6 +536,28 @@ function fbComparableGame(value: unknown) {
   return textKey(value).replace(/\b(?:at|vs|versus)\b/g, " ").replace(/\s+/g, " ").trim();
 }
 
+
+function fbMatchupTeams(value: unknown) {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  const atParts = raw.split(/\s*@\s*/).map((part) => part.trim()).filter(Boolean);
+  if (atParts.length === 2) return { away: atParts[0], home: atParts[1] };
+  const wordParts = raw.split(/\s+(?:at|vs\.?|versus)\s+/i).map((part) => part.trim()).filter(Boolean);
+  return wordParts.length === 2 ? { away: wordParts[0], home: wordParts[1] } : null;
+}
+
+function fbSameGame(a: unknown, b: unknown) {
+  const left = fbComparableGame(a);
+  const right = fbComparableGame(b);
+  if (!left || !right) return false;
+  if (left === right) return true;
+  const leftTeams = fbMatchupTeams(a);
+  const rightTeams = fbMatchupTeams(b);
+  if (!leftTeams || !rightTeams) return false;
+  return sameSlateTeam(leftTeams.away, rightTeams.away)
+    && sameSlateTeam(leftTeams.home, rightTeams.home);
+}
+
 function fbRecordTypeForSelection(market: "Spread" | "Total", selection: unknown, line: number | null): FbRecordType | null {
   if (market === "Total") {
     const side = textKey(selection);
@@ -547,7 +585,7 @@ function fbBestPlayRecordType(play: Play, split: DraftKingsSplit | undefined, sp
 }
 
 function fbPickSplit(pick: EzpzPick, splits: DraftKingsSplit[]) {
-  const sameGame = (split: DraftKingsSplit) => fbComparableGame(split.game) === fbComparableGame(pick.game);
+  const sameGame = (split: DraftKingsSplit) => fbSameGame(split.game, pick.game);
   if (pick.market === "Total") {
     const side = textKey(pick.selection).startsWith("under") ? "Under" : "Over";
     return splits.find((split) => split.market === "Total" && split.side === side && sameGame(split));
@@ -596,7 +634,7 @@ function fbSignedPercent(value: number) {
 }
 
 function fbTrendPlayForPick(pick: EzpzPick, trendPlays: TrendPlay[]) {
-  const sameMarket = trendPlays.filter((play) => fbComparableGame(play.game) === fbComparableGame(pick.game) && play.market === pick.market);
+  const sameMarket = trendPlays.filter((play) => fbSameGame(play.game, pick.game) && play.market === pick.market);
   if (pick.market === "Total") {
     const wantedSide = textKey(pick.selection).startsWith("under") ? "under" : "over";
     return sameMarket.find((play) => textKey(play.side) === wantedSide) || null;
@@ -633,7 +671,7 @@ function fbTrendNetRoiSummary(play: TrendPlay, trendPlays: TrendPlay[]) {
   if (candidateRoiPct == null) return null;
   const sideKey = play.market === "Total" ? textKey(play.side) : textKey(play.selectionTeam || play.selection);
   const opponents = trendPlays
-    .filter((candidate) => fbComparableGame(candidate.game) === fbComparableGame(play.game) && candidate.market === play.market)
+    .filter((candidate) => fbSameGame(candidate.game, play.game) && candidate.market === play.market)
     .filter((candidate) => (candidate.market === "Total" ? textKey(candidate.side) : textKey(candidate.selectionTeam || candidate.selection)) !== sideKey)
     .map((candidate) => ({ play: candidate, roiPct: fbTrendPlayRoi(candidate) }))
     .filter((candidate): candidate is { play: TrendPlay; roiPct: number } => candidate.roiPct != null && Number.isFinite(candidate.roiPct))
@@ -863,8 +901,8 @@ function EzpzPickCard({
   const lastSevenBetsSummary = recordType ? lastSevenBetsByType.get(recordType) || null : null;
   const overallSummary = recordType ? overallByType.get(recordType) || null : null;
   const bestPlayGate = recordType ? fbFormInfo(lastSevenBetsSummary, "last7Bets") : null;
-  const slateRow = slateRows.find((row) => fbComparableGame(row.Game || `${row["Away Team"]} @ ${row["Home Team"]}`) === fbComparableGame(pick.game));
-  const timeLabel = trendPlay?.gameTime || String(slateRow?.["Game Time"] || slateRow?.Time || "TBD");
+  const slateRow = slateRows.find((row) => fbSameGame(row.Game || `${row["Away Team"]} @ ${row["Home Team"]}`, pick.game));
+  const timeLabel = displayFootballTime(trendPlay?.gameTime || String(slateRow?.["Game Time"] || slateRow?.Time || ""));
   const isFinal = pick.source !== "Trend Play" || trendPlay?.snapshotStatus === "FINAL_PREGAME";
 
   return (
