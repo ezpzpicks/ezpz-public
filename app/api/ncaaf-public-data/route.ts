@@ -75,10 +75,17 @@ export async function GET(request: NextRequest) {
     const bestPlays = (data.bestPlays || []).filter((play: FootballPlay) =>
       todaySlate.some((row: SheetRow) => playMatchesSlateRow(play, row)),
     );
+    const aiPicks = (data.aiPicks || []).filter((pick: FootballPlay) =>
+      todaySlate.some((row: SheetRow) => playMatchesSlateRow(pick, row)),
+    );
 
     return NextResponse.json({
       ...data,
       bestPlays,
+      aiPicks,
+      aiSelectorStatus: data.aiSelectorStatus
+        ? { ...data.aiSelectorStatus, selectedCount: aiPicks.length }
+        : data.aiSelectorStatus,
       tiles: {
         ...data.tiles,
         bestPlaysToday: bestPlays.length,

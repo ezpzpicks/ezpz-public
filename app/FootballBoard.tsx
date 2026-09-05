@@ -681,6 +681,35 @@ function fbTrendNetRoiSummary(play: TrendPlay, trendPlays: TrendPlay[]) {
   return { candidateRoiPct, opponentRoiPct: opponent.roiPct, netRoiPct: candidateRoiPct - opponent.roiPct };
 }
 
+function fbTrendPickPassesEzpzRules(pick: EzpzPick, trendPlays: TrendPlay[]) {
+  if (pick.source !== "Trend Play") return true;
+  const play = fbTrendPlayForPick(pick, trendPlays);
+  if (!play || (play.tier !== "Strong" && play.tier !== "Elite")) return false;
+  if (!play.signals?.length) return false;
+
+  // Backend signal.tone is positive exactly when the all-time historical record is winning.
+  // Recreate that test from the record payload so the public card cannot show "all-green"
+  // while its currently displayed signal evidence is actually losing.
+  const allSignalsGreen = play.signals.every(
+    (signal) => signal.records.allTime.wins > signal.records.allTime.losses,
+  );
+  if (!allSignalsGreen) return false;
+
+  const roi = fbTrendNetRoiSummary(play, trendPlays);
+  if (!roi || roi.candidateRoiPct <= 0 || roi.netRoiPct < 10) return false;
+
+  const sideKey = play.market === "Total" ? textKey(play.side) : textKey(play.selectionTeam || play.selection);
+  const opposingSides = trendPlays
+    .filter((candidate) => fbSameGame(candidate.game, play.game) && candidate.market === play.market)
+    .filter((candidate) => (candidate.market === "Total" ? textKey(candidate.side) : textKey(candidate.selectionTeam || candidate.selection)) !== sideKey);
+  const opponentLast7Green = opposingSides.some((candidate) =>
+    (candidate.signals || []).some(
+      (signal) => signal.records.last7.wins > signal.records.last7.losses,
+    ),
+  );
+  return !opponentLast7Green;
+}
+
 function BestPlayCard({ play, splits, index, sport, recentByType, lastSevenBetsByType }: { play: Play; splits: DraftKingsSplit[]; index: number; sport: Sport; recentByType: Map<string, Summary>; lastSevenBetsByType: Map<string, Summary> }) {
   const split = selectedSplit(play, splits);
   const roleKey = textKey(play.role || play.playType);
@@ -1125,6 +1154,13 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
   const trackerRows = data.betTrackerRows || [];
   const todayByType = fbTodayRecordMap(trackerRows, data.today, sport);
   const lastSevenBetsByType = fbLastSevenBetsRecordMap(trackerRows, data.today, sport);
+  const ezpzTrendSource = data.trendPlays || [];
+  const todayEzpzPicks = (data.aiPicks || []).filter((pick) => {
+    const onTodaySlate = slateRows.some((row) =>
+      fbSameGame(row.Game || `${row["Away Team"]} @ ${row["Home Team"]}`, pick.game),
+    );
+    return onTodaySlate && fbTrendPickPassesEzpzRules(pick, ezpzTrendSource);
+  });
 
   let content;
   if (tab === "Today’s Model Plays") {
@@ -1140,7 +1176,7 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
   } else if (tab === "EZPZ Picks") {
     content = <>
       <div className="sectionHead"><div><h2>{sport} EZPZ Picks</h2><p>{data.aiSelectorStatus?.message || "HOT Best Plays and qualifying Strong/Elite Trend Plays only."}</p></div></div>
-      {data.aiPicks?.length ? <div className="aiPickStack">{data.aiPicks.map((pick, index) => <EzpzPickCard key={`${pick.game}-${pick.market}-${pick.selection}-${index}`} pick={pick} splits={splits} trendPlays={trends} slateRows={slateRows} todayByType={todayByType} recentByType={last7Map} lastSevenBetsByType={lastSevenBetsByType} overallByType={summaryMap} sport={sport} />)}</div> : <div className="empty footballEmpty">No {sport} EZPZ Picks qualify right now.</div>}
+      {todayEzpzPicks.length ? <div className="aiPickStack">{todayEzpzPicks.map((pick, index) => <EzpzPickCard key={`${pick.game}-${pick.market}-${pick.selection}-${index}`} pick={pick} splits={splits} trendPlays={ezpzTrendSource} slateRows={slateRows} todayByType={todayByType} recentByType={last7Map} lastSevenBetsByType={lastSevenBetsByType} overallByType={summaryMap} sport={sport} />)}</div> : <div className="empty footballEmpty">No {sport} EZPZ Picks qualify for {data.today} right now.</div>}
     </>;
   } else if (tab === "Full Slate") {
     content = slateRows.length ? <div className="fbSlateStack">{slateRows.map((row, index) => <SlateCard key={`${row["Game Key"] || row["Game ID"] || row.Game}-${index}`} row={row} splits={splits} />)}</div> : <div className="empty footballEmpty">No {sport} games are posted for {data.today} yet.</div>;

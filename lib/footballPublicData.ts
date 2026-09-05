@@ -1542,7 +1542,14 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
     }catch{/* ignore malformed legacy JSON */}
   }
   const displayTrendPlays=[...displayTrendMap.values()];
-  const best=bestPlays(slate,sport);const aiPicks=buildFootballEzpzPicks(best,displayTrendPlays,tracker,enriched,sport);const overall=recordTotals(tracker);const last7=recordTotals(tracker,7);const pending=tracker.filter((r)=>!resultCode(r.Result||r.Status)).length;
+  // EZPZ is a daily card, even though the football trend board tracks the full market week.
+  // Keep the weekly trend payload for the Trend Plays tab, but only today's games may enter EZPZ.
+  const todaySlate=slate.filter((row)=>isoDate(row.Date||row["Game Date"]||"")===today);
+  const todayTrendPlays=displayTrendPlays.filter((play)=>isoDate(play.date)===today);
+  const todayEnriched=enriched.filter((split)=>isoDate(split.date)===today);
+  const best=bestPlays(todaySlate,sport);
+  const aiPicks=buildFootballEzpzPicks(best,todayTrendPlays,tracker,todayEnriched,sport);
+  const overall=recordTotals(tracker);const last7=recordTotals(tracker,7);const pending=tracker.filter((r)=>!resultCode(r.Result||r.Status)).length;
   const recordGroups = sport === "NCAAF"
     ? [
         { betType: "Favorite Spread", rows: tracker.filter((r) => textKey(r["Bet Type"] || r.Market).includes("spread") && (trackerLine(r.Selection) ?? 0) < 0) },
@@ -1560,7 +1567,7 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
   });
   const recordSummary = buildRecordSummary();
   const last7RecordSummary = buildRecordSummary(7);
-  return {ok:true,sport,database:sportDatabaseLabel(sport),today,lastUpdated:nowET(),tiles:{last7Days:last7,overallGreen:overall,handpickedLast7:last7,handpickedOverall:overall,pendingGreen:pending,bestPlaysToday:best.length},bestPlays:best,slateToday:slate,betTrackerRows:tracker,draftKings:{ok:enriched.length>0,status:enriched.length?"LIVE":"UNAVAILABLE",updatedAt:nowET(),stale:false,splits:enriched,props:[],errors:dk.errors,displayMode:"LIVE",trackingMode:"WEEKLY",trackingWeekStart:trackingWeek.start,trackingWeekEnd:trackingWeek.end,trackedGames:trackingSlate.length},draftKingsSignalRows:history,trendRecordRows:trendRows.filter(r=>resultCode(r.Result)),trendPlays:displayTrendPlays,aiPicks,aiPickRecordRows:[],aiSelectorStatus:{mode:"LIVE",externalResearchConfigured:false,message:aiPicks.length?`${sport} EZPZ Picks are live: HOT Best Plays plus all-green Strong/Elite Trend Plays with 10%+ net ROI advantage; max price -150.`:`No ${sport} EZPZ Picks currently qualify under the HOT / all-green 10%+ ROI / Strong-Elite / -150 rules.`,updatedAt:nowET(),candidateCount:best.length+displayTrendPlays.length,selectedCount:aiPicks.length},recordSummary,last7RecordSummary,handpickedRecordSummary:recordSummary,handpickedLast7RecordSummary:last7RecordSummary};
+  return {ok:true,sport,database:sportDatabaseLabel(sport),today,lastUpdated:nowET(),tiles:{last7Days:last7,overallGreen:overall,handpickedLast7:last7,handpickedOverall:overall,pendingGreen:pending,bestPlaysToday:best.length},bestPlays:best,slateToday:todaySlate,betTrackerRows:tracker,draftKings:{ok:enriched.length>0,status:enriched.length?"LIVE":"UNAVAILABLE",updatedAt:nowET(),stale:false,splits:enriched,props:[],errors:dk.errors,displayMode:"LIVE",trackingMode:"WEEKLY",trackingWeekStart:trackingWeek.start,trackingWeekEnd:trackingWeek.end,trackedGames:trackingSlate.length},draftKingsSignalRows:history,trendRecordRows:trendRows.filter(r=>resultCode(r.Result)),trendPlays:displayTrendPlays,aiPicks,aiPickRecordRows:[],aiSelectorStatus:{mode:"LIVE",externalResearchConfigured:false,message:aiPicks.length?`${sport} EZPZ Picks are live for ${today}: HOT Best Plays plus all-green Strong/Elite Trend Plays with 10%+ net ROI advantage; max price -150.`:`No ${sport} EZPZ Picks for ${today} currently qualify under the HOT / all-green 10%+ ROI / Strong-Elite / -150 rules.`,updatedAt:nowET(),candidateCount:best.length+todayTrendPlays.length,selectedCount:aiPicks.length},recordSummary,last7RecordSummary,handpickedRecordSummary:recordSummary,handpickedLast7RecordSummary:last7RecordSummary};
 }
 
 const FOOTBALL_PUBLIC_DATA_CACHE_TTL_MS = 60_000;
