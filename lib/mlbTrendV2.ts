@@ -70,7 +70,24 @@ function tierFor(score:number,winner:boolean,eligible:boolean){if(!winner||!elig
 function normalizeTeam(v:unknown){return String(v||"").toLowerCase().replace(/[^a-z0-9]+/g," ").replace(/\s+/g," ").trim()}
 function rowGameKey(play:AnyRow,slate:AnyRow[]){const direct=String(play?.recordGameKey||play?.gameKey||"").trim().replace(/\.0$/,"");if(direct)return direct;const away=normalizeTeam(play?.awayTeam),home=normalizeTeam(play?.homeTeam);const row=slate.find(r=>normalizeTeam(r?.["Away Team"]||r?.awayTeam)===away&&normalizeTeam(r?.["Home Team"]||r?.homeTeam)===home);return String(row?.["Game Key"]||row?.gameKey||"").trim().replace(/\.0$/,"")}
 function gameTimeFor(play:AnyRow,slate:AnyRow[]){if(play?.recordGameTime)return String(play.recordGameTime);const key=rowGameKey(play,slate);const row=slate.find(r=>String(r?.["Game Key"]||"").trim().replace(/\.0$/,"")===key);return String(row?.["Game Time"]||row?.["Game Time ET"]||row?.gameTime||"")}
-export function parseGameStart(dateValue:unknown,timeValue:unknown):number|null {const t=String(timeValue||"").trim();if(t){const direct=Date.parse(t);if(Number.isFinite(direct))return direct}const d=String(dateValue||"").trim();if(!d||!t)return null;const combined=Date.parse(`${d} ${t}`);return Number.isFinite(combined)?combined:null}
+function easternOffsetMs(atMs:number){const parts=new Intl.DateTimeFormat("en-US",{timeZone:"America/New_York",year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",second:"2-digit",hourCycle:"h23"}).formatToParts(new Date(atMs));const read=(type:string)=>Number(parts.find(p=>p.type===type)?.value||0);const renderedAsUtc=Date.UTC(read("year"),read("month")-1,read("day"),read("hour"),read("minute"),read("second"));return renderedAsUtc-Math.floor(atMs/1000)*1000}
+function easternWallClockToMs(year:number,month:number,day:number,hour:number,minute:number,second=0){const wallAsUtc=Date.UTC(year,month-1,day,hour,minute,second);let utc=wallAsUtc;for(let i=0;i<3;i++){const next=wallAsUtc-easternOffsetMs(utc);if(Math.abs(next-utc)<1000)return next;utc=next}return utc}
+export function parseGameStart(dateValue:unknown,timeValue:unknown):number|null {
+  const t=String(timeValue||"").trim();
+  if(!t)return null;
+  if(/^\d{4}-\d{2}-\d{2}[T ]/i.test(t)||/[zZ]$/.test(t)||/[+-]\d{2}:?\d{2}$/.test(t)){const direct=Date.parse(t);if(Number.isFinite(direct))return direct}
+  const d=String(dateValue||"").trim();if(!d)return null;
+  const dm=d.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/)||d.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  let year=0,month=0,day=0;
+  if(dm&&dm[1]?.length===4){year=Number(dm[1]);month=Number(dm[2]);day=Number(dm[3])}
+  else if(dm){month=Number(dm[1]);day=Number(dm[2]);year=Number(dm[3])}
+  else {const parsed=Date.parse(d);if(!Number.isFinite(parsed))return null;const parts=new Intl.DateTimeFormat("en-US",{timeZone:"America/New_York",year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(new Date(parsed));const read=(type:string)=>Number(parts.find(p=>p.type===type)?.value||0);year=read("year");month=read("month");day=read("day")}
+  const tm=t.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?(?:\s*(?:ET|EST|EDT))?$/i);if(!tm)return null;
+  let hour=Number(tm[1]);const minute=Number(tm[2]),second=Number(tm[3]||0),meridiem=String(tm[4]||"").toUpperCase();
+  if(meridiem){if(hour<1||hour>12)return null;if(meridiem==="AM"&&hour===12)hour=0;if(meridiem==="PM"&&hour!==12)hour+=12}else if(hour>23)return null;
+  if(month<1||month>12||day<1||day>31||minute>59||second>59)return null;
+  return easternWallClockToMs(year,month,day,hour,minute,second);
+}
 function pairKey(play:AnyRow,slate:AnyRow[]){const key=rowGameKey(play,slate)||`${normalizeTeam(play?.awayTeam)}|${normalizeTeam(play?.homeTeam)}`;return`${key}|${String(play?.market||"")}`}
 
 export type V2TrendPlay=AnyRow&{legacyScore:number;legacyTier:string;v2Score:number;v2Tier:string;v2Probability:number;v2MarketGap:number;v2ImpliedProbability:number;v2DataComplete:boolean;v2Direction:boolean;v2LegacyAgreement:boolean;v2DailyEligible:boolean;v2DailyRank:number|null;v2GameKey:string;v2GameTime:string;v2ModelVersion:string};
