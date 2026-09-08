@@ -42,7 +42,7 @@ jobs:
           restore-keys: |
             final-trend-lock-notifications-
 
-      - name: Initialize MLB slate, refresh DraftKings baseline, and lock eligible pregame snapshots
+      - name: Refresh DraftKings and run MLB Trend v2 rolling capture
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
@@ -55,7 +55,7 @@ jobs:
             --max-time 75 \
             -H "Authorization: Bearer $CRON_SECRET" \
             --output /tmp/ezpz_public_data.json \
-            "https://ezpzpicks.com/api/public-data?scheduled=1&tracking=15m"
+            "https://ezpzpicks.com/api/public-data?scheduled=1&tracking=v2"
 
       - name: Send newly finalized AI picks to ntfy
         env:
@@ -81,4 +81,4 @@ jobs:
           path: .cache/final_trend_lock_notification_state.json
           key: final-trend-lock-notifications-${{ github.run_id }}
 
-# Manual live backfill trigger: 2026-08-18 20:07 ET
+# MLB Trend v2 rolling-capture switch: 2026-09-07
