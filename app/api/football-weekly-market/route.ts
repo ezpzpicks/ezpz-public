@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readWeeklyFootballMarket } from "../../../lib/footballWeeklyMarket";
 import { rescoreNcaafWeeklyMarket } from "../../../lib/footballTrendRescore";
+import { applyFootballTrendV2 } from "../../../lib/footballTrendV2Lifecycle";
 import type { FootballSport } from "../../../lib/sportSheets";
 
 export const runtime = "nodejs";
@@ -16,7 +17,8 @@ export async function GET(request: NextRequest) {
   try {
     const sport = raw as FootballSport;
     const result = await readWeeklyFootballMarket(sport);
-    const scored = await rescoreNcaafWeeklyMarket(sport, result);
+    const rescored = await rescoreNcaafWeeklyMarket(sport, result);
+    const scored = await applyFootballTrendV2(sport, rescored);
     return NextResponse.json(scored, { headers: { "Cache-Control": "no-store, max-age=0" } });
   } catch (error) {
     console.error("Football weekly market read failed", error);

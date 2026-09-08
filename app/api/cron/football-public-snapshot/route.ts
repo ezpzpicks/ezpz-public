@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { buildFootballPublicData } from "../../../../lib/footballPublicData";
+import { evaluateFootballTrendV2 } from "../../../../lib/footballTrendV2Lifecycle";
 import type { FootballSport } from "../../../../lib/sportSheets";
 
 export const runtime = "nodejs";
@@ -40,7 +41,20 @@ export async function GET(request: NextRequest) {
       forceFresh: true,
       persist: true,
     });
-    return NextResponse.json(payload, {
+    let trendV2Lifecycle: unknown = null;
+    try {
+      // evaluateFootballTrendV2 internally throttles itself to one full
+      // evaluation per ET date, so frequent market snapshots stay cheap.
+      trendV2Lifecycle = await evaluateFootballTrendV2(sport);
+    } catch (error) {
+      console.warn(`${sport} Trend V2 lifecycle evaluation failed`, error);
+      trendV2Lifecycle = {
+        sport,
+        status: "COLLECTING",
+        reason: "Lifecycle evaluation failed; incumbent/legacy scoring was left unchanged.",
+      };
+    }
+    return NextResponse.json({ ...payload, trendV2Lifecycle }, {
       headers: {
         "Cache-Control": "no-store, max-age=0",
       },
