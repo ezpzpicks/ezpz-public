@@ -105,10 +105,21 @@ export function scoreTrendBoardV2(trendPlays:AnyRow[],slateRows:AnyRow[]):V2Tren
   const ranked=resolved.filter(p=>p.v2Direction&&p.v2DailyEligible).sort((a,b)=>b.v2MarketGap-a.v2MarketGap);const rank=new Map(ranked.map((p,i)=>[`${p.v2GameKey}|${p.market}`,i+1]));return resolved.map(p=>({...p,v2DailyRank:p.v2Direction?rank.get(`${p.v2GameKey}|${p.market}`)||null:null}));
 }
 
+export type SlateThresholdInfo={threshold:number;earlyPremium:boolean;blockIndex:number;blockCount:number;phase:"EARLY"|"NORMAL"};
+export function slateThresholdForStart(start:number,slateRows:AnyRow[]):SlateThresholdInfo{
+  const minute=(value:number)=>Math.round(value/60000)*60000;
+  const blocks=[...new Set(slateRows.map(r=>parseGameStart(r?.Date,r?.["Game Time"]||r?.["Game Time ET"])).filter((value):value is number=>value!==null).map(minute))].sort((a,b)=>a-b);
+  const startBlock=minute(start);
+  let blockIndex=blocks.findIndex(block=>block===startBlock);
+  if(blockIndex<0){blockIndex=blocks.findIndex(block=>block>startBlock);if(blockIndex<0)blockIndex=Math.max(0,blocks.length-1)}
+  const earlyBlockCount=Math.floor(blocks.length/2);
+  const earlyPremium=blocks.length>1&&blockIndex<earlyBlockCount;
+  return{threshold:earlyPremium?MLB_TREND_V2_EARLY_GAP:MLB_TREND_V2_NORMAL_GAP,earlyPremium,blockIndex:blockIndex+1,blockCount:blocks.length,phase:earlyPremium?"EARLY":"NORMAL"};
+}
+
 export type DailyLockDecision={play:V2TrendPlay;threshold:number;earlyPremium:boolean;minutesToStart:number};
 export function chooseDailyTrendLock(scored:V2TrendPlay[],slateRows:AnyRow[],nowMs=Date.now()):DailyLockDecision|null{
-  const slateStarts=slateRows.map(r=>({key:String(r?.["Game Key"]||"").trim().replace(/\.0$/,""),start:parseGameStart(r?.Date,r?.["Game Time"]||r?.["Game Time ET"])})).filter(x=>x.start!==null) as Array<{key:string;start:number}>;
-  const candidates=scored.filter(p=>p.v2Direction&&p.v2DailyEligible).map(play=>{const start=parseGameStart(play.recordDate||play.Date,play.v2GameTime);const minutes=start==null?null:(start-nowMs)/60000;if(start==null||minutes==null||minutes<=0||minutes>MLB_TREND_V2_DECISION_WINDOW_MINUTES)return null;const later=slateStarts.some(x=>x.start>start+60000);const threshold=later?MLB_TREND_V2_EARLY_GAP:MLB_TREND_V2_NORMAL_GAP;if(play.v2MarketGap<threshold)return null;return{play,threshold,earlyPremium:later,minutesToStart:minutes}}).filter((x):x is DailyLockDecision=>Boolean(x)).sort((a,b)=>b.play.v2MarketGap-a.play.v2MarketGap);return candidates[0]||null;
+  const candidates=scored.filter(p=>p.v2Direction&&p.v2DailyEligible).map(play=>{const start=parseGameStart(play.recordDate||play.Date,play.v2GameTime);const minutes=start==null?null:(start-nowMs)/60000;if(start==null||minutes==null||minutes<=0||minutes>MLB_TREND_V2_DECISION_WINDOW_MINUTES)return null;const thresholdInfo=slateThresholdForStart(start,slateRows);if(play.v2MarketGap<thresholdInfo.threshold)return null;return{play,threshold:thresholdInfo.threshold,earlyPremium:thresholdInfo.earlyPremium,minutesToStart:minutes}}).filter((x):x is DailyLockDecision=>Boolean(x)).sort((a,b)=>b.play.v2MarketGap-a.play.v2MarketGap);return candidates[0]||null;
 }
 
 export function isoDate(value:unknown){const raw=String(value||"").trim();const iso=raw.match(/^(\d{4})-(\d{2})-(\d{2})/);if(iso)return`${iso[1]}-${iso[2]}-${iso[3]}`;const slash=raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);if(slash)return`${slash[3]}-${String(Number(slash[1])).padStart(2,"0")}-${String(Number(slash[2])).padStart(2,"0")}`;const dt=new Date(raw);if(Number.isNaN(dt.getTime()))return raw;const parts=new Intl.DateTimeFormat("en-CA",{timeZone:"America/New_York",year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(dt);const get=(type:string)=>parts.find(p=>p.type===type)?.value||"";return`${get("year")}-${get("month")}-${get("day")}`}

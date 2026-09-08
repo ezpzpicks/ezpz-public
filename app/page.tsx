@@ -3636,7 +3636,7 @@ function v2PercentText(value: unknown, digits = 2) {
 function v2RequiredGapText(play: TrendPlay) {
   const required = v2Number(play.v2RequiredGap);
   if (required === null) return "—";
-  return `${required.toFixed(0)}%${play.v2EarlyPremium ? " • EARLY" : " • FINAL"}`;
+  return `${required.toFixed(0)}%${play.v2EarlyPremium ? " • EARLY" : " • NORMAL"}`;
 }
 
 function v2GapNeededText(play: TrendPlay) {
