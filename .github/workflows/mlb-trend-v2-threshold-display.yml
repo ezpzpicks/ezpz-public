@@ -1,0 +1,343 @@
+name: Add MLB Trend V2 threshold display
+
+on:
+  push:
+    paths:
+      - ".github/workflows/mlb-trend-v2-threshold-display.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Surface live V2 threshold and decision-window status
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          page_path = Path("app/page.tsx")
+          page = page_path.read_text()
+          route_path = Path("app/api/public-data-v2/route.ts")
+          route = route_path.read_text()
+
+          # 1) The V2 route already owns the lock rules. Add display-only live annotations
+          #    using the same fixed Eastern-time parser and the same 20/10 thresholds.
+          old_import = '''  AnyRow, DailyLockDecision, MLB_TREND_V2_DECISION_WINDOW_MINUTES,
+            MLB_TREND_V2_LAUNCH_DATE, MLB_TREND_V2_VERSION, V2TrendPlay,
+          '''
+          new_import = '''  AnyRow, DailyLockDecision, MLB_TREND_V2_DECISION_WINDOW_MINUTES,
+            MLB_TREND_V2_EARLY_GAP, MLB_TREND_V2_LAUNCH_DATE, MLB_TREND_V2_NORMAL_GAP,
+            MLB_TREND_V2_VERSION, V2TrendPlay,
+          '''
+          if old_import not in route:
+              raise SystemExit("Could not find Trend V2 import block")
+          route = route.replace(old_import, new_import, 1)
+
+          marker = 'function dailyPickObject(decision:DailyLockDecision,today:string,nowMs:number):AnyRow{'
+          if marker not in route:
+              raise SystemExit("Could not find dailyPickObject marker")
+          live_helper = r'''function annotateLiveV2Status(scored:V2TrendPlay[],slateRows:AnyRow[],nowMs:number):V2TrendPlay[]{
+            const slateStarts=slateRows.map(row=>parseGameStart(row?.Date,row?.["Game Time"]||row?.["Game Time ET"])).filter((value):value is number=>value!==null);
+            return scored.map(play=>{
+              const start=parseGameStart(play.recordDate||play.Date,play.v2GameTime);
+              const minutesToStart=start==null?null:(start-nowMs)/60000;
+              const hasLaterGame=start!=null&&slateStarts.some(other=>other>start+60000);
+              const requiredGap=start==null?null:(hasLaterGame?MLB_TREND_V2_EARLY_GAP:MLB_TREND_V2_NORMAL_GAP);
+              const gapNeeded=requiredGap==null?null:Math.max(0,requiredGap-Number(play.v2MarketGap||0));
+              const decisionWindowOpen=minutesToStart!=null&&minutesToStart>0&&minutesToStart<=MLB_TREND_V2_DECISION_WINDOW_MINUTES;
+              const thresholdCleared=requiredGap!=null&&Number(play.v2MarketGap)>=requiredGap;
+              let decisionStatus="";
+              if(!play.v2Direction)decisionStatus="Not V2 direction";
+              else if(!play.v2DailyEligible)decisionStatus="Blocked by guardrail";
+              else if(minutesToStart==null)decisionStatus="Decision time unavailable";
+              else if(minutesToStart<=0)decisionStatus="Game started";
+              else if(!decisionWindowOpen)decisionStatus=`Waiting for T-${MLB_TREND_V2_DECISION_WINDOW_MINUTES} min`;
+              else if(thresholdCleared)decisionStatus="OPEN • threshold cleared";
+              else decisionStatus="OPEN • below threshold";
+              return{...play,v2RequiredGap:requiredGap,v2GapNeeded:gapNeeded,v2MinutesToStart:minutesToStart,v2EarlyPremium:requiredGap==null?null:hasLaterGame,v2DecisionWindowOpen:decisionWindowOpen,v2ThresholdCleared:thresholdCleared,v2DecisionStatus:decisionStatus} as V2TrendPlay;
+            });
+          }
+
+          '''
+          route = route.replace(marker, live_helper + marker, 1)
+
+          old_post = '''  const scored=scoreTrendBoardV2(Array.isArray(payload.trendPlays)?payload.trendPlays:[],Array.isArray(payload.slateToday)?payload.slateToday:[]);
+            payload.trendPlays=scored;
+            payload.trendV2={version:MLB_TREND_V2_VERSION,launchDate:MLB_TREND_V2_LAUNCH_DATE,normalGap:10,earlyGap:20,decisionWindowMinutes:MLB_TREND_V2_DECISION_WINDOW_MINUTES,note:"V2 Ranking Probability and Market Gap are ranking diagnostics, not calibrated win probabilities."};'''
+          new_post = '''  const slateRows=Array.isArray(payload.slateToday)?payload.slateToday:[];
+            const scored=annotateLiveV2Status(scoreTrendBoardV2(Array.isArray(payload.trendPlays)?payload.trendPlays:[],slateRows),slateRows,nowMs);
+            payload.trendPlays=scored;
+            payload.trendV2={version:MLB_TREND_V2_VERSION,launchDate:MLB_TREND_V2_LAUNCH_DATE,normalGap:MLB_TREND_V2_NORMAL_GAP,earlyGap:MLB_TREND_V2_EARLY_GAP,decisionWindowMinutes:MLB_TREND_V2_DECISION_WINDOW_MINUTES,note:"V2 Ranking Probability and Market Gap are ranking diagnostics, not calibrated win probabilities."};'''
+          if old_post not in route:
+              raise SystemExit("Could not find V2 post-process scoring block")
+          route = route.replace(old_post, new_post, 1)
+
+          # 2) Teach the public TrendPlay type about V2 fields returned by public-data-v2.
+          old_type_tail = '''  signals: TrendSignalBreakdown[];
+            updatedAt: string;
+          };'''
+          new_type_tail = '''  signals: TrendSignalBreakdown[];
+            updatedAt: string;
+            legacyScore?: number;
+            legacyTier?: string;
+            v2Score?: number;
+            v2Tier?: "Pass" | "Good" | "Strong" | "Elite";
+            v2Probability?: number;
+            v2MarketGap?: number;
+            v2ImpliedProbability?: number;
+            v2DataComplete?: boolean;
+            v2Direction?: boolean;
+            v2LegacyAgreement?: boolean;
+            v2DailyEligible?: boolean;
+            v2DailyRank?: number | null;
+            v2GameKey?: string;
+            v2GameTime?: string;
+            v2ModelVersion?: string;
+            v2PlayablePrice?: boolean;
+            v2RequiredGap?: number | null;
+            v2GapNeeded?: number | null;
+            v2MinutesToStart?: number | null;
+            v2EarlyPremium?: boolean | null;
+            v2DecisionWindowOpen?: boolean;
+            v2ThresholdCleared?: boolean;
+            v2DecisionStatus?: string;
+          };'''
+          if old_type_tail not in page:
+              raise SystemExit("Could not find TrendPlay type tail")
+          page = page.replace(old_type_tail, new_type_tail, 1)
+
+          # 3) Small formatting helpers for the visible V2 diagnostics.
+          pick_marker = '''function trendPickLabel(play: TrendPlay) {
+            return play.market === "Total"
+              ? `${play.side} ${play.line ?? ""}`.trim()
+              : play.selectionTeam || cleanMoneylineTeam(play.selection);
+          }
+          '''
+          if pick_marker not in page:
+              raise SystemExit("Could not find trendPickLabel helper")
+          helpers = pick_marker + r'''
+          function v2Number(value: unknown): number | null {
+            if (value === null || value === undefined || value === "") return null;
+            const parsed = Number(value);
+            return Number.isFinite(parsed) ? parsed : null;
+          }
+
+          function v2PercentText(value: unknown, digits = 2) {
+            const parsed = v2Number(value);
+            if (parsed === null) return "—";
+            return `${parsed > 0 ? "+" : ""}${parsed.toFixed(digits)}%`;
+          }
+
+          function v2RequiredGapText(play: TrendPlay) {
+            const required = v2Number(play.v2RequiredGap);
+            if (required === null) return "—";
+            return `${required.toFixed(0)}%${play.v2EarlyPremium ? " • EARLY" : " • FINAL"}`;
+          }
+
+          function v2GapNeededText(play: TrendPlay) {
+            const needed = v2Number(play.v2GapNeeded);
+            if (needed === null) return "—";
+            return needed <= 0.005 ? "CLEARED" : `+${needed.toFixed(2)}%`;
+          }
+          '''
+          page = page.replace(pick_marker, helpers, 1)
+
+          # 4) When the V2 API has scored the board, do not overwrite those scores in
+          #    the browser with the legacy ROI/head-to-head grading function.
+          score_marker = 'function scoreTrendMarketPlays(plays: TrendPlay[]): RankedTrendPlay[] {\n'
+          if score_marker not in page:
+              raise SystemExit("Could not find scoreTrendMarketPlays")
+          v2_branch = r'''function scoreTrendMarketPlays(plays: TrendPlay[]): RankedTrendPlay[] {
+            const hasV2 = plays.some((play) => v2Number(play.v2Score) !== null);
+            if (hasV2) {
+              return plays.map((play) => {
+                const metrics = trendPlayMetrics(play);
+                const sideKey = trendSideComparisonKey(play);
+                const opponent = plays
+                  .filter(
+                    (candidate) =>
+                      trendMarketComparisonKey(candidate) === trendMarketComparisonKey(play) &&
+                      trendSideComparisonKey(candidate) !== sideKey,
+                  )
+                  .sort(
+                    (a, b) =>
+                      (v2Number(b.v2MarketGap) ?? Number.NEGATIVE_INFINITY) -
+                      (v2Number(a.v2MarketGap) ?? Number.NEGATIVE_INFINITY),
+                  )[0];
+                const opponentMetrics = opponent ? trendPlayMetrics(opponent) : null;
+                const marketGap = v2Number(play.v2MarketGap);
+                const opponentGap = opponent ? v2Number(opponent.v2MarketGap) : null;
+                const displayScore = v2Number(play.v2Score) ?? clampScore(play.score || 0);
+                const legacyScore = v2Number(play.legacyScore) ?? clampScore(metrics.score);
+                const tier = String(play.v2Tier || play.tier || "Pass") as TrendTier;
+
+                return {
+                  ...play,
+                  originalScore: legacyScore,
+                  score: displayScore,
+                  baseTrendScore: legacyScore,
+                  trendRoiPct: metrics.roiPct,
+                  trendWinPct: metrics.winPct,
+                  comparisonGap:
+                    marketGap !== null && opponentGap !== null
+                      ? Math.abs(marketGap - opponentGap)
+                      : 0,
+                  opponentLabel: opponent ? trendPickLabel(opponent) : "",
+                  opponentBaseScore: opponent
+                    ? v2Number(opponent.legacyScore) ??
+                      clampScore(opponentMetrics?.score || 0)
+                    : null,
+                  comparisonWinner: Boolean(play.v2Direction),
+                  hasComparison: Boolean(opponent),
+                  tier,
+                };
+              });
+            }
+          '''
+          page = page.replace(score_marker, v2_branch, 1)
+
+          # 5) Break ties with the actual V2 market gap so the visible leader matches
+          #    the backend daily ranking.
+          old_sort = '''          if (b.score !== a.score) return b.score - a.score;
+                    if (b.baseTrendScore !== a.baseTrendScore) {'''
+          new_sort = '''          if (b.score !== a.score) return b.score - a.score;
+                    const aV2Gap = v2Number(a.v2MarketGap);
+                    const bV2Gap = v2Number(b.v2MarketGap);
+                    if (aV2Gap !== null && bV2Gap !== null && bV2Gap !== aV2Gap) {
+                      return bV2Gap - aV2Gap;
+                    }
+                    if (b.baseTrendScore !== a.baseTrendScore) {'''
+          if old_sort not in page:
+              raise SystemExit("Could not find trend card sort block")
+          page = page.replace(old_sort, new_sort, 1)
+
+          # 6) Show the V2 market gap in every collapsed tracked-side row.
+          old_market_summary = '''        <span className="trendSelectionMarket">
+                    <small>{play.tier}</small>
+                    <strong>{play.score}</strong>
+                  </span>'''
+          new_market_summary = '''        <span className="trendSelectionMarket">
+                    <small>{play.tier}</small>
+                    <strong>{play.score}</strong>
+                    {v2Number(play.v2MarketGap) !== null ? (
+                      <small>Gap {v2PercentText(play.v2MarketGap)}</small>
+                    ) : null}
+                  </span>'''
+          if old_market_summary not in page:
+              raise SystemExit("Could not find trend selection summary score")
+          page = page.replace(old_market_summary, new_market_summary, 1)
+
+          # 7) Put the four requested V2 diagnostics first in each expanded side.
+          old_metric_open = '''        <div className="bubbleGrid trendSelectionMetrics">
+                    <MiniBubble label="Opening Bets" value={publicPctText(play.openingBetsPct)} />'''
+          new_metric_open = '''        <div className="bubbleGrid trendSelectionMetrics">
+                    {v2Number(play.v2MarketGap) !== null ? (
+                      <>
+                        <MiniBubble
+                          label="V2 Market Gap"
+                          value={v2PercentText(play.v2MarketGap)}
+                          green={Boolean(play.v2ThresholdCleared)}
+                        />
+                        <MiniBubble label="Required Gap" value={v2RequiredGapText(play)} />
+                        <MiniBubble
+                          label="Needs"
+                          value={v2GapNeededText(play)}
+                          green={Boolean(play.v2ThresholdCleared)}
+                        />
+                        <MiniBubble
+                          label="Decision Window"
+                          value={play.v2DecisionStatus || "—"}
+                          green={Boolean(play.v2DecisionWindowOpen && play.v2ThresholdCleared)}
+                        />
+                      </>
+                    ) : null}
+                    <MiniBubble label="Opening Bets" value={publicPctText(play.openingBetsPct)} />'''
+          if old_metric_open not in page:
+              raise SystemExit("Could not find trend selection metric grid")
+          page = page.replace(old_metric_open, new_metric_open, 1)
+
+          # 8) Replace the old head-to-head summary line with V2-specific status on V2 rows.
+          old_meta = '''          <span>
+                      {play.hasComparison
+                        ? `Head-to-head gap: ${play.comparisonWinner ? "+" : "−"}${play.comparisonGap.toFixed(1)} vs ${play.opponentLabel} • Base ${play.baseTrendScore}-${play.opponentBaseScore ?? "—"}`
+                        : "Head-to-head comparison unavailable"}
+                    </span>'''
+          new_meta = '''          <span>
+                      {v2Number(play.v2MarketGap) !== null
+                        ? `V2 market gap ${v2PercentText(play.v2MarketGap)} • Required ${v2RequiredGapText(play)} • ${play.v2DecisionStatus || "Decision status unavailable"}`
+                        : play.hasComparison
+                          ? `Head-to-head gap: ${play.comparisonWinner ? "+" : "−"}${play.comparisonGap.toFixed(1)} vs ${play.opponentLabel} • Base ${play.baseTrendScore}-${play.opponentBaseScore ?? "—"}`
+                          : "Head-to-head comparison unavailable"}
+                    </span>'''
+          if old_meta not in page:
+              raise SystemExit("Could not find trend comparison metadata")
+          page = page.replace(old_meta, new_meta, 1)
+
+          # 9) Put the same four diagnostics directly on each game's V2 leader card.
+          leader_marker = '''      </div>
+
+                {topBadge ? (
+                  <div className={`modelTrendBadge trendGameMatchBadge ${topMatch.toLowerCase()}`}>
+                    {topBadge}
+                  </div>
+                ) : null}'''
+          leader_insert = '''      </div>
+
+                {leader && v2Number(leader.v2MarketGap) !== null ? (
+                  <div className="bubbleGrid trendSelectionMetrics">
+                    <MiniBubble
+                      label="V2 Market Gap"
+                      value={v2PercentText(leader.v2MarketGap)}
+                      green={Boolean(leader.v2ThresholdCleared)}
+                    />
+                    <MiniBubble label="Required Gap" value={v2RequiredGapText(leader)} />
+                    <MiniBubble
+                      label="Needs"
+                      value={v2GapNeededText(leader)}
+                      green={Boolean(leader.v2ThresholdCleared)}
+                    />
+                    <MiniBubble
+                      label="Decision Window"
+                      value={leader.v2DecisionStatus || "—"}
+                      green={Boolean(leader.v2DecisionWindowOpen && leader.v2ThresholdCleared)}
+                    />
+                  </div>
+                ) : null}
+
+                {topBadge ? (
+                  <div className={`modelTrendBadge trendGameMatchBadge ${topMatch.toLowerCase()}`}>
+                    {topBadge}
+                  </div>
+                ) : null}'''
+          if leader_marker not in page:
+              raise SystemExit("Could not find TrendGameCard leader insertion point")
+          page = page.replace(leader_marker, leader_insert, 1)
+
+          page_path.write_text(page)
+          route_path.write_text(route)
+          PY
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Verify production build
+        run: npm run build
+
+      - name: Commit MLB Trend V2 display
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/page.tsx app/api/public-data-v2/route.ts
+          if git diff --cached --quiet; then
+            echo "No code changes to commit"
+            exit 0
+          fi
+          git commit -m "Show MLB Trend V2 lock thresholds"
+          git push
