@@ -1398,6 +1398,15 @@ function buildFootballEzpzPicks(
 
   for (const play of headToHead(trends)) {
     if (play.tier !== "Strong" && play.tier !== "Elite") continue;
+    const trendSampleSize = Number(play.TrendSampleSize || 0);
+    // CFB early-season safeguard only: 1-4 samples cannot enter EZPZ;
+    // 5-9 samples may qualify, but are capped at Strong. The underlying
+    // trend score/tier remains untouched for clean forward data collection.
+    if (sport === "NCAAF" && trendSampleSize < 5) continue;
+    const ezpzTrendTier =
+      sport === "NCAAF" && trendSampleSize < 10 && play.tier === "Elite"
+        ? "Strong"
+        : play.tier;
     if (!play.signals.length || !play.signals.every((signal) => signal.tone === "positive")) continue;
     const odds = americanOddsText(play.odds);
     if (!odds || Number(odds) < -150) continue;
@@ -1408,7 +1417,7 @@ function buildFootballEzpzPicks(
       selection: play.market === "Total" ? `${play.side} ${play.line ?? ""}`.trim() : `${play.selection} ${play.line == null ? "" : `${play.line > 0 ? "+" : ""}${play.line}`}`.trim(),
       odds,
       score: Math.round(play.score * 10) / 10,
-      tier: `${play.tier} Trend Play`,
+      tier: `${ezpzTrendTier} Trend Play`,
       qualification: "All-green Trend Play • 10%+ net ROI advantage",
     });
   }

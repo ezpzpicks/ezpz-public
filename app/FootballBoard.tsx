@@ -681,10 +681,11 @@ function fbTrendNetRoiSummary(play: TrendPlay, trendPlays: TrendPlay[]) {
   return { candidateRoiPct, opponentRoiPct: opponent.roiPct, netRoiPct: candidateRoiPct - opponent.roiPct };
 }
 
-function fbTrendPickPassesEzpzRules(pick: EzpzPick, trendPlays: TrendPlay[]) {
+function fbTrendPickPassesEzpzRules(pick: EzpzPick, trendPlays: TrendPlay[], sport: Sport) {
   if (pick.source !== "Trend Play") return true;
   const play = fbTrendPlayForPick(pick, trendPlays);
   if (!play || (play.tier !== "Strong" && play.tier !== "Elite")) return false;
+  if (sport === "NCAAF" && Number(play.TrendSampleSize || 0) < 5) return false;
   if (!play.signals?.length) return false;
 
   // Backend signal.tone is positive exactly when the all-time historical record is winning.
@@ -1159,7 +1160,7 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
     const onTodaySlate = slateRows.some((row) =>
       fbSameGame(row.Game || `${row["Away Team"]} @ ${row["Home Team"]}`, pick.game),
     );
-    return onTodaySlate && fbTrendPickPassesEzpzRules(pick, ezpzTrendSource);
+    return onTodaySlate && fbTrendPickPassesEzpzRules(pick, ezpzTrendSource, sport);
   });
 
   let content;
