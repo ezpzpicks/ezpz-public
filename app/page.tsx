@@ -146,6 +146,29 @@ type TrendPlay = {
     | "Elite";
   signals: TrendSignalBreakdown[];
   updatedAt: string;
+  legacyScore?: number;
+  legacyTier?: string;
+  v2Score?: number;
+  v2Tier?: "Pass" | "Good" | "Strong" | "Elite";
+  v2Probability?: number;
+  v2MarketGap?: number;
+  v2ImpliedProbability?: number;
+  v2DataComplete?: boolean;
+  v2Direction?: boolean;
+  v2LegacyAgreement?: boolean;
+  v2DailyEligible?: boolean;
+  v2DailyRank?: number | null;
+  v2GameKey?: string;
+  v2GameTime?: string;
+  v2ModelVersion?: string;
+  v2PlayablePrice?: boolean;
+  v2RequiredGap?: number | null;
+  v2GapNeeded?: number | null;
+  v2MinutesToStart?: number | null;
+  v2EarlyPremium?: boolean | null;
+  v2DecisionWindowOpen?: boolean;
+  v2ThresholdCleared?: boolean;
+  v2DecisionStatus?: string;
 };
 
 type ModelTrendMatch = "MATCH" | "AGREE" | "";
@@ -3598,6 +3621,30 @@ function trendPickLabel(play: TrendPlay) {
     : play.selectionTeam || cleanMoneylineTeam(play.selection);
 }
 
+function v2Number(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function v2PercentText(value: unknown, digits = 2) {
+  const parsed = v2Number(value);
+  if (parsed === null) return "—";
+  return `${parsed > 0 ? "+" : ""}${parsed.toFixed(digits)}%`;
+}
+
+function v2RequiredGapText(play: TrendPlay) {
+  const required = v2Number(play.v2RequiredGap);
+  if (required === null) return "—";
+  return `${required.toFixed(0)}%${play.v2EarlyPremium ? " • EARLY" : " • FINAL"}`;
+}
+
+function v2GapNeededText(play: TrendPlay) {
+  const needed = v2Number(play.v2GapNeeded);
+  if (needed === null) return "—";
+  return needed <= 0.005 ? "CLEARED" : `+${needed.toFixed(2)}%`;
+}
+
 function rankedTrendLabel(score: number, eligible = true): TrendTier {
   if (!eligible || score < 60) return "Pass";
   if (score >= 85) return "Elite";
@@ -3787,6 +3834,51 @@ function trendSideComparisonKey(play: TrendPlay) {
 }
 
 function scoreTrendMarketPlays(plays: TrendPlay[]): RankedTrendPlay[] {
+  const hasV2 = plays.some((play) => v2Number(play.v2Score) !== null);
+  if (hasV2) {
+    return plays.map((play) => {
+      const metrics = trendPlayMetrics(play);
+      const sideKey = trendSideComparisonKey(play);
+      const opponent = plays
+        .filter(
+          (candidate) =>
+            trendMarketComparisonKey(candidate) === trendMarketComparisonKey(play) &&
+            trendSideComparisonKey(candidate) !== sideKey,
+        )
+        .sort(
+          (a, b) =>
+            (v2Number(b.v2MarketGap) ?? Number.NEGATIVE_INFINITY) -
+            (v2Number(a.v2MarketGap) ?? Number.NEGATIVE_INFINITY),
+        )[0];
+      const opponentMetrics = opponent ? trendPlayMetrics(opponent) : null;
+      const marketGap = v2Number(play.v2MarketGap);
+      const opponentGap = opponent ? v2Number(opponent.v2MarketGap) : null;
+      const displayScore = v2Number(play.v2Score) ?? clampScore(play.score || 0);
+      const legacyScore = v2Number(play.legacyScore) ?? clampScore(metrics.score);
+      const tier = String(play.v2Tier || play.tier || "Pass") as TrendTier;
+
+      return {
+        ...play,
+        originalScore: legacyScore,
+        score: displayScore,
+        baseTrendScore: legacyScore,
+        trendRoiPct: metrics.roiPct,
+        trendWinPct: metrics.winPct,
+        comparisonGap:
+          marketGap !== null && opponentGap !== null
+            ? Math.abs(marketGap - opponentGap)
+            : 0,
+        opponentLabel: opponent ? trendPickLabel(opponent) : "",
+        opponentBaseScore: opponent
+          ? v2Number(opponent.legacyScore) ??
+            clampScore(opponentMetrics?.score || 0)
+          : null,
+        comparisonWinner: Boolean(play.v2Direction),
+        hasComparison: Boolean(opponent),
+        tier,
+      };
+    });
+  }
   const baseRows = plays.map((play) => ({
     play,
     metrics: trendPlayMetrics(play),
@@ -4144,6 +4236,11 @@ function groupRankedTrendPlays(
       const plays = scoreTrendMarketPlays(group.plays)
         .sort((a, b) => {
           if (b.score !== a.score) return b.score - a.score;
+          const aV2Gap = v2Number(a.v2MarketGap);
+          const bV2Gap = v2Number(b.v2MarketGap);
+          if (aV2Gap !== null && bV2Gap !== null && bV2Gap !== aV2Gap) {
+            return bV2Gap - aV2Gap;
+          }
           if (b.baseTrendScore !== a.baseTrendScore) {
             return b.baseTrendScore - a.baseTrendScore;
           }
@@ -4254,6 +4351,9 @@ function TrendSelectionRow({
         <span className="trendSelectionMarket">
           <small>{play.tier}</small>
           <strong>{play.score}</strong>
+          {v2Number(play.v2MarketGap) !== null ? (
+            <small>Gap {v2PercentText(play.v2MarketGap)}</small>
+          ) : null}
         </span>
         <span className="trendSelectionChevron" aria-hidden="true">⌄</span>
       </summary>
@@ -4264,6 +4364,26 @@ function TrendSelectionRow({
         ) : null}
 
         <div className="bubbleGrid trendSelectionMetrics">
+          {v2Number(play.v2MarketGap) !== null ? (
+            <>
+              <MiniBubble
+                label="V2 Market Gap"
+                value={v2PercentText(play.v2MarketGap)}
+                green={Boolean(play.v2ThresholdCleared)}
+              />
+              <MiniBubble label="Required Gap" value={v2RequiredGapText(play)} />
+              <MiniBubble
+                label="Needs"
+                value={v2GapNeededText(play)}
+                green={Boolean(play.v2ThresholdCleared)}
+              />
+              <MiniBubble
+                label="Decision Window"
+                value={play.v2DecisionStatus || "—"}
+                green={Boolean(play.v2DecisionWindowOpen && play.v2ThresholdCleared)}
+              />
+            </>
+          ) : null}
           <MiniBubble label="Opening Bets" value={publicPctText(play.openingBetsPct)} />
           <MiniBubble label="Current Bets" value={publicPctText(play.betsPct)} />
           <MiniBubble label="Bets Change" value={signedPublicMoveText(play.publicMovementPct)} />
@@ -4292,9 +4412,11 @@ function TrendSelectionRow({
 
         <div className="modelMeta trendMeta">
           <span>
-            {play.hasComparison
-              ? `Head-to-head gap: ${play.comparisonWinner ? "+" : "−"}${play.comparisonGap.toFixed(1)} vs ${play.opponentLabel} • Base ${play.baseTrendScore}-${play.opponentBaseScore ?? "—"}`
-              : "Head-to-head comparison unavailable"}
+            {v2Number(play.v2MarketGap) !== null
+              ? `V2 market gap ${v2PercentText(play.v2MarketGap)} • Required ${v2RequiredGapText(play)} • ${play.v2DecisionStatus || "Decision status unavailable"}`
+              : play.hasComparison
+                ? `Head-to-head gap: ${play.comparisonWinner ? "+" : "−"}${play.comparisonGap.toFixed(1)} vs ${play.opponentLabel} • Base ${play.baseTrendScore}-${play.opponentBaseScore ?? "—"}`
+                : "Head-to-head comparison unavailable"}
           </span>
           <span>
             Bets {publicPctText(play.openingBetsPct)} → {publicPctText(play.betsPct)}
@@ -4364,6 +4486,27 @@ function TrendGameCard({
           <strong>{leader ? group.topScore : "—"}</strong>
         </div>
       </div>
+
+      {leader && v2Number(leader.v2MarketGap) !== null ? (
+        <div className="bubbleGrid trendSelectionMetrics">
+          <MiniBubble
+            label="V2 Market Gap"
+            value={v2PercentText(leader.v2MarketGap)}
+            green={Boolean(leader.v2ThresholdCleared)}
+          />
+          <MiniBubble label="Required Gap" value={v2RequiredGapText(leader)} />
+          <MiniBubble
+            label="Needs"
+            value={v2GapNeededText(leader)}
+            green={Boolean(leader.v2ThresholdCleared)}
+          />
+          <MiniBubble
+            label="Decision Window"
+            value={leader.v2DecisionStatus || "—"}
+            green={Boolean(leader.v2DecisionWindowOpen && leader.v2ThresholdCleared)}
+          />
+        </div>
+      ) : null}
 
       {topBadge ? (
         <div className={`modelTrendBadge trendGameMatchBadge ${topMatch.toLowerCase()}`}>

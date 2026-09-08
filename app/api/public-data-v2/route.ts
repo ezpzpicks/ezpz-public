@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { GET as legacyGET } from "../public-data/route";
 import {
   AnyRow, DailyLockDecision, MLB_TREND_V2_DECISION_WINDOW_MINUTES,
-  MLB_TREND_V2_LAUNCH_DATE, MLB_TREND_V2_VERSION, V2TrendPlay,
+  MLB_TREND_V2_EARLY_GAP, MLB_TREND_V2_LAUNCH_DATE, MLB_TREND_V2_NORMAL_GAP,
+  MLB_TREND_V2_VERSION, V2TrendPlay,
   chooseDailyTrendLock, isoDate, nowET, parseGameStart, resultProfit,
   scoreTrendBoardV2,
 } from "../../../lib/mlbTrendV2";
@@ -27,6 +28,28 @@ function snapshotRow(play:V2TrendPlay,nowMs:number):AnyRow{
 function lastSnapshotEpoch(row:AnyRow){try{const details=JSON.parse(String(row?.["Details JSON"]||"{}"));const epoch=Number(details?.snapshotEpoch||0);if(Number.isFinite(epoch)&&epoch>0)return epoch}catch{}const parsed=Date.parse(String(row?.["Snapshot Time ET"]||""));return Number.isFinite(parsed)?parsed:0}
 function snapshotRowsToAppend(scored:V2TrendPlay[],existing:AnyRow[],nowMs:number){const latest=new Map<string,number>();for(const row of existing){const key=`${isoDate(row.Date)}|${String(row["Game Key"]||"")}|${String(row.Market||"")}`;latest.set(key,Math.max(latest.get(key)||0,lastSnapshotEpoch(row)))}return scored.filter(play=>play.v2Direction).filter(play=>{const start=parseGameStart(play.recordDate||play.Date,play.v2GameTime);return start==null||start>nowMs}).filter(play=>{const last=latest.get(candidateKey(play))||0;const start=parseGameStart(play.recordDate||play.Date,play.v2GameTime);const minutes=start==null?null:(start-nowMs)/60000;const decisionWindow=minutes!=null&&minutes>0&&minutes<=MLB_TREND_V2_DECISION_WINDOW_MINUTES;return decisionWindow||!last||nowMs-last>=14*60000}).map(play=>snapshotRow(play,nowMs))}
 
+function annotateLiveV2Status(scored:V2TrendPlay[],slateRows:AnyRow[],nowMs:number):V2TrendPlay[]{
+  const slateStarts=slateRows.map(row=>parseGameStart(row?.Date,row?.["Game Time"]||row?.["Game Time ET"])).filter((value):value is number=>value!==null);
+  return scored.map(play=>{
+    const start=parseGameStart(play.recordDate||play.Date,play.v2GameTime);
+    const minutesToStart=start==null?null:(start-nowMs)/60000;
+    const hasLaterGame=start!=null&&slateStarts.some(other=>other>start+60000);
+    const requiredGap=start==null?null:(hasLaterGame?MLB_TREND_V2_EARLY_GAP:MLB_TREND_V2_NORMAL_GAP);
+    const gapNeeded=requiredGap==null?null:Math.max(0,requiredGap-Number(play.v2MarketGap||0));
+    const decisionWindowOpen=minutesToStart!=null&&minutesToStart>0&&minutesToStart<=MLB_TREND_V2_DECISION_WINDOW_MINUTES;
+    const thresholdCleared=requiredGap!=null&&Number(play.v2MarketGap)>=requiredGap;
+    let decisionStatus="";
+    if(!play.v2Direction)decisionStatus="Not V2 direction";
+    else if(!play.v2DailyEligible)decisionStatus="Blocked by guardrail";
+    else if(minutesToStart==null)decisionStatus="Decision time unavailable";
+    else if(minutesToStart<=0)decisionStatus="Game started";
+    else if(!decisionWindowOpen)decisionStatus=`Waiting for T-${MLB_TREND_V2_DECISION_WINDOW_MINUTES} min`;
+    else if(thresholdCleared)decisionStatus="OPEN • threshold cleared";
+    else decisionStatus="OPEN • below threshold";
+    return{...play,v2RequiredGap:requiredGap,v2GapNeeded:gapNeeded,v2MinutesToStart:minutesToStart,v2EarlyPremium:requiredGap==null?null:hasLaterGame,v2DecisionWindowOpen:decisionWindowOpen,v2ThresholdCleared:thresholdCleared,v2DecisionStatus:decisionStatus} as V2TrendPlay;
+  });
+}
+
 function dailyPickObject(decision:DailyLockDecision,today:string,nowMs:number):AnyRow{
   const play=decision.play;
   const selection=play.market==="Moneyline"?String(play.selectionTeam||play.selection||""):String(play.side||"");
@@ -44,9 +67,10 @@ function gradeDailyPick(pick:AnyRow,records:AnyRow[]):AnyRow{const record=record
 
 async function postProcessMlbPayload(request:NextRequest,payload:AnyRow){
   const today=isoDate(payload.today||new Date()),nowMs=Date.now();
-  const scored=scoreTrendBoardV2(Array.isArray(payload.trendPlays)?payload.trendPlays:[],Array.isArray(payload.slateToday)?payload.slateToday:[]);
+  const slateRows=Array.isArray(payload.slateToday)?payload.slateToday:[];
+  const scored=annotateLiveV2Status(scoreTrendBoardV2(Array.isArray(payload.trendPlays)?payload.trendPlays:[],slateRows),slateRows,nowMs);
   payload.trendPlays=scored;
-  payload.trendV2={version:MLB_TREND_V2_VERSION,launchDate:MLB_TREND_V2_LAUNCH_DATE,normalGap:10,earlyGap:20,decisionWindowMinutes:MLB_TREND_V2_DECISION_WINDOW_MINUTES,note:"V2 Ranking Probability and Market Gap are ranking diagnostics, not calibrated win probabilities."};
+  payload.trendV2={version:MLB_TREND_V2_VERSION,launchDate:MLB_TREND_V2_LAUNCH_DATE,normalGap:MLB_TREND_V2_NORMAL_GAP,earlyGap:MLB_TREND_V2_EARLY_GAP,decisionWindowMinutes:MLB_TREND_V2_DECISION_WINDOW_MINUTES,note:"V2 Ranking Probability and Market Gap are ranking diagnostics, not calibrated win probabilities."};
 
   let snapshotRows:AnyRow[]=[],dailyRows:AnyRow[]=[];
   try{[snapshotRows,dailyRows]=await Promise.all([readV2Tab("snapshots"),readV2Tab("daily")])}catch(error){console.error("Trend v2 history read failed; serving live v2 scores without persistence",error)}
