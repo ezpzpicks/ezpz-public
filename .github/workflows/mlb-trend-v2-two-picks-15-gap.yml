@@ -1,0 +1,146 @@
+name: Update MLB Trend V2 daily limits
+
+on:
+  push:
+    paths:
+      - ".github/workflows/mlb-trend-v2-two-picks-15-gap.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Update MLB Trend V2 rules
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          lib_path = Path("lib/mlbTrendV2.ts")
+          route_path = Path("app/api/public-data-v2/route.ts")
+          lib = lib_path.read_text()
+          route = route_path.read_text()
+
+          # Core rule changes.
+          old = 'export const MLB_TREND_V2_NORMAL_GAP = 10;'
+          if old not in lib:
+              raise SystemExit("Could not find normal-gap constant")
+          lib = lib.replace(old, 'export const MLB_TREND_V2_NORMAL_GAP = 15;', 1)
+
+          early = 'export const MLB_TREND_V2_EARLY_GAP = 20;'
+          if early not in lib:
+              raise SystemExit("Could not find early-gap constant")
+          if 'MLB_TREND_V2_MAX_DAILY_PICKS' not in lib:
+              lib = lib.replace(early, early + '\nexport const MLB_TREND_V2_MAX_DAILY_PICKS = 2;', 1)
+
+          # Import the new max-picks constant in the API route.
+          old_import = '''  MLB_TREND_V2_EARLY_GAP, MLB_TREND_V2_LAUNCH_DATE, MLB_TREND_V2_NORMAL_GAP,
+  MLB_TREND_V2_VERSION, V2TrendPlay,'''
+          new_import = '''  MLB_TREND_V2_EARLY_GAP, MLB_TREND_V2_LAUNCH_DATE, MLB_TREND_V2_MAX_DAILY_PICKS,
+  MLB_TREND_V2_NORMAL_GAP, MLB_TREND_V2_VERSION, V2TrendPlay,'''
+          if old_import not in route:
+              raise SystemExit("Could not find V2 import block")
+          route = route.replace(old_import, new_import, 1)
+
+          # Expose the daily max next to the thresholds for UI/status consumers.
+          old_meta = 'payload.trendV2={version:MLB_TREND_V2_VERSION,launchDate:MLB_TREND_V2_LAUNCH_DATE,normalGap:MLB_TREND_V2_NORMAL_GAP,earlyGap:MLB_TREND_V2_EARLY_GAP,decisionWindowMinutes:MLB_TREND_V2_DECISION_WINDOW_MINUTES,note:'
+          new_meta = 'payload.trendV2={version:MLB_TREND_V2_VERSION,launchDate:MLB_TREND_V2_LAUNCH_DATE,normalGap:MLB_TREND_V2_NORMAL_GAP,earlyGap:MLB_TREND_V2_EARLY_GAP,maxDailyPicks:MLB_TREND_V2_MAX_DAILY_PICKS,decisionWindowMinutes:MLB_TREND_V2_DECISION_WINDOW_MINUTES,note:'
+          if old_meta not in route:
+              raise SystemExit("Could not find trendV2 metadata block")
+          route = route.replace(old_meta, new_meta, 1)
+
+          # Update the audit copy on each locked pick.
+          route = route.replace(
+              '"Only one Trend v2 EZPZ Pick is allowed per MLB date"',
+              '`Maximum ${MLB_TREND_V2_MAX_DAILY_PICKS} Trend v2 EZPZ Picks are allowed per MLB date`',
+              1,
+          )
+
+          # Replace the single-lock gate with a max-two loop. It excludes already locked
+          # game/market pairs so scheduled captures cannot duplicate a prior lock.
+          start = route.index('  let dailyPicks=dailyRows.map(parseDailyPickRow)')
+          end = route.index('  const graded=', start)
+          new_lock_block = '''  let dailyPicks=dailyRows.map(parseDailyPickRow).filter((pick):pick is AnyRow=>Boolean(pick));
+  let todayLocks=dailyPicks.filter(pick=>isoDate(pick.date)===today);
+  if(isV2ScheduledCapture(request)&&today>=MLB_TREND_V2_LAUNCH_DATE&&todayLocks.length<MLB_TREND_V2_MAX_DAILY_PICKS){
+    const lockedPairs=new Set(todayLocks.map(pick=>`${String(pick.gameKey||"").trim().replace(/\\.0$/,"")}|${String(pick.market||"")}`));
+    let available=scored.filter(play=>!lockedPairs.has(`${play.v2GameKey}|${play.market}`));
+    const newLocks:AnyRow[]=[];
+    while(todayLocks.length+newLocks.length<MLB_TREND_V2_MAX_DAILY_PICKS){
+      const decision=chooseDailyTrendLock(available,slateRows,nowMs);
+      if(!decision)break;
+      const lock=dailyPickObject(decision,today,nowMs);
+      newLocks.push(lock);
+      const pair=`${decision.play.v2GameKey}|${decision.play.market}`;
+      lockedPairs.add(pair);
+      available=available.filter(play=>`${play.v2GameKey}|${play.market}`!==pair);
+    }
+    if(newLocks.length){
+      try{await appendV2Rows("daily",newLocks.map(dailyPickRow));dailyPicks.push(...newLocks);todayLocks.push(...newLocks)}
+      catch(error){console.error("Trend v2 daily lock persistence failed",error)}
+    }
+  }
+
+'''
+          route = route[:start] + new_lock_block + route[end:]
+
+          # After grading, refresh today's complete lock list rather than a single object.
+          old_refresh = '  todayLock=dailyPicks.find(pick=>isoDate(pick.date)===today)||todayLock;'
+          if old_refresh not in route:
+              raise SystemExit("Could not find post-grade todayLock refresh")
+          route = route.replace(old_refresh, '  todayLocks=dailyPicks.filter(pick=>isoDate(pick.date)===today);', 1)
+
+          # Replace final payload/status handling so all locked Trend V2 picks are surfaced.
+          final_start = route.index('  const legacyAiPicks=Array.isArray(payload.aiPicks)?payload.aiPicks:[];')
+          final_end = route.index('  return payload;', final_start)
+          final_block = '''  const legacyAiPicks=Array.isArray(payload.aiPicks)?payload.aiPicks:[];
+  const filteredAiPicks=legacyAiPicks.filter((pick:AnyRow)=>!(isLaunchOrLater(pick?.date||today)&&pureLegacyTrendPick(pick)));
+  for(const lock of todayLocks)filteredAiPicks.push(lock);
+  payload.aiPicks=filteredAiPicks;
+  const legacyRecordRows=Array.isArray(payload.aiPickRecordRows)?payload.aiPickRecordRows:[];
+  const filteredRecordRows=legacyRecordRows.filter((pick:AnyRow)=>!(isLaunchOrLater(pick?.date||pick?.Date)&&pureLegacyTrendPick(pick)));
+  payload.aiPickRecordRows=[...filteredRecordRows,...dailyPicks];
+
+  const status=payload.aiSelectorStatus||{};
+  const finalCount=filteredAiPicks.filter((pick:AnyRow)=>pick?.snapshotStatus==="FINAL_PREGAME").length;
+  const lockedCount=todayLocks.length;
+  const lockedNames=todayLocks.map(pick=>pick.play).filter(Boolean).join("; ");
+  const remaining=Math.max(0,MLB_TREND_V2_MAX_DAILY_PICKS-lockedCount);
+  const trendMessage=lockedCount>=MLB_TREND_V2_MAX_DAILY_PICKS
+    ? `MLB Trend v2 daily max reached (${lockedCount}/${MLB_TREND_V2_MAX_DAILY_PICKS}): ${lockedNames}.`
+    : lockedCount>0
+      ? `MLB Trend v2 ${lockedCount}/${MLB_TREND_V2_MAX_DAILY_PICKS} locked: ${lockedNames}. ${remaining} slot${remaining===1?"":"s"} remain; another play must independently clear its threshold.`
+      : filteredAiPicks.length
+        ? `HOT Best Plays are final; MLB Trend v2 is ranking the slate for up to ${MLB_TREND_V2_MAX_DAILY_PICKS} daily trend picks.`
+        : `MLB Trend v2 is ranking the slate. Up to ${MLB_TREND_V2_MAX_DAILY_PICKS} daily trend picks may lock, but none are forced.`;
+  payload.aiSelectorStatus={...status,mode:finalCount===filteredAiPicks.length&&filteredAiPicks.length?"FINAL_PREGAME":"LIVE_PREVIEW",message:trendMessage,updatedAt:nowET(),candidateCount:Number(status.candidateCount||0)+scored.filter(play=>play.v2Direction).length,selectedCount:filteredAiPicks.length,trendV2DailyLocked:Boolean(lockedCount),trendV2DailyLockedCount:lockedCount,trendV2DailyMaxPicks:MLB_TREND_V2_MAX_DAILY_PICKS};
+'''
+          route = route[:final_start] + final_block + route[final_end:]
+
+          lib_path.write_text(lib)
+          route_path.write_text(route)
+          PY
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Verify production build
+        run: npm run build
+
+      - name: Commit rule update
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add lib/mlbTrendV2.ts app/api/public-data-v2/route.ts
+          if git diff --cached --quiet; then
+            echo "No code changes to commit"
+            exit 0
+          fi
+          git commit -m "Allow 2 MLB Trend V2 picks and raise final gap"
+          git push
