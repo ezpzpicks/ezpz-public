@@ -35,3 +35,5 @@ jobs:
           git add lib/mlbTrendV2.ts app/api/public-data-v2/route.ts
           git commit -m "Lock every eligible MLB Trend V2 play at 15%+"
           git push
+
+# Retrigger after workflow registration.
