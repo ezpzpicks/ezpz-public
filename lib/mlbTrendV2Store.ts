@@ -11,7 +11,11 @@ export const V2_DAILY_PICK_HEADERS = [
   "Date","Candidate ID","Game Key","Game Time","Game","Away Team","Home Team","Market","Play","Selection","Line","Odds","V2 Score","V2 Tier","V2 Market Gap","V2 Ranking Probability","Market Implied Probability","Legacy Trend Score","Legacy Trend Tier","V2/Legacy Agreement","V2 Data Complete","Daily Rank","Early Premium","Required Gap","Locked At","Result","Units","Result Updated","Model Version","Details JSON",
 ];
 
-function credentials(){const raw=process.env.GOOGLE_CREDENTIALS||process.env.GOOGLE_SERVICE_ACCOUNT_JSON||"";if(!raw)throw new Error("Missing Google credentials for MLB Trend v2 persistence.");return JSON.parse(raw.replace(/\\n/g,"\n"))}
+function credentials(){
+  const raw=process.env.GOOGLE_CREDENTIALS||process.env.GOOGLE_SERVICE_ACCOUNT_JSON||"";
+  if(!raw)throw new Error("Missing Google credentials for MLB Trend v2 persistence.");
+  try{return JSON.parse(raw)}catch{return JSON.parse(raw.replace(/\\n/g,"\n"))}
+}
 function spreadsheetId(){const id=process.env.GOOGLE_SHEET_ID||process.env.GOOGLE_SPREADSHEET_ID||process.env.SPREADSHEET_ID||"";if(!id)throw new Error("Missing GOOGLE_SHEET_ID for MLB Trend v2 persistence.");return id}
 let clientPromise:Promise<ReturnType<typeof google.sheets>>|null=null;
 async function sheetsClient(){if(!clientPromise){clientPromise=(async()=>{const auth=new google.auth.GoogleAuth({credentials:credentials(),scopes:["https://www.googleapis.com/auth/spreadsheets"]});return google.sheets({version:"v4",auth})})()}return clientPromise}
