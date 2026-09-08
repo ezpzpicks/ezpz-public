@@ -35,3 +35,5 @@ jobs:
           git add app/api/public-data-v2/route.ts
           git commit -m "Activate adaptive MLB Trend V2 lifecycle"
           git push
+
+# Retrigger after workflow registration.
