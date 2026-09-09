@@ -1,0 +1,112 @@
+name: Apply football EZPZ 15 percent history rules
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/football-ezpz-15pct-history.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  implement:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply CFB and NFL EZPZ rule updates
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          backend = Path('lib/footballPublicData.ts')
+          text = backend.read_text()
+
+          replacements = [
+              (
+                  '      netRoiAdvantage >= 10 &&',
+                  '      netRoiAdvantage >= 15 &&',
+              ),
+              (
+                  '      qualification: "All-green Trend Play • 10%+ net ROI advantage",',
+                  '      qualification: "All-green Trend Play • 15%+ net ROI advantage",',
+              ),
+              (
+                  '''    // CFB early-season safeguard only: 1-4 samples cannot enter EZPZ;\n    // 5-9 samples may qualify, but are capped at Strong. The underlying\n    // trend score/tier remains untouched for clean forward data collection.\n    if (sport === "NCAAF" && trendSampleSize < 5) continue;\n    const ezpzTrendTier =\n      sport === "NCAAF" && trendSampleSize < 10 && play.tier === "Elite"\n        ? "Strong"\n        : play.tier;''',
+                  '''    // Football early-season safeguard: 1-4 settled samples cannot enter EZPZ.\n    // 5-9 samples may qualify, but are capped at Strong. This applies to both\n    // CFB and NFL so a new season can legitimately begin with no EZPZ trend plays.\n    if (trendSampleSize < 5) continue;\n    const ezpzTrendTier =\n      trendSampleSize < 10 && play.tier === "Elite"\n        ? "Strong"\n        : play.tier;''',
+              ),
+          ]
+
+          for old, new in replacements:
+              if old in text:
+                  text = text.replace(old, new, 1)
+              elif new not in text:
+                  raise SystemExit(f'Backend patch target not found: {old[:100]}')
+
+          backend.write_text(text)
+
+          frontend = Path('app/FootballBoard.tsx')
+          text = frontend.read_text()
+
+          replacements = [
+              (
+                  '  if (sport === "NCAAF" && Number(play.TrendSampleSize || 0) < 5) return false;',
+                  '  if (Number(play.TrendSampleSize || 0) < 5) return false;',
+              ),
+              (
+                  '  if (!roi || roi.candidateRoiPct <= 0 || roi.netRoiPct < 10) return false;',
+                  '  if (!roi || roi.candidateRoiPct <= 0 || roi.netRoiPct < 15) return false;',
+              ),
+          ]
+
+          for old, new in replacements:
+              if old in text:
+                  text = text.replace(old, new, 1)
+              elif new not in text:
+                  raise SystemExit(f'Frontend patch target not found: {old[:100]}')
+
+          frontend.write_text(text)
+          PY
+
+      - name: Verify football EZPZ policy
+        shell: bash
+        run: |
+          grep -Fq 'netRoiAdvantage >= 15' lib/footballPublicData.ts
+          grep -Fq 'qualification: "All-green Trend Play • 15%+ net ROI advantage"' lib/footballPublicData.ts
+          grep -Fq 'if (trendSampleSize < 5) continue;' lib/footballPublicData.ts
+          grep -Fq 'trendSampleSize < 10 && play.tier === "Elite"' lib/footballPublicData.ts
+          grep -Fq 'if (Number(play.TrendSampleSize || 0) < 5) return false;' app/FootballBoard.tsx
+          grep -Fq 'roi.netRoiPct < 15' app/FootballBoard.tsx
+          grep -Fq 'minutesToKickoff<=15' lib/footballPublicData.ts
+          grep -Fq 'minute).padStart(2, "0")} ${suffix} ET' app/FootballBoard.tsx
+          ! grep -Fq 'netRoiAdvantage >= 10' lib/footballPublicData.ts
+          ! grep -Fq 'All-green Trend Play • 10%+ net ROI advantage' lib/footballPublicData.ts
+          ! grep -Fq 'sport === "NCAAF" && Number(play.TrendSampleSize || 0) < 5' app/FootballBoard.tsx
+          ! grep -Fq 'roi.netRoiPct < 10' app/FootballBoard.tsx
+          git diff --check
+
+      - name: Build application
+        shell: bash
+        run: |
+          npm install --no-package-lock --no-audit --no-fund
+          npm run build
+
+      - name: Commit implementation
+        shell: bash
+        run: |
+          if git diff --quiet -- lib/footballPublicData.ts app/FootballBoard.tsx; then
+            echo 'Football EZPZ rules are already current.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add lib/footballPublicData.ts app/FootballBoard.tsx
+          git commit -m 'football: require 15pct ROI edge and history for EZPZ trends'
+          git pull --rebase origin main
+          git push origin HEAD:main
