@@ -1,131 +1,40 @@
-name: Simplify MLB pending EZPZ layout
+name: Apply MLB pending gap-only layout
 
 on:
   push:
+    branches: [main]
     paths:
-      - ".github/workflows/fix-mlb-pending-gap-only.yml"
+      - '.github/workflows/fix-mlb-pending-gap-only.yml'
+      - 'scripts/apply_mlb_pending_gap_only.py'
   workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  patch:
+  apply:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Show only gap on pending MLB EZPZ picks
-        shell: bash
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          path = Path("app/page.tsx")
-          page = path.read_text()
-
-          start = page.index("function AiPickSelectorCard({")
-          end = page.index("\nfunction SlateCard({", start)
-          card = page[start:end]
-
-          if "const isPendingTrend =" not in card:
-              old = '''  const isFinalReview =
-    pick.snapshotStatus === "FINAL_PREGAME" && pick.protectionStatus === "PASSED";
-'''
-              new = old + '''  const isPendingTrend = !pick.bestPlayType && !isFinalReview;
-  const pendingTrendGap = Number(pick.estimatedAdvantage);
-'''
-              if old not in card:
-                  raise SystemExit("Could not find final-review anchor")
-              card = card.replace(old, new, 1)
-
-          if "pendingTrendGap.toFixed(1)" not in card:
-              old = '        {!pick.bestPlayType && trendPlay?.signals?.length ? ('
-              new = '''        {isPendingTrend ? (
-          <section className="aiPickDetailSection historical aiTrendEvidence">
-            <div className="aiTrendNetRoiCard">
-              <div className="aiTrendNetRoiMain">
-                <div>
-                  <span>GAP</span>
-                </div>
-                <strong className="positive">
-                  {Number.isFinite(pendingTrendGap) ? `${pendingTrendGap.toFixed(1)}%` : "—"}
-                </strong>
-              </div>
-            </div>
-          </section>
-        ) : !pick.bestPlayType && trendPlay?.signals?.length ? ('''
-              if old not in card:
-                  raise SystemExit("Could not find trend-evidence condition")
-              card = card.replace(old, new, 1)
-
-          card = card.replace(
-              '        {researchSummary ? (',
-              '        {!isPendingTrend && researchSummary ? (',
-              1,
-          )
-          card = card.replace(
-              '        {verdict ? (',
-              '        {!isPendingTrend && verdict ? (',
-              1,
-          )
-
-          old_data = '''        <section className="aiPickDetailSection data">
-          <h3>Data Status</h3>
-          <ul>
-            {[...new Set(dataStatus.filter(Boolean))].map((item, index) => (
-              <li key={`status-${pick.candidateId}-${index}`}>{item}</li>
-            ))}
-          </ul>
-        </section>'''
-          new_data = '''        {!isPendingTrend ? (
-          <section className="aiPickDetailSection data">
-            <h3>Data Status</h3>
-            <ul>
-              {[...new Set(dataStatus.filter(Boolean))].map((item, index) => (
-                <li key={`status-${pick.candidateId}-${index}`}>{item}</li>
-              ))}
-            </ul>
-          </section>
-        ) : null}'''
-          if old_data in card:
-              card = card.replace(old_data, new_data, 1)
-          elif "!isPendingTrend ? (" not in card:
-              raise SystemExit("Could not find data-status block")
-
-          required = [
-              "const isPendingTrend = !pick.bestPlayType && !isFinalReview;",
-              "const pendingTrendGap = Number(pick.estimatedAdvantage);",
-              "<span>GAP</span>",
-              "pendingTrendGap.toFixed(1)",
-              "!isPendingTrend && verdict",
-              "!isPendingTrend ? (",
-          ]
-          missing = [item for item in required if item not in card]
-          if missing:
-              raise SystemExit("Missing expected patched markers: " + ", ".join(missing))
-
-          page = page[:start] + card + page[end:]
-          path.write_text(page)
-          PY
-
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Apply pending gap-only UI
+        run: python scripts/apply_mlb_pending_gap_only.py
       - name: Install dependencies
         run: npm install --no-audit --no-fund
-
-      - name: Verify production build
+      - name: Build verification
         run: npm run build
-
-      - name: Commit pending pick layout
-        shell: bash
+      - name: Commit validated changes
         run: |
+          if git diff --quiet; then
+            echo "No source changes needed."
+            exit 0
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add app/page.tsx
-          if git diff --cached --quiet; then
-            echo "No code changes to commit"
-            exit 0
-          fi
           git commit -m "Show only gap on pending MLB EZPZ picks"
           git push
-
-# trigger: 2026-09-09T13:55-04:00
