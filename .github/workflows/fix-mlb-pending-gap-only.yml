@@ -127,3 +127,5 @@ jobs:
           fi
           git commit -m "Show only gap on pending MLB EZPZ picks"
           git push
+
+# trigger: 2026-09-09T13:55-04:00
