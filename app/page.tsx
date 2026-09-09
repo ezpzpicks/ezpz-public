@@ -5009,6 +5009,8 @@ function AiPickSelectorCard({
     : null;
   const isFinalReview =
     pick.snapshotStatus === "FINAL_PREGAME" && pick.protectionStatus === "PASSED";
+  const isPendingTrend = !pick.bestPlayType && !isFinalReview;
+  const pendingTrendGap = Number(pick.estimatedAdvantage);
   const historicalNotes = cleanAiDisplayList(pick.historicalNotes);
   const trendRoiSummary = trendPlay ? aiTrendNetRoiSummary(trendPlay, trendPlays) : null;
   const researchSummary = cleanAiDisplayText(pick.researchSummary);
@@ -5093,7 +5095,20 @@ function AiPickSelectorCard({
           </section>
         ) : null}
 
-        {!pick.bestPlayType && trendPlay?.signals?.length ? (
+        {isPendingTrend ? (
+          <section className="aiPickDetailSection historical aiTrendEvidence">
+            <div className="aiTrendNetRoiCard">
+              <div className="aiTrendNetRoiMain">
+                <div>
+                  <span>GAP</span>
+                </div>
+                <strong className="positive">
+                  {Number.isFinite(pendingTrendGap) ? `${pendingTrendGap.toFixed(1)}%` : "—"}
+                </strong>
+              </div>
+            </div>
+          </section>
+        ) : !pick.bestPlayType && trendPlay?.signals?.length ? (
           <section className="aiPickDetailSection historical aiTrendEvidence">
             <div className="aiTrendEvidenceHead">
               <div>
@@ -5170,28 +5185,30 @@ function AiPickSelectorCard({
           </section>
         ) : null}
 
-        {researchSummary ? (
+        {!isPendingTrend && researchSummary ? (
           <section className="aiPickDetailSection research">
             <h3>AI Research Summary</h3>
             <p>{researchSummary}</p>
           </section>
         ) : null}
 
-        {verdict ? (
+        {!isPendingTrend && verdict ? (
           <section className="aiPickVerdict">
             <h3>AI Verdict</h3>
             <p>{verdict}</p>
           </section>
         ) : null}
 
-        <section className="aiPickDetailSection data">
-          <h3>Data Status</h3>
-          <ul>
-            {[...new Set(dataStatus.filter(Boolean))].map((item, index) => (
-              <li key={`status-${pick.candidateId}-${index}`}>{item}</li>
-            ))}
-          </ul>
-        </section>
+        {!isPendingTrend ? (
+          <section className="aiPickDetailSection data">
+            <h3>Data Status</h3>
+            <ul>
+              {[...new Set(dataStatus.filter(Boolean))].map((item, index) => (
+                <li key={`status-${pick.candidateId}-${index}`}>{item}</li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
       </div>
     </details>
   );
