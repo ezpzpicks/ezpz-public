@@ -16,12 +16,21 @@ function patchRoute() {
     'import { readWorksheet as readWorksheetUncached } from "../../../lib/googleSheets";\nimport { buildFootballPublicData } from "../../../lib/footballPublicData";\n',
     "football route import",
   );
-  text = replaceOnce(
-    text,
-    `export async function GET(request: NextRequest) {\n  // Background/scheduled requests must run the snapshot workflow immediately.`,
-    `export async function GET(request: NextRequest) {\n  const requestedSport = String(request.nextUrl.searchParams.get("sport") || "MLB").trim().toUpperCase();\n  if (requestedSport === "NFL" || requestedSport === "NCAAF") {\n    try {\n      return NextResponse.json(await buildFootballPublicData(requestedSport));\n    } catch (error) {\n      console.error(\`\${requestedSport} public data failed\`, error);\n      return NextResponse.json(\n        { ok: false, sport: requestedSport, error: error instanceof Error ? error.message : String(error) },\n        { status: 500 },\n      );\n    }\n  }\n\n  // Background/scheduled requests must run the snapshot workflow immediately.`,
-    "football route delegation",
-  );
+
+  // Older versions of this patch matched the comment immediately after GET().
+  // The route has since evolved, so treat an existing football delegation as
+  // already patched instead of requiring that historical comment to remain.
+  const footballDelegationPresent =
+    text.includes('request.nextUrl.searchParams.get("sport")') &&
+    text.includes("buildFootballPublicData(requestedSport)");
+  if (!footballDelegationPresent) {
+    text = replaceOnce(
+      text,
+      `export async function GET(request: NextRequest) {\n  // Background/scheduled requests must run the snapshot workflow immediately.`,
+      `export async function GET(request: NextRequest) {\n  const requestedSport = String(request.nextUrl.searchParams.get("sport") || "MLB").trim().toUpperCase();\n  if (requestedSport === "NFL" || requestedSport === "NCAAF") {\n    try {\n      return NextResponse.json(await buildFootballPublicData(requestedSport));\n    } catch (error) {\n      console.error(\`\${requestedSport} public data failed\`, error);\n      return NextResponse.json(\n        { ok: false, sport: requestedSport, error: error instanceof Error ? error.message : String(error) },\n        { status: 500 },\n      );\n    }\n  }\n\n  // Background/scheduled requests must run the snapshot workflow immediately.`,
+      "football route delegation",
+    );
+  }
   fs.writeFileSync(path, text);
 }
 
@@ -49,26 +58,37 @@ function patchPage() {
     text = text.replace(optimizedFetch, optimizedSportFetch);
   } else if (text.includes(simpleFetch)) {
     text = text.replace(simpleFetch, simpleSportFetch);
-  } else {
+  } else if (!text.includes('/api/public-data?sport=${activeSport}')) {
     throw new Error("sport-aware public fetch: supported public-data fetch target not found");
   }
 
-  text = replaceOnce(
-    text,
-    `  }, []);\n\n  useEffect(() => {\n    void loadData();`,
-    `  }, [activeSport]);\n\n  useEffect(() => {\n    void loadData();`,
-    "reload data when sport changes",
-  );
-  text = replaceOnce(
-    text,
-    `    if (activeSport !== "MLB") {\n      return (\n        <SportDevelopmentContent\n          sport={activeSport}\n          tab={active}\n          today={data.today}\n        />\n      );\n    }`,
-    `    if (activeSport === "NFL" || activeSport === "NCAAF") {\n      return (\n        <FootballBoard\n          sport={activeSport}\n          tab={active}\n          data={data as any}\n        />\n      );\n    }\n\n    if (activeSport !== "MLB") {\n      return (\n        <SportDevelopmentContent\n          sport={activeSport}\n          tab={active}\n          today={data.today}\n        />\n      );\n    }`,
-    "live football content",
-  );
+  if (!text.includes("}, [activeSport]);")) {
+    text = replaceOnce(
+      text,
+      `  }, []);\n\n  useEffect(() => {\n    void loadData();`,
+      `  }, [activeSport]);\n\n  useEffect(() => {\n    void loadData();`,
+      "reload data when sport changes",
+    );
+  }
+
+  const liveBoardPresent =
+    text.includes('activeSport === "NFL" || activeSport === "NCAAF"') &&
+    text.includes("<FootballBoard") &&
+    text.includes("data={data as any}");
+  if (!liveBoardPresent) {
+    text = replaceOnce(
+      text,
+      `    if (activeSport !== "MLB") {\n      return (\n        <SportDevelopmentContent\n          sport={activeSport}\n          tab={active}\n          today={data.today}\n        />\n      );\n    }`,
+      `    if (activeSport === "NFL" || activeSport === "NCAAF") {\n      return (\n        <FootballBoard\n          sport={activeSport}\n          tab={active}\n          data={data as any}\n        />\n      );\n    }\n\n    if (activeSport !== "MLB") {\n      return (\n        <SportDevelopmentContent\n          sport={activeSport}\n          tab={active}\n          today={data.today}\n        />\n      );\n    }`,
+      "live football content",
+    );
+  }
 
   const oldTiles = `          ) : (\n            <>\n              <Tile\n                label="Best Plays - Last 7 Days"\n                value="0-0-0"\n                meta="0.0% • 0.00u • ROI 0.0%"\n              />\n              <Tile\n                label="Best Plays - Running Total"\n                value="0-0-0"\n                meta="Tracking begins with official plays"\n              />\n              <Tile\n                label="Today’s Handpicked"\n                value="0"\n                meta="No selections posted"\n              />\n              <Tile\n                label="Model Stage"\n                value="PRESEASON"\n                meta={activeSportMeta.status}\n              />\n              <Tile\n                label="Today’s Best Plays"\n                value="0"\n                meta="Public format is ready"\n              />\n              <Tile\n                label="Published Matchups"\n                value="0"\n                meta="Slate connection pending"\n              />\n            </>\n          )}`;
   const newTiles = `          ) : activeSport === "NFL" || activeSport === "NCAAF" ? (\n            <>\n              <Tile\n                label="Best Plays - Last 7 Days"\n                value={data.tiles.last7Days.record}\n                meta={\`\${data.tiles.last7Days.winPct}% • \${data.tiles.last7Days.unitsWon}u • ROI \${data.tiles.last7Days.roiPct}%\`}\n                green={data.tiles.last7Days.totalBets > 0}\n              />\n              <Tile\n                label="Best Plays - Running Total"\n                value={data.tiles.overallGreen.record}\n                meta={\`\${data.tiles.overallGreen.winPct}% • \${data.tiles.overallGreen.unitsWon}u • ROI \${data.tiles.overallGreen.roiPct}%\`}\n                green={data.tiles.overallGreen.totalBets > 0}\n              />\n              <Tile label="Today’s Best Plays" value={String(data.bestPlays.length)} meta="Spread + Total" green={data.bestPlays.length > 0} />\n              <Tile label="Today’s Trend Plays" value={String((data.trendPlays || []).filter((play) => play.tier !== "Pass").length)} meta="Sport-specific DraftKings records" />\n              <Tile label="Model Stage" value="LIVE" meta={activeSportMeta.status} green />\n              <Tile label="Published Matchups" value={String(data.slateToday.length)} meta="Separate sport database" green={data.slateToday.length > 0} />\n            </>\n          ) : (\n            <>\n              <Tile label="Best Plays - Last 7 Days" value="0-0-0" meta="0.0% • 0.00u • ROI 0.0%" />\n              <Tile label="Best Plays - Running Total" value="0-0-0" meta="Tracking begins with official plays" />\n              <Tile label="Today’s Handpicked" value="0" meta="No selections posted" />\n              <Tile label="Model Stage" value="PRESEASON" meta={activeSportMeta.status} />\n              <Tile label="Today’s Best Plays" value="0" meta="Public format is ready" />\n              <Tile label="Published Matchups" value="0" meta="Slate connection pending" />\n            </>\n          )}`;
-  text = replaceOnce(text, oldTiles, newTiles, "football live summary tiles");
+  if (!text.includes(newTiles)) {
+    text = replaceOnce(text, oldTiles, newTiles, "football live summary tiles");
+  }
 
   text = text.replace(
     `    status: "Preseason development",\n    description:\n      "Matchup-adjusted spreads, moneylines, totals, projected scores, and personnel reliability.",`,
