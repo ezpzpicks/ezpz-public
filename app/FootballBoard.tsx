@@ -47,6 +47,10 @@ type NflEzpzPick = {
   propSide?: string;
   propLine?: string | number;
   gapPct?: number;
+  modelGapPct?: number;
+  predictedWinPct?: number;
+  impliedProbabilityPct?: number;
+  trendModelVersion?: string;
   snapshotStatus?: string;
 };
 
@@ -204,7 +208,7 @@ function NflEzpzCard({ pick }: { pick: NflEzpzPick }) {
   const isProp = pick.market === "Player Prop" || Boolean(pick.playerName);
   const final = hasBest || String(pick.snapshotStatus || "").toUpperCase() === "FINAL_PREGAME";
   const form = formBadge(pick.formStatus, pick.record);
-  const gap = Number(pick.gapPct);
+  const gap = Number(pick.modelGapPct ?? pick.gapPct);
   return (
     <article className={`nflEzpzCard ${isProp ? "prop" : ""}`}>
       <div className="nflEzpzTop">
@@ -244,14 +248,14 @@ function NflEzpzCard({ pick }: { pick: NflEzpzPick }) {
           <div className="nflGate trend">
             <span>Trend Gate</span>
             <strong>{Number.isFinite(gap) ? `${gap >= 0 ? "+" : ""}${gap.toFixed(1)}% GAP` : "15%+ GAP"}</strong>
-            <small>Handle − Bets must be +15.0% or higher</small>
+            <small>NFL V2 predicted win probability − market-implied probability must be +15.0% or higher</small>
           </div>
         ) : null}
       </div>
 
       <div className="nflEzpzRuleText">
         <strong>{pick.qualification || "Qualified"}</strong>
-        {hasTrend ? <span>Net ROI, trend tier, all-green status, sample size, and price are not Trend qualification gates.</span> : null}
+        {hasTrend ? <span>Raw Handle − Bets is an input to the regression, not the 15% qualification gap. Net ROI is not a Trend gate.</span> : null}
       </div>
     </article>
   );
@@ -264,13 +268,13 @@ function NflEzpzPicks({ data }: { data: FootballData }) {
       <div className="nflOptimizedHead">
         <div>
           <h2>NFL EZPZ Picks</h2>
-          <p>{data.aiSelectorStatus?.message || "Best Play = HOT + -150 or better. Trend = +15% Handle − Bets gap."}</p>
+          <p>{data.aiSelectorStatus?.message || "Best Play = HOT + -150 or better. Trend = NFL V2 model gap ≥ +15%."}</p>
         </div>
         <span>{picks.length} picks</span>
       </div>
       <div className="nflRulesStrip">
         <div><b>🔥 Best Play</b><span>HOT Last-7 badge + price -150 or better</span></div>
-        <div><b>📈 Trend</b><span>Handle − Bets gap ≥ +15%</span></div>
+        <div><b>📈 Trend</b><span>NFL V2 model gap ≥ +15%</span></div>
         <div><b>ROI</b><span>Display/history only — never a qualification gate</span></div>
       </div>
       {picks.length ? (
