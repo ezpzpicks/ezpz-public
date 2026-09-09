@@ -946,7 +946,7 @@ function EzpzPickCard({
           <div className="aiPickSummaryMeta">
             <span>{pick.game}</span>
             <span className={`aiStatusBadge ${isFinal ? "final" : "pending"}`}>
-              {isFinal ? "FINAL" : "LIVE — NOT LOCKED"}
+              {isFinal ? "FINAL" : "PENDING"}
             </span>
           </div>
           <strong>{pick.selection}</strong>

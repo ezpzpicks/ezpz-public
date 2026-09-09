@@ -5034,7 +5034,7 @@ function AiPickSelectorCard({
           <div className="aiPickSummaryMeta">
             <span>{pick.game}</span>
             <span className={`aiStatusBadge ${isFinalReview ? "final" : "pending"}`}>
-              {isFinalReview ? "FINAL" : "LIVE — NOT LOCKED"}
+              {isFinalReview ? "FINAL" : "PENDING"}
             </span>
             {handpicked ? (
               <span className="handpickedPill aiHandpickedPill">⭐ HANDPICKED</span>
