@@ -17,12 +17,11 @@ function patchRoute() {
     "football route import",
   );
 
-  // Older versions of this patch matched the comment immediately after GET().
-  // The route has since evolved, so treat an existing football delegation as
-  // already patched instead of requiring that historical comment to remain.
+  // The route now passes options into buildFootballPublicData, so detect any
+  // real invocation rather than requiring the old one-argument call shape.
   const footballDelegationPresent =
     text.includes('request.nextUrl.searchParams.get("sport")') &&
-    text.includes("buildFootballPublicData(requestedSport)");
+    text.includes("buildFootballPublicData(");
   if (!footballDelegationPresent) {
     text = replaceOnce(
       text,
