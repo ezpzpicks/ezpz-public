@@ -1,0 +1,38 @@
+name: Apply PENDING EZPZ T-15 behavior
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/ezpz-pending-t15.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install --no-audit --no-fund
+      - name: Apply pending preview and universal T-15
+        run: node scripts/apply_ezpz_pending_t15.mjs
+      - name: Build verification
+        run: npm run build
+      - name: Commit validated changes
+        run: |
+          if git diff --quiet; then
+            echo "No source changes needed."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add lib/mlbTrendV2.ts app/api/public-data-v2/route.ts lib/footballPublicData.ts app/page.tsx app/FootballBoard.tsx
+          git commit -m "Show qualifying EZPZ plays as pending until T-15"
+          git push
