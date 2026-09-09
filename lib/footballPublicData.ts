@@ -995,7 +995,7 @@ function headToHead(plays: TrendPlay[]) {
       metrics.hasData &&
       opponent.metrics.hasData &&
       candidateRoiPct > 0 &&
-      netRoiAdvantage >= 10 &&
+      netRoiAdvantage >= 15 &&
       !opponentLast7Green &&
       allSignalsGreen
     );
@@ -1399,12 +1399,12 @@ function buildFootballEzpzPicks(
   for (const play of headToHead(trends)) {
     if (play.tier !== "Strong" && play.tier !== "Elite") continue;
     const trendSampleSize = Number(play.TrendSampleSize || 0);
-    // CFB early-season safeguard only: 1-4 samples cannot enter EZPZ;
-    // 5-9 samples may qualify, but are capped at Strong. The underlying
-    // trend score/tier remains untouched for clean forward data collection.
-    if (sport === "NCAAF" && trendSampleSize < 5) continue;
+    // Football early-season safeguard: 1-4 settled samples cannot enter EZPZ.
+    // 5-9 samples may qualify, but are capped at Strong. This applies to both
+    // CFB and NFL so a new season can legitimately begin with no EZPZ trend plays.
+    if (trendSampleSize < 5) continue;
     const ezpzTrendTier =
-      sport === "NCAAF" && trendSampleSize < 10 && play.tier === "Elite"
+      trendSampleSize < 10 && play.tier === "Elite"
         ? "Strong"
         : play.tier;
     if (!play.signals.length || !play.signals.every((signal) => signal.tone === "positive")) continue;
@@ -1418,7 +1418,7 @@ function buildFootballEzpzPicks(
       odds,
       score: Math.round(play.score * 10) / 10,
       tier: `${ezpzTrendTier} Trend Play`,
-      qualification: "All-green Trend Play • 10%+ net ROI advantage",
+      qualification: "All-green Trend Play • 15%+ net ROI advantage",
     });
   }
 

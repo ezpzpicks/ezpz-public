@@ -685,7 +685,7 @@ function fbTrendPickPassesEzpzRules(pick: EzpzPick, trendPlays: TrendPlay[], spo
   if (pick.source !== "Trend Play") return true;
   const play = fbTrendPlayForPick(pick, trendPlays);
   if (!play || (play.tier !== "Strong" && play.tier !== "Elite")) return false;
-  if (sport === "NCAAF" && Number(play.TrendSampleSize || 0) < 5) return false;
+  if (Number(play.TrendSampleSize || 0) < 5) return false;
   if (!play.signals?.length) return false;
 
   // Backend signal.tone is positive exactly when the all-time historical record is winning.
@@ -697,7 +697,7 @@ function fbTrendPickPassesEzpzRules(pick: EzpzPick, trendPlays: TrendPlay[], spo
   if (!allSignalsGreen) return false;
 
   const roi = fbTrendNetRoiSummary(play, trendPlays);
-  if (!roi || roi.candidateRoiPct <= 0 || roi.netRoiPct < 10) return false;
+  if (!roi || roi.candidateRoiPct <= 0 || roi.netRoiPct < 15) return false;
 
   const sideKey = play.market === "Total" ? textKey(play.side) : textKey(play.selectionTeam || play.selection);
   const opposingSides = trendPlays
