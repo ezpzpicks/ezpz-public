@@ -1024,10 +1024,10 @@ function modelTrendShells(row:SheetRow):SheetRow[]{
   const homeOdds=String(row["Home Spread Odds"]||row["Spread Odds"]||"-110"), awayOdds=String(row["Away Spread Odds"]||"-110"), overOdds=String(row["Total Over Odds"]||row["Total Odds"]||"-110"),underOdds=String(row["Total Under Odds"]||"-110");
   const spreadGrade=String(row["Spread Grade"]||"No Play"),totalGrade=String(row["Total Grade"]||"No Play"); const spreadPick=String(row["Spread Pick"]||""); const totalPick=String(row["Total Pick"]||"");
   return [
-    {...common,Market:"Spread",Selection:home,Side:"",Line:String(spreadLine),Odds:homeOdds,"Odds/Line":`${spreadLine} / ${homeOdds}`,"Model Grade":sameTeam(spreadPick,home,"NCAAF" as FootballSport)?spreadGrade:"Research","Qualified":sameTeam(spreadPick,home,"NCAAF" as FootballSport)&&spreadGrade!=="No Play"?"TRUE":"FALSE","Model %":sameTeam(spreadPick,home,"NCAAF" as FootballSport)?String(row["Spread Probability"]||""):"","Edge %":sameTeam(spreadPick,home,"NCAAF" as FootballSport)?String(row["Spread Price Edge"]||row["Spread Edge"]||""):""},
-    {...common,Market:"Spread",Selection:away,Side:"",Line:String(-spreadLine),Odds:awayOdds,"Odds/Line":`${-spreadLine} / ${awayOdds}`,"Model Grade":sameTeam(spreadPick,away,"NCAAF" as FootballSport)?spreadGrade:"Research","Qualified":sameTeam(spreadPick,away,"NCAAF" as FootballSport)&&spreadGrade!=="No Play"?"TRUE":"FALSE","Model %":sameTeam(spreadPick,away,"NCAAF" as FootballSport)?String(row["Spread Probability"]||""):"","Edge %":sameTeam(spreadPick,away,"NCAAF" as FootballSport)?String(row["Spread Price Edge"]||row["Spread Edge"]||""):""},
-    {...common,Market:"Total",Selection:"Over",Side:"Over",Line:String(totalLine),Odds:overOdds,"Odds/Line":`${totalLine} / ${overOdds}`,"Model Grade":textKey(totalPick).startsWith("over")?totalGrade:"Research","Qualified":textKey(totalPick).startsWith("over")&&totalGrade!=="No Play"?"TRUE":"FALSE","Model %":textKey(totalPick).startsWith("over")?String(row["Total Probability"]||""):"","Edge %":textKey(totalPick).startsWith("over")?String(row["Total Price Edge"]||row["Total Edge"]||""):""},
-    {...common,Market:"Total",Selection:"Under",Side:"Under",Line:String(totalLine),Odds:underOdds,"Odds/Line":`${totalLine} / ${underOdds}`,"Model Grade":textKey(totalPick).startsWith("under")?totalGrade:"Research","Qualified":textKey(totalPick).startsWith("under")&&totalGrade!=="No Play"?"TRUE":"FALSE","Model %":textKey(totalPick).startsWith("under")?String(row["Total Probability"]||""):"","Edge %":textKey(totalPick).startsWith("under")?String(row["Total Price Edge"]||row["Total Edge"]||""):""},
+    {...common,Market:"Spread",Selection:home,Side:"",Line:String(spreadLine),Odds:homeOdds,"Odds/Line":`${spreadLine} / ${homeOdds}`,"Model Grade":sameTeam(spreadPick,home,"NCAAF" as FootballSport)?spreadGrade:"Research","Qualified":sameTeam(spreadPick,home,"NCAAF" as FootballSport)&&qualifiedFootballModelGrade(spreadGrade)?"TRUE":"FALSE","Model %":sameTeam(spreadPick,home,"NCAAF" as FootballSport)?String(row["Spread Probability"]||""):"","Edge %":sameTeam(spreadPick,home,"NCAAF" as FootballSport)?String(row["Spread Price Edge"]||row["Spread Edge"]||""):""},
+    {...common,Market:"Spread",Selection:away,Side:"",Line:String(-spreadLine),Odds:awayOdds,"Odds/Line":`${-spreadLine} / ${awayOdds}`,"Model Grade":sameTeam(spreadPick,away,"NCAAF" as FootballSport)?spreadGrade:"Research","Qualified":sameTeam(spreadPick,away,"NCAAF" as FootballSport)&&qualifiedFootballModelGrade(spreadGrade)?"TRUE":"FALSE","Model %":sameTeam(spreadPick,away,"NCAAF" as FootballSport)?String(row["Spread Probability"]||""):"","Edge %":sameTeam(spreadPick,away,"NCAAF" as FootballSport)?String(row["Spread Price Edge"]||row["Spread Edge"]||""):""},
+    {...common,Market:"Total",Selection:"Over",Side:"Over",Line:String(totalLine),Odds:overOdds,"Odds/Line":`${totalLine} / ${overOdds}`,"Model Grade":textKey(totalPick).startsWith("over")?totalGrade:"Research","Qualified":textKey(totalPick).startsWith("over")&&qualifiedFootballModelGrade(totalGrade)?"TRUE":"FALSE","Model %":textKey(totalPick).startsWith("over")?String(row["Total Probability"]||""):"","Edge %":textKey(totalPick).startsWith("over")?String(row["Total Price Edge"]||row["Total Edge"]||""):""},
+    {...common,Market:"Total",Selection:"Under",Side:"Under",Line:String(totalLine),Odds:underOdds,"Odds/Line":`${totalLine} / ${underOdds}`,"Model Grade":textKey(totalPick).startsWith("under")?totalGrade:"Research","Qualified":textKey(totalPick).startsWith("under")&&qualifiedFootballModelGrade(totalGrade)?"TRUE":"FALSE","Model %":textKey(totalPick).startsWith("under")?String(row["Total Probability"]||""):"","Edge %":textKey(totalPick).startsWith("under")?String(row["Total Price Edge"]||row["Total Edge"]||""):""},
   ];
 }
 
@@ -1283,11 +1283,79 @@ function recordTotals(rows:SheetRow[],days?:number){
   const total=wins+losses+pushes,decisions=wins+losses;return{label:"",record:`${wins}-${losses}-${pushes}`,totalBets:total,winPct:decisions?Math.round(wins/decisions*1000)/10:0,unitsWon:Math.round(units*100)/100,roiPct:total?Math.round(units/total*1000)/10:0,wins,losses,pushes};
 }
 
+function qualifiedFootballModelGrade(value: unknown) {
+  const grade = textKey(value);
+  return Boolean(grade) &&
+    !grade.includes("no play") &&
+    !grade.includes("non edge") &&
+    grade !== "research" &&
+    grade !== "projection only" &&
+    grade !== "no market line";
+}
+
+function qualifiedNflPropGrade(value: unknown) {
+  const grade = textKey(value);
+  return grade === "a prop" || grade === "b prop";
+}
+
+function playerPropTeams(row: SheetRow) {
+  const game = String(row.Game || "").trim();
+  const parts = game.split(/\s+(?:@|at)\s+/i).map((part) => part.trim()).filter(Boolean);
+  if (parts.length === 2) return { away: parts[0], home: parts[1] };
+  const team = String(row.Team || "").trim();
+  const opponent = String(row.Opponent || "").trim();
+  return textKey(row["Home/Away"]) === "home"
+    ? { away: opponent, home: team }
+    : { away: team, home: opponent };
+}
+
 function bestPlays(slate:SheetRow[],sport:FootballSport){
   const plays:any[]=[];for(const row of slate){const game=String(row.Game||`${row["Away Team"]} @ ${row["Home Team"]}`),away=String(row["Away Team"]||""),home=String(row["Home Team"]||"");
-    const sg=String(row["Spread Grade"]||"");if(sg&&sg!=="No Play"){const pick=String(row["Spread Pick"]||"");plays.push({playType:sg,game,play:pick,oddsLine:String(row["Spread Odds"]||row["Market Home Spread"]||""),score:String(row["Spread Probability"]||""),isGreen:true,awayTeam:away,homeTeam:home,reliability:row.Reliability,selectedProbability:row["Spread Probability"],modelVersion:row["Model Version"],role:"Spread",publicBetsPct:row["Spread Public Bets %"],publicMoneyPct:row["Spread Public Money %"]});}
-    const tg=String(row["Total Grade"]||"");if(tg&&tg!=="No Play"){plays.push({playType:tg,game,play:String(row["Total Pick"]||""),oddsLine:String(row["Total Odds"]||row["Market Total"]||""),score:String(row["Total Probability"]||""),isGreen:true,awayTeam:away,homeTeam:home,reliability:row.Reliability,selectedProbability:row["Total Probability"],modelVersion:row["Model Version"],role:"Total"});}
+    const sg=String(row["Spread Grade"]||"");if(qualifiedFootballModelGrade(sg)){const pick=String(row["Spread Pick"]||"");plays.push({playType:sg,game,play:pick,oddsLine:String(row["Spread Odds"]||row["Market Home Spread"]||""),score:String(row["Spread Probability"]||""),isGreen:true,awayTeam:away,homeTeam:home,reliability:row.Reliability,selectedProbability:row["Spread Probability"],modelVersion:row["Model Version"],role:"Spread",publicBetsPct:row["Spread Public Bets %"],publicMoneyPct:row["Spread Public Money %"]});}
+    const tg=String(row["Total Grade"]||"");if(qualifiedFootballModelGrade(tg)){plays.push({playType:tg,game,play:String(row["Total Pick"]||""),oddsLine:String(row["Total Odds"]||row["Market Total"]||""),score:String(row["Total Probability"]||""),isGreen:true,awayTeam:away,homeTeam:home,reliability:row.Reliability,selectedProbability:row["Total Probability"],modelVersion:row["Model Version"],role:"Total"});}
   }return plays;
+}
+
+function nflPlayerPropBestPlays(propRows: SheetRow[], slate: SheetRow[], today: string) {
+  return propRows
+    .filter((row) => isoDate(row.Date || row["Game Date"] || "") === today)
+    .filter((row) => qualifiedNflPropGrade(row.Grade))
+    .filter((row) => {
+      const gameId = String(row["Game ID"] || row["Game Key"] || "").trim();
+      const teams = playerPropTeams(row);
+      return slate.some((game) => {
+        const slateId = String(game["Game ID"] || game["Game Key"] || "").trim();
+        if (gameId && slateId && gameId === slateId) return true;
+        return sameTeam(teams.away, game["Away Team"], "NFL") && sameTeam(teams.home, game["Home Team"], "NFL");
+      });
+    })
+    .map((row) => {
+      const teams = playerPropTeams(row);
+      const market = String(row.Market || "Player Prop").trim();
+      const player = String(row.Player || "").trim();
+      const pick = String(row.Pick || "").trim();
+      const grade = String(row.Grade || "").trim();
+      return {
+        playType: grade,
+        game: `${teams.away} @ ${teams.home}`,
+        play: `${player} ${market} ${pick}`.replace(/\s+/g, " ").trim(),
+        oddsLine: String(row["Pick Odds"] || ""),
+        score: String(row["Model Probability"] || ""),
+        isGreen: true,
+        awayTeam: teams.away,
+        homeTeam: teams.home,
+        reliability: row.Reliability,
+        selectedProbability: row["Model Probability"],
+        modelVersion: row["Model Version"],
+        role: `Player Prop • ${market}`,
+      };
+    })
+    .sort((a, b) => {
+      const gradeRank = (value: unknown) => textKey(value) === "a prop" ? 2 : 1;
+      const gradeDiff = gradeRank(b.playType) - gradeRank(a.playType);
+      if (gradeDiff) return gradeDiff;
+      return Number(b.score || 0) - Number(a.score || 0);
+    });
 }
 
 type FootballEzpzPick = {
@@ -1444,7 +1512,7 @@ function buildFootballEzpzPicks(
 
 async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:{persist?:boolean}={}){
   const today=todayET(); const trackingWeek=footballWeekBounds(sport,today); if(persist) await Promise.all([ensureSportWorksheet(sport,"all_game_trends",ALL_GAME_TRENDS_HEADERS),ensureSportWorksheet(sport,"public_split_snapshots",PUBLIC_SPLIT_HEADERS)]);
-  const [slateAll,trackerRaw,schedule,trendExisting,snapshotExisting]=await Promise.all([readSportWorksheet(sport,"daily_slate"),readSportWorksheet(sport,"bet_tracker"),readSportWorksheet(sport,"schedule"),readSportWorksheet(sport,"all_game_trends",ALL_GAME_TRENDS_HEADERS),readSportWorksheet(sport,"public_split_snapshots",PUBLIC_SPLIT_HEADERS)]);
+  const [slateAll,trackerRaw,schedule,trendExisting,snapshotExisting,propProjectionRows]=await Promise.all([readSportWorksheet(sport,"daily_slate"),readSportWorksheet(sport,"bet_tracker"),readSportWorksheet(sport,"schedule"),readSportWorksheet(sport,"all_game_trends",ALL_GAME_TRENDS_HEADERS),readSportWorksheet(sport,"public_split_snapshots",PUBLIC_SPLIT_HEADERS),sport==="NFL"?readSportWorksheet(sport,"prop_projections"):Promise.resolve([] as SheetRow[])]);
   const liveSchedule=await loadFootballWeekSchedule(sport,trackingWeek.start,trackingWeek.end);
   const footballSchedule=mergeFootballSchedules(schedule,liveSchedule,sport);
   const pendingRecordDates=[...new Set([...trackerRaw,...trendExisting]
@@ -1556,8 +1624,10 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
   const todaySlate=slate.filter((row)=>isoDate(row.Date||row["Game Date"]||"")===today);
   const todayTrendPlays=displayTrendPlays.filter((play)=>isoDate(play.date)===today);
   const todayEnriched=enriched.filter((split)=>isoDate(split.date)===today);
-  const best=bestPlays(todaySlate,sport);
-  const aiPicks=buildFootballEzpzPicks(best,todayTrendPlays,tracker,todayEnriched,sport);
+  const modelBest=bestPlays(todaySlate,sport);
+  const propBest=sport==="NFL"?nflPlayerPropBestPlays(propProjectionRows,todaySlate,today):[];
+  const best=[...modelBest,...propBest];
+  const aiPicks=buildFootballEzpzPicks(modelBest,todayTrendPlays,tracker,todayEnriched,sport);
   const overall=recordTotals(tracker);const last7=recordTotals(tracker,7);const pending=tracker.filter((r)=>!resultCode(r.Result||r.Status)).length;
   const recordGroups = sport === "NCAAF"
     ? [
@@ -1576,7 +1646,7 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
   });
   const recordSummary = buildRecordSummary();
   const last7RecordSummary = buildRecordSummary(7);
-  return {ok:true,sport,database:sportDatabaseLabel(sport),today,lastUpdated:nowET(),tiles:{last7Days:last7,overallGreen:overall,handpickedLast7:last7,handpickedOverall:overall,pendingGreen:pending,bestPlaysToday:best.length},bestPlays:best,slateToday:todaySlate,betTrackerRows:tracker,draftKings:{ok:enriched.length>0,status:enriched.length?"LIVE":"UNAVAILABLE",updatedAt:nowET(),stale:false,splits:enriched,props:[],errors:dk.errors,displayMode:"LIVE",trackingMode:"WEEKLY",trackingWeekStart:trackingWeek.start,trackingWeekEnd:trackingWeek.end,trackedGames:trackingSlate.length},draftKingsSignalRows:history,trendRecordRows:trendRows.filter(r=>resultCode(r.Result)),trendPlays:displayTrendPlays,aiPicks,aiPickRecordRows:[],aiSelectorStatus:{mode:"LIVE",externalResearchConfigured:false,message:aiPicks.length?`${sport} EZPZ Picks are live for ${today}: HOT Best Plays are FINAL immediately; currently qualifying all-green Strong/Elite Trend Plays appear as PENDING until the T-15 final market lock; max price -150.`:`No ${sport} EZPZ Picks for ${today} currently qualify under the HOT / all-green 10%+ ROI / Strong-Elite / -150 rules. Qualifying Trend Plays will appear as PENDING before the T-15 final lock.`,updatedAt:nowET(),candidateCount:best.length+todayTrendPlays.length,selectedCount:aiPicks.length},recordSummary,last7RecordSummary,handpickedRecordSummary:recordSummary,handpickedLast7RecordSummary:last7RecordSummary};
+  return {ok:true,sport,database:sportDatabaseLabel(sport),today,lastUpdated:nowET(),tiles:{last7Days:last7,overallGreen:overall,handpickedLast7:last7,handpickedOverall:overall,pendingGreen:pending,bestPlaysToday:best.length},bestPlays:best,slateToday:todaySlate,betTrackerRows:tracker,draftKings:{ok:enriched.length>0,status:enriched.length?"LIVE":"UNAVAILABLE",updatedAt:nowET(),stale:false,splits:enriched,props:[],errors:dk.errors,displayMode:"LIVE",trackingMode:"WEEKLY",trackingWeekStart:trackingWeek.start,trackingWeekEnd:trackingWeek.end,trackedGames:trackingSlate.length},draftKingsSignalRows:history,trendRecordRows:trendRows.filter(r=>resultCode(r.Result)),trendPlays:displayTrendPlays,aiPicks,aiPickRecordRows:[],aiSelectorStatus:{mode:"LIVE",externalResearchConfigured:false,message:aiPicks.length?`${sport} EZPZ Picks are live for ${today}: HOT Best Plays are FINAL immediately; currently qualifying all-green Strong/Elite Trend Plays appear as PENDING until the T-15 final market lock; max price -150.`:`No ${sport} EZPZ Picks for ${today} currently qualify under the HOT / all-green 10%+ ROI / Strong-Elite / -150 rules. Qualifying Trend Plays will appear as PENDING before the T-15 final lock.`,updatedAt:nowET(),candidateCount:modelBest.length+todayTrendPlays.length,selectedCount:aiPicks.length},recordSummary,last7RecordSummary,handpickedRecordSummary:recordSummary,handpickedLast7RecordSummary:last7RecordSummary};
 }
 
 const FOOTBALL_PUBLIC_DATA_CACHE_TTL_MS = 60_000;

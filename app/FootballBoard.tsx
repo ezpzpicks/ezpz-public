@@ -712,10 +712,11 @@ function fbTrendPickPassesEzpzRules(pick: EzpzPick, trendPlays: TrendPlay[], spo
 }
 
 function BestPlayCard({ play, splits, index, sport, recentByType, lastSevenBetsByType }: { play: Play; splits: DraftKingsSplit[]; index: number; sport: Sport; recentByType: Map<string, Summary>; lastSevenBetsByType: Map<string, Summary> }) {
-  const split = selectedSplit(play, splits);
   const roleKey = textKey(play.role || play.playType);
-  const market = roleKey.includes("total") ? "Total" : "Spread";
-  const recordType = fbBestPlayRecordType(play, split, sport);
+  const isPlayerProp = roleKey.includes("player prop");
+  const split = isPlayerProp ? undefined : selectedSplit(play, splits);
+  const market = isPlayerProp ? "Player Prop" : roleKey.includes("total") ? "Total" : "Spread";
+  const recordType = isPlayerProp ? "" : fbBestPlayRecordType(play, split, sport);
   const recentSummary = recordType ? recentByType.get(recordType) || null : null;
   const lastSevenBetsSummary = recordType ? lastSevenBetsByType.get(recordType) || null : null;
   const scoreValue = Number(play.score);
@@ -775,13 +776,13 @@ function BestPlayCard({ play, splits, index, sport, recentByType, lastSevenBetsB
         </div>
       ) : (
         <div className="modelMeta footballModelMeta">
-          <span>DraftKings selected-side split pending</span>
+          <span>{isPlayerProp ? "Player prop market" : "DraftKings selected-side split pending"}</span>
         </div>
       )}
 
       <div className="modelMeta footballModelMeta">
-        <span>{recordType || "Regression model"}</span>
-        <span>Spread + Total workflow</span>
+        <span>{recordType || (isPlayerProp ? "NFL player prop model" : "Regression model")}</span>
+        <span>{isPlayerProp ? "Player prop workflow" : "Spread + Total workflow"}</span>
       </div>
     </article>
   );
