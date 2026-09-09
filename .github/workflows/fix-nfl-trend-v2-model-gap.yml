@@ -22,9 +22,24 @@ jobs:
         run: npm install --no-audit --no-fund
 
       - name: Verify production build
-        run: npm run build
+        id: build
+        shell: bash
+        run: |
+          set +e
+          npm run build 2>&1 | tee build.log
+          code=${PIPESTATUS[0]}
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit $code
+
+      - name: Upload build log on failure
+        if: failure() && steps.build.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: nfl-trend-v2-build-log
+          path: build.log
 
       - name: Commit NFL Trend V2 calculation
+        if: success()
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
