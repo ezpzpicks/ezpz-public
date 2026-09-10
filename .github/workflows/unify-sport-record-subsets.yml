@@ -28,9 +28,6 @@ jobs:
       - name: Apply approved records repair
         run: python scripts/unify_sport_record_subsets.py
 
-      - name: Normalize exact-subset TypeScript label type
-        run: sed -i 's/let subtype = market;/let subtype: string = market;/' lib/footballPublicData.ts
-
       - name: Install dependencies
         run: npm install --no-audit --no-fund
 

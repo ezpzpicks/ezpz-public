@@ -52,18 +52,12 @@ function propRecordType(row: SheetRow) {
 }
 
 '''
-lib = replace_between(
-    lib,
-    "function propRecordType(row: SheetRow) {",
-    "function propMarketLine",
-    prop_block,
-    "NFL prop exact subset",
-)
+lib = replace_between(lib, "function propRecordType(row: SheetRow) {", "function propMarketLine", prop_block, "NFL prop exact subset")
 
 game_block = '''function gameBestRecordType(play: any, split?: any) {
   const grade = nflGradeLabel(play.playType || play.grade || play["Model Grade"]);
   const market = gameBestMarket(play);
-  let subtype = market;
+  let subtype: string = market;
   if (market === "Total") {
     const side = textKey(split?.side || play.play);
     if (side.startsWith("under")) subtype = "Under";
@@ -102,13 +96,7 @@ function trackerMatchesGameBest(row: SheetRow, recordType: string) {
 }
 
 '''
-lib = replace_between(
-    lib,
-    "function gameBestRecordType(play: any, split?: any) {",
-    "function sameGame",
-    game_block,
-    "NFL game exact subset",
-)
+lib = replace_between(lib, "function gameBestRecordType(play: any, split?: any) {", "function sameGame", game_block, "NFL game exact subset")
 
 summary_block = '''  const exactRecordTypeForRow = (row: SheetRow) => {
     const market = textKey(row["Bet Type"] || row.Market);
@@ -152,32 +140,14 @@ summary_block = '''  const exactRecordTypeForRow = (row: SheetRow) => {
   const nflLast7BestRecord = nflRecordTotals(combinedBestPlayTracker, 7);
   const nflPendingBestPlays = combinedBestPlayTracker.filter((row) => !resultCode(row.Result || row.Status)).length;
   '''
-lib = replace_between(
-    lib,
-    "  const nflRecordSummary = [",
-    "  const legacyGameBest =",
-    summary_block,
-    "NFL exact record summaries",
-)
-lib = replace_once(
-    lib,
-    "    ...legacy,\n    bestPlays,\n    tiles:",
-    "    ...legacy,\n    bestPlays,\n    betTrackerRows: combinedBestPlayTracker,\n    tiles:",
-    "NFL combined game + prop tracker",
-)
+lib = replace_between(lib, "  const nflRecordSummary = [", "  const legacyGameBest =", summary_block, "NFL exact record summaries")
+lib = replace_once(lib, "    ...legacy,\n    bestPlays,\n    tiles:", "    ...legacy,\n    bestPlays,\n    betTrackerRows: combinedBestPlayTracker,\n    tiles:", "NFL combined game + prop tracker")
 lib_path.write_text(lib, encoding="utf-8")
 
 ui_path = Path("app/FootballBoardLegacy.tsx")
 ui = ui_path.read_text(encoding="utf-8")
-ui = replace_once(
-    ui,
-    '<div className="sectionHead"><div><h2>All Qualified Plays</h2><p>Official graded CFB model plays</p></div></div>',
-    '<div className="sectionHead"><div><h2>All Qualified Plays</h2><p>{sport === "NFL" ? "Official graded NFL game + player-prop plays" : "Official graded CFB model plays"}</p></div></div>',
-    "sport-specific records heading",
-)
-ui = replace_once(
-    ui,
-    '''{sport === "NCAAF" ? <>
+ui = replace_once(ui, '<div className="sectionHead"><div><h2>All Qualified Plays</h2><p>Official graded CFB model plays</p></div></div>', '<div className="sectionHead"><div><h2>All Qualified Plays</h2><p>{sport === "NFL" ? "Official graded NFL game + player-prop plays" : "Official graded CFB model plays"}</p></div></div>', "sport-specific records heading")
+ui = replace_once(ui, '''{sport === "NCAAF" ? <>
           <RecordTile label="Favorite Spread - Running Total" value={summaryMap.get("Favorite Spread")} />
           <RecordTile label="Underdog Spread - Running Total" value={summaryMap.get("Underdog Spread")} />
           <RecordTile label="Over - Running Total" value={summaryMap.get("Over")} />
@@ -185,41 +155,18 @@ ui = replace_once(
         </> : <>
           <RecordTile label="Spread - Running Total" value={summaryMap.get("Spread")} />
           <RecordTile label="Total - Running Total" value={summaryMap.get("Total")} />
-        </>}''',
-    '''{sport === "NCAAF" ? <>
+        </>}''', '''{sport === "NCAAF" ? <>
           <RecordTile label="Favorite Spread - Running Total" value={summaryMap.get("Favorite Spread")} />
           <RecordTile label="Underdog Spread - Running Total" value={summaryMap.get("Underdog Spread")} />
           <RecordTile label="Over - Running Total" value={summaryMap.get("Over")} />
           <RecordTile label="Under - Running Total" value={summaryMap.get("Under")} />
         </> : (data.recordSummary || []).map((row) =>
           <RecordTile key={row.betType} label={`${row.betType} - Running Total`} value={row} />
-        )}''',
-    "NFL exact subset tiles",
-)
-ui = replace_once(
-    ui,
-    '<div className="sectionHead"><div><h2>Trend Records</h2><p>Same record system used on MLB, adapted for CFB Spread + Total trends</p></div></div>',
-    '<div className="sectionHead"><div><h2>Trend Records</h2><p>Same MLB-style record system, using sport-specific football trend history</p></div></div>',
-    "records parity subtitle",
-)
-ui = replace_once(
-    ui,
-    '<div className="sectionHead"><div><h2>Bet Type Records</h2><p>Spread and Total Best Play performance</p></div></div>',
-    '<div className="sectionHead"><div><h2>Bet Type Records</h2><p>{sport === "NFL" ? "Exact A/B grade + market + direction subsets used by HOT / COLD / SMALL SAMPLE" : "Spread and Total Best Play performance"}</p></div></div>',
-    "NFL subset description",
-)
-ui = replace_once(
-    ui,
-    '<FbRecordDropdown title="Last 7 Days Best Plays" subtitle="Spread + Total qualified model records" rows={data.last7RecordSummary || []} defaultOpen />',
-    '<FbRecordDropdown title="Last 7 Days Best Plays" subtitle={sport === "NFL" ? "Exact NFL grade / market / direction records" : "Spread + Total qualified model records"} rows={data.last7RecordSummary || []} defaultOpen />',
-    "last 7 exact records subtitle",
-)
-ui = replace_once(
-    ui,
-    '<FbRecordDropdown title="Overall Best Plays" subtitle="Running Spread + Total records" rows={data.recordSummary || []} />',
-    '<FbRecordDropdown title="Overall Best Plays" subtitle={sport === "NFL" ? "Running exact NFL grade / market / direction records" : "Running Spread + Total records"} rows={data.recordSummary || []} />',
-    "overall exact records subtitle",
-)
+        )}''', "NFL exact subset tiles")
+ui = replace_once(ui, '<div className="sectionHead"><div><h2>Trend Records</h2><p>Same record system used on MLB, adapted for CFB Spread + Total trends</p></div></div>', '<div className="sectionHead"><div><h2>Trend Records</h2><p>Same MLB-style record system, using sport-specific football trend history</p></div></div>', "records parity subtitle")
+ui = replace_once(ui, '<div className="sectionHead"><div><h2>Bet Type Records</h2><p>Spread and Total Best Play performance</p></div></div>', '<div className="sectionHead"><div><h2>Bet Type Records</h2><p>{sport === "NFL" ? "Exact A/B grade + market + direction subsets used by HOT / COLD / SMALL SAMPLE" : "Spread and Total Best Play performance"}</p></div></div>', "NFL subset description")
+ui = replace_once(ui, '<FbRecordDropdown title="Last 7 Days Best Plays" subtitle="Spread + Total qualified model records" rows={data.last7RecordSummary || []} defaultOpen />', '<FbRecordDropdown title="Last 7 Days Best Plays" subtitle={sport === "NFL" ? "Exact NFL grade / market / direction records" : "Spread + Total qualified model records"} rows={data.last7RecordSummary || []} defaultOpen />', "last 7 exact records subtitle")
+ui = replace_once(ui, '<FbRecordDropdown title="Overall Best Plays" subtitle="Running Spread + Total records" rows={data.recordSummary || []} />', '<FbRecordDropdown title="Overall Best Plays" subtitle={sport === "NFL" ? "Running exact NFL grade / market / direction records" : "Running Spread + Total records"} rows={data.recordSummary || []} />', "overall exact records subtitle")
 ui = ui.replace("Good / Strong / Elite CFB trend history", "Good / Strong / Elite football trend history")
 ui_path.write_text(ui, encoding="utf-8")
 
