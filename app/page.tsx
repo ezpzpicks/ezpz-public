@@ -5010,7 +5010,11 @@ function AiPickSelectorCard({
   const isFinalReview =
     pick.snapshotStatus === "FINAL_PREGAME" && pick.protectionStatus === "PASSED";
   const isPendingTrend = !pick.bestPlayType && !isFinalReview;
-  const pendingTrendGap = Number(pick.estimatedAdvantage);
+  const isMlbTrendV2Pick =
+    String(pick.selectorVersion || "").startsWith("mlb-trend-v2") ||
+    String(pick.candidateId || "").startsWith("v2|");
+  const showGapOnly = isMlbTrendV2Pick;
+  const displayedTrendGap = Number(pick.estimatedAdvantage);
   const historicalNotes = cleanAiDisplayList(pick.historicalNotes);
   const trendRoiSummary = trendPlay ? aiTrendNetRoiSummary(trendPlay, trendPlays) : null;
   const researchSummary = cleanAiDisplayText(pick.researchSummary);
@@ -5095,7 +5099,7 @@ function AiPickSelectorCard({
           </section>
         ) : null}
 
-        {isPendingTrend ? (
+        {showGapOnly ? (
           <section className="aiPickDetailSection historical aiTrendEvidence">
             <div className="aiTrendNetRoiCard">
               <div className="aiTrendNetRoiMain">
@@ -5103,7 +5107,7 @@ function AiPickSelectorCard({
                   <span>GAP</span>
                 </div>
                 <strong className="positive">
-                  {Number.isFinite(pendingTrendGap) ? `${pendingTrendGap.toFixed(1)}%` : "—"}
+                  {Number.isFinite(displayedTrendGap) ? `${displayedTrendGap.toFixed(1)}%` : "—"}
                 </strong>
               </div>
             </div>
@@ -5185,21 +5189,21 @@ function AiPickSelectorCard({
           </section>
         ) : null}
 
-        {!isPendingTrend && researchSummary ? (
+        {!showGapOnly && researchSummary ? (
           <section className="aiPickDetailSection research">
             <h3>AI Research Summary</h3>
             <p>{researchSummary}</p>
           </section>
         ) : null}
 
-        {!isPendingTrend && verdict ? (
+        {!showGapOnly && verdict ? (
           <section className="aiPickVerdict">
             <h3>AI Verdict</h3>
             <p>{verdict}</p>
           </section>
         ) : null}
 
-        {!isPendingTrend ? (
+        {!showGapOnly ? (
           <section className="aiPickDetailSection data">
             <h3>Data Status</h3>
             <ul>
