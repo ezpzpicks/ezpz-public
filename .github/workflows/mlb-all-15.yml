@@ -1,4 +1,4 @@
-name: Validate MLB one-pick-per-game policy
+name: Validate MLB RLM-only one-pick policy
 
 on:
   push:
@@ -22,7 +22,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: mlb-one-pick-per-game-${{ github.ref }}
+  group: mlb-rlm-only-one-pick-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:

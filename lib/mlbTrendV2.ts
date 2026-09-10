@@ -6,8 +6,7 @@ export const MLB_TREND_V2_NORMAL_GAP = 15;
 export const MLB_TREND_V2_EARLY_GAP = 15;
 export const MLB_TREND_V2_DECISION_WINDOW_MINUTES = 15;
 export const MLB_TREND_V2_MAX_FAVORITE_PRICE = -150;
-export const MLB_TREND_V2_TOTAL_SELECTIVE_GAP = 5;
-export const MLB_TREND_V2_SELECTION_POLICY = "mlb-trend-v2-selective-totals-2026-09-10";
+export const MLB_TREND_V2_SELECTION_POLICY = "mlb-trend-v2-rlm-only-2026-09-10";
 
 const FEATURES = [
   "implied", "legacy", "gapPct", "publicMovementPct", "sharpMovementPct", "lineMovementValue",
@@ -47,35 +46,37 @@ export function parseAmericanOdds(value:unknown):number { const raw=String(value
 function impliedFromOdds(value:unknown):number|null { const odds=parseAmericanOdds(value); if(!odds)return null; return odds>0?(100/(odds+100))*100:(Math.abs(odds)/(Math.abs(odds)+100))*100; }
 function clamp(v:number,min:number,max:number){return Math.max(min,Math.min(max,v))}
 function sigmoid(v:number){ if(v>=0){const z=Math.exp(-v);return 1/(1+z)} const z=Math.exp(v);return z/(1+z) }
-function signalKeys(play:AnyRow){return new Set((Array.isArray(play?.signals)?play.signals:[]).map((s:AnyRow)=>String(s?.signalKey||"").trim()).filter(Boolean))}
+function canonicalSignalKey(value:unknown){return String(value||"").trim().toUpperCase().replace(/[^A-Z0-9]+/g,"_")}
+function signalKeys(play:AnyRow){return new Set((Array.isArray(play?.signals)?play.signals:[]).map((s:AnyRow)=>canonicalSignalKey(s?.signalKey||s?.signal)).filter(Boolean))}
 function sideGroup(play:AnyRow){return String(play?.sideGroup||"").trim()}
 
-function primaryPublicSignal(play:AnyRow):AnyRow|null {
-  const signals=Array.isArray(play?.signals)?play.signals:[];
-  return signals.find((signal:AnyRow)=>String(signal?.signalType||"").trim()==="Public Split")||signals[0]||null;
+export type MlbTrendV2RlmStatus="STRONG_RLM_AGAINST"|"RLM_AGAINST"|"STRONG_RLM_SUPPORT"|"RLM_SUPPORT"|"NONE";
+export function mlbTrendV2RlmStatus(play:AnyRow):MlbTrendV2RlmStatus {
+  const keys=signalKeys(play);
+  if(keys.has("STRONG_REVERSE_LINE_MOVEMENT_AGAINST"))return"STRONG_RLM_AGAINST";
+  if(keys.has("REVERSE_LINE_MOVEMENT_AGAINST"))return"RLM_AGAINST";
+  if(keys.has("STRONG_REVERSE_LINE_MOVEMENT_SUPPORT"))return"STRONG_RLM_SUPPORT";
+  if(keys.has("REVERSE_LINE_MOVEMENT_SUPPORT"))return"RLM_SUPPORT";
+  return"NONE";
 }
 export function mlbTrendV2SelectionGate(play:AnyRow):boolean {
-  if(String(play?.market||"")!=="Total")return true;
   const gap=finiteNumber(play?.v2MarketGap);
-  if(gap===null||gap<MLB_TREND_V2_TOTAL_SELECTIVE_GAP)return false;
-  const primary=primaryPublicSignal(play);
-  const last7Roi=finiteNumber(primary?.records?.last7?.roiPct);
-  if(last7Roi===null||last7Roi>=0)return false;
-  const keys=signalKeys(play);
-  const rlmAgainst=keys.has("REVERSE_LINE_MOVEMENT_AGAINST")||keys.has("STRONG_REVERSE_LINE_MOVEMENT_AGAINST");
-  if(rlmAgainst)return false;
-  const rlmSupport=keys.has("REVERSE_LINE_MOVEMENT_SUPPORT")||keys.has("STRONG_REVERSE_LINE_MOVEMENT_SUPPORT");
-  const strongSharpSupport=String(primary?.signalKey||"").trim()==="STRONG_SHARP_SUPPORT";
-  return rlmSupport||strongSharpSupport;
+  if(gap===null||gap<MLB_TREND_V2_NORMAL_GAP)return false;
+  const status=mlbTrendV2RlmStatus(play);
+  return status==="RLM_SUPPORT"||status==="STRONG_RLM_SUPPORT";
 }
 export function applyMlbTrendV2SelectionGate(plays:V2TrendPlay[]):V2TrendPlay[] {
-  const gated=plays.map(play=>({
-    ...play,
-    v2DailyEligible:Boolean(play.v2DailyEligible)&&mlbTrendV2SelectionGate(play),
-    v2SelectionPolicy:MLB_TREND_V2_SELECTION_POLICY,
-    v2SelectionGatePassed:mlbTrendV2SelectionGate(play),
-    v2PrimaryLast7Roi:finiteNumber(primaryPublicSignal(play)?.records?.last7?.roiPct),
-  })) as V2TrendPlay[];
+  const gated=plays.map(play=>{
+    const rlmStatus=mlbTrendV2RlmStatus(play);
+    const gatePassed=mlbTrendV2SelectionGate(play);
+    return{
+      ...play,
+      v2DailyEligible:Boolean(play.v2DailyEligible)&&gatePassed,
+      v2SelectionPolicy:MLB_TREND_V2_SELECTION_POLICY,
+      v2SelectionGatePassed:gatePassed,
+      v2RlmStatus:rlmStatus,
+    };
+  }) as V2TrendPlay[];
   const ranked=gated.filter(play=>play.v2Direction&&play.v2DailyEligible).sort((a,b)=>Number(b.v2MarketGap)-Number(a.v2MarketGap));
   const rank=new Map(ranked.map((play,index)=>[`${play.v2GameKey}|${play.market}`,index+1]));
   return gated.map(play=>({...play,v2DailyRank:play.v2Direction?rank.get(`${play.v2GameKey}|${play.market}`)||null:null}));
@@ -149,9 +150,8 @@ export function slateThresholdForStart(start:number,slateRows:AnyRow[]):SlateThr
   return{threshold:earlyPremium?MLB_TREND_V2_EARLY_GAP:MLB_TREND_V2_NORMAL_GAP,earlyPremium,blockIndex:blockIndex+1,blockCount:blocks.length,phase:earlyPremium?"EARLY":"NORMAL"};
 }
 
-export function selectionThresholdForPlay(play:V2TrendPlay,start:number,slateRows:AnyRow[]):SlateThresholdInfo{
-  const base=slateThresholdForStart(start,slateRows);
-  return play.market==="Total"?{...base,threshold:MLB_TREND_V2_TOTAL_SELECTIVE_GAP}:base;
+export function selectionThresholdForPlay(_play:V2TrendPlay,start:number,slateRows:AnyRow[]):SlateThresholdInfo{
+  return slateThresholdForStart(start,slateRows);
 }
 
 export type DailyLockDecision={play:V2TrendPlay;threshold:number;earlyPremium:boolean;minutesToStart:number};
