@@ -701,17 +701,16 @@ export async function applyFootballTrendV2<T extends { trendPlays?: Record<strin
       const v2Tier = tier(score, direction, eligible);
       const threshold = thresholdInfo(play, games, spec.normalGap, spec.earlyGap);
       const minutesToStart = threshold.start == null ? null : (threshold.start - nowMs) / 60_000;
-      const decisionWindowOpen = minutesToStart != null && minutesToStart > 0 && minutesToStart <= FOOTBALL_DECISION_WINDOW_MINUTES;
+      const decisionWindowOpen = minutesToStart != null && minutesToStart <= FOOTBALL_DECISION_WINDOW_MINUTES;
       const thresholdCleared = Number(play.v2MarketGap) >= threshold.threshold;
       const gapNeeded = Math.max(0, threshold.threshold - Number(play.v2MarketGap));
       let decisionStatus = "";
       if (!direction) decisionStatus = "Not V2 direction";
       else if (!eligible) decisionStatus = "Blocked by V2 guardrail";
       else if (minutesToStart == null) decisionStatus = "Decision time unavailable";
-      else if (minutesToStart <= 0) decisionStatus = "Game started";
       else if (!decisionWindowOpen) decisionStatus = `Waiting for T-${FOOTBALL_DECISION_WINDOW_MINUTES} min`;
-      else if (thresholdCleared) decisionStatus = "OPEN • threshold cleared";
-      else decisionStatus = "OPEN • below threshold";
+      else if (thresholdCleared) decisionStatus = minutesToStart <= 0 ? "RECOVERY OPEN • pending can still finalize" : "OPEN • threshold cleared";
+      else decisionStatus = minutesToStart <= 0 ? "RECOVERY OPEN • saved pending required" : "OPEN • below threshold";
       resolved.push({
         ...play,
         score: direction ? score : Math.min(59, score),
