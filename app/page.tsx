@@ -5480,22 +5480,27 @@ function RecordsTable({ rows }: { rows: Summary[] }) {
           </tr>
         </thead>
         <tbody>
-          {rows.map((row) => (
-            <tr key={row.betType}>
-              <td>{row.betType}</td>
-              <td>
-                <span className={`chip ${statusClass(row.wins, row.losses)}`}>
-                  {row.status}
-                </span>
-              </td>
-              <td>
-                {row.wins}-{row.losses}-{row.pushes}
-              </td>
-              <td>{row.winPct}%</td>
-              <td>{row.unitsWon}u</td>
-              <td>{row.roiPct}%</td>
-            </tr>
-          ))}
+          {rows.map((row) => {
+            const tone = statusClass(row.wins, row.losses);
+            return (
+              <tr key={row.betType} className={`recordPerformanceRow ${tone}`}>
+                <td>{row.betType}</td>
+                <td>
+                  <span className={`chip ${tone}`}>
+                    {row.status}
+                  </span>
+                </td>
+                <td>
+                  {row.wins}-{row.losses}-{row.pushes}
+                </td>
+                <td>
+                  <span className={`recordWinPctPill ${tone}`}>{row.winPct}%</span>
+                </td>
+                <td>{row.unitsWon}u</td>
+                <td>{row.roiPct}%</td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>

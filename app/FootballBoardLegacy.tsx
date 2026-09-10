@@ -321,7 +321,30 @@ function fbSummary(label: string, totals: RecordTotals): Summary {
 }
 
 function FbRecordTable({ rows }: { rows: Summary[] }) {
-  return <div className="tableWrap"><table className="recordsTable"><thead><tr><th>Bet Type</th><th>Record</th><th>Win %</th><th>Units</th><th>ROI</th><th>Bets</th></tr></thead><tbody>{rows.map((row) => <tr key={row.betType}><td><strong>{row.betType}</strong></td><td>{row.record}</td><td>{row.winPct.toFixed(1)}%</td><td>{row.unitsWon > 0 ? "+" : ""}{row.unitsWon.toFixed(2)}u</td><td>{row.roiPct > 0 ? "+" : ""}{row.roiPct.toFixed(1)}%</td><td>{row.totalBets}</td></tr>)}</tbody></table></div>;
+  return (
+    <div className="tableWrap">
+      <table className="recordsTable">
+        <thead>
+          <tr><th>Bet Type</th><th>Record</th><th>Win %</th><th>Units</th><th>ROI</th><th>Bets</th></tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => {
+            const tone = row.status === "WINNING" ? "green" : row.status === "LOSING" ? "red" : "yellow";
+            return (
+              <tr key={row.betType} className={`recordPerformanceRow ${tone}`}>
+                <td><strong>{row.betType}</strong></td>
+                <td>{row.record}</td>
+                <td><span className={`recordWinPctPill ${tone}`}>{row.winPct.toFixed(1)}%</span></td>
+                <td>{row.unitsWon > 0 ? "+" : ""}{row.unitsWon.toFixed(2)}u</td>
+                <td>{row.roiPct > 0 ? "+" : ""}{row.roiPct.toFixed(1)}%</td>
+                <td>{row.totalBets}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
 }
 
 function FbRecordDropdown({ title, subtitle, rows, defaultOpen = false }: { title: string; subtitle: string; rows: Summary[]; defaultOpen?: boolean }) {
