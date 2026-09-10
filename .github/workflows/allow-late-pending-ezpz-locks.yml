@@ -1,0 +1,253 @@
+name: Allow late pending EZPZ locks
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/allow-late-pending-ezpz-locks.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Allow saved pending qualifiers to finalize after start
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def patch_file(path_str, replacements, insertions=()):
+              path = Path(path_str)
+              text = path.read_text()
+              for old, new, label in replacements:
+                  if new in text:
+                      print(f"{path_str}: {label}: already applied")
+                      continue
+                  if old not in text:
+                      raise SystemExit(f"{path_str}: could not find patch target: {label}")
+                  text = text.replace(old, new, 1)
+                  print(f"{path_str}: {label}: applied")
+              for anchor, addition, label in insertions:
+                  if addition in text:
+                      print(f"{path_str}: {label}: already applied")
+                      continue
+                  if anchor not in text:
+                      raise SystemExit(f"{path_str}: could not find insertion anchor: {label}")
+                  text = text.replace(anchor, anchor + addition, 1)
+                  print(f"{path_str}: {label}: applied")
+              path.write_text(text)
+
+          route = "app/api/public-data-v2/route.ts"
+          late_helper = r'''
+function latePendingSnapshotDecisions(snapshotRows:AnyRow[],slateRows:AnyRow[],today:string,nowMs:number,lockedPairs:Set<string>):DailyLockDecision[]{
+  const latest=new Map<string,AnyRow>();
+  for(const row of snapshotRows){
+    if(isoDate(row.Date)!==today)continue;
+    const gameKey=String(row["Game Key"]||"").trim().replace(/\.0$/,"");
+    const market=String(row.Market||"").trim();
+    if(!gameKey||!market)continue;
+    const pair=`${gameKey}|${market}`;
+    if(lockedPairs.has(pair))continue;
+    const minutesAtSnapshot=Number(row["Minutes To Start"]);
+    if(!Number.isFinite(minutesAtSnapshot)||minutesAtSnapshot<=0)continue;
+    if(!truthy(row["V2 Direction"])||!truthy(row["Daily Eligible"]))continue;
+    const previous=latest.get(pair);
+    if(!previous||lastSnapshotEpoch(row)>lastSnapshotEpoch(previous))latest.set(pair,row);
+  }
+  const recoveries:DailyLockDecision[]=[];
+  for(const row of latest.values()){
+    let play:V2TrendPlay|null=null;
+    try{const parsed=JSON.parse(String(row["Details JSON"]||"{}"));if(parsed&&typeof parsed==="object")play=parsed as V2TrendPlay}catch{}
+    if(!play)continue;
+    const start=parseGameStart(play.recordDate||play.Date||row.Date,play.v2GameTime||row["Game Time"]);
+    if(start==null||start>nowMs)continue;
+    const thresholdInfo=slateThresholdForStart(start,slateRows);
+    const gap=Number(row["V2 Market Gap"]||play.v2MarketGap);
+    if(!Number.isFinite(gap)||gap<thresholdInfo.threshold)continue;
+    play={...play,v2MarketGap:gap,v2Direction:true,v2DailyEligible:true,v2GameKey:String(row["Game Key"]||play.v2GameKey||"").trim().replace(/\.0$/,"")||play.v2GameKey,v2GameTime:String(row["Game Time"]||play.v2GameTime||"")} as V2TrendPlay;
+    recoveries.push({play,threshold:thresholdInfo.threshold,earlyPremium:thresholdInfo.earlyPremium,minutesToStart:(start-nowMs)/60000});
+  }
+  return recoveries.sort((a,b)=>b.play.v2MarketGap-a.play.v2MarketGap);
+}
+'''
+          patch_file(
+              route,
+              [
+                  (
+                      'const decisionWindowOpen=minutesToStart!=null&&minutesToStart>0&&minutesToStart<=MLB_TREND_V2_DECISION_WINDOW_MINUTES;',
+                      'const decisionWindowOpen=minutesToStart!=null&&minutesToStart<=MLB_TREND_V2_DECISION_WINDOW_MINUTES;',
+                      'keep the recovery window open after scheduled start',
+                  ),
+                  (
+                      'else if(minutesToStart<=0)decisionStatus="Game started";\n    else if(!decisionWindowOpen)decisionStatus=`Waiting for T-${MLB_TREND_V2_DECISION_WINDOW_MINUTES} min`;\n    else if(thresholdCleared)decisionStatus="OPEN • threshold cleared";\n    else decisionStatus="OPEN • below threshold";',
+                      'else if(!decisionWindowOpen)decisionStatus=`Waiting for T-${MLB_TREND_V2_DECISION_WINDOW_MINUTES} min`;\n    else if(thresholdCleared)decisionStatus=minutesToStart<=0?"RECOVERY OPEN • pending can still finalize":"OPEN • threshold cleared";\n    else decisionStatus=minutesToStart<=0?"RECOVERY OPEN • saved pending required":"OPEN • below threshold";',
+                      'replace game-start blocker with recovery status',
+                  ),
+                  (
+                      'function dailyPickObject(decision:DailyLockDecision,today:string,nowMs:number):AnyRow{\n  const play=decision.play;',
+                      'function dailyPickObject(decision:DailyLockDecision,today:string,nowMs:number):AnyRow{\n  const play=decision.play;\n  const lateRecovery=decision.minutesToStart<=0;',
+                      'tag late recovery finalizations',
+                  ),
+                  (
+                      'confidenceReason:[`MLB Trend v2 daily rank #${play.v2DailyRank||1} at its lock window`,rule]',
+                      'confidenceReason:[lateRecovery?`Recovered from the last saved pregame PENDING snapshot after the scheduled start`:`MLB Trend v2 daily rank #${play.v2DailyRank||1} at its lock window`,rule]',
+                      'describe recovered pending lock',
+                  ),
+                  (
+                      '`Locked ${decision.minutesToStart.toFixed(1)} minutes before scheduled start`',
+                      'lateRecovery?`Finalized ${Math.abs(decision.minutesToStart).toFixed(1)} minutes after scheduled start from the last saved pregame PENDING snapshot`:`Locked ${decision.minutesToStart.toFixed(1)} minutes before scheduled start`',
+                      'show late finalization timing',
+                  ),
+                  (
+                      'v2LockedEpoch:nowMs};',
+                      'v2LockedEpoch:nowMs,lateRecoveryFromPendingSnapshot:lateRecovery};',
+                      'persist late recovery audit flag',
+                  ),
+                  (
+                      '`Final evaluation occurs at T-${MLB_TREND_V2_DECISION_WINDOW_MINUTES} minutes`',
+                      '`Target lock is T-${MLB_TREND_V2_DECISION_WINDOW_MINUTES}; if that run is delayed, this saved pregame qualifier can still finalize after start`',
+                      'update pending finalization explanation',
+                  ),
+                  (
+                      '`PENDING until the final T-${MLB_TREND_V2_DECISION_WINDOW_MINUTES} market lock`',
+                      '`PENDING until the next scheduled lock run`',
+                      'update pending reason',
+                  ),
+                  (
+                      '`Final evaluation at T-${MLB_TREND_V2_DECISION_WINDOW_MINUTES}`',
+                      '`Target lock at T-${MLB_TREND_V2_DECISION_WINDOW_MINUTES}; late recovery remains allowed from this pregame state`',
+                      'update pending data status',
+                  ),
+                  (
+                      'payload.trendV2={version:MLB_TREND_V2_VERSION,launchDate:MLB_TREND_V2_LAUNCH_DATE,normalGap:MLB_TREND_V2_NORMAL_GAP,earlyGap:MLB_TREND_V2_EARLY_GAP,allAboveThreshold:true,decisionWindowMinutes:MLB_TREND_V2_DECISION_WINDOW_MINUTES,thresholdRule:"Every otherwise-eligible MLB Trend v2 play with V2 Market Gap >= 15% locks as an EZPZ Pick",note:"V2 Ranking Probability and Market Gap are ranking diagnostics, not calibrated win probabilities.",adaptiveLifecycle:adaptive.lifecycle};',
+                      'payload.trendV2={version:MLB_TREND_V2_VERSION,launchDate:MLB_TREND_V2_LAUNCH_DATE,normalGap:MLB_TREND_V2_NORMAL_GAP,earlyGap:MLB_TREND_V2_EARLY_GAP,allAboveThreshold:true,decisionWindowMinutes:MLB_TREND_V2_DECISION_WINDOW_MINUTES,thresholdRule:"Every otherwise-eligible MLB Trend v2 play with V2 Market Gap >= 15% locks as an EZPZ Pick; a saved pregame PENDING qualifier may finalize on a later run even after scheduled start",note:"Late finalization always uses the last saved pregame pending snapshot, never in-game market data. V2 Ranking Probability and Market Gap are ranking diagnostics, not calibrated win probabilities.",adaptiveLifecycle:adaptive.lifecycle};',
+                      'document late-lock policy',
+                  ),
+                  (
+                      '    if(newLocks.length){',
+                      '    for(const decision of latePendingSnapshotDecisions(snapshotRows,slateRows,today,nowMs,lockedPairs)){\n      const pair=`${decision.play.v2GameKey}|${decision.play.market}`;\n      if(lockedPairs.has(pair))continue;\n      newLocks.push(dailyPickObject(decision,today,nowMs));\n      lockedPairs.add(pair);\n    }\n    if(newLocks.length){',
+                      'finalize missed pending qualifiers from saved pregame snapshots',
+                  ),
+                  (
+                      '? `MLB Trend v2 has ${pendingCount} PENDING 15%+ qualifier${pendingCount===1?"":"s"} awaiting the T-${MLB_TREND_V2_DECISION_WINDOW_MINUTES} final lock: ${pendingNames}.${lockedCount?` ${lockedCount} pick${lockedCount===1?" is":"s are"} already FINAL: ${lockedNames}.`:""}`',
+                      '? `MLB Trend v2 has ${pendingCount} PENDING 15%+ qualifier${pendingCount===1?"":"s"} awaiting the next lock run: ${pendingNames}. If a run is delayed past first pitch, the last saved pregame PENDING snapshot can still finalize.${lockedCount?` ${lockedCount} pick${lockedCount===1?" is":"s are"} already FINAL: ${lockedNames}.`:""}`',
+                      'update pending selector message',
+                  ),
+                  (
+                      '? `MLB Trend v2 has ${lockedCount} FINAL 15%+ pick${lockedCount===1?"":"s"}: ${lockedNames}. New qualifiers appear as PENDING before T-${MLB_TREND_V2_DECISION_WINDOW_MINUTES}.`',
+                      '? `MLB Trend v2 has ${lockedCount} FINAL 15%+ pick${lockedCount===1?"":"s"}: ${lockedNames}. New qualifiers appear as PENDING and remain recoverable if a scheduled lock run is late.`',
+                      'update final selector message',
+                  ),
+                  (
+                      '? `HOT Best Plays are final; any MLB Trend v2 play that currently clears 15% appears as PENDING until the T-${MLB_TREND_V2_DECISION_WINDOW_MINUTES} final lock.`',
+                      '? `HOT Best Plays are final; any MLB Trend v2 play that currently clears 15% appears as PENDING until the next lock run, with late recovery from its saved pregame snapshot.`',
+                      'update mixed selector message',
+                  ),
+                  (
+                      ': `MLB Trend v2 is tracking the slate. A play appears as PENDING as soon as it currently clears 15%, then becomes FINAL only at the T-${MLB_TREND_V2_DECISION_WINDOW_MINUTES} lock.`;',
+                      ': `MLB Trend v2 is tracking the slate. A play appears as PENDING as soon as it currently clears 15%, then becomes FINAL on the next lock run; a delayed run may finalize it after start using only its saved pregame snapshot.`;',
+                      'update empty selector message',
+                  ),
+              ],
+              [
+                  (
+                      'function lastSnapshotEpoch(row:AnyRow){try{const details=JSON.parse(String(row?.["Details JSON"]||"{}"));const epoch=Number(details?.snapshotEpoch||0);if(Number.isFinite(epoch)&&epoch>0)return epoch}catch{}const parsed=Date.parse(String(row?.["Snapshot Time ET"]||""));return Number.isFinite(parsed)?parsed:0}\n',
+                      late_helper,
+                      'add saved-pending late recovery helper',
+                  ),
+              ],
+          )
+
+          football_legacy = "lib/footballPublicDataLegacy.ts"
+          patch_file(
+              football_legacy,
+              [
+                  (
+                      '    if(minutesToKickoff!=null&&minutesToKickoff<0)return row;\n    const play=playMap.get',
+                      '    const play=playMap.get',
+                      'remove kickoff hard stop',
+                  ),
+                  (
+                      'const locked=minutesToKickoff!=null&&minutesToKickoff<=15&&minutesToKickoff>=0;',
+                      'const locked=minutesToKickoff!=null&&minutesToKickoff<=15;',
+                      'allow late finalization from persisted pregame market',
+                  ),
+                  (
+                      '// Once a side has an authoritative FINAL_PREGAME trend, its persisted\n    // market row is immutable. After kickoff we also refuse to write a late\n    // snapshot and falsely call it a verified pregame lock.',
+                      '// Once a side has an authoritative FINAL_PREGAME trend, its persisted\n    // market row is immutable. We never write new market snapshots after T-15;\n    // a delayed finalization below uses only this saved pregame market state.',
+                      'clarify frozen pregame data policy',
+                  ),
+                  (
+                      'currently qualifying all-green Strong/Elite Trend Plays appear as PENDING until the T-15 final market lock; max price -150.',
+                      'currently qualifying all-green Strong/Elite Trend Plays appear as PENDING until the next lock run; a delayed run may finalize after kickoff from the saved pregame snapshot; max price -150.',
+                      'update football live selector message',
+                  ),
+                  (
+                      'Qualifying Trend Plays will appear as PENDING before the T-15 final lock.',
+                      'Qualifying Trend Plays appear as PENDING and can finalize on a later run even after kickoff, using only the saved pregame snapshot.',
+                      'update football empty selector message',
+                  ),
+              ],
+          )
+
+          lifecycle = "lib/footballTrendV2Lifecycle.ts"
+          patch_file(
+              lifecycle,
+              [
+                  (
+                      'const decisionWindowOpen = minutesToStart != null && minutesToStart > 0 && minutesToStart <= FOOTBALL_DECISION_WINDOW_MINUTES;',
+                      'const decisionWindowOpen = minutesToStart != null && minutesToStart <= FOOTBALL_DECISION_WINDOW_MINUTES;',
+                      'keep football recovery window open after kickoff',
+                  ),
+                  (
+                      'else if (minutesToStart <= 0) decisionStatus = "Game started";\n      else if (!decisionWindowOpen) decisionStatus = `Waiting for T-${FOOTBALL_DECISION_WINDOW_MINUTES} min`;\n      else if (thresholdCleared) decisionStatus = "OPEN • threshold cleared";\n      else decisionStatus = "OPEN • below threshold";',
+                      'else if (!decisionWindowOpen) decisionStatus = `Waiting for T-${FOOTBALL_DECISION_WINDOW_MINUTES} min`;\n      else if (thresholdCleared) decisionStatus = minutesToStart <= 0 ? "RECOVERY OPEN • pending can still finalize" : "OPEN • threshold cleared";\n      else decisionStatus = minutesToStart <= 0 ? "RECOVERY OPEN • saved pending required" : "OPEN • below threshold";',
+                      'replace football game-start blocker with recovery status',
+                  ),
+              ],
+          )
+
+          # This old one-shot workflow can manually re-impose the strict pre-kickoff
+          # cutoff, so remove it now that the permanent policy is late recovery.
+          old_workflow = Path(".github/workflows/fix-football-strict-lock-cutoff.yml")
+          if old_workflow.exists():
+              old_workflow.unlink()
+              print("Removed obsolete strict football lock workflow")
+          PY
+
+      - name: Verify late-lock policy
+        shell: bash
+        run: |
+          grep -q 'latePendingSnapshotDecisions' app/api/public-data-v2/route.ts
+          grep -q 'lateRecoveryFromPendingSnapshot' app/api/public-data-v2/route.ts
+          grep -q 'last saved pregame PENDING snapshot' app/api/public-data-v2/route.ts
+          grep -q 'const locked=minutesToKickoff!=null&&minutesToKickoff<=15;' lib/footballPublicDataLegacy.ts
+          ! grep -q 'minutesToKickoff!=null&&minutesToKickoff<0)return row' lib/footballPublicDataLegacy.ts
+          grep -q 'RECOVERY OPEN • pending can still finalize' lib/footballTrendV2Lifecycle.ts
+          ! test -e .github/workflows/fix-football-strict-lock-cutoff.yml
+
+      - name: Typecheck
+        shell: bash
+        run: |
+          npm install --no-audit --no-fund
+          npx tsc --noEmit
+
+      - name: Commit late-lock policy
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No code changes to commit"
+            exit 0
+          fi
+          git commit -m "Allow late EZPZ locks from saved pending snapshots"
+          git push
