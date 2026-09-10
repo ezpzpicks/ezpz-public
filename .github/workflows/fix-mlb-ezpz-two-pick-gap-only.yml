@@ -1,5 +1,6 @@
 name: Fix MLB EZPZ two-pick gap-only policy
 
+# Triggered after initial workflow registration so the repair runs on main.
 on:
   push:
     branches: [main]
