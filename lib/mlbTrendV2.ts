@@ -4,7 +4,6 @@ export const MLB_TREND_V2_VERSION = "mlb-trend-v2-ridge-2026-09-07";
 export const MLB_TREND_V2_LAUNCH_DATE = "2026-09-08";
 export const MLB_TREND_V2_NORMAL_GAP = 15;
 export const MLB_TREND_V2_EARLY_GAP = 15;
-export const MLB_TREND_V2_MAX_DAILY_PICKS = 2;
 export const MLB_TREND_V2_DECISION_WINDOW_MINUTES = 15;
 export const MLB_TREND_V2_MAX_FAVORITE_PRICE = -150;
 

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { GET as legacyGET } from "../public-data/route";
 import {
   AnyRow, DailyLockDecision, MLB_TREND_V2_DECISION_WINDOW_MINUTES,
-  MLB_TREND_V2_EARLY_GAP, MLB_TREND_V2_LAUNCH_DATE, MLB_TREND_V2_MAX_DAILY_PICKS,
+  MLB_TREND_V2_EARLY_GAP, MLB_TREND_V2_LAUNCH_DATE,
   MLB_TREND_V2_NORMAL_GAP, MLB_TREND_V2_VERSION, V2TrendPlay,
   chooseDailyTrendLock, isoDate, nowET, parseGameStart, resultProfit,
   scoreTrendBoardV2, slateThresholdForStart,
@@ -89,7 +89,7 @@ function dailyPickObject(decision:DailyLockDecision,today:string,nowMs:number):A
   const candidateId=["v2",isoDate(today),play.v2GameKey,String(play.market).toLowerCase(),selection.toLowerCase().replace(/[^a-z0-9]+/g,"-"),line].join("|");
   const rule=`15% threshold cleared: V2 Market Gap ${play.v2MarketGap.toFixed(1)} >= ${decision.threshold.toFixed(0)}`;
   const marketGuard=play.market==="Moneyline"?"Moneyline guardrail passed: complete v2 inputs and v2/legacy direction agreement":"Totals guardrail passed: v2 direction is primary; legacy total direction is diagnostic only";
-  return{candidateId,date:isoDate(today),gameKey:play.v2GameKey,gameTime:play.v2GameTime,game:play.game,awayTeam:play.awayTeam,homeTeam:play.homeTeam,market:play.market,play:playLabel,selection,line,odds:String(play.odds||""),source:"Trend Play",bestPlayType:"",trendTier:play.v2Tier,modelScore:0,trendScore:play.v2Score,aiScore:play.v2Score,estimatedProbability:round(play.v2Probability,1),marketImpliedProbability:round(play.v2ImpliedProbability,1),estimatedAdvantage:round(play.v2MarketGap,1),selected:true,protectionStatus:"PASSED",rejectionReason:"",confidenceReason:[`MLB Trend v2 daily rank #${play.v2DailyRank||1} at its lock window`,rule],whySelected:[rule,marketGuard,`Up to ${MLB_TREND_V2_MAX_DAILY_PICKS} MLB Trend v2 EZPZ Picks are allowed per date; each must clear a 15% V2 Market Gap`],historicalNotes:[`Legacy trend: ${play.legacyTier} ${play.legacyScore.toFixed(0)}`,"V2 ranking probability is not treated as a calibrated win probability"],risks:[],researchSummary:"",verdict:`FINAL MLB Trend v2 daily pick — ${playLabel}`,dataStatus:[`Trend v2 model ${String(play.v2ModelVersion||MLB_TREND_V2_VERSION)}`,`V2 Market Gap ${play.v2MarketGap.toFixed(1)}`,play.market==="Moneyline"?`V2/legacy agreement: ${play.v2LegacyAgreement?"YES":"NO"}`:`Legacy total agreement: ${play.v2LegacyAgreement?"YES":"NO (allowed for totals)"}`,lateRecovery?`Finalized ${Math.abs(decision.minutesToStart).toFixed(1)} minutes after scheduled start from the last saved pregame PENDING snapshot`:`Locked ${decision.minutesToStart.toFixed(1)} minutes before scheduled start`],externalReviewStatus:"NOT_REQUIRED",snapshotStatus:"FINAL_PREGAME",lockedAt:nowET(),updatedAt:nowET(),result:"",units:0,resultUpdated:"",selectorVersion:MLB_TREND_V2_VERSION,v2EarlyPremium:decision.earlyPremium,v2RequiredGap:decision.threshold,v2DailyRank:play.v2DailyRank||1,v2LegacyScore:play.legacyScore,v2LegacyTier:play.legacyTier,v2LegacyAgreement:play.v2LegacyAgreement,v2DataComplete:play.v2DataComplete,v2MarketGap:play.v2MarketGap,v2Probability:play.v2Probability,v2ModelVersion:String(play.v2ModelVersion||MLB_TREND_V2_VERSION),v2LockedEpoch:nowMs,lateRecoveryFromPendingSnapshot:lateRecovery};
+  return{candidateId,date:isoDate(today),gameKey:play.v2GameKey,gameTime:play.v2GameTime,game:play.game,awayTeam:play.awayTeam,homeTeam:play.homeTeam,market:play.market,play:playLabel,selection,line,odds:String(play.odds||""),source:"Trend Play",bestPlayType:"",trendTier:play.v2Tier,modelScore:0,trendScore:play.v2Score,aiScore:play.v2Score,estimatedProbability:round(play.v2Probability,1),marketImpliedProbability:round(play.v2ImpliedProbability,1),estimatedAdvantage:round(play.v2MarketGap,1),selected:true,protectionStatus:"PASSED",rejectionReason:"",confidenceReason:[`MLB Trend v2 daily rank #${play.v2DailyRank||1} at its lock window`,rule],whySelected:[rule,marketGuard,"Every otherwise-eligible MLB Trend v2 play with a V2 Market Gap of 15% or greater is an EZPZ Pick"],historicalNotes:[`Legacy trend: ${play.legacyTier} ${play.legacyScore.toFixed(0)}`,"V2 ranking probability is not treated as a calibrated win probability"],risks:[],researchSummary:"",verdict:`FINAL MLB Trend v2 daily pick — ${playLabel}`,dataStatus:[`Trend v2 model ${String(play.v2ModelVersion||MLB_TREND_V2_VERSION)}`,`V2 Market Gap ${play.v2MarketGap.toFixed(1)}`,play.market==="Moneyline"?`V2/legacy agreement: ${play.v2LegacyAgreement?"YES":"NO"}`:`Legacy total agreement: ${play.v2LegacyAgreement?"YES":"NO (allowed for totals)"}`,lateRecovery?`Finalized ${Math.abs(decision.minutesToStart).toFixed(1)} minutes after scheduled start from the last saved pregame PENDING snapshot`:`Locked ${decision.minutesToStart.toFixed(1)} minutes before scheduled start`],externalReviewStatus:"NOT_REQUIRED",snapshotStatus:"FINAL_PREGAME",lockedAt:nowET(),updatedAt:nowET(),result:"",units:0,resultUpdated:"",selectorVersion:MLB_TREND_V2_VERSION,v2EarlyPremium:decision.earlyPremium,v2RequiredGap:decision.threshold,v2DailyRank:play.v2DailyRank||1,v2LegacyScore:play.legacyScore,v2LegacyTier:play.legacyTier,v2LegacyAgreement:play.v2LegacyAgreement,v2DataComplete:play.v2DataComplete,v2MarketGap:play.v2MarketGap,v2Probability:play.v2Probability,v2ModelVersion:String(play.v2ModelVersion||MLB_TREND_V2_VERSION),v2LockedEpoch:nowMs,lateRecoveryFromPendingSnapshot:lateRecovery};
 }
 function pendingV2PickObject(play:V2TrendPlay,today:string,slateRows:AnyRow[],nowMs:number):AnyRow|null{
   const start=parseGameStart(play.recordDate||play.Date,play.v2GameTime);
@@ -105,9 +105,6 @@ function parseDailyPickRow(row:AnyRow):AnyRow|null{try{const raw=String(row?.["D
 function normalize(value:unknown){return String(value||"").toLowerCase().replace(/[^a-z0-9]+/g," ").replace(/\s+/g," ").trim()}
 function gradeDailyPick(pick:AnyRow,records:AnyRow[]):AnyRow{const record=records.find(row=>{if(isoDate(row?.date||row?.Date)!==isoDate(pick.date))return false;if(String(row?.market||row?.Market)!==String(pick.market))return false;const pk=String(pick.gameKey||"").replace(/\.0$/,"");const rk=String(row?.gameKey||row?.["Game Key"]||"").replace(/\.0$/,"");if(pk&&rk&&pk!==rk)return false;if(pick.market==="Total")return normalize(row.selection||row.Selection).startsWith(normalize(pick.selection));const rs=normalize(row.selection||row.Selection),ps=normalize(pick.selection);return rs===ps||rs.includes(ps)||ps.includes(rs)});if(!record||!String(record.result||record.Result||"").trim())return pick;const raw=String(record.result||record.Result||"").trim().toUpperCase();const result=raw.startsWith("W")?"W":raw.startsWith("L")?"L":raw.startsWith("P")?"P":"";if(!result)return pick;const units=Number.isFinite(Number(record.units))?Number(record.units):resultProfit(result,pick.odds);if(pick.result===result&&Number(pick.units||0)===units)return pick;return{...pick,result,units:round(units,2),resultUpdated:nowET(),updatedAt:nowET()}}
 
-function mlbV2PickGap(pick:AnyRow){const value=Number(pick?.v2MarketGap??pick?.estimatedAdvantage??Number.NEGATIVE_INFINITY);return Number.isFinite(value)?value:Number.NEGATIVE_INFINITY}
-function capMlbV2Locks(picks:AnyRow[],date:string){return picks.filter(pick=>isoDate(pick.date)===date).sort((a,b)=>{const gap=mlbV2PickGap(b)-mlbV2PickGap(a);if(gap)return gap;const ar=Number(a?.v2DailyRank??Number.MAX_SAFE_INTEGER),br=Number(b?.v2DailyRank??Number.MAX_SAFE_INTEGER);if(ar!==br)return ar-br;return String(a?.lockedAt||a?.updatedAt||"").localeCompare(String(b?.lockedAt||b?.updatedAt||""))}).slice(0,MLB_TREND_V2_MAX_DAILY_PICKS)}
-
 async function postProcessMlbPayload(request:NextRequest,payload:AnyRow){
   const today=isoDate(payload.today||new Date()),nowMs=Date.now();
   const slateRows=Array.isArray(payload.slateToday)?payload.slateToday:[];
@@ -115,19 +112,19 @@ async function postProcessMlbPayload(request:NextRequest,payload:AnyRow){
   const adaptive=await applyMlbTrendV2Adaptive(baselineScored);
   const scored=annotateLiveV2Status(adaptive.plays,slateRows,nowMs);
   payload.trendPlays=scored;
-  payload.trendV2={version:MLB_TREND_V2_VERSION,launchDate:MLB_TREND_V2_LAUNCH_DATE,normalGap:MLB_TREND_V2_NORMAL_GAP,earlyGap:MLB_TREND_V2_EARLY_GAP,maxDailyPicks:MLB_TREND_V2_MAX_DAILY_PICKS,decisionWindowMinutes:MLB_TREND_V2_DECISION_WINDOW_MINUTES,thresholdRule:"Up to 2 MLB Trend v2 EZPZ Picks may be shown per date; each must independently clear a 15% V2 Market Gap. Saved pregame PENDING qualifiers may still finalize on a later run if a slot remains",note:"Late finalization uses the last saved pregame pending snapshot, never in-game market data. V2 Ranking Probability and Market Gap are ranking diagnostics, not calibrated win probabilities.",adaptiveLifecycle:adaptive.lifecycle};
+  payload.trendV2={version:MLB_TREND_V2_VERSION,launchDate:MLB_TREND_V2_LAUNCH_DATE,normalGap:MLB_TREND_V2_NORMAL_GAP,earlyGap:MLB_TREND_V2_EARLY_GAP,allAboveThreshold:true,decisionWindowMinutes:MLB_TREND_V2_DECISION_WINDOW_MINUTES,thresholdRule:"Every otherwise-eligible MLB Trend v2 play with V2 Market Gap >= 15% locks as an EZPZ Pick; a saved pregame PENDING qualifier may finalize on a later run even after scheduled start",note:"Late finalization uses the last saved pregame pending snapshot, never in-game market data. V2 Ranking Probability and Market Gap are ranking diagnostics, not calibrated win probabilities.",adaptiveLifecycle:adaptive.lifecycle};
 
   let snapshotRows:AnyRow[]=[],dailyRows:AnyRow[]=[];
   try{[snapshotRows,dailyRows]=await Promise.all([readV2Tab("snapshots"),readV2Tab("daily")])}catch(error){console.error("Trend v2 history read failed; serving live v2 scores without persistence",error)}
   if(isV2ScheduledCapture(request)&&today>=MLB_TREND_V2_LAUNCH_DATE){try{const append=snapshotRowsToAppend(scored,snapshotRows,nowMs);if(append.length){await appendV2Rows("snapshots",append);snapshotRows=[...snapshotRows,...append]}}catch(error){console.error("Trend v2 snapshot append failed",error)}}
 
   let dailyPicks=dailyRows.map(parseDailyPickRow).filter((pick):pick is AnyRow=>Boolean(pick));
-  let todayLocks=capMlbV2Locks(dailyPicks,today);
-  if(isV2ScheduledCapture(request)&&today>=MLB_TREND_V2_LAUNCH_DATE&&todayLocks.length<MLB_TREND_V2_MAX_DAILY_PICKS){
+  let todayLocks=dailyPicks.filter(pick=>isoDate(pick.date)===today);
+  if(isV2ScheduledCapture(request)&&today>=MLB_TREND_V2_LAUNCH_DATE){
     const lockedPairs=new Set(todayLocks.map(pick=>`${String(pick.gameKey||"").trim().replace(/\.0$/,"")}|${String(pick.market||"")}`));
     let available=scored.filter(play=>!lockedPairs.has(`${play.v2GameKey}|${play.market}`));
     const newLocks:AnyRow[]=[];
-    while(todayLocks.length+newLocks.length<MLB_TREND_V2_MAX_DAILY_PICKS){
+    while(true){
       const decision=chooseDailyTrendLock(available,slateRows,nowMs);
       if(!decision)break;
       const lock=dailyPickObject(decision,today,nowMs);
@@ -137,7 +134,6 @@ async function postProcessMlbPayload(request:NextRequest,payload:AnyRow){
       available=available.filter(play=>`${play.v2GameKey}|${play.market}`!==pair);
     }
     for(const decision of latePendingSnapshotDecisions(snapshotRows,slateRows,today,nowMs,lockedPairs)){
-      if(todayLocks.length+newLocks.length>=MLB_TREND_V2_MAX_DAILY_PICKS)break;
       const pair=`${decision.play.v2GameKey}|${decision.play.market}`;
       if(lockedPairs.has(pair))continue;
       newLocks.push(dailyPickObject(decision,today,nowMs));
@@ -152,25 +148,21 @@ async function postProcessMlbPayload(request:NextRequest,payload:AnyRow){
   const graded=dailyPicks.map(pick=>gradeDailyPick(pick,Array.isArray(payload.trendRecordRows)?payload.trendRecordRows:[]));
   const gradeChanged=graded.some((pick,index)=>{const before=dailyPicks[index];return Boolean(before&&(before.result!==pick.result||Number(before.units||0)!==Number(pick.units||0)))});
   if(gradeChanged){dailyPicks=graded;try{await replaceV2DailyRows(dailyPicks.map(dailyPickRow))}catch(error){console.error("Trend v2 daily grading persistence failed",error)}}else dailyPicks=graded;
-  todayLocks=capMlbV2Locks(dailyPicks,today);
+  todayLocks=dailyPicks.filter(pick=>isoDate(pick.date)===today);
 
   const legacyAiPicks=Array.isArray(payload.aiPicks)?payload.aiPicks:[];
   const filteredAiPicks=legacyAiPicks.filter((pick:AnyRow)=>!isLaunchOrLater(pick?.date||today));
   const lockedIds=new Set(todayLocks.map((pick:AnyRow)=>String(pick?.candidateId||"")));
-  const remainingV2Slots=Math.max(0,MLB_TREND_V2_MAX_DAILY_PICKS-todayLocks.length);
   const pendingV2Picks=scored
     .map((play)=>pendingV2PickObject(play,today,slateRows,nowMs))
     .filter((pick):pick is AnyRow=>Boolean(pick))
-    .filter((pick)=>!lockedIds.has(String(pick.candidateId||"")))
-    .sort((a,b)=>mlbV2PickGap(b)-mlbV2PickGap(a))
-    .slice(0,remainingV2Slots);
+    .filter((pick)=>!lockedIds.has(String(pick.candidateId||"")));
   for(const pendingPick of pendingV2Picks)filteredAiPicks.push(pendingPick);
   for(const lock of todayLocks)filteredAiPicks.push(lock);
   payload.aiPicks=filteredAiPicks;
   const legacyRecordRows=Array.isArray(payload.aiPickRecordRows)?payload.aiPickRecordRows:[];
   const filteredRecordRows=legacyRecordRows.filter((pick:AnyRow)=>!isLaunchOrLater(pick?.date||pick?.Date));
-  const displayedDailyPicks=dailyPicks.filter((pick:AnyRow)=>isoDate(pick.date)!==today||lockedIds.has(String(pick.candidateId||"")));
-  payload.aiPickRecordRows=[...filteredRecordRows,...displayedDailyPicks];
+  payload.aiPickRecordRows=[...filteredRecordRows,...dailyPicks];
 
   const status=payload.aiSelectorStatus||{};
   const finalCount=filteredAiPicks.filter((pick:AnyRow)=>pick?.snapshotStatus==="FINAL_PREGAME").length;
@@ -178,13 +170,12 @@ async function postProcessMlbPayload(request:NextRequest,payload:AnyRow){
   const pendingCount=pendingV2Picks.length;
   const lockedNames=todayLocks.map(pick=>pick.play).filter(Boolean).join("; ");
   const pendingNames=pendingV2Picks.map(pick=>pick.play).filter(Boolean).join("; ");
-  const totalV2Shown=lockedCount+pendingCount;
   const trendMessage=pendingCount>0
-    ? `MLB Trend v2 is showing ${totalV2Shown}/${MLB_TREND_V2_MAX_DAILY_PICKS} daily slots: ${pendingCount} PENDING 15%+ qualifier${pendingCount===1?"":"s"}${lockedCount?` and ${lockedCount} FINAL`:""}.`
+    ? `MLB Trend v2 has ${pendingCount} PENDING 15%+ qualifier${pendingCount===1?"":"s"} awaiting the next lock run: ${pendingNames}.${lockedCount?` ${lockedCount} pick${lockedCount===1?" is":"s are"} already FINAL: ${lockedNames}.`:""}`
     : lockedCount>0
-      ? `MLB Trend v2 has ${lockedCount}/${MLB_TREND_V2_MAX_DAILY_PICKS} FINAL daily pick${lockedCount===1?"":"s"}. Each cleared the 15% V2 Market Gap threshold.`
-      : `MLB Trend v2 is tracking the slate. Up to ${MLB_TREND_V2_MAX_DAILY_PICKS} daily picks may qualify; each must clear a 15% V2 Market Gap.`;
-  payload.aiSelectorStatus={...status,mode:finalCount===filteredAiPicks.length&&filteredAiPicks.length?"FINAL_PREGAME":"LIVE_PREVIEW",message:trendMessage,updatedAt:nowET(),candidateCount:Number(status.candidateCount||0)+scored.filter(play=>play.v2Direction).length,selectedCount:filteredAiPicks.length,trendV2DailyLocked:Boolean(lockedCount),trendV2DailyLockedCount:lockedCount,trendV2DailyMaxPicks:MLB_TREND_V2_MAX_DAILY_PICKS,trendV2Threshold:15};
+      ? `MLB Trend v2 has ${lockedCount} FINAL 15%+ pick${lockedCount===1?"":"s"}: ${lockedNames}. Every additional otherwise-eligible play that reaches 15% will also qualify.`
+      : `MLB Trend v2 is tracking the slate. Every otherwise-eligible play that reaches a 15% V2 Market Gap qualifies as an EZPZ Pick.`;
+  payload.aiSelectorStatus={...status,mode:finalCount===filteredAiPicks.length&&filteredAiPicks.length?"FINAL_PREGAME":"LIVE_PREVIEW",message:trendMessage,updatedAt:nowET(),candidateCount:Number(status.candidateCount||0)+scored.filter(play=>play.v2Direction).length,selectedCount:filteredAiPicks.length,trendV2DailyLocked:Boolean(lockedCount),trendV2DailyLockedCount:lockedCount,trendV2AllAboveThreshold:true,trendV2Threshold:15};
   return payload;
 }
 
