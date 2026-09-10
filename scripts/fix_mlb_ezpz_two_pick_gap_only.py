@@ -18,8 +18,6 @@ def replace_once(source: str, old: str, new: str, label: str) -> str:
     return source.replace(old, new, 1)
 
 
-# The model constant is the source-of-truth rule. Fail loudly if an older
-# migration has changed it instead of silently applying another incompatible patch.
 required_model_rules = [
     'export const MLB_TREND_V2_NORMAL_GAP = 15;',
     'export const MLB_TREND_V2_EARLY_GAP = 15;',
@@ -63,12 +61,16 @@ route = replace_once(
     '  let todayLocks=capMlbV2Locks(dailyPicks,today);',
     "cap persisted current-day locks",
 )
-route = replace_once(
-    route,
-    '  if(isV2ScheduledCapture(request)&&today>=MLB_TREND_V2_LAUNCH_DATE){',
-    '  if(isV2ScheduledCapture(request)&&today>=MLB_TREND_V2_LAUNCH_DATE&&todayLocks.length<MLB_TREND_V2_MAX_DAILY_PICKS){',
-    "cap lock capture gate",
-)
+
+# Target the actual lock block, not the earlier snapshot-capture block.
+lock_gate_old = '''  let todayLocks=capMlbV2Locks(dailyPicks,today);
+  if(isV2ScheduledCapture(request)&&today>=MLB_TREND_V2_LAUNCH_DATE){
+    const lockedPairs=new Set(todayLocks.map(pick=>`${String(pick.gameKey||"").trim().replace(/\\.0$/,"")}|${String(pick.market||"")}`));'''
+lock_gate_new = '''  let todayLocks=capMlbV2Locks(dailyPicks,today);
+  if(isV2ScheduledCapture(request)&&today>=MLB_TREND_V2_LAUNCH_DATE&&todayLocks.length<MLB_TREND_V2_MAX_DAILY_PICKS){
+    const lockedPairs=new Set(todayLocks.map(pick=>`${String(pick.gameKey||"").trim().replace(/\\.0$/,"")}|${String(pick.market||"")}`));'''
+route = replace_once(route, lock_gate_old, lock_gate_new, "cap actual lock capture gate")
+
 route = replace_once(
     route,
     '    while(true){',
@@ -88,8 +90,7 @@ route = replace_once(
     "cap post-grade current-day locks",
 )
 
-# From the V2 launch forward, the old selector must not feed current MLB EZPZ cards.
-# This is what prevents old ROI-based cards from being merged beside V2 cards.
+# From the V2 launch forward, current MLB EZPZ cards come only from V2.
 route = replace_once(
     route,
     '  const filteredAiPicks=legacyAiPicks.filter((pick:AnyRow)=>!(isLaunchOrLater(pick?.date||today)&&pureLegacyTrendPick(pick)));',
@@ -154,7 +155,6 @@ page = page.replace('!isPendingTrend && researchSummary', '!showGapOnly && resea
 page = page.replace('!isPendingTrend && verdict', '!showGapOnly && verdict', 1)
 page = page.replace('        {!isPendingTrend ? (', '        {!showGapOnly ? (', 1)
 
-# Required end-state assertions make this repair safe to re-run and catch future regressions.
 route_required = [
     "MLB_TREND_V2_MAX_DAILY_PICKS",
     "capMlbV2Locks(dailyPicks,today)",
@@ -175,7 +175,6 @@ missing_page = [item for item in page_required if item not in page]
 if missing_route or missing_page:
     raise SystemExit(f"Repair validation failed. route={missing_route}; page={missing_page}")
 
-# No current V2 route should retain the uncapped migration loop/status.
 for forbidden in ["while(true){", "trendV2AllAboveThreshold:true"]:
     if forbidden in route:
         raise SystemExit(f"Uncapped MLB V2 marker still present: {forbidden}")
