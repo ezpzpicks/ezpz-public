@@ -1568,7 +1568,6 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
     // DraftKings event time is the best available lock clock. Fall back to
     // the saved slate time only when the feed does not provide one.
     const minutesToKickoff=minutesUntilDraftKingsKickoff(split) ?? minutesUntilKickoff(row);
-    if(minutesToKickoff!=null&&minutesToKickoff<0)return row;
     const play=playMap.get(`${String(row["Game Key"]||"")}|${row.Market}|${textKey(row.Market==="Total"?row.Side||row.Selection:row.Selection)}`);const primary=play?.signals[0];
     const locked=minutesToKickoff!=null&&minutesToKickoff<=15;
     const stamp=nowET();
