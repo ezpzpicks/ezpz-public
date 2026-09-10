@@ -215,7 +215,14 @@ function propSide(row: SheetRow) {
   return direct;
 }
 
-function propRecordType(row: SheetRow) {
+function nflGradeLabel(value: unknown) {
+  const key = textKey(value);
+  if (key === "a" || key === "a grade" || key === "a prop" || key.startsWith("a grade ") || key.startsWith("a prop ")) return "A";
+  if (key === "b" || key === "b grade" || key === "b prop" || key.startsWith("b grade ") || key.startsWith("b prop ")) return "B";
+  return "";
+}
+
+function propBaseRecordType(row: SheetRow) {
   const market = String(row.Market || "Player Prop").trim();
   const key = textKey(market);
   if ((key.includes("passing") || key.includes("pass ") || key.startsWith("pass ")) && key.includes("yard")) return "Passing Yards";
@@ -229,6 +236,13 @@ function propRecordType(row: SheetRow) {
   if (key.includes("completion")) return "Pass Completions";
   if ((key.includes("rushing") || key.startsWith("rush ")) && key.includes("attempt")) return "Rush Attempts";
   return market || "Player Prop";
+}
+
+function propRecordType(row: SheetRow) {
+  const grade = nflGradeLabel(row.Grade || row["Model Grade"]);
+  const market = propBaseRecordType(row);
+  const side = propSide(row);
+  return [grade, market, side].filter(Boolean).join(" ").trim();
 }
 
 function propMarketLine(row: SheetRow) {
@@ -261,36 +275,44 @@ function spreadLine(value: unknown) {
 }
 
 function gameBestRecordType(play: any, split?: any) {
+  const grade = nflGradeLabel(play.playType || play.grade || play["Model Grade"]);
   const market = gameBestMarket(play);
+  let subtype: string = market;
   if (market === "Total") {
     const side = textKey(split?.side || play.play);
-    if (side.startsWith("under")) return "Under";
-    if (side.startsWith("over")) return "Over";
-    return "Total";
+    if (side.startsWith("under")) subtype = "Under";
+    else if (side.startsWith("over")) subtype = "Over";
+  } else {
+    const splitGroup = textKey(split?.sideGroup || "");
+    if (splitGroup === "favorite") subtype = "Favorite Spread";
+    else if (splitGroup === "underdog") subtype = "Underdog Spread";
+    else {
+      const line = spreadLine(split?.line) ?? spreadLine(play.play);
+      if (line != null && line < 0) subtype = "Favorite Spread";
+      else if (line != null && line > 0) subtype = "Underdog Spread";
+    }
   }
-  const splitGroup = textKey(split?.sideGroup || "");
-  if (splitGroup === "favorite") return "Favorite Spread";
-  if (splitGroup === "underdog") return "Underdog Spread";
-  const line = spreadLine(split?.line) ?? spreadLine(play.play);
-  if (line != null && line < 0) return "Favorite Spread";
-  if (line != null && line > 0) return "Underdog Spread";
-  return "Spread";
+  return [grade, subtype].filter(Boolean).join(" ").trim();
+}
+
+function gameTrackerRecordType(row: SheetRow) {
+  const market = textKey(row["Bet Type"] || row.Market);
+  const grade = nflGradeLabel(row["Model Grade"] || row.Grade || row["Bet Type"]);
+  if (market.includes("total")) {
+    const side = textKey(row.Selection || row.Side || row.Pick);
+    const subtype = side.startsWith("under") ? "Under" : side.startsWith("over") ? "Over" : "Total";
+    return [grade, subtype].filter(Boolean).join(" ").trim();
+  }
+  if (market.includes("spread")) {
+    const line = spreadLine(row.Selection) ?? spreadLine(row["Odds/Line"]) ?? spreadLine(row.Line);
+    const subtype = line != null && line < 0 ? "Favorite Spread" : line != null && line > 0 ? "Underdog Spread" : "Spread";
+    return [grade, subtype].filter(Boolean).join(" ").trim();
+  }
+  return "";
 }
 
 function trackerMatchesGameBest(row: SheetRow, recordType: string) {
-  const market = textKey(row["Bet Type"] || row.Market);
-  if (recordType === "Over" || recordType === "Under") {
-    if (!market.includes("total")) return false;
-    const side = textKey(row.Selection || row.Side || row.Pick);
-    return side.startsWith(textKey(recordType));
-  }
-  if (recordType === "Favorite Spread" || recordType === "Underdog Spread") {
-    if (!market.includes("spread")) return false;
-    const line = spreadLine(row.Selection) ?? spreadLine(row["Odds/Line"]) ?? spreadLine(row.Line);
-    if (line == null) return false;
-    return recordType === "Favorite Spread" ? line < 0 : line > 0;
-  }
-  return recordType === "Total" ? market.includes("total") : market.includes("spread");
+  return textKey(gameTrackerRecordType(row)) === textKey(recordType);
 }
 
 function sameGame(play: any, split: any) {
@@ -748,18 +770,48 @@ export async function buildFootballPublicData(
       ...totals,
     };
   };
-  const nflRecordSummary = [
-    ...(Array.isArray(legacy.recordSummary) ? legacy.recordSummary : []).filter((row: any) => textKey(row?.betType) !== "player props"),
-    ...(qualifiedPropTrackerForRecords.length ? [nflSummaryRow("Player Props", qualifiedPropTrackerForRecords)] : []),
+  const exactRecordTypeForRow = (row: SheetRow) => {
+    const market = textKey(row["Bet Type"] || row.Market);
+    if (market.includes("spread") || market.includes("total")) return gameTrackerRecordType(row);
+    if (qualifiedNflPropGrade(row.Grade || row["Model Grade"])) return propRecordType(row);
+    return "";
+  };
+  const recordOrder = [
+    "Favorite Spread", "Underdog Spread", "Over", "Under",
+    "Passing Yards Over", "Passing Yards Under",
+    "Rushing Yards Over", "Rushing Yards Under",
+    "Receiving Yards Over", "Receiving Yards Under",
+    "Receptions Over", "Receptions Under",
+    "Pass Attempts Over", "Pass Attempts Under",
+    "Pass Completions Over", "Pass Completions Under",
+    "Rush Attempts Over", "Rush Attempts Under",
+    "Passing TDs Over", "Passing TDs Under",
+    "Rushing TDs Over", "Rushing TDs Under",
+    "Receiving TDs Over", "Receiving TDs Under",
   ];
-  const nflLast7RecordSummary = [
-    ...(Array.isArray(legacy.last7RecordSummary) ? legacy.last7RecordSummary : []).filter((row: any) => textKey(row?.betType) !== "player props"),
-    ...(qualifiedPropTrackerForRecords.length ? [nflSummaryRow("Player Props", qualifiedPropTrackerForRecords, 7)] : []),
-  ];
+  const nflRecordTypeSort = (left: string, right: string) => {
+    const leftGrade = left.startsWith("A ") ? 0 : left.startsWith("B ") ? 1 : 2;
+    const rightGrade = right.startsWith("A ") ? 0 : right.startsWith("B ") ? 1 : 2;
+    if (leftGrade !== rightGrade) return leftGrade - rightGrade;
+    const strip = (value: string) => value.replace(/^[AB]\s+/, "");
+    const leftType = strip(left);
+    const rightType = strip(right);
+    const leftRank = recordOrder.indexOf(leftType);
+    const rightRank = recordOrder.indexOf(rightType);
+    if (leftRank !== rightRank) return (leftRank < 0 ? 999 : leftRank) - (rightRank < 0 ? 999 : rightRank);
+    return left.localeCompare(right);
+  };
+  const exactRecordTypes = [...new Set(combinedBestPlayTracker.map(exactRecordTypeForRow).filter(Boolean))].sort(nflRecordTypeSort);
+  const nflRecordSummary = exactRecordTypes.map((betType) =>
+    nflSummaryRow(betType, combinedBestPlayTracker.filter((row) => exactRecordTypeForRow(row) === betType)),
+  );
+  const nflLast7RecordSummary = exactRecordTypes.map((betType) =>
+    nflSummaryRow(betType, combinedBestPlayTracker.filter((row) => exactRecordTypeForRow(row) === betType), 7),
+  );
   const nflOverallBestRecord = nflRecordTotals(combinedBestPlayTracker);
   const nflLast7BestRecord = nflRecordTotals(combinedBestPlayTracker, 7);
   const nflPendingBestPlays = combinedBestPlayTracker.filter((row) => !resultCode(row.Result || row.Status)).length;
-  const legacyGameBest = (Array.isArray(legacy.bestPlays) ? legacy.bestPlays : [])
+    const legacyGameBest = (Array.isArray(legacy.bestPlays) ? legacy.bestPlays : [])
     .filter((play: any) => !textKey(play.role || "").includes("player prop"));
   const gameBest = annotateGameBestPlays(legacyGameBest, tracker, splits);
   const propBest = await buildNflPropBestPlays(propRows, propTracker, slate, today);
@@ -784,6 +836,7 @@ export async function buildFootballPublicData(
   return {
     ...legacy,
     bestPlays,
+    betTrackerRows: combinedBestPlayTracker,
     tiles: {
       ...(legacy.tiles || {}),
       last7Days: nflLast7BestRecord,

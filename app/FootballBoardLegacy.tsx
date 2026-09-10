@@ -341,7 +341,7 @@ function FbTrendRecords({ rows, today }: { rows: SheetRow[]; today: string }) {
     fbSummary("Spread Trend", fbTotals(rows, today, days, (row) => fbQualifiedTrend(row) && textKey(row.Market).includes("spread"))),
     fbSummary("Total Trend", fbTotals(rows, today, days, (row) => fbQualifiedTrend(row) && textKey(row.Market).includes("total"))),
   ].filter((row) => row.totalBets > 0);
-  return <><FbRecordDropdown title="Trend Tier Records - Last 7 Days" subtitle="Good / Strong / Elite CFB trend history" rows={build(7)} /><FbRecordDropdown title="Trend Tier Records - Overall" subtitle="Running sport-specific trend history" rows={build(0)} /></>;
+  return <><FbRecordDropdown title="Trend Tier Records - Last 7 Days" subtitle="Good / Strong / Elite football trend history" rows={build(7)} /><FbRecordDropdown title="Trend Tier Records - Overall" subtitle="Running sport-specific trend history" rows={build(0)} /></>;
 }
 
 function fbSignalSummaries(rows: FootballSignalHistoryRow[], today: string, days: number) {
@@ -395,7 +395,7 @@ function FbTrendRecordExplorer({ rows, today }: { rows: SheetRow[]; today: strin
   return (
     <details className="recordsDropdown fbMlbRecordsDropdown">
       <summary className="recordsSummary">
-        <div><div className="recordsSummaryTitle">Trend Tier Records</div><div className="recordsSummarySub">Good / Strong / Elite CFB trend history</div></div>
+        <div><div className="recordsSummaryTitle">Trend Tier Records</div><div className="recordsSummarySub">Good / Strong / Elite football trend history</div></div>
         <span className="recordsCount">{summaries.find((row) => row.betType === "All Trend Plays")?.totalBets || 0} plays</span>
       </summary>
       <div className="fbMlbRecordsBody">
@@ -1188,7 +1188,7 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
     const overallBest = fbTotals(trackerRows, data.today);
     const last7Best = fbTotals(trackerRows, data.today, 7);
     content = <div className="footballRecordsPage">
-      <div className="sectionHead"><div><h2>All Qualified Plays</h2><p>Official graded CFB model plays</p></div></div>
+      <div className="sectionHead"><div><h2>All Qualified Plays</h2><p>{sport === "NFL" ? "Official graded NFL game + player-prop plays" : "Official graded CFB model plays"}</p></div></div>
       <div className="qualifiedGrid">
         <RecordTile label="Best Plays - Last 7 Days" value={last7Best} />
         <RecordTile label="Best Plays - Running Total" value={overallBest} />
@@ -1197,12 +1197,11 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
           <RecordTile label="Underdog Spread - Running Total" value={summaryMap.get("Underdog Spread")} />
           <RecordTile label="Over - Running Total" value={summaryMap.get("Over")} />
           <RecordTile label="Under - Running Total" value={summaryMap.get("Under")} />
-        </> : <>
-          <RecordTile label="Spread - Running Total" value={summaryMap.get("Spread")} />
-          <RecordTile label="Total - Running Total" value={summaryMap.get("Total")} />
-        </>}
+        </> : (data.recordSummary || []).map((row) =>
+          <RecordTile key={row.betType} label={`${row.betType} - Running Total`} value={row} />
+        )}
       </div>
-      <div className="sectionHead"><div><h2>Trend Records</h2><p>Same record system used on MLB, adapted for CFB Spread + Total trends</p></div></div>
+      <div className="sectionHead"><div><h2>Trend Records</h2><p>Same MLB-style record system, using sport-specific football trend history</p></div></div>
       <div className="advancedRecordsStack">
         <FbTrendRecordExplorer rows={trendRows} today={data.today} />
         <FbCombinationRecords tracker={trackerRows} trends={trendRows} today={data.today} />
@@ -1210,10 +1209,10 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
       <div className="advancedRecordsStack">
         <FbDraftKingsSignalRecords rows={data.draftKingsSignalRows || []} today={data.today} />
       </div>
-      <div className="sectionHead"><div><h2>Bet Type Records</h2><p>Spread and Total Best Play performance</p></div></div>
+      <div className="sectionHead"><div><h2>Bet Type Records</h2><p>{sport === "NFL" ? "Exact A/B grade + market + direction subsets used by HOT / COLD / SMALL SAMPLE" : "Spread and Total Best Play performance"}</p></div></div>
       <div className="advancedRecordsStack">
-        <FbRecordDropdown title="Last 7 Days Best Plays" subtitle="Spread + Total qualified model records" rows={data.last7RecordSummary || []} defaultOpen />
-        <FbRecordDropdown title="Overall Best Plays" subtitle="Running Spread + Total records" rows={data.recordSummary || []} />
+        <FbRecordDropdown title="Last 7 Days Best Plays" subtitle={sport === "NFL" ? "Exact NFL grade / market / direction records" : "Spread + Total qualified model records"} rows={data.last7RecordSummary || []} defaultOpen />
+        <FbRecordDropdown title="Overall Best Plays" subtitle={sport === "NFL" ? "Running exact NFL grade / market / direction records" : "Running Spread + Total records"} rows={data.recordSummary || []} />
         <FbRecentResults rows={trackerRows} />
       </div>
       <div className="card fbInfo"><b>Record grading database:</b> {data.database || (sport + " Model Database")}<br />Best Plays and trend signals are graded only after a completed game has a verified final score.</div>
