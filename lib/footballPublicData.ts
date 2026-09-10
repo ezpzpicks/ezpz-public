@@ -645,6 +645,69 @@ export async function buildFootballPublicData(
   const slate = Array.isArray(legacy.slateToday) ? legacy.slateToday : [];
   const tracker = Array.isArray(legacy.betTrackerRows) ? legacy.betTrackerRows : [];
   const splits = Array.isArray(legacy.draftKings?.splits) ? legacy.draftKings.splits : [];
+  const qualifiedPropTrackerForRecords = propTracker.filter((row) => qualifiedNflPropGrade(row.Grade));
+  const combinedBestPlayTracker = [...tracker, ...qualifiedPropTrackerForRecords];
+  const nflRecordTotals = (rows: SheetRow[], days?: number) => {
+    const referenceDate = today || new Date().toISOString().slice(0, 10);
+    const reference = Date.parse(`${referenceDate}T12:00:00Z`);
+    let wins = 0;
+    let losses = 0;
+    let pushes = 0;
+    let units = 0;
+    for (const row of rows) {
+      const result = resultCode(row.Result || row.Status);
+      if (!result) continue;
+      if (days) {
+        const rowDate = isoDate(row.Date || row["Game Date"] || "");
+        const stamp = Date.parse(`${rowDate}T12:00:00Z`);
+        const diff = Math.round((reference - stamp) / 86_400_000);
+        if (!rowDate || !Number.isFinite(diff) || diff < 0 || diff >= days) continue;
+      }
+      const parsedOdds = parseAmericanOdds(row["Pick Odds"] || row.Odds || row["Odds/Line"] || -110);
+      const odds = parsedOdds == null || parsedOdds === 0 ? -110 : parsedOdds;
+      if (result === "W") {
+        wins += 1;
+        units += odds > 0 ? odds / 100 : 100 / Math.abs(odds);
+      } else if (result === "L") {
+        losses += 1;
+        units -= 1;
+      } else {
+        pushes += 1;
+      }
+    }
+    const totalBets = wins + losses + pushes;
+    const decisions = wins + losses;
+    return {
+      label: "",
+      record: `${wins}-${losses}-${pushes}`,
+      totalBets,
+      winPct: decisions ? Math.round((wins / decisions) * 1000) / 10 : 0,
+      unitsWon: Math.round(units * 100) / 100,
+      roiPct: totalBets ? Math.round((units / totalBets) * 1000) / 10 : 0,
+      wins,
+      losses,
+      pushes,
+    };
+  };
+  const nflSummaryRow = (betType: string, rows: SheetRow[], days?: number) => {
+    const totals = nflRecordTotals(rows, days);
+    return {
+      betType,
+      status: totals.wins > totals.losses ? "WINNING" : totals.losses > totals.wins ? "LOSING" : "EVEN",
+      ...totals,
+    };
+  };
+  const nflRecordSummary = [
+    ...(Array.isArray(legacy.recordSummary) ? legacy.recordSummary : []).filter((row: any) => textKey(row?.betType) !== "player props"),
+    ...(qualifiedPropTrackerForRecords.length ? [nflSummaryRow("Player Props", qualifiedPropTrackerForRecords)] : []),
+  ];
+  const nflLast7RecordSummary = [
+    ...(Array.isArray(legacy.last7RecordSummary) ? legacy.last7RecordSummary : []).filter((row: any) => textKey(row?.betType) !== "player props"),
+    ...(qualifiedPropTrackerForRecords.length ? [nflSummaryRow("Player Props", qualifiedPropTrackerForRecords, 7)] : []),
+  ];
+  const nflOverallBestRecord = nflRecordTotals(combinedBestPlayTracker);
+  const nflLast7BestRecord = nflRecordTotals(combinedBestPlayTracker, 7);
+  const nflPendingBestPlays = combinedBestPlayTracker.filter((row) => !resultCode(row.Result || row.Status)).length;
   const legacyGameBest = (Array.isArray(legacy.bestPlays) ? legacy.bestPlays : [])
     .filter((play: any) => !textKey(play.role || "").includes("player prop"));
   const gameBest = annotateGameBestPlays(legacyGameBest, tracker, splits);
@@ -672,8 +735,17 @@ export async function buildFootballPublicData(
     bestPlays,
     tiles: {
       ...(legacy.tiles || {}),
+      last7Days: nflLast7BestRecord,
+      overallGreen: nflOverallBestRecord,
+      handpickedLast7: nflLast7BestRecord,
+      handpickedOverall: nflOverallBestRecord,
+      pendingGreen: nflPendingBestPlays,
       bestPlaysToday: bestPlays.length,
     },
+    recordSummary: nflRecordSummary,
+    last7RecordSummary: nflLast7RecordSummary,
+    handpickedRecordSummary: nflRecordSummary,
+    handpickedLast7RecordSummary: nflLast7RecordSummary,
     aiPicks,
     nflTrendV2: {
       status: nflTrendModel.status,
