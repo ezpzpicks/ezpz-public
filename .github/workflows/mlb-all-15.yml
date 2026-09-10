@@ -1,5 +1,6 @@
 name: Apply MLB all-15 Trend V2 rule
 
+# Durable policy: every otherwise-eligible MLB V2 play at 15%+ qualifies; no daily cap.
 on:
   push:
     branches: [main]
@@ -31,6 +32,6 @@ jobs:
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add lib/mlbTrendV2.ts app/api/public-data-v2/route.ts
-          git commit -m "Lock every eligible MLB Trend V2 play at 15%+"
+          git add lib/mlbTrendV2.ts app/api/public-data-v2/route.ts app/page.tsx
+          git commit -m "Enforce uncapped MLB 15-percent gap-only policy"
           git push
