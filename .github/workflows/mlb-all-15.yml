@@ -1,42 +1,38 @@
-name: Apply MLB all-15 Trend V2 rule
+name: Validate MLB one-pick-per-game policy
 
-# Durable policy: every otherwise-eligible MLB V2 play at 15%+ qualifies; no daily cap.
 on:
   push:
     branches: [main]
     paths:
+      - 'app/api/public-data-v2/route.ts'
+      - 'lib/mlbTrendV2.ts'
+      - 'app/page.tsx'
+      - 'scripts/mlb_all_15_patch.mjs'
+      - '.github/workflows/mlb-all-15.yml'
+  pull_request:
+    paths:
+      - 'app/api/public-data-v2/route.ts'
+      - 'lib/mlbTrendV2.ts'
+      - 'app/page.tsx'
+      - 'scripts/mlb_all_15_patch.mjs'
       - '.github/workflows/mlb-all-15.yml'
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: mlb-all-15-policy
+  group: mlb-one-pick-per-game-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  apply:
+  validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 20
       - run: npm install --no-audit --no-fund
       - run: node scripts/mlb_all_15_patch.mjs
       - run: npm run build
-      - name: Commit validated rule change
-        run: |
-          if git diff --quiet; then
-            echo "No source changes needed."
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add lib/mlbTrendV2.ts app/api/public-data-v2/route.ts app/page.tsx
-          git commit -m "Enforce uncapped MLB 15-percent gap-only policy"
-          git pull --rebase origin main
-          git push
