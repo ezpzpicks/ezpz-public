@@ -22,7 +22,7 @@ jobs:
 
       - name: Validate public site
         run: |
-          npm ci
+          npm install --no-audit --no-fund
           npm run build
           git diff --check
           grep -q 'qualifiedPropTrackerForRecords' lib/footballPublicData.ts
