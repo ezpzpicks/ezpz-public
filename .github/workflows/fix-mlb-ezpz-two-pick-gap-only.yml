@@ -1,0 +1,62 @@
+name: Fix MLB EZPZ two-pick gap-only policy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/fix-mlb-ezpz-two-pick-gap-only.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fix-mlb-ezpz-two-pick-gap-only
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Apply durable MLB EZPZ repair
+        run: python scripts/fix_mlb_ezpz_two_pick_gap_only.py
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Verify production build
+        run: npm run build
+
+      - name: Verify policy markers
+        shell: bash
+        run: |
+          grep -q 'MLB_TREND_V2_MAX_DAILY_PICKS = 2' lib/mlbTrendV2.ts
+          grep -q 'todayLocks.length+newLocks.length<MLB_TREND_V2_MAX_DAILY_PICKS' app/api/public-data-v2/route.ts
+          grep -q 'slice(0,remainingV2Slots)' app/api/public-data-v2/route.ts
+          grep -q 'const showGapOnly = isMlbTrendV2Pick;' app/page.tsx
+          ! grep -q 'trendV2AllAboveThreshold:true' app/api/public-data-v2/route.ts
+
+      - name: Commit validated repair
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo "MLB EZPZ source is already in the desired state."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/page.tsx app/api/public-data-v2/route.ts
+          git commit -m "Restore MLB EZPZ max-two gap-only policy"
+          git push
