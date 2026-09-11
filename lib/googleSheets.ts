@@ -1,4 +1,5 @@
 import { google } from "googleapis";
+import { unstable_cache } from "next/cache";
 
 export type SheetRow = Record<string, string>;
 
@@ -70,6 +71,8 @@ export const TRACKER_COLUMNS = [
   "Favorite Tag",
   "Favorite Notes",
 ];
+
+const SHARED_WORKSHEET_CACHE_SECONDS = 60;
 
 function parseCredentials() {
   const raw = process.env.GOOGLE_CREDENTIALS;
@@ -182,22 +185,43 @@ function rowsToObjects(values: string[][], columns?: string[]) {
   });
 }
 
-export async function readWorksheet(worksheetName: string, columns?: string[]): Promise<SheetRow[]> {
-  const accessToken = await getAccessToken();
-  const spreadsheetId = await resolveSpreadsheetId(accessToken);
-  const encodedRange = encodeURIComponent(`'${worksheetName}'`);
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodedRange}`;
-
-  const response = await fetch(url, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-    cache: "no-store",
+function copyRows(rows: SheetRow[], columns?: string[]) {
+  return rows.map((source) => {
+    const row: SheetRow = { ...source };
+    for (const column of columns || []) {
+      if (row[column] === undefined) row[column] = "";
+    }
+    return row;
   });
+}
 
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Could not read worksheet "${worksheetName}": ${response.status} ${text}`);
-  }
+// This is a Vercel/Next shared Data Cache, not a per-browser cache. All visitors
+// reuse the same worksheet snapshot for one minute, so a traffic spike does not
+// translate into the same spike in Google Sheets API reads.
+const readWorksheetShared = unstable_cache(
+  async (worksheetName: string): Promise<SheetRow[]> => {
+    const accessToken = await getAccessToken();
+    const spreadsheetId = await resolveSpreadsheetId(accessToken);
+    const encodedRange = encodeURIComponent(`'${worksheetName}'`);
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodedRange}`;
 
-  const json = await response.json();
-  return rowsToObjects((json.values || []) as string[][], columns);
+    const response = await fetch(url, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      cache: "no-store",
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Could not read worksheet "${worksheetName}": ${response.status} ${text}`);
+    }
+
+    const json = await response.json();
+    return rowsToObjects((json.values || []) as string[][]);
+  },
+  ["ezpz-public-google-worksheet-v1"],
+  { revalidate: SHARED_WORKSHEET_CACHE_SECONDS },
+);
+
+export async function readWorksheet(worksheetName: string, columns?: string[]): Promise<SheetRow[]> {
+  return copyRows(await readWorksheetShared(worksheetName), columns);
 }
