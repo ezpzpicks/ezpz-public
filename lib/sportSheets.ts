@@ -1,4 +1,5 @@
 import { google } from "googleapis";
+import { unstable_cache } from "next/cache";
 
 export type FootballSport = "NFL" | "NCAAF";
 export type SheetRow = Record<string, string>;
@@ -100,6 +101,7 @@ const sharedContainerSports = new Set<FootballSport>();
 // consume the Google Sheets per-user read quota.
 const SPORT_WORKSHEET_READ_CACHE_TTL_MS = 60_000;
 const SPORT_WORKSHEET_READ_STALE_MS = 30 * 60_000;
+const SPORT_WORKSHEET_SHARED_CACHE_SECONDS = 60;
 
 type SportWorksheetCacheEntry = {
   savedAt: number;
@@ -216,6 +218,33 @@ function quoteSheetName(name: string) {
   return `'${String(name).replace(/'/g, "''")}'`;
 }
 
+// Unlike the in-memory Map above, this cache is shared by Next/Vercel across
+// public requests. That means 100 visitors opening the NFL or NCAAF board inside
+// the same minute reuse one Google Sheets result for each worksheet.
+const readSportWorksheetShared = unstable_cache(
+  async (sport: FootballSport, worksheetName: string): Promise<SheetRow[]> => {
+    const spreadsheetId = await resolveSportSpreadsheetId(sport);
+    const sheets = await sheetsClient();
+    const physicalName = physicalWorksheetName(sport, worksheetName);
+    try {
+      const response = await sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: quoteSheetName(physicalName),
+      });
+      return rowsToObjects((response.data.values || []) as string[][]);
+    } catch (error: any) {
+      const code = Number(error?.code || error?.response?.status || 0);
+      const message = String(error?.message || "");
+      if (code === 400 && /unable to parse range|requested entity was not found/i.test(message)) {
+        return [];
+      }
+      throw error;
+    }
+  },
+  ["ezpz-public-sport-worksheet-v1"],
+  { revalidate: SPORT_WORKSHEET_SHARED_CACHE_SECONDS },
+);
+
 export async function readSportWorksheet(
   sport: FootballSport,
   worksheetName: string,
@@ -233,24 +262,11 @@ export async function readSportWorksheet(
   if (active) return copySportRows(await active, columns);
 
   const operation = (async () => {
-    const spreadsheetId = await resolveSportSpreadsheetId(sport);
-    const sheets = await sheetsClient();
-    const physicalName = physicalWorksheetName(sport, worksheetName);
     try {
-      const response = await sheets.spreadsheets.values.get({
-        spreadsheetId,
-        range: quoteSheetName(physicalName),
-      });
-      const rows = rowsToObjects((response.data.values || []) as string[][], columns);
+      const rows = await readSportWorksheetShared(sport, worksheetName);
       sportWorksheetReadCache.set(key, { savedAt: Date.now(), rows: copySportRows(rows) });
       return rows;
     } catch (error: any) {
-      const code = Number(error?.code || error?.response?.status || 0);
-      const message = String(error?.message || "");
-      if (code === 400 && /unable to parse range|requested entity was not found/i.test(message)) {
-        sportWorksheetReadCache.set(key, { savedAt: Date.now(), rows: [] });
-        return [];
-      }
       if (cached && Date.now() - cached.savedAt < SPORT_WORKSHEET_READ_STALE_MS && isSheetsQuotaError(error)) {
         console.warn(`Using stale ${sport} ${worksheetName} worksheet cache after Sheets quota error.`);
         return copySportRows(cached.rows, columns);
