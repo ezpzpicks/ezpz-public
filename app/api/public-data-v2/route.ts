@@ -172,6 +172,12 @@ function pendingV2PickObject(play:V2TrendPlay,today:string,slateRows:AnyRow[],no
   const base=dailyPickObject({play,threshold:thresholdInfo.threshold,earlyPremium:thresholdInfo.earlyPremium,minutesToStart},today,nowMs);
   return{...base,snapshotStatus:"LIVE",lockedAt:"",updatedAt:nowET(),verdict:`PENDING MLB Trend v2 qualifier — ${base.play}`,confidenceReason:[`Currently clears the ${thresholdInfo.threshold.toFixed(0)}% V2 Market Gap threshold`,`${mlbTrendV2RlmStatus(play)==="STRONG_RLM_SUPPORT"?"Strong RLM Support":"RLM Support"} confirmed`],whySelected:[...base.whySelected,"This displayed PENDING state is saved and may finalize on a later run, including after start"],dataStatus:[`Trend v2 model ${String(play.v2ModelVersion||MLB_TREND_V2_VERSION)}`,`V2 Market Gap ${play.v2MarketGap.toFixed(1)}`,`RLM confirmation: ${mlbTrendV2RlmStatus(play)==="STRONG_RLM_SUPPORT"?"Strong RLM Support":"RLM Support"}`,`Currently ${minutesToStart.toFixed(1)} minutes before scheduled start`,`Pregame finalization is not required; this saved PENDING state remains eligible after start`],v2LockedEpoch:undefined};
 }
+function recoveryPendingV2PickObject(decision:DailyLockDecision,today:string,nowMs:number):AnyRow{
+  const play=decision.play;
+  const base=dailyPickObject(decision,today,nowMs);
+  const rlmLabel=mlbTrendV2RlmStatus(play)==="STRONG_RLM_SUPPORT"?"Strong RLM Support":"RLM Support";
+  return{...base,snapshotStatus:"LIVE",lockedAt:"",updatedAt:nowET(),verdict:`PENDING RECOVERY — ${base.play}`,confidenceReason:[`Saved pregame state cleared the ${decision.threshold.toFixed(0)}% V2 Market Gap threshold`,`${rlmLabel} was confirmed before scheduled start`],whySelected:[...base.whySelected,"The saved pregame PENDING card remains visible while recovery is open"],dataStatus:[`Trend v2 model ${String(play.v2ModelVersion||MLB_TREND_V2_VERSION)}`,`Saved pregame V2 Market Gap ${play.v2MarketGap.toFixed(1)}`,`Saved pregame RLM confirmation: ${rlmLabel}`,`RECOVERY OPEN — saved pregame PENDING state`,`Awaiting finalization from the saved pregame state; in-game market data is not used`],v2LockedEpoch:undefined,recoveryPendingFromSavedSnapshot:true};
+}
 function dailyPickRow(pick:AnyRow):AnyRow{return{Date:pick.date,"Candidate ID":pick.candidateId,"Game Key":pick.gameKey,"Game Time":pick.gameTime,Game:pick.game,"Away Team":pick.awayTeam,"Home Team":pick.homeTeam,Market:pick.market,Play:pick.play,Selection:pick.selection,Line:pick.line,Odds:pick.odds,"V2 Score":pick.trendScore,"V2 Tier":pick.trendTier,"V2 Market Gap":pick.v2MarketGap,"V2 Ranking Probability":pick.v2Probability,"Market Implied Probability":pick.marketImpliedProbability,"Legacy Trend Score":pick.v2LegacyScore,"Legacy Trend Tier":pick.v2LegacyTier,"V2/Legacy Agreement":pick.v2LegacyAgreement?"TRUE":"FALSE","V2 Data Complete":pick.v2DataComplete?"TRUE":"FALSE","Daily Rank":pick.v2DailyRank,"Early Premium":pick.v2EarlyPremium?"TRUE":"FALSE","Required Gap":pick.v2RequiredGap,"Locked At":pick.lockedAt,Result:pick.result||"",Units:String(pick.units??0),"Result Updated":pick.resultUpdated||"","Model Version":String(pick.v2ModelVersion||MLB_TREND_V2_VERSION),"Details JSON":JSON.stringify(pick)}}
 function parseDailyPickRow(row:AnyRow):AnyRow|null{try{const raw=String(row?.["Details JSON"]||"").trim();if(raw){const parsed=JSON.parse(raw);if(parsed?.candidateId)return{...parsed,result:String(row.Result||parsed.result||""),units:Number(row.Units||parsed.units||0),resultUpdated:String(row["Result Updated"]||parsed.resultUpdated||"")}}}catch{}const candidateId=String(row?.["Candidate ID"]||"").trim();if(!candidateId)return null;return{candidateId,date:isoDate(row.Date),gameKey:String(row["Game Key"]||""),gameTime:String(row["Game Time"]||""),game:String(row.Game||""),awayTeam:String(row["Away Team"]||""),homeTeam:String(row["Home Team"]||""),market:String(row.Market||""),play:String(row.Play||""),selection:String(row.Selection||""),line:String(row.Line||""),odds:String(row.Odds||""),source:"Trend Play",bestPlayType:"",trendTier:String(row["V2 Tier"]||""),modelScore:0,trendScore:Number(row["V2 Score"]||0),aiScore:Number(row["V2 Score"]||0),estimatedProbability:Number(row["V2 Ranking Probability"]||0),marketImpliedProbability:Number(row["Market Implied Probability"]||0),estimatedAdvantage:Number(row["V2 Market Gap"]||0),selected:true,protectionStatus:"PASSED",rejectionReason:"",confidenceReason:[],whySelected:[],historicalNotes:[],risks:[],researchSummary:"",verdict:`FINAL MLB Trend v2 daily pick — ${String(row.Play||"")}`,dataStatus:[`Trend v2 model ${MLB_TREND_V2_VERSION}`],externalReviewStatus:"NOT_REQUIRED",snapshotStatus:"FINAL_PREGAME",lockedAt:String(row["Locked At"]||""),updatedAt:String(row["Locked At"]||""),result:String(row.Result||""),units:Number(row.Units||0),resultUpdated:String(row["Result Updated"]||""),selectorVersion:MLB_TREND_V2_VERSION}}
 function normalize(value:unknown){return String(value||"").toLowerCase().replace(/[^a-z0-9]+/g," ").replace(/\s+/g," ").trim()}
@@ -234,11 +240,20 @@ async function postProcessMlbPayload(request:NextRequest,payload:AnyRow){
   const legacyAiPicks=Array.isArray(payload.aiPicks)?payload.aiPicks:[];
   const filteredAiPicks=legacyAiPicks.filter((pick:AnyRow)=>!isLaunchOrLater(pick?.date||today));
   const lockedGames=new Set(todayLocks.map(v2GameIdentity).filter(Boolean));
-  const pendingV2Picks=[...currentQualifiers.values()]
+  const livePendingV2Picks=[...currentQualifiers.values()]
     .filter((play)=>!lockedGames.has(v2GameIdentity(play)))
     .filter((play)=>durablePendingIds.has(v2CandidateIdentity(play)))
     .map((play)=>pendingV2PickObject(play,today,slateRows,nowMs))
     .filter((pick):pick is AnyRow=>Boolean(pick));
+  const recoveryPendingGames=new Set([...lockedGames,...livePendingV2Picks.map(v2GameIdentity).filter(Boolean)]);
+  const recoveryPendingV2Picks:AnyRow[]=[];
+  for(const decision of latePendingSnapshotDecisions(snapshotRows,slateRows,today,nowMs,recoveryPendingGames)){
+    const gameKey=v2GameIdentity(decision.play);
+    if(!gameKey||recoveryPendingGames.has(gameKey))continue;
+    recoveryPendingV2Picks.push(recoveryPendingV2PickObject(decision,today,nowMs));
+    recoveryPendingGames.add(gameKey);
+  }
+  const pendingV2Picks=[...livePendingV2Picks,...recoveryPendingV2Picks];
   for(const pendingPick of pendingV2Picks)filteredAiPicks.push(pendingPick);
   for(const lock of todayLocks)filteredAiPicks.push(lock);
   payload.aiPicks=filteredAiPicks;
