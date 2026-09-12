@@ -1,0 +1,68 @@
+name: Fix MLB post-start recovery and pitcher odds v2
+
+on:
+  push:
+    paths:
+      - ".github/workflows/fix-mlb-poststart-and-pitcher-odds-v2.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Apply MLB recovery and pitcher-odds fixes
+        shell: bash
+        env:
+          OLD_V2_B64: "ICBsZXQgdG9kYXlMb2Nrcz1jdXJyZW50TG9ja3NGb3JUb2RheShkYWlseVBpY2tzLHRvZGF5LGN1cnJlbnRRdWFsaWZpZXJzLG5vd01zLHNuYXBzaG90Um93cyxzbGF0ZVJvd3MpOwogIGlmKGlzVjJTY2hlZHVsZWRDYXB0dXJlKHJlcXVlc3QpJiZ0b2RheT49TUxCX1RSRU5EX1YyX0xBVU5DSF9EQVRFKXsKICAgIGNvbnN0IHJld3JpdGVSZXF1aXJlZD0hc2FtZVBpY2tTZXQoc3RvcmVkVG9kYXlMb2Nrcyx0b2RheUxvY2tzKTsK"
+          NEW_V2_B64: "ICBsZXQgdG9kYXlMb2Nrcz1jdXJyZW50TG9ja3NGb3JUb2RheShkYWlseVBpY2tzLHRvZGF5LGN1cnJlbnRRdWFsaWZpZXJzLG5vd01zLHNuYXBzaG90Um93cyxzbGF0ZVJvd3MpOwogIC8vIEFueSByZXF1ZXN0IGFmdGVyIHNjaGVkdWxlZCBzdGFydCBtYXkgY29tcGxldGUgdGhlIGRldGVybWluaXN0aWMgcmVjb3ZlcnkKICAvLyBmb3IgYSBjYW5kaWRhdGUgdGhhdCB3YXMgYWxyZWFkeSBkdXJhYmx5IFBFTkRJTkcgYmVmb3JlIGZpcnN0IHBpdGNoLiBUaGlzCiAgLy8gcmVtb3ZlcyB0aGUgR2l0SHViLWNyb24gZGVwZW5kZW5jeSB3aXRob3V0IHBlcm1pdHRpbmcgbmV3IGluLWdhbWUgcGlja3MuCiAgaWYodG9kYXk+PU1MQl9UUkVORF9WMl9MQVVOQ0hfREFURSl7CiAgICBjb25zdCByZXdyaXRlUmVxdWlyZWQ9IXNhbWVQaWNrU2V0KHN0b3JlZFRvZGF5TG9ja3MsdG9kYXlMb2Nrcyk7Cg=="
+          OLD_ODDS_B64: "ICAgICAgY29uc3Qgb2RkcyA9IG9kZHNGcm9tTGluZUNlbGwoCiAgICAgICAgbWFya2V0Lm9kZHMgfHwKICAgICAgICAgIHRyYWNrZXJPZGRzIHx8CiAgICAgICAgICAocGFyc2VkLmxpbmUgPyBgTGluZSAke3BhcnNlZC5saW5lfWAgOiAiIiksCiAgICAgICk7Cg=="
+          NEW_ODDS_B64: "ICAgICAgY29uc3Qgc3VtbWFyeU9kZHNNYXRjaCA9IFN0cmluZyhtYXJrZXQuc3VtbWFyeSB8fCAiIikubWF0Y2goCiAgICAgICAgL1xiTGluZVxzKihbMC05XSsoPzpcLlswLTldKyk/KVxzKlwvXHMqKFsrLV1cZHszLDR9KVxiL2ksCiAgICAgICk7CiAgICAgIGNvbnN0IHN1bW1hcnlPZGRzID0gc3VtbWFyeU9kZHNNYXRjaAogICAgICAgID8gYCR7c3VtbWFyeU9kZHNNYXRjaFsxXX0gLyAke3N1bW1hcnlPZGRzTWF0Y2hbMl19YAogICAgICAgIDogIiI7CiAgICAgIGNvbnN0IG9kZHMgPSBvZGRzRnJvbUxpbmVDZWxsKAogICAgICAgIG1hcmtldC5vZGRzIHx8CiAgICAgICAgICB0cmFja2VyT2RkcyB8fAogICAgICAgICAgc3VtbWFyeU9kZHMgfHwKICAgICAgICAgIChwYXJzZWQubGluZSA/IGBMaW5lICR7cGFyc2VkLmxpbmV9YCA6ICIiKSwKICAgICAgKTsK"
+          OLD_STORED_B64: "ICBsZXQgc3RvcmVkRmluYWxDYW5kaWRhdGVJZHMgPSBuZXcgU2V0KAogICAgc3RvcmVkVG9kYXkKICAgICAgLmZpbHRlcigocGljaykgPT4gcGljay5zbmFwc2hvdFN0YXR1cyA9PT0gIkZJTkFMX1BSRUdBTUUiKQogICAgICAubWFwKChwaWNrKSA9PiBwaWNrLmNhbmRpZGF0ZUlkKSwKICApOwo="
+          NEW_STORED_B64: "ICAvLyBBIEhPVCBwaXRjaGVyIEJlc3QgUGxheSB0aGF0IHdhcyBmcm96ZW4gd2l0aCBvbmx5IHRoZSBzeW50aGV0aWMKICAvLyAiUGxheWFibGUgb2RkcyBhcmUgbWlzc2luZyIgcmVqZWN0aW9uIG1heSBiZSByZXRyaWVkLiBUaGUgcHJlZ2FtZSBzbGF0ZQogIC8vIGFscmVhZHkgY29udGFpbnMgdGhlIHdhZ2VyOyB0aGlzIG9ubHkgcmVwYWlycyB0aGUgb2RkcyBwYXJzZXIgYW5kIGNhbm5vdAogIC8vIGNyZWF0ZSBhIG5ldyBwb3N0LXN0YXJ0IGNhbmRpZGF0ZS4KICBsZXQgc3RvcmVkRmluYWxDYW5kaWRhdGVJZHMgPSBuZXcgU2V0KAogICAgc3RvcmVkVG9kYXkKICAgICAgLmZpbHRlcigKICAgICAgICAocGljaykgPT4KICAgICAgICAgIHBpY2suc25hcHNob3RTdGF0dXMgPT09ICJGSU5BTF9QUkVHQU1FIiAmJgogICAgICAgICAgISgKICAgICAgICAgICAgcGljay5tYXJrZXQgPT09ICJQaXRjaGVyIFN0cmlrZW91dHMiICYmCiAgICAgICAgICAgICFwaWNrLnNlbGVjdGVkICYmCiAgICAgICAgICAgIChwaWNrIGFzIEFpU2VsZWN0b3JDYW5kaWRhdGUpLnBpdGNoZXJCZXRUeXBlRm9ybSA9PT0gRVpQWl9CRVNUX1BMQVlfUE9MSUNZLnJlcXVpcmVkRm9ybSAmJgogICAgICAgICAgICBTdHJpbmcocGljay5yZWplY3Rpb25SZWFzb24gfHwgIiIpLnRyaW0oKSA9PT0gIlBsYXlhYmxlIG9kZHMgYXJlIG1pc3NpbmciCiAgICAgICAgICApLAogICAgICApCiAgICAgIC5tYXAoKHBpY2spID0+IHBpY2suY2FuZGlkYXRlSWQpLAogICk7Cg=="
+        run: |
+          python - <<'PY'
+          import base64
+          import os
+          from pathlib import Path
+
+          def patch(path_name, old_key, new_key, label):
+              path = Path(path_name)
+              text = path.read_text()
+              old = base64.b64decode(os.environ[old_key]).decode()
+              new = base64.b64decode(os.environ[new_key]).decode()
+              if old in text:
+                  if text.count(old) != 1:
+                      raise SystemExit(f"{label} target occurred {text.count(old)} times; refusing ambiguous patch")
+                  text = text.replace(old, new, 1)
+                  path.write_text(text)
+                  print(f"Installed {label}")
+              elif new in text:
+                  print(f"{label} already installed")
+              else:
+                  raise SystemExit(f"Could not find {label} target")
+
+          patch("app/api/public-data-v2/route.ts", "OLD_V2_B64", "NEW_V2_B64", "post-start V2 finalization")
+          patch("app/api/public-data/route.ts", "OLD_ODDS_B64", "NEW_ODDS_B64", "pitcher summary odds fallback")
+          patch("app/api/public-data/route.ts", "OLD_STORED_B64", "NEW_STORED_B64", "odds-missing HOT pitcher recovery")
+          PY
+
+      - name: Type-check
+        shell: bash
+        run: |
+          npm install --no-audit --no-fund
+          npx tsc --noEmit
+
+      - name: Commit fixes and remove temporary workflows
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm -f .github/workflows/fix-mlb-poststart-and-pitcher-odds.yml .github/workflows/fix-mlb-poststart-and-pitcher-odds-v2.yml
+          git add app/api/public-data-v2/route.ts app/api/public-data/route.ts
+          git commit -m "Fix MLB recovery and pitcher prop odds parsing"
+          git push
