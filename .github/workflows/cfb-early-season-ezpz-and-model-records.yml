@@ -20,7 +20,10 @@ jobs:
           fetch-depth: 0
 
       - name: Apply CFB policy and record-subset updates
-        run: python scripts/apply_cfb_early_season_patch.py
+        shell: bash
+        run: |
+          python scripts/apply_cfb_early_season_patch.py
+          python scripts/apply_cfb_typing_fix.py
 
       - name: Verify CFB policy changes
         shell: bash
@@ -33,6 +36,7 @@ jobs:
           grep -Fq '25%+ net ROI advantage • 8+ graded trend sample' lib/footballPublicDataLegacy.ts
           grep -Fq 'One public CFB EZPZ pick per game' lib/footballPublicDataLegacy.ts
           grep -Fq 'CFB_MODEL_RECORD_TYPES.map' lib/footballPublicDataLegacy.ts
+          grep -Fq 'headToHead(trends) as TrendPlay[]' lib/footballPublicDataLegacy.ts
           grep -Fq '"A Spread Favorite"' app/FootballBoardLegacy.tsx
           grep -Fq 'const minTrendSampleSize = sport === "NCAAF" ? 8 : 5;' app/FootballBoardLegacy.tsx
           grep -Fq 'const minNetRoiAdvantage = sport === "NCAAF" ? 25 : 15;' app/FootballBoardLegacy.tsx
@@ -40,25 +44,12 @@ jobs:
           git diff --check
 
       - name: Build application
-        id: build
-        continue-on-error: true
         shell: bash
         run: |
-          set -o pipefail
-          npm install --no-package-lock --no-audit --no-fund 2>&1 | tee build-output.txt
-          npm run build 2>&1 | tee -a build-output.txt
-
-      - name: Upload build diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: cfb-build-output
-          path: build-output.txt
-          if-no-files-found: ignore
-          retention-days: 1
+          npm install --no-package-lock --no-audit --no-fund
+          npm run build
 
       - name: Commit implementation
-        if: steps.build.outcome == 'success'
         shell: bash
         run: |
           if git diff --quiet -- lib/footballPublicDataLegacy.ts app/FootballBoardLegacy.tsx; then
@@ -71,7 +62,3 @@ jobs:
           git commit -m 'cfb: tighten early EZPZ gate and split model records'
           git pull --rebase origin main
           git push origin HEAD:main
-
-      - name: Fail if build failed
-        if: steps.build.outcome != 'success'
-        run: exit 1
