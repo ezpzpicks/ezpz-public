@@ -24,8 +24,11 @@ const requiredRouteMarkers = [
   'trendV2RequiresRlmSupport:true',
   'trendV2PregameFinalizationRequired:false',
   'pendingQualifierSnapshotRowsToAppend(',
+  'pendingResolutionSnapshotRowsToAppend(',
   'durablePendingIds.has(v2CandidateIdentity(play))',
   'function recoveryPendingV2PickObject(',
+  'function unresolvedPendingSnapshotDecisions(',
+  'snapshotIsFreshForLock(row,start)',
   'RECOVERY OPEN — saved pregame PENDING state',
   'const recoveryPendingV2Picks:AnyRow[]=[];',
   'const pendingV2Picks=[...livePendingV2Picks,...recoveryPendingV2Picks];',
@@ -74,12 +77,12 @@ const recoveryDisplayHelper = route.slice(recoveryDisplayHelperStart, recoveryDi
 if (recoveryDisplayHelper.includes("start<=nowMs") || recoveryDisplayHelper.includes("currentQualifier")) {
   throw new Error("Recovery-window PENDING cards must come only from the saved pregame decision");
 }
-const recoveryDisplayCall = route.lastIndexOf("latePendingSnapshotDecisions(snapshotRows,slateRows,today,nowMs,recoveryPendingGames)");
+const recoveryDisplayCall = route.lastIndexOf("unresolvedPendingSnapshotDecisions(snapshotRows,slateRows,today,nowMs,recoveryPendingGames)");
 if (recoveryDisplayCall < lateRecoveryEnd || !route.slice(recoveryDisplayCall).includes("recoveryPendingGames.add(gameKey)")) {
   throw new Error("Saved PENDING cards are not kept visible after start with the one-pick-per-game guard");
 }
-if (!route.includes("const started=start!=null&&start<=nowMs;") || !route.includes("if(!started&&(!qualifier||!sameV2Candidate(pick,qualifier)))continue;")) {
-  throw new Error("Finalized picks are not protected from post-start live-data reconciliation");
+if (!route.includes("Once it\n    // is FINAL, later refreshes must not rewrite or remove that frozen decision.")) {
+  throw new Error("Finalized picks are not protected from later snapshot reconciliation");
 }
 
 if (!page.includes("const showGapOnly = isMlbTrendV2Pick;") || !page.includes("displayedTrendGap.toFixed(1)")) {
@@ -128,7 +131,7 @@ assert.equal(selectionThresholdForPlay(candidate(20, ["REVERSE_LINE_MOVEMENT_SUP
 
 const recoveryStartMs = Date.parse("2026-09-11T23:10:00Z");
 const compiledRoute = ts.transpileModule(
-  `${route}\nexport { latePendingSnapshotDecisions, recoveryPendingV2PickObject };`,
+  `${route}\nexport { currentLocksForToday, latePendingSnapshotDecisions, pendingQualifierSnapshotRowsToAppend, pendingResolutionSnapshotRowsToAppend, recoveryPendingV2PickObject, unresolvedPendingSnapshotDecisions };`,
   { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 } },
 ).outputText;
 const loadedRoute = { exports: {} };
@@ -200,34 +203,60 @@ const recoveryPlay = {
   legacyScore: 78,
   legacyTier: "Strong",
 };
-const recoveryRows = [{
+const snapshot = (play, epoch, pendingEzpzCandidate = false) => ({
   Date: "2026-09-11",
   "Game Key": "yankees-mets",
   "Game Time": "7:10 PM",
-  Market: "Total",
-  Selection: "Under",
-  Side: "Under",
-  Line: 8.5,
-  Odds: "-110",
-  "V2 Market Gap": 17.6,
-  "V2 Direction": "TRUE",
-  "Daily Eligible": "TRUE",
-  "Minutes To Start": 4.2,
-  "Details JSON": JSON.stringify({ ...recoveryPlay, snapshotEpoch: recoveryStartMs - 4.2 * 60_000, pendingEzpzCandidate: true }),
-}];
-const recoveryDecisions = loadedRoute.exports.latePendingSnapshotDecisions(
-  recoveryRows,
+  Market: play.market,
+  Selection: play.selection,
+  Side: play.side,
+  Line: play.line,
+  Odds: play.odds,
+  "V2 Market Gap": play.v2MarketGap,
+  "V2 Direction": play.v2Direction ? "TRUE" : "FALSE",
+  "Daily Eligible": play.v2DailyEligible ? "TRUE" : "FALSE",
+  "Minutes To Start": (recoveryStartMs - epoch) / 60_000,
+  "Details JSON": JSON.stringify({ ...play, snapshotEpoch: epoch, pendingEzpzCandidate }),
+});
+
+// Mirrors the Phillies-Braves regression: Over 8.5 was visibly PENDING early,
+// then a 93-minute-old Over 8 row became the latest stored market row. That
+// stale row must neither finalize nor erase the saved PENDING card at game time.
+const earlyPending = snapshot(recoveryPlay, recoveryStartMs - 128 * 60_000, true);
+const staleDifferentLinePlay = {
+  ...recoveryPlay,
+  selection: "Under",
+  side: "Under",
+  line: 8,
+  odds: "-118",
+  v2MarketGap: 14.4,
+  v2DailyEligible: false,
+};
+const staleDifferentLine = snapshot(staleDifferentLinePlay, recoveryStartMs - 93 * 60_000);
+const staleRows = [earlyPending, staleDifferentLine];
+const afterStartMs = recoveryStartMs + 2 * 60_000;
+
+const staleFinalDecisions = loadedRoute.exports.latePendingSnapshotDecisions(
+  staleRows,
   [],
   "2026-09-11",
-  recoveryStartMs + 5 * 60_000,
+  afterStartMs,
   new Set(),
 );
-assert.equal(recoveryDecisions.length, 1);
-assert.ok(recoveryDecisions[0].minutesToStart < 0);
-const recoveryPendingPick = loadedRoute.exports.recoveryPendingV2PickObject(
-  recoveryDecisions[0],
+assert.equal(staleFinalDecisions.length, 0);
+const unresolved = loadedRoute.exports.unresolvedPendingSnapshotDecisions(
+  staleRows,
+  [],
   "2026-09-11",
-  recoveryStartMs + 5 * 60_000,
+  afterStartMs,
+  new Set(),
+);
+assert.equal(unresolved.length, 1);
+assert.equal(unresolved[0].play.line, 8.5);
+const recoveryPendingPick = loadedRoute.exports.recoveryPendingV2PickObject(
+  unresolved[0],
+  "2026-09-11",
+  afterStartMs,
 );
 assert.equal(recoveryPendingPick.snapshotStatus, "LIVE");
 assert.equal(recoveryPendingPick.lockedAt, "");
@@ -236,4 +265,63 @@ assert.equal(recoveryPendingPick.v2LockedEpoch, undefined);
 assert.match(recoveryPendingPick.verdict, /^PENDING RECOVERY/);
 assert.ok(recoveryPendingPick.dataStatus.includes("RECOVERY OPEN — saved pregame PENDING state"));
 
-console.log("Validated MLB EZPZ policy: 15% plus RLM Support/Strong RLM Support, one pick per game, no slate cap, and durable PENDING recovery after start.");
+// The public refresh is allowed to supply the missing lock snapshot, but only
+// for a game whose exact candidate was explicitly PENDING before first pitch.
+const resolutionRows = loadedRoute.exports.pendingResolutionSnapshotRowsToAppend(
+  [recoveryPlay],
+  staleRows,
+  "2026-09-11",
+  afterStartMs,
+);
+assert.equal(resolutionRows.length, 1);
+const resolvedRows = [...staleRows, ...resolutionRows];
+const recoveredFinal = loadedRoute.exports.latePendingSnapshotDecisions(
+  resolvedRows,
+  [],
+  "2026-09-11",
+  afterStartMs,
+  new Set(),
+);
+assert.equal(recoveredFinal.length, 1);
+assert.equal(recoveredFinal[0].play.line, 8.5);
+assert.equal(loadedRoute.exports.unresolvedPendingSnapshotDecisions(resolvedRows, [], "2026-09-11", afterStartMs, new Set()).length, 0);
+
+// A fresh changed/below-threshold snapshot resolves the wait without reviving
+// the older candidate or creating a new in-game pick.
+const invalidatingRows = loadedRoute.exports.pendingResolutionSnapshotRowsToAppend(
+  [staleDifferentLinePlay],
+  staleRows,
+  "2026-09-11",
+  afterStartMs,
+);
+assert.equal(invalidatingRows.length, 1);
+const invalidatedRows = [...staleRows, ...invalidatingRows];
+assert.equal(loadedRoute.exports.latePendingSnapshotDecisions(invalidatedRows, [], "2026-09-11", afterStartMs, new Set()).length, 0);
+assert.equal(loadedRoute.exports.unresolvedPendingSnapshotDecisions(invalidatedRows, [], "2026-09-11", afterStartMs, new Set()).length, 0);
+
+// An early marker for the same candidate is refreshed once inside T-15 so the
+// lock can never be decided by an hours-old row again.
+const refreshedPendingRows = loadedRoute.exports.pendingQualifierSnapshotRowsToAppend(
+  new Map([["yankees-mets", recoveryPlay]]),
+  [earlyPending],
+  recoveryStartMs - 5 * 60_000,
+);
+assert.equal(refreshedPendingRows.length, 1);
+assert.equal(JSON.parse(refreshedPendingRows[0]["Details JSON"]).pendingEzpzCandidate, true);
+
+// Once saved as FINAL, later market movement cannot make the pick disappear.
+const finalPick = {
+  candidateId: "v2|2026-09-11|yankees-mets|total|under|8.5",
+  date: "2026-09-11",
+  gameKey: "yankees-mets",
+  gameTime: "7:10 PM",
+  market: "Total",
+  play: "Under 8.5",
+  selection: "Under",
+  line: "8.5",
+  v2MarketGap: 17.6,
+  snapshotStatus: "FINAL_PREGAME",
+};
+assert.equal(loadedRoute.exports.currentLocksForToday([finalPick], "2026-09-11", afterStartMs).length, 1);
+
+console.log("Validated MLB EZPZ policy: 15% plus RLM Support/Strong RLM Support, one pick per game, no slate cap, stale snapshots preserve PENDING visibility, and the first usable lock snapshot freezes the result.");
