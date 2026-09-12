@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { MatchupWithLogos, SelectionWithTeamLogo, TeamLogoName } from "./TeamLogoName";
 
 type SheetRow = Record<string, string>;
 type Tab = "Today’s Model Plays" | "Today’s Trend Plays" | "EZPZ Picks" | "Full Slate" | "Records";
@@ -398,9 +399,9 @@ function FbCombinationRecords({ tracker, trends, today }: { tracker: SheetRow[];
   return <FbRecordDropdown title="Combination Records" subtitle="Best Plays that also matched a qualified Trend Play" rows={rows} />;
 }
 
-function FbRecentResults({ rows }: { rows: SheetRow[] }) {
+function FbRecentResults({ rows, sport }: { rows: SheetRow[]; sport: Sport }) {
   const completed = rows.filter((row) => fbResult(row.Result || row.Status)).sort((a, b) => String(b.Date || "").localeCompare(String(a.Date || ""))).slice(0, 25);
-  return <details className="recordsDropdown"><summary className="recordsSummary"><div><div className="recordsSummaryTitle">Recent Graded Plays</div><div className="recordsSummarySub">The individual Best Plays behind the record</div></div><span className="recordsCount">{completed.length} results</span></summary>{completed.length ? <div className="tableWrap"><table className="recordsTable"><thead><tr><th>Date</th><th>Game</th><th>Type</th><th>Play</th><th>Result</th><th>Units</th></tr></thead><tbody>{completed.map((row, index) => <tr key={[row.Date, row["Game ID"], row["Bet Type"], row.Selection, index].join("-")}><td>{row.Date}</td><td>{row.Game}</td><td>{row["Bet Type"] || row.Market}</td><td><strong>{row.Selection}</strong></td><td>{row.Result}</td><td>{Number(row.Units || 0) > 0 ? "+" : ""}{Number(row.Units || 0).toFixed(2)}u</td></tr>)}</tbody></table></div> : <div className="empty insideDropdown">Completed Best Plays will populate here automatically.</div>}</details>;
+  return <details className="recordsDropdown"><summary className="recordsSummary"><div><div className="recordsSummaryTitle">Recent Graded Plays</div><div className="recordsSummarySub">The individual Best Plays behind the record</div></div><span className="recordsCount">{completed.length} results</span></summary>{completed.length ? <div className="tableWrap"><table className="recordsTable"><thead><tr><th>Date</th><th>Game</th><th>Type</th><th>Play</th><th>Result</th><th>Units</th></tr></thead><tbody>{completed.map((row, index) => <tr key={[row.Date, row["Game ID"], row["Bet Type"], row.Selection, index].join("-")}><td>{row.Date}</td><td><MatchupWithLogos sport={sport} game={row.Game || ""} compact /></td><td>{row["Bet Type"] || row.Market}</td><td><strong><SelectionWithTeamLogo sport={sport} selection={row.Selection || ""} game={row.Game || ""} compact /></strong></td><td>{row.Result}</td><td>{Number(row.Units || 0) > 0 ? "+" : ""}{Number(row.Units || 0).toFixed(2)}u</td></tr>)}</tbody></table></div> : <div className="empty insideDropdown">Completed Best Plays will populate here automatically.</div>}</details>;
 }
 
 function FbTrendRecordExplorer({ rows, today }: { rows: SheetRow[]; today: string }) {
@@ -760,10 +761,10 @@ function BestPlayCard({ play, splits, index, sport, recentByType, lastSevenBetsB
         </div>
       </div>
 
-      <div className="cardSub footballMatchup">{play.game}</div>
+      <div className="cardSub footballMatchup"><MatchupWithLogos sport={sport} game={play.game} compact /></div>
 
       <div className="projectionBlock footballProjectionBlock">
-        <div className="projection footballProjection">{play.play}</div>
+        <div className="projection footballProjection"><SelectionWithTeamLogo sport={sport} selection={play.play} game={play.game} /></div>
         <div className="grade">{play.playType}</div>
       </div>
 
@@ -787,7 +788,7 @@ function BestPlayCard({ play, splits, index, sport, recentByType, lastSevenBetsB
         <div className="publicSplitPanel footballPublicSplitPanel">
           <div className="publicSplitTitle">
             <span>DraftKings market</span>
-            <strong>{split.selection || play.play}</strong>
+            <strong><SelectionWithTeamLogo sport={sport} selection={split.selection || play.play} game={play.game} compact /></strong>
           </div>
           <div className="footballSplitGrid">
             <MiniBubble label="Bets" value={`${split.betsPct}%`} />
@@ -826,7 +827,7 @@ function trendPickLabel(play: TrendPlay) {
   return `${play.selection} ${line}`.trim();
 }
 
-function TrendSelectionRow({ play, selectionRank, initiallyOpen }: { play: TrendPlay; selectionRank: number; initiallyOpen: boolean }) {
+function TrendSelectionRow({ play, selectionRank, initiallyOpen, sport }: { play: TrendPlay; selectionRank: number; initiallyOpen: boolean; sport: Sport }) {
   const primary = play.signals?.[0];
   const compactSignals = play.signals?.map((signal) => signal.signal).filter(Boolean).join(" • ") || "";
   return (
@@ -834,7 +835,7 @@ function TrendSelectionRow({ play, selectionRank, initiallyOpen }: { play: Trend
       <summary className="trendSelectionSummary">
         <span className="trendSelectionRank">#{selectionRank}</span>
         <span className="trendSelectionIdentity">
-          <strong>{trendPickLabel(play)}</strong>
+          <strong><SelectionWithTeamLogo sport={sport} selection={trendPickLabel(play)} game={play.game} compact /></strong>
           <small>{play.market}{play.sideGroup ? ` • ${play.sideGroup}` : ""}{compactSignals ? ` • ${compactSignals}` : ""}</small>
         </span>
         <span className="trendSelectionMarket">
@@ -892,7 +893,7 @@ function TrendSelectionRow({ play, selectionRank, initiallyOpen }: { play: Trend
   );
 }
 
-function TrendGameCard({ game, plays }: { game: string; plays: TrendPlay[] }) {
+function TrendGameCard({ game, plays, sport }: { game: string; plays: TrendPlay[]; sport: Sport }) {
   const ordered = [...plays].sort((a, b) => {
     if (b.score !== a.score) return b.score - a.score;
     if (a.market !== b.market) return a.market === "Spread" ? -1 : 1;
@@ -908,7 +909,7 @@ function TrendGameCard({ game, plays }: { game: string; plays: TrendPlay[] }) {
   return (
     <article className={`card trendGameCard ${topScore >= 75 ? "top" : ""}`}>
       <div className="trendGameHeader">
-        <div className="cardTitle">{game}</div>
+        <div className="cardTitle"><MatchupWithLogos sport={sport} game={game} compact /></div>
         {gameTime || gameDate ? <div className="trendGameTimeBox"><strong>{gameTime || "TBD"}</strong>{gameDate ? <small>{gameDate}</small> : null}<small>{isLocked ? "Locked" : lockMissed ? "Lock missed" : "Locks"} {lockTime}</small></div> : null}
       </div>
       <div className="trendSelectionStack">
@@ -918,6 +919,7 @@ function TrendGameCard({ game, plays }: { game: string; plays: TrendPlay[] }) {
             play={play}
             selectionRank={index + 1}
             initiallyOpen={false}
+            sport={sport}
           />
         ))}
       </div>
@@ -968,12 +970,12 @@ function EzpzPickCard({
         </div>
         <div className="aiPickSummaryMain">
           <div className="aiPickSummaryMeta">
-            <span>{pick.game}</span>
+            <span><MatchupWithLogos sport={sport} game={pick.game} compact /></span>
             <span className={`aiStatusBadge ${isFinal ? "final" : "pending"}`}>
               {isFinal ? "FINAL" : "PENDING"}
             </span>
           </div>
-          <strong>{pick.selection}</strong>
+          <strong><SelectionWithTeamLogo sport={sport} selection={pick.selection} game={pick.game} compact /></strong>
         </div>
         <div className="aiPickSummaryOdds">{pick.odds || "—"}</div>
         <span className="aiPickChevron" aria-hidden="true">⌄</span>
@@ -982,8 +984,8 @@ function EzpzPickCard({
       <div className="aiPickExpanded">
         <div className="aiPickExpandedHead">
           <span>EZPZ PICK</span>
-          <strong>{pick.selection}</strong>
-          <small>{pick.game}</small>
+          <strong><SelectionWithTeamLogo sport={sport} selection={pick.selection} game={pick.game} /></strong>
+          <small><MatchupWithLogos sport={sport} game={pick.game} compact /></small>
         </div>
 
         {bestPlayGate && recordType ? (
@@ -1089,7 +1091,7 @@ function EzpzPickCard({
   );
 }
 
-function SlateCard({ row, splits }: { row: SheetRow; splits: DraftKingsSplit[] }) {
+function SlateCard({ row, splits, sport }: { row: SheetRow; splits: DraftKingsSplit[]; sport: Sport }) {
   const game = row.Game || row["Game Label"] || `${row["Away Team"]} @ ${row["Home Team"]}`;
   const gameSplits = splits.filter((split) =>
     textKey(split.game) === textKey(game) || splitMatchesTeams(row["Away Team"], row["Home Team"], split)
@@ -1101,11 +1103,11 @@ function SlateCard({ row, splits }: { row: SheetRow; splits: DraftKingsSplit[] }
     <article className="card fbSlateCard fbSlateCardMlb">
       <div className="fbSlateScoreboard">
         <div className="fbSlateTeamRow">
-          <div><span>Away</span><strong>{row["Away Team"] || "Away"}</strong></div>
+          <div><span>Away</span><strong><TeamLogoName sport={sport} team={row["Away Team"] || ""} text={row["Away Team"] || "Away"} /></strong></div>
           <b>{num(row["Projected Away"], 1)}</b>
         </div>
         <div className="fbSlateTeamRow">
-          <div><span>Home</span><strong>{row["Home Team"] || "Home"}</strong></div>
+          <div><span>Home</span><strong><TeamLogoName sport={sport} team={row["Home Team"] || ""} text={row["Home Team"] || "Home"} /></strong></div>
           <b>{num(row["Projected Home"], 1)}</b>
         </div>
       </div>
@@ -1119,7 +1121,7 @@ function SlateCard({ row, splits }: { row: SheetRow; splits: DraftKingsSplit[] }
       <div className="fbSlateMarketGrid">
         <div className="fbSlateMarketCard">
           <div className="fbSlateMarketHead"><span>Spread</span><b>{spreadGrade}</b></div>
-          <strong>{row["Spread Pick"] || "No model play"}</strong>
+          <strong><SelectionWithTeamLogo sport={sport} selection={row["Spread Pick"] || "No model play"} game={game} /></strong>
           <small>Model probability {pct(row["Spread Probability"])}</small>
         </div>
         <div className="fbSlateMarketCard">
@@ -1134,7 +1136,7 @@ function SlateCard({ row, splits }: { row: SheetRow; splits: DraftKingsSplit[] }
           <b>DraftKings market</b>
           {gameSplits.map((split, i) => (
             <span key={`${split.market}-${split.selection}-${i}`}>
-              {split.market}: {split.selection} {split.odds} • {split.betsPct}% bets / {split.moneyPct}% handle{split.warning ? ` • ${split.warning}` : ""}
+              {split.market}: <SelectionWithTeamLogo sport={sport} selection={split.selection} game={game} compact /> {split.odds} • {split.betsPct}% bets / {split.moneyPct}% handle{split.warning ? ` • ${split.warning}` : ""}
             </span>
           ))}
         </div>
@@ -1256,7 +1258,7 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
         <label><span>View market week</span><select value={activeWeek} onChange={(event) => setSelectedWeek(event.target.value)} disabled={!trendWeeks.length}>{trendWeeks.length ? trendWeeks.map((week) => <option key={week} value={week}>{week}</option>) : <option value="">No weeks yet</option>}</select></label>
         <div><strong>{activeWeek || "Waiting for DraftKings"}</strong><small>{storedGamesForWeek.length} games stored • all 4 Spread/Total sides show with their live tier</small></div>
       </div>
-      {displayedTrendGroups.length ? <div className="trendGameGrid">{displayedTrendGroups.map((group) => <TrendGameCard key={group.plays[0]?.gameKey || group.game} game={group.game} plays={group.plays} />)}</div> : <div className="empty footballEmpty">No {sport} DraftKings Spread/Total markets are stored for {activeWeek || "this week"} yet. Pass, Good, Strong, and Elite rows all display once the market is stored.</div>}
+      {displayedTrendGroups.length ? <div className="trendGameGrid">{displayedTrendGroups.map((group) => <TrendGameCard key={group.plays[0]?.gameKey || group.game} game={group.game} plays={group.plays} sport={sport} />)}</div> : <div className="empty footballEmpty">No {sport} DraftKings Spread/Total markets are stored for {activeWeek || "this week"} yet. Pass, Good, Strong, and Elite rows all display once the market is stored.</div>}
     </>;
   } else if (tab === "EZPZ Picks") {
     content = <>
@@ -1277,13 +1279,13 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
             >
               <summary className="slateDropdownSummary">
                 <div>
-                  <div className="slateDropdownTitle">{game}</div>
+                  <div className="slateDropdownTitle"><MatchupWithLogos sport={sport} game={game} compact /></div>
                   {gameTime ? <div className="slateDropdownSub">{displayFootballTime(gameTime)}</div> : null}
                 </div>
                 <span className="slateDropdownAction">View matchup</span>
               </summary>
               <div className="slateDropdownBody">
-                <SlateCard row={row} splits={splits} />
+                <SlateCard row={row} splits={splits} sport={sport} />
               </div>
             </details>
           );
@@ -1321,7 +1323,7 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
       <div className="advancedRecordsStack">
         <FbRecordDropdown title="Last 7 Days Best Plays" subtitle={sport === "NFL" ? "Exact NFL grade / market / direction records" : "Spread + Total qualified model records"} rows={data.last7RecordSummary || []} defaultOpen />
         <FbRecordDropdown title="Overall Best Plays" subtitle={sport === "NFL" ? "Running exact NFL grade / market / direction records" : "Running Spread + Total records"} rows={data.recordSummary || []} />
-        <FbRecentResults rows={trackerRows} />
+        <FbRecentResults rows={trackerRows} sport={sport} />
       </div>
       <div className="card fbInfo"><b>Record grading database:</b> {data.database || (sport + " Model Database")}<br />Best Plays and trend signals are graded only after a completed game has a verified final score.</div>
     </div>;

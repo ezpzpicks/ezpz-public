@@ -1,6 +1,7 @@
 "use client";
 
 import LegacyFootballBoard from "./FootballBoardLegacy";
+import { MatchupWithLogos, SelectionWithTeamLogo, TeamLogoName } from "./TeamLogoName";
 
 type Tab = "Today’s Model Plays" | "Today’s Trend Plays" | "EZPZ Picks" | "Full Slate" | "Records";
 type Sport = "NFL" | "NCAAF";
@@ -139,16 +140,16 @@ function NflModelCard({ play, index }: { play: NflPlay; index: number }) {
         <div className="nflPlayerHero">
           <PlayerHeadshot play={play} />
           <div>
-            <span className="nflEyebrow">{play.playerTeam || "NFL"} • {play.propMarket || "Player Prop"}</span>
+            <span className="nflEyebrow"><TeamLogoName sport="NFL" team={play.playerTeam || ""} text={play.playerTeam || "NFL"} compact /> • {play.propMarket || "Player Prop"}</span>
             <h3>{play.playerName || play.play}</h3>
-            <p>{play.game}</p>
+            <p><MatchupWithLogos sport="NFL" game={play.game || ""} compact /></p>
           </div>
         </div>
       ) : (
         <div className="nflGameHero">
           <span className="nflEyebrow">{play.formType || play.role || "NFL Best Play"}</span>
-          <h3>{play.play}</h3>
-          <p>{play.game}</p>
+          <h3><SelectionWithTeamLogo sport="NFL" selection={play.play || ""} game={play.game || ""} /></h3>
+          <p><MatchupWithLogos sport="NFL" game={play.game || ""} compact /></p>
         </div>
       )}
 
@@ -223,15 +224,15 @@ function NflEzpzCard({ pick }: { pick: NflEzpzPick }) {
         <div className="nflPlayerHero compactHero">
           <PlayerHeadshot play={pick} compact />
           <div>
-            <span className="nflEyebrow">{pick.playerTeam || "NFL"} • {pick.propMarket || "Player Prop"}</span>
+            <span className="nflEyebrow"><TeamLogoName sport="NFL" team={pick.playerTeam || ""} text={pick.playerTeam || "NFL"} compact /> • {pick.propMarket || "Player Prop"}</span>
             <h3>{pick.playerName || pick.selection}</h3>
-            <p>{pick.game}</p>
+            <p><MatchupWithLogos sport="NFL" game={pick.game || ""} compact /></p>
           </div>
         </div>
       ) : (
         <div className="nflEzpzSelection">
-          <span>{pick.game}</span>
-          <h3>{pick.selection}</h3>
+          <span><MatchupWithLogos sport="NFL" game={pick.game || ""} compact /></span>
+          <h3><SelectionWithTeamLogo sport="NFL" selection={pick.selection || ""} game={pick.game || ""} /></h3>
           <p>{pick.market}</p>
         </div>
       )}
