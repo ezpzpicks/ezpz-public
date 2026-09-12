@@ -1090,23 +1090,56 @@ function EzpzPickCard({
 }
 
 function SlateCard({ row, splits }: { row: SheetRow; splits: DraftKingsSplit[] }) {
-  const game = row.Game || `${row["Away Team"]} @ ${row["Home Team"]}`;
-  const gameSplits = splits.filter((split) => textKey(split.game) === textKey(game) || splitMatchesTeams(row["Away Team"], row["Home Team"], split));
+  const game = row.Game || row["Game Label"] || `${row["Away Team"]} @ ${row["Home Team"]}`;
+  const gameSplits = splits.filter((split) =>
+    textKey(split.game) === textKey(game) || splitMatchesTeams(row["Away Team"], row["Home Team"], split)
+  );
+  const spreadGrade = row["Spread Grade"] || "No Play";
+  const totalGrade = row["Total Grade"] || "No Play";
+
   return (
-    <details className="card fbSlateCard">
-      <summary><strong>{game}</strong><span>{row["Spread Grade"] || "No spread play"} • {row["Total Grade"] || "No total play"}</span></summary>
-      <div className="fbSlateBody">
-        <div className="fbScore"><span>{row["Away Team"]}</span><b>{num(row["Projected Away"], 1)}</b><span>{row["Home Team"]}</span><b>{num(row["Projected Home"], 1)}</b></div>
-        <div className="fbMetrics">
-          <div><span>Projected margin</span><strong>{num(row["Projected Margin"], 1)}</strong></div>
-          <div><span>Projected total</span><strong>{num(row["Projected Total"], 1)}</strong></div>
-          <div><span>Reliability</span><strong>{row.Reliability || "—"}</strong></div>
+    <article className="card fbSlateCard fbSlateCardMlb">
+      <div className="fbSlateScoreboard">
+        <div className="fbSlateTeamRow">
+          <div><span>Away</span><strong>{row["Away Team"] || "Away"}</strong></div>
+          <b>{num(row["Projected Away"], 1)}</b>
         </div>
-        <div className="fbMarketRow"><b>Spread:</b> {row["Spread Pick"] || "—"} • {pct(row["Spread Probability"])} • {row["Spread Grade"] || "No Play"}</div>
-        <div className="fbMarketRow"><b>Total:</b> {row["Total Pick"] || "—"} • {pct(row["Total Probability"])} • {row["Total Grade"] || "No Play"}</div>
-        {gameSplits.length ? <div className="fbDkBox"><b>DraftKings</b>{gameSplits.map((split, i) => <span key={`${split.market}-${split.selection}-${i}`}>{split.market}: {split.selection} {split.odds} • {split.betsPct}% bets / {split.moneyPct}% handle • {split.warning}</span>)}</div> : null}
+        <div className="fbSlateTeamRow">
+          <div><span>Home</span><strong>{row["Home Team"] || "Home"}</strong></div>
+          <b>{num(row["Projected Home"], 1)}</b>
+        </div>
       </div>
-    </details>
+
+      <div className="fbMetrics fbSlateMetrics">
+        <div><span>Projected margin</span><strong>{num(row["Projected Margin"], 1)}</strong></div>
+        <div><span>Projected total</span><strong>{num(row["Projected Total"], 1)}</strong></div>
+        <div><span>Reliability</span><strong>{row.Reliability || "—"}</strong></div>
+      </div>
+
+      <div className="fbSlateMarketGrid">
+        <div className="fbSlateMarketCard">
+          <div className="fbSlateMarketHead"><span>Spread</span><b>{spreadGrade}</b></div>
+          <strong>{row["Spread Pick"] || "No model play"}</strong>
+          <small>Model probability {pct(row["Spread Probability"])}</small>
+        </div>
+        <div className="fbSlateMarketCard">
+          <div className="fbSlateMarketHead"><span>Total</span><b>{totalGrade}</b></div>
+          <strong>{row["Total Pick"] || "No model play"}</strong>
+          <small>Model probability {pct(row["Total Probability"])}</small>
+        </div>
+      </div>
+
+      {gameSplits.length ? (
+        <div className="fbDkBox fbSlateDkBox">
+          <b>DraftKings market</b>
+          {gameSplits.map((split, i) => (
+            <span key={`${split.market}-${split.selection}-${i}`}>
+              {split.market}: {split.selection} {split.odds} • {split.betsPct}% bets / {split.moneyPct}% handle{split.warning ? ` • ${split.warning}` : ""}
+            </span>
+          ))}
+        </div>
+      ) : null}
+    </article>
   );
 }
 
@@ -1161,17 +1194,44 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
   });
 
   const slateRows = useMemo(() => {
-    const map = new Map<string, SheetRow>();
+    const rows: SheetRow[] = [];
+
+    const addSlateRow = (row: SheetRow) => {
+      const away = row["Away Team"];
+      const home = row["Home Team"];
+      const game = row.Game || row["Game Label"] || `${away || ""} @ ${home || ""}`;
+      const existingIndex = rows.findIndex((existing) => {
+        const existingAway = existing["Away Team"];
+        const existingHome = existing["Home Team"];
+        const existingGame = existing.Game || existing["Game Label"] || `${existingAway || ""} @ ${existingHome || ""}`;
+        const teamsMatch = Boolean(
+          away && home && existingAway && existingHome &&
+          sameSlateTeam(away, existingAway) && sameSlateTeam(home, existingHome)
+        );
+        return teamsMatch || fbSameGame(existingGame, game);
+      });
+
+      if (existingIndex < 0) {
+        rows.push(row);
+        return;
+      }
+
+      // Keep one matchup card while preserving the richest non-empty values
+      // from both the weekly market feed and the saved model slate.
+      const merged: SheetRow = { ...rows[existingIndex] };
+      Object.entries(row).forEach(([field, value]) => {
+        if (String(value ?? "").trim()) merged[field] = value;
+      });
+      rows[existingIndex] = merged;
+    };
+
     for (const row of weeklyData?.games || []) {
       if (String(row.Date || "") !== data.today) continue;
-      const key = slateIdentity(row);
-      if (key) map.set(key, row);
+      addSlateRow(row);
     }
-    for (const row of data.slateToday || []) {
-      const key = slateIdentity(row);
-      if (key) map.set(key, row);
-    }
-    return [...map.values()];
+    for (const row of data.slateToday || []) addSlateRow(row);
+
+    return rows;
   }, [weeklyData?.games, data.slateToday, data.today]);
 
   const summaryMap = new Map<string, Summary>((data.recordSummary || []).map((row) => [row.betType, row]));
@@ -1204,7 +1264,32 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
       {todayEzpzPicks.length ? <div className="aiPickStack">{todayEzpzPicks.map((pick, index) => <EzpzPickCard key={`${pick.game}-${pick.market}-${pick.selection}-${index}`} pick={pick} splits={splits} trendPlays={ezpzTrendSource} slateRows={slateRows} todayByType={todayByType} recentByType={last7Map} lastSevenBetsByType={lastSevenBetsByType} overallByType={summaryMap} sport={sport} />)}</div> : <div className="empty footballEmpty">No {sport} EZPZ Picks qualify for {data.today} right now.</div>}
     </>;
   } else if (tab === "Full Slate") {
-    content = slateRows.length ? <div className="fbSlateStack">{slateRows.map((row, index) => <SlateCard key={`${row["Game Key"] || row["Game ID"] || row.Game}-${index}`} row={row} splits={splits} />)}</div> : <div className="empty footballEmpty">No {sport} games are posted for {data.today} yet.</div>;
+    content = slateRows.length ? (
+      <div className="slateDropdownStack footballSlateStack">
+        {slateRows.map((row, index) => {
+          const game = row.Game || row["Game Label"] || `${row["Away Team"]} @ ${row["Home Team"]}`;
+          const gameTime = String(row["Game Time"] || row.Time || row["Start Time"] || "").trim();
+          return (
+            <details
+              className="slateDropdown footballSlateDropdown"
+              key={slateIdentity(row) || `${textKey(game)}-${index}`}
+              open={slateRows.length === 1}
+            >
+              <summary className="slateDropdownSummary">
+                <div>
+                  <div className="slateDropdownTitle">{game}</div>
+                  {gameTime ? <div className="slateDropdownSub">{displayFootballTime(gameTime)}</div> : null}
+                </div>
+                <span className="slateDropdownAction">View matchup</span>
+              </summary>
+              <div className="slateDropdownBody">
+                <SlateCard row={row} splits={splits} />
+              </div>
+            </details>
+          );
+        })}
+      </div>
+    ) : <div className="empty footballEmpty">No {sport} games are posted for {data.today} yet.</div>;
   } else {
     const trackerRows = data.betTrackerRows || [];
     const trendRows = data.trendRecordRows || [];
@@ -1267,6 +1352,31 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
         .trendGameGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,350px),1fr));gap:17px;align-items:start}.card{position:relative;overflow:hidden;min-width:0;border-radius:24px;border:1px solid var(--ez-border);padding:18px;background:linear-gradient(145deg,var(--ez-panel),var(--ez-panel-2))}.trendGameCard{border-color:rgba(78,145,255,.25)}.trendGameCard::before{content:"";position:absolute;inset:14px auto 14px 0;width:3px;border-radius:0 3px 3px 0;background:linear-gradient(180deg,#7c8cff,var(--ez-blue));box-shadow:0 0 22px rgba(91,123,255,.34)}.trendGameHeader{position:relative;z-index:2;display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:13px}.cardTitle{color:#f4f8ff;font-size:18px;font-weight:950;line-height:1.2}.trendGameTimeBox{flex:0 0 auto;display:grid;gap:2px;border:1px solid rgba(91,143,214,.18);border-radius:13px;padding:7px 9px;background:rgba(8,19,36,.68);color:rgba(188,210,238,.88);font-size:10px}.trendGameTimeBox small{color:rgba(113,184,255,.92);font-size:9px;font-weight:900}.trendSelectionStack{position:relative;z-index:2;display:grid;gap:9px}.trendSelectionRow{overflow:hidden;border:1px solid rgba(100,139,190,.15);border-radius:17px;background:rgba(4,11,23,.62)}.trendSelectionRow.leader{border-color:rgba(70,155,255,.3);background:rgba(7,22,46,.72)}.trendSelectionSummary{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;align-items:center;gap:10px;padding:11px 12px;cursor:pointer;list-style:none}.trendSelectionSummary::-webkit-details-marker{display:none}.trendSelectionRank{display:grid;place-items:center;width:34px;height:34px;border-radius:11px;color:#c8d9ee;background:rgba(29,76,139,.18);font-size:12px;font-weight:950}.trendSelectionIdentity{display:grid;gap:4px;min-width:0}.trendSelectionIdentity strong{overflow:hidden;color:#f2f7ff;font-size:15px;font-weight:950;text-overflow:ellipsis;white-space:nowrap}.trendSelectionIdentity small{overflow:hidden;color:rgba(145,174,209,.72);font-size:9px;line-height:1.25;text-overflow:ellipsis;white-space:nowrap}.trendSelectionMarket{display:grid;justify-items:end;gap:2px;min-width:88px}.trendSelectionMarket small{color:rgba(154,182,215,.74);font-size:8px;font-weight:900;letter-spacing:.04em;text-transform:uppercase}.trendSelectionMarket strong{color:#f4f8ff;font-size:24px;font-weight:950;line-height:1}.trendSelectionChevron{color:rgba(163,191,225,.68);font-size:18px;transition:transform .2s ease}.trendSelectionRow[open] .trendSelectionChevron{transform:rotate(180deg)}.trendSelectionBody{border-top:1px solid rgba(100,139,190,.12);padding:12px}.bubbleGrid{display:grid;gap:8px}.trendSelectionMetrics{grid-template-columns:repeat(4,minmax(0,1fr))}.miniBubble{min-width:0;border-radius:15px;padding:11px 12px;background:linear-gradient(145deg,rgba(12,22,39,.82),rgba(6,13,25,.84));border:1px solid rgba(108,142,187,.14);box-shadow:inset 0 1px 0 rgba(255,255,255,.018)}.miniLabel{color:rgba(142,169,203,.68);font-size:8px;font-weight:800;letter-spacing:.03em;text-transform:uppercase}.miniValue{margin-top:4px;color:#eef5ff;font-size:13px;font-weight:900;white-space:nowrap}.trendRecordGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:10px}.trendRecordCard{border:1px solid rgba(100,139,190,.13);border-radius:13px;padding:9px 10px;background:rgba(6,14,27,.64)}.trendRecordCard span{display:block;color:rgba(145,174,209,.65);font-size:8px;font-weight:800;text-transform:uppercase}.trendRecordCard strong{display:block;margin-top:3px;color:#f0f6ff;font-size:13px}.trendSignalBox{display:grid;gap:3px;margin-top:10px;border-left:3px solid var(--ez-blue);padding:9px 10px;border-radius:10px;background:rgba(47,140,255,.07)}.trendSignalBox b{color:#f3f7ff;font-size:12px}.trendSignalBox span,.trendMovement{color:var(--ez-muted);font-size:10px}.trendMovement{margin-top:8px}.trendTrackingStrip{display:flex;flex-wrap:wrap;gap:7px;margin-top:12px;padding-top:12px;border-top:1px solid rgba(100,139,190,.10)}.trendTrackingStrip span{border:1px solid rgba(100,139,190,.14);border-radius:999px;padding:6px 9px;background:rgba(8,18,34,.6);color:rgba(153,181,214,.76);font-size:9px;font-weight:800}
         .fbSlateStack{display:grid;gap:10px}.fbSlateCard{padding:0;overflow:hidden}.fbSlateCard summary{cursor:pointer;list-style:none;padding:15px;display:flex;justify-content:space-between;gap:10px}.fbSlateCard summary span{color:var(--ez-muted);font-size:.8rem}.fbSlateBody{display:grid;gap:12px;padding:0 15px 15px}.fbScore{display:grid;grid-template-columns:1fr auto;gap:7px 12px}.fbScore b{font-size:1.25rem}.fbMarketRow{padding:9px;border-radius:10px;background:rgba(255,255,255,.025)}.fbRecordsGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}.fbRecordTile{display:grid;gap:6px}.fbRecordTile span,.fbRecordTile small{color:var(--ez-muted)}.fbRecordTile strong{font-size:1.45rem}.fbInfo{color:var(--ez-muted);line-height:1.7}.fbEmpty{color:var(--ez-muted);text-align:center;padding:30px}
         @media(max-width:620px){.fbHead{align-items:flex-start;flex-direction:column}.fbMetrics{grid-template-columns:1fr}.fbSlateCard summary{flex-direction:column}.trendWeekControls{align-items:stretch;flex-direction:column}.trendWeekControls>div{justify-items:start;text-align:left}.trendWeekControls select{width:100%}.card{border-radius:22px;padding:16px}.trendGameHeader{gap:9px}.trendSelectionRank{width:30px;height:30px}.trendSelectionIdentity strong{font-size:13px}.trendSelectionMarket{min-width:66px}.trendSelectionMarket small{max-width:70px;text-align:right}.trendSelectionMarket strong{font-size:21px}.trendSelectionChevron{display:none}.trendSelectionMetrics{grid-template-columns:repeat(2,minmax(0,1fr))}.trendRecordGrid{grid-template-columns:1fr}}
+
+        /* MLB Full Slate parity for NFL + College Football */
+        .footballBoard .footballSlateStack{display:grid;gap:14px}
+        .footballBoard .footballSlateDropdown{overflow:hidden;border:1px solid rgba(68,151,248,.2);border-radius:22px;background:linear-gradient(145deg,rgba(8,17,31,.94),rgba(4,10,20,.92));box-shadow:0 18px 48px rgba(0,0,0,.28)}
+        .footballBoard .footballSlateDropdown .slateDropdownSummary{cursor:pointer;list-style:none;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:14px;padding:16px 18px;user-select:none}
+        .footballBoard .footballSlateDropdown .slateDropdownSummary::-webkit-details-marker{display:none}
+        .footballBoard .footballSlateDropdown .slateDropdownSummary::before{content:"›";grid-column:1;grid-row:1;align-self:center;width:18px;color:#78b9ff;font-size:25px;font-weight:800;line-height:1;transform:translateX(-2px);transition:transform .18s ease}
+        .footballBoard .footballSlateDropdown .slateDropdownSummary>div{grid-column:1;grid-row:1;min-width:0;padding-left:24px}
+        .footballBoard .footballSlateDropdown[open] .slateDropdownSummary::before{transform:translateX(-2px) rotate(90deg)}
+        .footballBoard .footballSlateDropdown[open] .slateDropdownSummary{border-bottom:1px solid rgba(78,153,241,.13);background:linear-gradient(90deg,rgba(31,110,216,.1),transparent)}
+        .footballBoard .footballSlateDropdown .slateDropdownTitle{color:#f7fbff;font-size:16px;line-height:1.25;font-weight:920}
+        .footballBoard .footballSlateDropdown .slateDropdownSub{margin-top:4px;color:rgba(151,175,205,.76);font-size:11px;font-weight:700}
+        .footballBoard .footballSlateDropdown .slateDropdownAction{grid-column:2;grid-row:1;border:1px solid rgba(76,163,255,.24);border-radius:999px;padding:7px 10px;background:rgba(32,105,210,.13);color:#d9edff;font-size:10px;font-weight:900;letter-spacing:.05em;text-transform:uppercase;white-space:nowrap}
+        .footballBoard .footballSlateDropdown .slateDropdownBody{padding:10px}
+        .footballBoard .footballSlateDropdown .fbSlateCardMlb{margin:0;padding:18px;border-radius:18px;border-color:rgba(80,132,197,.18);box-shadow:none;background:linear-gradient(145deg,rgba(9,19,35,.86),rgba(5,12,23,.9))}
+        .fbSlateScoreboard{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+        .fbSlateTeamRow{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px;border:1px solid rgba(98,139,191,.15);border-radius:16px;padding:12px 13px;background:rgba(7,16,30,.66)}
+        .fbSlateTeamRow div{min-width:0}.fbSlateTeamRow span{display:block;color:var(--ez-muted);font-size:9px;font-weight:900;letter-spacing:.07em;text-transform:uppercase}.fbSlateTeamRow strong{display:block;margin-top:4px;color:#f2f7ff;font-size:15px;overflow-wrap:anywhere}.fbSlateTeamRow b{color:#8bc5ff;font-size:24px;line-height:1}
+        .fbSlateMetrics{margin-top:10px}.fbSlateMetrics div{padding:11px 12px;border-radius:14px;background:rgba(8,17,31,.62)}
+        .fbSlateMarketGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:10px}
+        .fbSlateMarketCard{min-width:0;border:1px solid rgba(93,137,192,.16);border-radius:16px;padding:12px 13px;background:linear-gradient(145deg,rgba(10,22,40,.72),rgba(6,14,26,.82))}
+        .fbSlateMarketHead{display:flex;align-items:center;justify-content:space-between;gap:8px}.fbSlateMarketHead span{color:#78b9ff;font-size:10px;font-weight:950;letter-spacing:.07em;text-transform:uppercase}.fbSlateMarketHead b{border:1px solid rgba(93,137,192,.18);border-radius:999px;padding:4px 7px;color:#cfe6ff;font-size:9px;font-weight:900}
+        .fbSlateMarketCard>strong{display:block;margin-top:9px;color:#f4f8ff;font-size:17px;line-height:1.2;overflow-wrap:anywhere}.fbSlateMarketCard>small{display:block;margin-top:5px;color:var(--ez-muted);font-size:10px}
+        .fbSlateDkBox{margin-top:10px;border-left:0;border:1px solid rgba(47,140,255,.16);border-radius:14px;padding:11px 12px}.fbSlateDkBox>b{color:#dcecff;font-size:11px;text-transform:uppercase;letter-spacing:.05em}.fbSlateDkBox span{line-height:1.35}
+        @media(max-width:620px){.footballBoard .footballSlateDropdown .slateDropdownSummary{grid-template-columns:minmax(0,1fr);padding:14px 15px}.footballBoard .footballSlateDropdown .slateDropdownAction{display:none}.fbSlateScoreboard,.fbSlateMarketGrid{grid-template-columns:1fr}.footballBoard .footballSlateDropdown .fbSlateCardMlb{padding:14px}.fbSlateMetrics{grid-template-columns:1fr}}
 
         /* MLB visual system alignment for NFL + College Football */
         .footballBoard .fbHead{align-items:flex-end;margin:2px 0 2px}.footballBoard .fbHead h2{font-size:clamp(1.35rem,4vw,2.25rem);letter-spacing:-.04em}.footballBoard .fbHeadActions{display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:8px}.footballBoard .fbGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.footballBestCard{min-width:0;border-color:rgba(34,197,94,.42);box-shadow:0 0 0 1px rgba(34,197,94,.12),0 0 22px rgba(34,197,94,.18),0 24px 70px rgba(0,0,0,.28)}.footballBestCard .footballMatchup{margin-top:4px;color:var(--ez-muted);font-size:.82rem;font-weight:800}.footballBestCard .footballProjectionBlock{margin-top:16px}.footballBestCard .footballProjection{font-size:clamp(1.75rem,5vw,2.65rem);line-height:1;letter-spacing:-.045em;text-transform:none;overflow-wrap:anywhere}.footballBestCard .footballBestMetrics{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.footballBestCard .miniBubble.green{border-color:rgba(43,216,117,.17);background:linear-gradient(145deg,rgba(9,31,42,.72),rgba(7,15,29,.9))}.footballBestCard .miniLabel{font-size:9px;font-weight:900;letter-spacing:.07em}.footballBestCard .miniValue{white-space:normal;overflow-wrap:anywhere;font-size:14px}.footballPublicSplitPanel{margin-top:15px}.footballSplitGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.footballSplitSignal{margin-top:9px;padding-top:9px;border-top:1px solid rgba(100,139,190,.12);color:var(--ez-muted);font-size:.78rem;font-weight:750;line-height:1.35}.footballModelMeta{margin-top:12px}.footballBoard .fbSlateCard{padding:0}.footballBoard .fbRecordTile{padding:18px}.footballBoard .footballEmpty{border-radius:22px;padding:28px}.footballBoard .trendGameCard{box-shadow:0 24px 70px rgba(0,0,0,.28),inset 0 1px 0 rgba(255,255,255,.035)}
