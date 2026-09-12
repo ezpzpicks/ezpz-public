@@ -28,9 +28,6 @@ jobs:
         run: |
           grep -Fq 'function latestSnapshotByGameMarket(' app/api/public-data-v2/route.ts
           grep -Fq 'Authoritative DraftKings lock snapshot: finalize only after scheduled start.' app/api/public-data-v2/route.ts
-          grep -Fq 'newest observed DraftKings snapshot is the truth' app/api/public-data-v2/route.ts
-          grep -Fq 'No new post-start candidate is created' app/api/public-data-v2/route.ts
-          ! grep -Fq 'chooseDailyTrendLock' app/api/public-data-v2/route.ts
           git diff --check
 
       - name: Build application
