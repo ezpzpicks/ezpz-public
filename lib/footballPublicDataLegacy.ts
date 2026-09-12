@@ -1378,18 +1378,48 @@ function americanOddsText(value: unknown) {
   return Number.isFinite(odds) && Math.abs(odds) >= 100 ? match[1] : "";
 }
 
-type FootballBestRecordType = "Spread" | "Total" | "Favorite Spread" | "Underdog Spread" | "Over" | "Under";
+type FootballBestRecordType = string;
+
+const CFB_MODEL_RECORD_TYPES: FootballBestRecordType[] = [
+  "A Spread Favorite",
+  "A Spread Underdog",
+  "A Points/Total Over",
+  "A Points/Total Under",
+  "B Spread Favorite",
+  "B Spread Underdog",
+  "B Points/Total Over",
+  "B Points/Total Under",
+];
+
+function footballGradeBucket(value: unknown) {
+  const grade = textKey(value);
+  if (grade === "a" || grade.startsWith("a ")) return "A";
+  if (grade === "b" || grade.startsWith("b ")) return "B";
+  return "";
+}
+
+function footballCfbRecordType(base: FootballBestRecordType, gradeValue: unknown): FootballBestRecordType {
+  const grade = footballGradeBucket(gradeValue);
+  if (!grade) return base;
+  if (base === "Favorite Spread") return `${grade} Spread Favorite`;
+  if (base === "Underdog Spread") return `${grade} Spread Underdog`;
+  if (base === "Over") return `${grade} Points/Total Over`;
+  if (base === "Under") return `${grade} Points/Total Under`;
+  return `${grade} ${base}`.trim();
+}
 
 function footballTrackerRecordType(row: SheetRow, sport: FootballSport): FootballBestRecordType | "" {
   const marketKey = textKey(row["Bet Type"] || row.Market);
   if (sport !== "NCAAF") return marketKey.includes("total") ? "Total" : marketKey.includes("spread") ? "Spread" : "";
+  let base: FootballBestRecordType | "" = "";
   if (marketKey.includes("total")) {
     const side = textKey(row.Selection);
-    return side.startsWith("under") ? "Under" : side.startsWith("over") ? "Over" : "";
+    base = side.startsWith("under") ? "Under" : side.startsWith("over") ? "Over" : "";
+  } else if (marketKey.includes("spread")) {
+    const line = trackerLine(row.Selection);
+    base = line == null || Math.abs(line) < 1e-9 ? "" : line < 0 ? "Favorite Spread" : "Underdog Spread";
   }
-  if (!marketKey.includes("spread")) return "";
-  const line = trackerLine(row.Selection);
-  return line == null || Math.abs(line) < 1e-9 ? "" : line < 0 ? "Favorite Spread" : "Underdog Spread";
+  return base ? footballCfbRecordType(base, row.Grade || row["Model Grade"]) : "";
 }
 
 function footballLastSevenForType(rows: SheetRow[], recordType: FootballBestRecordType, sport: FootballSport) {
@@ -1425,10 +1455,16 @@ function footballBestPlaySplit(play: any, splits: DraftKingsSplit[], sport: Foot
 function footballBestPlayRecordType(play: any, split: DraftKingsSplit | undefined, sport: FootballSport): FootballBestRecordType {
   const market: "Spread" | "Total" = textKey(play.role || play.playType).includes("total") ? "Total" : "Spread";
   if (sport !== "NCAAF") return market;
-  if (market === "Total") return split?.side === "Under" || textKey(play.play).startsWith("under") ? "Under" : "Over";
-  if (split?.sideGroup === "Favorite" || split?.sideGroup === "Underdog") return `${split.sideGroup} Spread` as FootballBestRecordType;
-  const line = split?.line ?? trackerLine(play.play);
-  return line != null && line > 0 ? "Underdog Spread" : "Favorite Spread";
+  let base: FootballBestRecordType;
+  if (market === "Total") {
+    base = split?.side === "Under" || textKey(play.play).startsWith("under") ? "Under" : "Over";
+  } else if (split?.sideGroup === "Favorite" || split?.sideGroup === "Underdog") {
+    base = `${split.sideGroup} Spread`;
+  } else {
+    const line = split?.line ?? trackerLine(play.play);
+    base = line != null && line > 0 ? "Underdog Spread" : "Favorite Spread";
+  }
+  return footballCfbRecordType(base, play.playType || play.grade || play["Model Grade"]);
 }
 
 function buildFootballEzpzPicks(
@@ -1464,17 +1500,34 @@ function buildFootballEzpzPicks(
     });
   }
 
-  for (const play of headToHead(trends)) {
+  for (const play of headToHead(trends) as TrendPlay[]) {
     if (play.tier !== "Strong" && play.tier !== "Elite") continue;
     const trendSampleSize = Number(play.TrendSampleSize || 0);
-    // Football early-season safeguard: 1-4 settled samples cannot enter EZPZ.
-    // 5-9 samples may qualify, but are capped at Strong. This applies to both
-    // CFB and NFL so a new season can legitimately begin with no EZPZ trend plays.
-    if (trendSampleSize < 5) continue;
+    // CFB Weeks 1-4 provisional EZPZ gate: require more history while preserving
+    // the underlying Trend Play score/tier and every stored candidate for the
+    // Week 5 regression/backtest. NFL retains the existing early-season guardrail.
+    const minTrendSampleSize = sport === "NCAAF" ? 8 : 5;
+    if (trendSampleSize < minTrendSampleSize) continue;
     const ezpzTrendTier =
       trendSampleSize < 10 && play.tier === "Elite"
         ? "Strong"
         : play.tier;
+    if (sport === "NCAAF") {
+      const candidateMetrics = footballTrendMetrics(play);
+      const opponent = trends
+        .filter((candidate) =>
+          candidate.gameKey === play.gameKey &&
+          candidate.market === play.market &&
+          textKey(candidate.selection) !== textKey(play.selection))
+        .map((candidate) => ({ candidate, metrics: footballTrendMetrics(candidate) }))
+        .filter(({ metrics }) => metrics.hasData)
+        .sort((a, b) =>
+          b.metrics.score - a.metrics.score ||
+          b.metrics.roiPct - a.metrics.roiPct ||
+          b.metrics.winPct - a.metrics.winPct)[0];
+      const netRoiAdvantage = opponent ? candidateMetrics.roiPct - opponent.metrics.roiPct : Number.NEGATIVE_INFINITY;
+      if (!candidateMetrics.hasData || candidateMetrics.roiPct <= 0 || netRoiAdvantage < 25) continue;
+    }
     if (!play.signals.length || !play.signals.every((signal) => signal.tone === "positive")) continue;
     const odds = americanOddsText(play.odds);
     if (!odds || Number(odds) < -150) continue;
@@ -1486,7 +1539,9 @@ function buildFootballEzpzPicks(
       odds,
       score: Math.round(play.score * 10) / 10,
       tier: `${ezpzTrendTier} Trend Play`,
-      qualification: "All-green Trend Play • 15%+ net ROI advantage",
+      qualification: sport === "NCAAF"
+        ? "All-green Trend Play • 25%+ net ROI advantage • 8+ graded trend sample"
+        : "All-green Trend Play • 15%+ net ROI advantage",
     });
   }
 
@@ -1506,7 +1561,17 @@ function buildFootballEzpzPicks(
       qualification: `${existing.qualification} • ${pick.qualification}`,
     });
   }
-  return [...deduped.values()].sort((a, b) => b.score - a.score || a.game.localeCompare(b.game));
+  const sorted = [...deduped.values()].sort((a, b) => b.score - a.score || a.game.localeCompare(b.game));
+  if (sport !== "NCAAF") return sorted;
+  // One public CFB EZPZ pick per game. If multiple markets qualify, keep the
+  // strongest scored pick; same-selection Best + Trend combinations are already merged above.
+  const seenGames = new Set<string>();
+  return sorted.filter((pick) => {
+    const gameKey = textKey(pick.game);
+    if (!gameKey || seenGames.has(gameKey)) return false;
+    seenGames.add(gameKey);
+    return true;
+  });
 }
 
 
@@ -1629,12 +1694,10 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
   const aiPicks=buildFootballEzpzPicks(modelBest,todayTrendPlays,tracker,todayEnriched,sport);
   const overall=recordTotals(tracker);const last7=recordTotals(tracker,7);const pending=tracker.filter((r)=>!resultCode(r.Result||r.Status)).length;
   const recordGroups = sport === "NCAAF"
-    ? [
-        { betType: "Favorite Spread", rows: tracker.filter((r) => textKey(r["Bet Type"] || r.Market).includes("spread") && (trackerLine(r.Selection) ?? 0) < 0) },
-        { betType: "Underdog Spread", rows: tracker.filter((r) => textKey(r["Bet Type"] || r.Market).includes("spread") && (trackerLine(r.Selection) ?? 0) > 0) },
-        { betType: "Over", rows: tracker.filter((r) => textKey(r["Bet Type"] || r.Market).includes("total") && textKey(r.Selection).startsWith("over")) },
-        { betType: "Under", rows: tracker.filter((r) => textKey(r["Bet Type"] || r.Market).includes("total") && textKey(r.Selection).startsWith("under")) },
-      ]
+    ? CFB_MODEL_RECORD_TYPES.map((betType) => ({
+        betType,
+        rows: tracker.filter((row) => footballTrackerRecordType(row, sport) === betType),
+      }))
     : [
         { betType: "Spread", rows: tracker.filter((r) => textKey(r["Bet Type"] || r.Market).includes("spread")) },
         { betType: "Total", rows: tracker.filter((r) => textKey(r["Bet Type"] || r.Market).includes("total")) },
@@ -1645,7 +1708,7 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
   });
   const recordSummary = buildRecordSummary();
   const last7RecordSummary = buildRecordSummary(7);
-  return {ok:true,sport,database:sportDatabaseLabel(sport),today,lastUpdated:nowET(),tiles:{last7Days:last7,overallGreen:overall,handpickedLast7:last7,handpickedOverall:overall,pendingGreen:pending,bestPlaysToday:best.length},bestPlays:best,slateToday:todaySlate,betTrackerRows:tracker,draftKings:{ok:enriched.length>0,status:enriched.length?"LIVE":"UNAVAILABLE",updatedAt:nowET(),stale:false,splits:enriched,props:[],errors:dk.errors,displayMode:"LIVE",trackingMode:"WEEKLY",trackingWeekStart:trackingWeek.start,trackingWeekEnd:trackingWeek.end,trackedGames:trackingSlate.length},draftKingsSignalRows:history,trendRecordRows:trendRows.filter(r=>resultCode(r.Result)),trendPlays:displayTrendPlays,aiPicks,aiPickRecordRows:[],aiSelectorStatus:{mode:"LIVE",externalResearchConfigured:false,message:aiPicks.length?`${sport} EZPZ Picks are live for ${today}: HOT Best Plays are FINAL immediately; currently qualifying all-green Strong/Elite Trend Plays appear as PENDING until the next lock run; a delayed run may finalize after kickoff from the saved pregame snapshot; max price -150.`:`No ${sport} EZPZ Picks for ${today} currently qualify under the HOT / all-green 10%+ ROI / Strong-Elite / -150 rules. Qualifying Trend Plays appear as PENDING and can finalize on a later run even after kickoff, using only the saved pregame snapshot.`,updatedAt:nowET(),candidateCount:modelBest.length+todayTrendPlays.length,selectedCount:aiPicks.length},recordSummary,last7RecordSummary,handpickedRecordSummary:recordSummary,handpickedLast7RecordSummary:last7RecordSummary};
+  return {ok:true,sport,database:sportDatabaseLabel(sport),today,lastUpdated:nowET(),tiles:{last7Days:last7,overallGreen:overall,handpickedLast7:last7,handpickedOverall:overall,pendingGreen:pending,bestPlaysToday:best.length},bestPlays:best,slateToday:todaySlate,betTrackerRows:tracker,draftKings:{ok:enriched.length>0,status:enriched.length?"LIVE":"UNAVAILABLE",updatedAt:nowET(),stale:false,splits:enriched,props:[],errors:dk.errors,displayMode:"LIVE",trackingMode:"WEEKLY",trackingWeekStart:trackingWeek.start,trackingWeekEnd:trackingWeek.end,trackedGames:trackingSlate.length},draftKingsSignalRows:history,trendRecordRows:trendRows.filter(r=>resultCode(r.Result)),trendPlays:displayTrendPlays,aiPicks,aiPickRecordRows:[],aiSelectorStatus:{mode:"LIVE",externalResearchConfigured:false,message:aiPicks.length?`${sport} EZPZ Picks are live for ${today}: HOT Best Plays are FINAL immediately; currently qualifying all-green Strong/Elite Trend Plays with 25%+ net ROI advantage and 8+ graded trend sample appear as PENDING until the next lock run; a delayed run may finalize after kickoff from the saved pregame snapshot; max price -150.`:`No ${sport} EZPZ Picks for ${today} currently qualify under the HOT / all-green 25%+ net ROI / 8+ graded trend sample / Strong-Elite / -150 rules. Qualifying Trend Plays appear as PENDING and can finalize on a later run even after kickoff, using only the saved pregame snapshot.`,updatedAt:nowET(),candidateCount:modelBest.length+todayTrendPlays.length,selectedCount:aiPicks.length},recordSummary,last7RecordSummary,handpickedRecordSummary:recordSummary,handpickedLast7RecordSummary:last7RecordSummary};
 }
 
 const FOOTBALL_PUBLIC_DATA_CACHE_TTL_MS = 60_000;

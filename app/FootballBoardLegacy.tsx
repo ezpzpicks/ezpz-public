@@ -499,7 +499,7 @@ function FbDraftKingsSignalRecords({ rows, today }: { rows: FootballSignalHistor
 
 
 type FbFormWindow = "last7Days" | "last7Bets";
-type FbRecordType = "Spread" | "Total" | "Favorite Spread" | "Underdog Spread" | "Over" | "Under";
+type FbRecordType = string;
 type FbFormInfo = {
   label: "Hot" | "Cold" | "Neutral" | "Small Sample" | "Need 7 Bets";
   icon: string;
@@ -507,8 +507,34 @@ type FbFormInfo = {
   detail: string;
 };
 
-const FB_CFB_RECORD_TYPES: FbRecordType[] = ["Favorite Spread", "Underdog Spread", "Over", "Under"];
+const FB_CFB_RECORD_TYPES: FbRecordType[] = [
+  "A Spread Favorite",
+  "A Spread Underdog",
+  "A Points/Total Over",
+  "A Points/Total Under",
+  "B Spread Favorite",
+  "B Spread Underdog",
+  "B Points/Total Over",
+  "B Points/Total Under",
+];
 const FB_NFL_RECORD_TYPES: FbRecordType[] = ["Spread", "Total"];
+
+function fbGradeBucket(value: unknown) {
+  const grade = textKey(value);
+  if (grade === "a" || grade.startsWith("a ")) return "A";
+  if (grade === "b" || grade.startsWith("b ")) return "B";
+  return "";
+}
+
+function fbCfbRecordType(base: FbRecordType, gradeValue: unknown): FbRecordType {
+  const grade = fbGradeBucket(gradeValue);
+  if (!grade) return base;
+  if (base === "Favorite Spread") return `${grade} Spread Favorite`;
+  if (base === "Underdog Spread") return `${grade} Spread Underdog`;
+  if (base === "Over") return `${grade} Points/Total Over`;
+  if (base === "Under") return `${grade} Points/Total Under`;
+  return `${grade} ${base}`.trim();
+}
 
 function fbRecordTypes(sport: Sport) {
   return sport === "NCAAF" ? FB_CFB_RECORD_TYPES : FB_NFL_RECORD_TYPES;
@@ -596,16 +622,21 @@ function fbRecordTypeForSelection(market: "Spread" | "Total", selection: unknown
 function fbTrackerRecordType(row: SheetRow, sport: Sport): FbRecordType | null {
   const marketKey = textKey(row["Bet Type"] || row.Market);
   if (sport === "NFL") return marketKey.includes("total") ? "Total" : marketKey.includes("spread") ? "Spread" : null;
-  if (marketKey.includes("total")) return fbRecordTypeForSelection("Total", row.Selection, fbTrailingLine(row.Selection));
-  if (marketKey.includes("spread")) return fbRecordTypeForSelection("Spread", row.Selection, fbTrailingLine(row.Selection));
-  return null;
+  const base = marketKey.includes("total")
+    ? fbRecordTypeForSelection("Total", row.Selection, fbTrailingLine(row.Selection))
+    : marketKey.includes("spread")
+      ? fbRecordTypeForSelection("Spread", row.Selection, fbTrailingLine(row.Selection))
+      : null;
+  return base ? fbCfbRecordType(base, row.Grade || row["Model Grade"]) : null;
 }
 
 function fbBestPlayRecordType(play: Play, split: DraftKingsSplit | undefined, sport: Sport): FbRecordType | null {
   const market: "Spread" | "Total" = textKey(play.role || play.playType).includes("total") ? "Total" : "Spread";
   if (sport === "NFL") return market;
-  if (market === "Total") return fbRecordTypeForSelection(market, split?.side || play.play, split?.line ?? fbTrailingLine(play.play));
-  return fbRecordTypeForSelection(market, play.play, split?.line ?? fbTrailingLine(play.play));
+  const base = market === "Total"
+    ? fbRecordTypeForSelection(market, split?.side || play.play, split?.line ?? fbTrailingLine(play.play))
+    : fbRecordTypeForSelection(market, play.play, split?.line ?? fbTrailingLine(play.play));
+  return base ? fbCfbRecordType(base, play.playType) : null;
 }
 
 function fbPickSplit(pick: EzpzPick, splits: DraftKingsSplit[]) {
@@ -621,7 +652,8 @@ function fbPickSplit(pick: EzpzPick, splits: DraftKingsSplit[]) {
 function fbEzpzRecordType(pick: EzpzPick, splits: DraftKingsSplit[], sport: Sport): FbRecordType | null {
   if (sport === "NFL") return pick.market;
   const split = fbPickSplit(pick, splits);
-  return fbRecordTypeForSelection(pick.market, pick.market === "Total" ? split?.side || pick.selection : pick.selection, split?.line ?? fbTrailingLine(pick.selection));
+  const base = fbRecordTypeForSelection(pick.market, pick.market === "Total" ? split?.side || pick.selection : pick.selection, split?.line ?? fbTrailingLine(pick.selection));
+  return base ? fbCfbRecordType(base, pick.tier) : null;
 }
 
 function fbTodayRecordMap(rows: SheetRow[], today: string, sport: Sport) {
@@ -709,7 +741,8 @@ function fbTrendPickPassesEzpzRules(pick: EzpzPick, trendPlays: TrendPlay[], spo
   if (pick.source !== "Trend Play") return true;
   const play = fbTrendPlayForPick(pick, trendPlays);
   if (!play || (play.tier !== "Strong" && play.tier !== "Elite")) return false;
-  if (Number(play.TrendSampleSize || 0) < 5) return false;
+  const minTrendSampleSize = sport === "NCAAF" ? 8 : 5;
+  if (Number(play.TrendSampleSize || 0) < minTrendSampleSize) return false;
   if (!play.signals?.length) return false;
 
   // Backend signal.tone is positive exactly when the all-time historical record is winning.
@@ -721,7 +754,8 @@ function fbTrendPickPassesEzpzRules(pick: EzpzPick, trendPlays: TrendPlay[], spo
   if (!allSignalsGreen) return false;
 
   const roi = fbTrendNetRoiSummary(play, trendPlays);
-  if (!roi || roi.candidateRoiPct <= 0 || roi.netRoiPct < 15) return false;
+  const minNetRoiAdvantage = sport === "NCAAF" ? 25 : 15;
+  if (!roi || roi.candidateRoiPct <= 0 || roi.netRoiPct < minNetRoiAdvantage) return false;
 
   const sideKey = play.market === "Total" ? textKey(play.side) : textKey(play.selectionTeam || play.selection);
   const opposingSides = trendPlays
@@ -1302,12 +1336,7 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
       <div className="qualifiedGrid">
         <RecordTile label="Best Plays - Last 7 Days" value={last7Best} />
         <RecordTile label="Best Plays - Running Total" value={overallBest} />
-        {sport === "NCAAF" ? <>
-          <RecordTile label="Favorite Spread - Running Total" value={summaryMap.get("Favorite Spread")} />
-          <RecordTile label="Underdog Spread - Running Total" value={summaryMap.get("Underdog Spread")} />
-          <RecordTile label="Over - Running Total" value={summaryMap.get("Over")} />
-          <RecordTile label="Under - Running Total" value={summaryMap.get("Under")} />
-        </> : (data.recordSummary || []).map((row) =>
+        {(data.recordSummary || []).map((row) =>
           <RecordTile key={row.betType} label={`${row.betType} - Running Total`} value={row} />
         )}
       </div>
@@ -1319,10 +1348,10 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
       <div className="advancedRecordsStack">
         <FbDraftKingsSignalRecords rows={data.draftKingsSignalRows || []} today={data.today} />
       </div>
-      <div className="sectionHead"><div><h2>Bet Type Records</h2><p>{sport === "NFL" ? "Exact A/B grade + market + direction subsets used by HOT / COLD / SMALL SAMPLE" : "Spread and Total Best Play performance"}</p></div></div>
+      <div className="sectionHead"><div><h2>Bet Type Records</h2><p>Exact A/B grade + market + direction subsets used by HOT / COLD / SMALL SAMPLE</p></div></div>
       <div className="advancedRecordsStack">
-        <FbRecordDropdown title="Last 7 Days Best Plays" subtitle={sport === "NFL" ? "Exact NFL grade / market / direction records" : "Spread + Total qualified model records"} rows={data.last7RecordSummary || []} defaultOpen />
-        <FbRecordDropdown title="Overall Best Plays" subtitle={sport === "NFL" ? "Running exact NFL grade / market / direction records" : "Running Spread + Total records"} rows={data.recordSummary || []} />
+        <FbRecordDropdown title="Last 7 Days Best Plays" subtitle={`Exact ${sport} grade / market / direction records`} rows={data.last7RecordSummary || []} defaultOpen />
+        <FbRecordDropdown title="Overall Best Plays" subtitle={`Running exact ${sport} grade / market / direction records`} rows={data.recordSummary || []} />
         <FbRecentResults rows={trackerRows} sport={sport} />
       </div>
       <div className="card fbInfo"><b>Record grading database:</b> {data.database || (sport + " Model Database")}<br />Best Plays and trend signals are graded only after a completed game has a verified final score.</div>
