@@ -16,7 +16,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Patch football Full Slate
-        run: python scripts/fix_full_slate_mlb_parity.py
+        run: python scripts/fix_full_slate_mlb_parity_runner.py
 
       - uses: actions/setup-node@v4
         with:
