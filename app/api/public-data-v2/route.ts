@@ -247,7 +247,10 @@ async function postProcessMlbPayload(request:NextRequest,payload:AnyRow){
   let dailyPicks=dailyRows.map(parseDailyPickRow).filter((pick):pick is AnyRow=>Boolean(pick));
   const storedTodayLocks=dailyPicks.filter(pick=>isoDate(pick.date)===today);
   let todayLocks=currentLocksForToday(dailyPicks,today,currentQualifiers,nowMs,snapshotRows,slateRows);
-  if(isV2ScheduledCapture(request)&&today>=MLB_TREND_V2_LAUNCH_DATE){
+  // Any request after scheduled start may complete the deterministic recovery
+  // for a candidate that was already durably PENDING before first pitch. This
+  // removes the GitHub-cron dependency without permitting new in-game picks.
+  if(today>=MLB_TREND_V2_LAUNCH_DATE){
     const rewriteRequired=!samePickSet(storedTodayLocks,todayLocks);
     if(rewriteRequired)dailyPicks=[...dailyPicks.filter(pick=>isoDate(pick.date)!==today),...todayLocks];
     const lockedGames=new Set(todayLocks.map(v2GameIdentity).filter(Boolean));

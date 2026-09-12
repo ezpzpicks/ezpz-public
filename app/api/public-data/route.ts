@@ -6425,9 +6425,16 @@ function buildBestPlaysFromSlate(
         game,
         pitcherName,
       );
+      const summaryOddsMatch = String(market.summary || "").match(
+        /\bLine\s*([0-9]+(?:\.[0-9]+)?)\s*\/\s*([+-]\d{3,4})\b/i,
+      );
+      const summaryOdds = summaryOddsMatch
+        ? `${summaryOddsMatch[1]} / ${summaryOddsMatch[2]}`
+        : "";
       const odds = oddsFromLineCell(
         market.odds ||
           trackerOdds ||
+          summaryOdds ||
           (parsed.line ? `Line ${parsed.line}` : ""),
       );
 
@@ -9809,9 +9816,22 @@ async function buildAiPickSelector(args: {
     );
   }
 
+  // A HOT pitcher Best Play that was frozen with only the synthetic
+  // "Playable odds are missing" rejection may be retried. The pregame slate
+  // already contains the wager; this only repairs the odds parser and cannot
+  // create a new post-start candidate.
   let storedFinalCandidateIds = new Set(
     storedToday
-      .filter((pick) => pick.snapshotStatus === "FINAL_PREGAME")
+      .filter(
+        (pick) =>
+          pick.snapshotStatus === "FINAL_PREGAME" &&
+          !(
+            pick.market === "Pitcher Strikeouts" &&
+            !pick.selected &&
+            (pick as AiSelectorCandidate).pitcherBetTypeForm === EZPZ_BEST_PLAY_POLICY.requiredForm &&
+            String(pick.rejectionReason || "").trim() === "Playable odds are missing"
+          ),
+      )
       .map((pick) => pick.candidateId),
   );
 
