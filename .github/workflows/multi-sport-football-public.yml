@@ -8,7 +8,7 @@ on:
     paths:
       - app/FootballBoard.tsx
       - app/page.tsx
-      - app/api/public-data/route.ts
+      - app/api/public-data-v2/route.ts
       - lib/footballPublicData.ts
       - lib/sportSheets.ts
       - package.json
@@ -19,7 +19,7 @@ on:
     paths:
       - app/FootballBoard.tsx
       - app/page.tsx
-      - app/api/public-data/route.ts
+      - app/api/public-data-v2/route.ts
       - lib/footballPublicData.ts
       - lib/sportSheets.ts
       - package.json

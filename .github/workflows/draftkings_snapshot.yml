@@ -54,7 +54,7 @@ jobs:
             --max-time 75 \
             -H "Authorization: Bearer $CRON_SECRET" \
             --output /tmp/ezpz_public_data.json \
-            "https://ezpzpicks.com/api/public-data?scheduled=1&tracking=v2"
+            "https://ezpzpicks.com/api/public-data-v2?scheduled=1&tracking=v2"
 
       - name: Send newly finalized AI picks to ntfy
         env:
