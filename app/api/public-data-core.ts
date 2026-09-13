@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { google } from "googleapis";
-import { readWorksheet as readWorksheetUncached } from "../../../lib/googleSheets";
-import { buildFootballPublicData } from "../../../lib/footballPublicData";
+import { readWorksheet as readWorksheetUncached } from "../../lib/googleSheets";
+import { buildFootballPublicData } from "../../lib/footballPublicData";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
