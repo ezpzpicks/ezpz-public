@@ -34,6 +34,10 @@ function propIdentity(row: Record<string, string>) {
   const market = textKey(row.Market || row["Bet Type"] || "");
   return [game, player, market].join("|");
 }
+function numeric(value: unknown) {
+  const n = Number(String(value ?? "").replace(/%/g, "").trim());
+  return Number.isFinite(n) ? n : 0;
+}
 function detail(row: Record<string, string>) {
   const raw = String(row["Trend Score Details"] || "").trim();
   let parsed: any = null;
@@ -87,6 +91,9 @@ export async function GET(request: NextRequest) {
     const byVersion: Record<string, number> = {};
     const byGrade: Record<string, number> = {};
     const byGame: Record<string, { total: number; graded: number }> = {};
+    const byMarket: Record<string, { total: number; graded: number; A: number; B: number }> = {};
+    const byLineSource: Record<string, { total: number; graded: number }> = {};
+    const byPosition: Record<string, { total: number; graded: number }> = {};
     for (const row of dated) {
       const version = String(row["Model Version"] || "(blank)").trim() || "(blank)";
       byVersion[version] = (byVersion[version] || 0) + 1;
@@ -96,12 +103,49 @@ export async function GET(request: NextRequest) {
       byGame[game] ||= { total: 0, graded: 0 };
       byGame[game].total += 1;
       if (nflGrade(row)) byGame[game].graded += 1;
+      const market = String(row.Market || "(blank)").trim() || "(blank)";
+      byMarket[market] ||= { total: 0, graded: 0, A: 0, B: 0 };
+      byMarket[market].total += 1;
+      if (nflGrade(row)) {
+        byMarket[market].graded += 1;
+        byMarket[market][nflGrade(row) as "A" | "B"] += 1;
+      }
+      const lineSource = String(row["Line Source"] || "(blank)").trim() || "(blank)";
+      byLineSource[lineSource] ||= { total: 0, graded: 0 };
+      byLineSource[lineSource].total += 1;
+      if (nflGrade(row)) byLineSource[lineSource].graded += 1;
+      const position = String(row.Position || "(blank)").trim() || "(blank)";
+      byPosition[position] ||= { total: 0, graded: 0 };
+      byPosition[position].total += 1;
+      if (nflGrade(row)) byPosition[position].graded += 1;
     }
     const duplicateIdentities = [...identityCounts.entries()]
       .filter(([, count]) => count > 1)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 30)
       .map(([key, count]) => ({ key, count }));
+    const strongestGraded = [...graded]
+      .sort((a, b) => numeric(b["Probability Edge"]) - numeric(a["Probability Edge"]))
+      .slice(0, 30)
+      .map((row) => ({
+        game: row.Game,
+        player: row.Player,
+        position: row.Position,
+        slot: row.Slot,
+        market: row.Market,
+        pick: row.Pick,
+        marketLine: row["Market Line"],
+        pickOdds: row["Pick Odds"],
+        modelProbability: row["Model Probability"],
+        impliedProbability: row["Implied Probability"],
+        probabilityEdge: row["Probability Edge"],
+        projection: row.Projection,
+        projectionEdge: row["Projection Edge"],
+        grade: row.Grade,
+        reliability: row.Reliability,
+        roleConfidence: row["Role Confidence"],
+        lineSource: row["Line Source"],
+      }));
     propDiagnostics = {
       targetDate,
       totalProjectionRows: propProjections.length,
@@ -113,6 +157,10 @@ export async function GET(request: NextRequest) {
       byVersion,
       byGrade,
       byGame,
+      byMarket,
+      byLineSource,
+      byPosition,
+      strongestGraded,
       propTrackerRows: propTracker.length,
     };
   }
