@@ -1,6 +1,6 @@
 "use client";
 
-import LegacyFootballBoard from "./FootballBoardLegacy";
+import FootballBoardBase from "./FootballBoardBase";
 import { MatchupWithLogos, SelectionWithTeamLogo, TeamLogoName } from "./TeamLogoName";
 
 type Tab = "Today’s Model Plays" | "Today’s Trend Plays" | "EZPZ Picks" | "Full Slate" | "Records";
@@ -287,7 +287,7 @@ function NflEzpzPicks({ data }: { data: FootballData }) {
 
 export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab: Tab; data: FootballData & Record<string, any> }) {
   if (sport !== "NFL" || (tab !== "Today’s Model Plays" && tab !== "EZPZ Picks")) {
-    return <LegacyFootballBoard sport={sport} tab={tab} data={data as any} />;
+    return <FootballBoardBase sport={sport} tab={tab} data={data as any} />;
   }
 
   return (
