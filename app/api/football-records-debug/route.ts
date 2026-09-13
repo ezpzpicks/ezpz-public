@@ -10,6 +10,30 @@ function code(value: unknown) {
   return "";
 }
 function truthy(value: unknown) { return ["TRUE", "YES", "1"].includes(String(value || "").trim().toUpperCase()); }
+function textKey(value: unknown) {
+  return String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+}
+function isoDate(value: unknown) {
+  const raw = String(value || "").trim();
+  const iso = raw.match(/(20\d{2})[-/](\d{1,2})[-/](\d{1,2})/);
+  if (iso) return `${iso[1]}-${iso[2].padStart(2, "0")}-${iso[3].padStart(2, "0")}`;
+  const us = raw.match(/(\d{1,2})\/(\d{1,2})(?:\/(20\d{2}))?/);
+  if (!us) return "";
+  const year = us[3] || String(new Date().getFullYear());
+  return `${year}-${us[1].padStart(2, "0")}-${us[2].padStart(2, "0")}`;
+}
+function nflGrade(row: Record<string, string>) {
+  const raw = String(row.Grade || row["Model Grade"] || row["Bet Type"] || row.Tier || "").trim().toUpperCase();
+  if (raw === "A" || raw.startsWith("A ")) return "A";
+  if (raw === "B" || raw.startsWith("B ")) return "B";
+  return "";
+}
+function propIdentity(row: Record<string, string>) {
+  const game = String(row["Game ID"] || row["Game Key"] || row.Game || "").trim();
+  const player = textKey(row.Player || row["Player Name"] || "");
+  const market = textKey(row.Market || row["Bet Type"] || "");
+  return [game, player, market].join("|");
+}
 function detail(row: Record<string, string>) {
   const raw = String(row["Trend Score Details"] || "").trim();
   let parsed: any = null;
@@ -33,19 +57,71 @@ function detail(row: Record<string, string>) {
 export async function GET(request: NextRequest) {
   const requested = String(request.nextUrl.searchParams.get("sport") || "NCAAF").toUpperCase();
   const sport: FootballSport = requested === "NFL" ? "NFL" : "NCAAF";
-  const [trends, tracker, schedule, snapshots] = await Promise.all([
-    readSportWorksheet(sport, "all_game_trends", ALL_GAME_TRENDS_HEADERS),
-    readSportWorksheet(sport, "bet_tracker"), readSportWorksheet(sport, "schedule"),
-    readSportWorksheet(sport, "public_split_snapshots", PUBLIC_SPLIT_HEADERS),
-  ]);
+  const debugDate = String(request.nextUrl.searchParams.get("date") || "").trim();
+  const worksheetNames = sport === "NFL"
+    ? ["all_game_trends", "bet_tracker", "schedule", "public_split_snapshots", "prop_projections", "prop_tracker"] as const
+    : ["all_game_trends", "bet_tracker", "schedule", "public_split_snapshots"] as const;
+  const worksheetRows = await Promise.all(worksheetNames.map((name) => readSportWorksheet(sport, name)));
+  const trends = worksheetRows[0];
+  const tracker = worksheetRows[1];
+  const schedule = worksheetRows[2];
+  const snapshots = worksheetRows[3];
+  const propProjections = sport === "NFL" ? worksheetRows[4] : [];
+  const propTracker = sport === "NFL" ? worksheetRows[5] : [];
+
   const completedTrends = trends.filter((row) => code(row.Result));
   const qualified = trends.filter((row) => truthy(row["Trend Play"]) && String(row["Trend Tier"] || "").trim() && String(row["Trend Tier"] || "").toUpperCase() !== "PASS");
   const frozen = trends.filter((row) => { const raw=String(row["Trend Score Details"]||"").trim(); if(!raw)return false; try{return JSON.parse(raw)?.snapshotStatus==="FINAL_PREGAME";}catch{return false;} });
   const byDate=[...new Set(trends.map((row)=>String(row.Date||"").trim()).filter(Boolean))].sort().map((date)=>{const rows=trends.filter((row)=>String(row.Date||"").trim()===date);const q=rows.filter((row)=>truthy(row["Trend Play"])&&String(row["Trend Tier"]||"").trim()&&String(row["Trend Tier"]||"").toUpperCase()!=="PASS");return{date,rows:rows.length,qualified:q.length,completed:rows.filter((row)=>code(row.Result)).length,qualifiedCompleted:q.filter((row)=>code(row.Result)).length};});
+
+  let propDiagnostics: any = undefined;
+  if (sport === "NFL") {
+    const targetDate = debugDate || [...new Set(propProjections.map((row) => isoDate(row.Date || row["Game Date"])).filter(Boolean))].sort().at(-1) || "";
+    const dated = propProjections.filter((row) => isoDate(row.Date || row["Game Date"]) === targetDate);
+    const graded = dated.filter((row) => Boolean(nflGrade(row)));
+    const identityCounts = new Map<string, number>();
+    for (const row of graded) {
+      const key = propIdentity(row);
+      identityCounts.set(key, (identityCounts.get(key) || 0) + 1);
+    }
+    const byVersion: Record<string, number> = {};
+    const byGrade: Record<string, number> = {};
+    const byGame: Record<string, { total: number; graded: number }> = {};
+    for (const row of dated) {
+      const version = String(row["Model Version"] || "(blank)").trim() || "(blank)";
+      byVersion[version] = (byVersion[version] || 0) + 1;
+      const grade = nflGrade(row) || "ungraded";
+      byGrade[grade] = (byGrade[grade] || 0) + 1;
+      const game = String(row.Game || row["Game ID"] || "(blank)").trim() || "(blank)";
+      byGame[game] ||= { total: 0, graded: 0 };
+      byGame[game].total += 1;
+      if (nflGrade(row)) byGame[game].graded += 1;
+    }
+    const duplicateIdentities = [...identityCounts.entries()]
+      .filter(([, count]) => count > 1)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 30)
+      .map(([key, count]) => ({ key, count }));
+    propDiagnostics = {
+      targetDate,
+      totalProjectionRows: propProjections.length,
+      datedProjectionRows: dated.length,
+      gradedProjectionRows: graded.length,
+      uniqueGradedProjectionIdentities: identityCounts.size,
+      duplicateExtraRows: graded.length - identityCounts.size,
+      duplicateIdentities,
+      byVersion,
+      byGrade,
+      byGame,
+      propTrackerRows: propTracker.length,
+    };
+  }
+
   return NextResponse.json({
     sport,
     totals:{trendRows:trends.length,completedTrendRows:completedTrends.length,qualifiedTrendRows:qualified.length,qualifiedCompletedTrendRows:qualified.filter((row)=>code(row.Result)).length,pendingQualifiedTrendRows:qualified.filter((row)=>!code(row.Result)).length,frozenTrendRows:frozen.length,rowsWithTrendDetails:trends.filter((r)=>String(r["Trend Score Details"]||"").trim()).length,trackerRows:tracker.length,completedTrackerRows:tracker.filter((row)=>code(row.Result||row.Status)).length,scheduleRows:schedule.length,completedScheduleRows:schedule.filter((row)=>truthy(row.Completed)||(String(row["Away Score"]??"")!==""&&String(row["Home Score"]??"")!=="")).length,snapshotRows:snapshots.length},
     byDate:byDate.slice(-14),
+    propDiagnostics,
     trendRows:trends.slice(0,40).map(detail),
     snapshots:snapshots.slice(-20).map((row)=>({date:row.Date,game:row.Game,market:row.Market,selection:row.Selection,line:row.Line,odds:row.Odds,snapshotTime:row["Snapshot Time ET"],openingTime:row["Opening Snapshot Time ET"]})),
   });
