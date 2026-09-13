@@ -396,12 +396,12 @@ function FbCombinationRecords({ tracker, trends, today }: { tracker: SheetRow[];
     });
   });
   const rows = [fbSummary("Model + Trend Match", fbTotals(matched, today)), fbSummary("Spread + Trend", fbTotals(matched, today, 0, (row) => textKey(row["Bet Type"] || row.Market).includes("spread"))), fbSummary("Total + Trend", fbTotals(matched, today, 0, (row) => textKey(row["Bet Type"] || row.Market).includes("total")))].filter((row) => row.totalBets > 0);
-  return <FbRecordDropdown title="Combination Records" subtitle="Best Plays that also matched a qualified Trend Play" rows={rows} />;
+  return <FbRecordDropdown title="Combination Records" subtitle="Model Plays that also matched a qualified Trend Play" rows={rows} />;
 }
 
 function FbRecentResults({ rows, sport }: { rows: SheetRow[]; sport: Sport }) {
   const completed = rows.filter((row) => fbResult(row.Result || row.Status)).sort((a, b) => String(b.Date || "").localeCompare(String(a.Date || ""))).slice(0, 25);
-  return <details className="recordsDropdown"><summary className="recordsSummary"><div><div className="recordsSummaryTitle">Recent Graded Plays</div><div className="recordsSummarySub">The individual Best Plays behind the record</div></div><span className="recordsCount">{completed.length} results</span></summary>{completed.length ? <div className="tableWrap"><table className="recordsTable"><thead><tr><th>Date</th><th>Game</th><th>Type</th><th>Play</th><th>Result</th><th>Units</th></tr></thead><tbody>{completed.map((row, index) => <tr key={[row.Date, row["Game ID"], row["Bet Type"], row.Selection, index].join("-")}><td>{row.Date}</td><td><MatchupWithLogos sport={sport} game={row.Game || ""} compact /></td><td>{row["Bet Type"] || row.Market}</td><td><strong><SelectionWithTeamLogo sport={sport} selection={row.Selection || ""} game={row.Game || ""} compact /></strong></td><td>{row.Result}</td><td>{Number(row.Units || 0) > 0 ? "+" : ""}{Number(row.Units || 0).toFixed(2)}u</td></tr>)}</tbody></table></div> : <div className="empty insideDropdown">Completed Best Plays will populate here automatically.</div>}</details>;
+  return <details className="recordsDropdown"><summary className="recordsSummary"><div><div className="recordsSummaryTitle">Recent Graded Plays</div><div className="recordsSummarySub">The individual Model Plays behind the record</div></div><span className="recordsCount">{completed.length} results</span></summary>{completed.length ? <div className="tableWrap"><table className="recordsTable"><thead><tr><th>Date</th><th>Game</th><th>Type</th><th>Play</th><th>Result</th><th>Units</th></tr></thead><tbody>{completed.map((row, index) => <tr key={[row.Date, row["Game ID"], row["Bet Type"], row.Selection, index].join("-")}><td>{row.Date}</td><td><MatchupWithLogos sport={sport} game={row.Game || ""} compact /></td><td>{row["Bet Type"] || row.Market}</td><td><strong><SelectionWithTeamLogo sport={sport} selection={row.Selection || ""} game={row.Game || ""} compact /></strong></td><td>{row.Result}</td><td>{Number(row.Units || 0) > 0 ? "+" : ""}{Number(row.Units || 0).toFixed(2)}u</td></tr>)}</tbody></table></div> : <div className="empty insideDropdown">Completed Model Plays will populate here automatically.</div>}</details>;
 }
 
 function FbTrendRecordExplorer({ rows, today }: { rows: SheetRow[]; today: string }) {
@@ -1032,7 +1032,7 @@ function EzpzPickCard({
           <section className={`aiPickQualificationGate ${bestPlayGate.className}`}>
             <div className="aiPickQualificationGateHead">
               <div>
-                <span>Best Play Record Snapshot</span>
+                <span>Model Play Record Snapshot</span>
                 <strong>{recordType}</strong>
               </div>
               <span className={`formPill ${bestPlayGate.className}`}>
@@ -1302,7 +1302,7 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
     </>;
   } else if (tab === "EZPZ Picks") {
     content = <>
-      <div className="sectionHead"><div><h2>{sport} EZPZ Picks</h2><p>{data.aiSelectorStatus?.message || "HOT Best Plays and qualifying Strong/Elite Trend Plays only."}</p></div></div>
+      <div className="sectionHead"><div><h2>{sport} EZPZ Picks</h2><p>{data.aiSelectorStatus?.message || "HOT Model Plays and qualifying Strong/Elite Trend Plays only."}</p></div></div>
       {todayEzpzPicks.length ? <div className="aiPickStack">{todayEzpzPicks.map((pick, index) => <EzpzPickCard key={`${pick.game}-${pick.market}-${pick.selection}-${index}`} pick={pick} splits={splits} trendPlays={ezpzTrendSource} slateRows={slateRows} todayByType={todayByType} recentByType={last7Map} lastSevenBetsByType={lastSevenBetsByType} overallByType={summaryMap} sport={sport} />)}</div> : <div className="empty footballEmpty">No {sport} EZPZ Picks qualify for {data.today} right now.</div>}
     </>;
   } else if (tab === "Full Slate") {
@@ -1356,11 +1356,11 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
       </div>
       <div className="sectionHead"><div><h2>Bet Type Records</h2><p>Exact A/B grade + market + direction subsets used by HOT / COLD / SMALL SAMPLE</p></div></div>
       <div className="advancedRecordsStack">
-        <FbRecordDropdown title="Last 7 Days Best Plays" subtitle={`Exact ${sport} grade / market / direction records`} rows={data.last7RecordSummary || []} defaultOpen />
-        <FbRecordDropdown title="Overall Best Plays" subtitle={`Running exact ${sport} grade / market / direction records`} rows={data.recordSummary || []} />
+        <FbRecordDropdown title="Last 7 Days Model Plays" subtitle={`Exact ${sport} grade / market / direction records`} rows={data.last7RecordSummary || []} defaultOpen />
+        <FbRecordDropdown title="Overall Model Plays" subtitle={`Running exact ${sport} grade / market / direction records`} rows={data.recordSummary || []} />
         <FbRecentResults rows={trackerRows} sport={sport} />
       </div>
-      <div className="card fbInfo"><b>Record grading database:</b> {data.database || (sport + " Model Database")}<br />Best Plays and trend signals are graded only after a completed game has a verified final score.</div>
+      <div className="card fbInfo"><b>Record grading database:</b> {data.database || (sport + " Model Database")}<br />Model Plays and trend signals are graded only after a completed game has a verified final score.</div>
     </div>;
   }
 

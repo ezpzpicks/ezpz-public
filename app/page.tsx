@@ -5023,7 +5023,7 @@ function AiPickSelectorCard({
     ...(pick.dataStatus || []),
     pick.snapshotStatus === "FINAL_PREGAME"
       ? isImmediateHotBestPlayFinal
-        ? `HOT Best Play saved as final for the full day ${pick.lockedAt || pick.updatedAt}`
+        ? `HOT Model Play saved as final for the full day ${pick.lockedAt || pick.updatedAt}`
         : `Final pregame selection locked ${pick.lockedAt || pick.updatedAt}`
       : "Live selector preview; the final decision can change before the pregame lock",
     aiExternalReviewLabel(pick.externalReviewStatus),
@@ -5066,7 +5066,7 @@ function AiPickSelectorCard({
           <section className={"aiPickQualificationGate " + bestPlayGate.className}>
             <div className="aiPickQualificationGateHead">
               <div>
-                <span>Best Play Record Snapshot</span>
+                <span>Model Play Record Snapshot</span>
                 <strong>{normalizeType(pick.bestPlayType || "Best Play")}</strong>
               </div>
               <span className={"formPill " + bestPlayGate.className}>
@@ -6360,7 +6360,7 @@ function SportDevelopmentContent({
       <>
         <div className="sectionHead">
           <div>
-            <h2>{meta.name} Best Plays</h2>
+            <h2>{meta.name} Model Plays</h2>
             <p>
               This public board is ready for qualified {meta.shortName} plays as
               soon as they are saved from the new builder.
@@ -6373,7 +6373,7 @@ function SportDevelopmentContent({
           <span className="developmentEyebrow">PUBLIC FORMAT READY</span>
           <h3>No official {meta.shortName} plays posted for {dateLabel}</h3>
           <p>
-            Best Plays will appear here with the same transparent model score,
+            Model Plays will appear here with the same transparent model score,
             probability, reliability, line, odds, and matchup context used
             throughout EZPZ Picks.
           </p>
@@ -6399,7 +6399,7 @@ function SportDevelopmentContent({
           <span className="developmentEyebrow">SELECTOR READY</span>
           <h3>No {meta.shortName} AI selections are available yet</h3>
           <p>
-            The selector will begin reviewing qualified Best Plays and Trend Plays
+            The selector will begin reviewing qualified Model Plays and Trend Plays
             after the {meta.shortName} model starts publishing official candidates.
           </p>
         </div>
@@ -6450,12 +6450,12 @@ function SportDevelopmentContent({
 
       <div className="qualifiedGrid">
         <Tile
-          label="Best Plays - Last 7 Days"
+          label="Model Plays - Last 7 Days"
           value="0-0-0"
           meta="0.0% • 0.00u • ROI 0.0%"
         />
         <Tile
-          label="Best Plays - Running Total"
+          label="Model Plays - Running Total"
           value="0-0-0"
           meta="0.0% • 0.00u • ROI 0.0%"
         />
@@ -6732,11 +6732,11 @@ export default function Home() {
     [mergedHandpickedOverallRecordSummary],
   );
   const visibleLast7Totals = useMemo(
-    () => combinedRecordTotals("Best Plays - Last 7 Days", visibleLast7RecordSummary),
+    () => combinedRecordTotals("Model Plays - Last 7 Days", visibleLast7RecordSummary),
     [visibleLast7RecordSummary],
   );
   const visibleOverallTotals = useMemo(
-    () => combinedRecordTotals("Best Plays - Running Total", visibleOverallRecordSummary),
+    () => combinedRecordTotals("Model Plays - Running Total", visibleOverallRecordSummary),
     [visibleOverallRecordSummary],
   );
   const activeSportMeta = SPORT_META[activeSport];
@@ -6916,7 +6916,7 @@ export default function Home() {
             </div>
           ) : (
             <div className="empty">
-              No qualified Best Plays saved yet for {data.today}.
+              No qualified Model Plays saved yet for {data.today}.
             </div>
           )}
         </section>
@@ -6964,7 +6964,7 @@ export default function Home() {
               <p className="aiSelectorStatusText">
                 {viewingToday
                   ? data.aiSelectorStatus?.message ||
-                    "The selector is evaluating today’s Best Plays and Trend Plays with deterministic EZPZ gates."
+                    "The selector is evaluating today’s Model Plays and Trend Plays with deterministic EZPZ gates."
                   : `Showing the locked EZPZ Picks saved for ${activeEzpzDateLabel}. Final grading is shown on each pick.`}
               </p>
             </div>
@@ -7232,12 +7232,12 @@ export default function Home() {
 
         <div className="recordsDropdownStack">
           <RecordsDropdown
-            title="Last 7 Days Best Plays"
+            title="Last 7 Days Model Plays"
             rows={visibleLast7RecordSummary}
             defaultOpen
           />
           <RecordsDropdown
-            title="Overall Best Plays"
+            title="Overall Model Plays"
             rows={visibleOverallRecordSummary}
           />
           <RecordsDropdown
@@ -7344,13 +7344,13 @@ export default function Home() {
           {activeSport === "MLB" ? (
             <>
               <Tile
-                label="Best Plays - Last 7 Days"
+                label="Model Plays - Last 7 Days"
                 value={visibleLast7Totals.record}
                 meta={`${visibleLast7Totals.winPct}% • ${visibleLast7Totals.unitsWon}u • ROI ${visibleLast7Totals.roiPct}%`}
                 green
               />
               <Tile
-                label="Best Plays - Running Total"
+                label="Model Plays - Running Total"
                 value={visibleOverallTotals.record}
                 meta={`${visibleOverallTotals.winPct}% • ${visibleOverallTotals.unitsWon}u • ROI ${visibleOverallTotals.roiPct}%`}
                 green
@@ -7382,20 +7382,20 @@ export default function Home() {
               <Tile
                 label="Today’s Model Plays"
                 value={String(bestPlays.length)}
-                meta="Pending Best Plays"
+                meta="Pending Model Plays"
                 green={bestPlays.length > 0}
               />
             </>
           ) : activeSport === "NFL" || activeSport === "NCAAF" ? (
             <>
               <Tile
-                label="Best Plays - Last 7 Days"
+                label="Model Plays - Last 7 Days"
                 value={data.tiles.last7Days.record}
                 meta={`${data.tiles.last7Days.winPct}% • ${data.tiles.last7Days.unitsWon}u • ROI ${data.tiles.last7Days.roiPct}%`}
                 green={data.tiles.last7Days.totalBets > 0}
               />
               <Tile
-                label="Best Plays - Running Total"
+                label="Model Plays - Running Total"
                 value={data.tiles.overallGreen.record}
                 meta={`${data.tiles.overallGreen.winPct}% • ${data.tiles.overallGreen.unitsWon}u • ROI ${data.tiles.overallGreen.roiPct}%`}
                 green={data.tiles.overallGreen.totalBets > 0}
@@ -7407,8 +7407,8 @@ export default function Home() {
             </>
           ) : (
             <>
-              <Tile label="Best Plays - Last 7 Days" value="0-0-0" meta="0.0% • 0.00u • ROI 0.0%" />
-              <Tile label="Best Plays - Running Total" value="0-0-0" meta="Tracking begins with official plays" />
+              <Tile label="Model Plays - Last 7 Days" value="0-0-0" meta="0.0% • 0.00u • ROI 0.0%" />
+              <Tile label="Model Plays - Running Total" value="0-0-0" meta="Tracking begins with official plays" />
               <Tile label="Today’s Handpicked" value="0" meta="No selections posted" />
               <Tile label="Model Stage" value="PRESEASON" meta={activeSportMeta.status} />
               <Tile label="Today’s Model Plays" value="0" meta="Public format is ready" />
