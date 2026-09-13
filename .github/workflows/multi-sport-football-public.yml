@@ -11,8 +11,6 @@ on:
       - app/api/public-data/route.ts
       - lib/footballPublicData.ts
       - lib/sportSheets.ts
-      - scripts/football_public_source_fixes.mjs
-      - scripts/multi_sport_football_patch.mjs
       - package.json
       - .github/workflows/multi-sport-football-public.yml
   pull_request:
@@ -24,8 +22,6 @@ on:
       - app/api/public-data/route.ts
       - lib/footballPublicData.ts
       - lib/sportSheets.ts
-      - scripts/football_public_source_fixes.mjs
-      - scripts/multi_sport_football_patch.mjs
       - package.json
       - .github/workflows/multi-sport-football-public.yml
 
@@ -45,15 +41,5 @@ jobs:
         run: npm install
       - name: Reproduce Vercel production build
         run: npm run build
-      - name: Verify football patches remain idempotent after full prebuild
-        run: |
-          cp lib/footballPublicData.ts /tmp/football-before.ts
-          cp app/page.tsx /tmp/page-before.tsx
-          cp app/api/public-data/route.ts /tmp/route-before.ts
-          node scripts/football_public_source_fixes.mjs
-          node scripts/multi_sport_football_patch.mjs
-          diff -u /tmp/football-before.ts lib/footballPublicData.ts
-          diff -u /tmp/page-before.tsx app/page.tsx
-          diff -u /tmp/route-before.ts app/api/public-data/route.ts
       - name: Check generated diff
         run: git diff --check

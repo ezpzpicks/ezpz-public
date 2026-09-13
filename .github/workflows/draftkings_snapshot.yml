@@ -5,7 +5,6 @@ on:
     paths:
       - .github/workflows/draftkings_snapshot.yml
       - scripts/ai_final_notifications.mjs
-      - scripts/no_final_ai_review_patch.mjs
       - scripts/final_trend_lock_notifications.mjs
   schedule:
     # Check every 5 minutes only during the MLB game window. Starting at
@@ -62,7 +61,6 @@ jobs:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
           FINAL_LOCK_CLICK_URL: https://ezpzpicks.com
         run: |
-          node scripts/no_final_ai_review_patch.mjs
           node scripts/ai_final_notifications.mjs /tmp/ezpz_public_data.json
 
       - name: Prepare game-lock-only notification payload

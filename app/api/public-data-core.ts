@@ -10595,7 +10595,7 @@ async function capturePublicRouteResponse(request: NextRequest) {
   } satisfies CachedPublicRouteResponse;
 }
 
-export async function GET(request: NextRequest) {
+export async function buildPublicDataResponse(request: NextRequest) {
   const requestedSport = String(request.nextUrl.searchParams.get("sport") || "MLB").trim().toUpperCase();
   if (requestedSport === "NFL" || requestedSport === "NCAAF") {
     const scheduledFootball = ["1", "true", "yes"].includes(

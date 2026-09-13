@@ -11,9 +11,6 @@ on:
       - app/api/football-weekly-market/route.ts
       - lib/footballWeeklyMarket.ts
       - app/FootballBoard.tsx
-      - scripts/football_weekly_display_policy_patch.mjs
-      - scripts/football_weekly_market_patch.mjs
-      - scripts/football_dk_event_group_patch.mjs
   schedule:
     # Check NFL and CFB markets every five minutes, 24/7. This same workflow also
     # runs on football code/feed changes so the corrected production collector is exercised immediately.

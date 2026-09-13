@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { GET as legacyGET } from "../public-data/route";
+import { buildPublicDataResponse } from "../public-data-core";
 import {
   AnyRow, DailyLockDecision, MLB_TREND_V2_DECISION_WINDOW_MINUTES,
   MLB_TREND_V2_LAUNCH_DATE,
@@ -360,8 +360,8 @@ async function postProcessMlbPayload(request:NextRequest,payload:AnyRow){
 }
 
 export async function GET(request:NextRequest){
-  const sport=String(request.nextUrl.searchParams.get("sport")||"MLB").trim().toUpperCase();if(sport==="NFL"||sport==="NCAAF")return legacyGET(request);
-  const legacyResponse=await legacyGET(request);const contentType=legacyResponse.headers.get("content-type")||"";if(!contentType.includes("application/json"))return legacyResponse;
+  const sport=String(request.nextUrl.searchParams.get("sport")||"MLB").trim().toUpperCase();if(sport==="NFL"||sport==="NCAAF")return buildPublicDataResponse(request);
+  const legacyResponse=await buildPublicDataResponse(request);const contentType=legacyResponse.headers.get("content-type")||"";if(!contentType.includes("application/json"))return legacyResponse;
   let payload:AnyRow;try{payload=await legacyResponse.json()}catch{return legacyResponse}if(!payload?.ok)return NextResponse.json(payload,{status:legacyResponse.status,headers:{"Cache-Control":"no-store, max-age=0"}});
   try{payload=await postProcessMlbPayload(request,payload)}catch(error){console.error("MLB Trend v2 wrapper failed; returning legacy response",error);payload.trendV2Error=error instanceof Error?error.message:String(error)}
   return NextResponse.json(payload,{status:legacyResponse.status,headers:{"Cache-Control":"no-store, max-age=0"}});

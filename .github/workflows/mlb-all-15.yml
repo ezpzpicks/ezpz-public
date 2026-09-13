@@ -7,14 +7,12 @@ on:
       - 'app/api/public-data-v2/route.ts'
       - 'lib/mlbTrendV2.ts'
       - 'app/page.tsx'
-      - 'scripts/mlb_all_15_patch.mjs'
       - '.github/workflows/mlb-all-15.yml'
   pull_request:
     paths:
       - 'app/api/public-data-v2/route.ts'
       - 'lib/mlbTrendV2.ts'
       - 'app/page.tsx'
-      - 'scripts/mlb_all_15_patch.mjs'
       - '.github/workflows/mlb-all-15.yml'
   workflow_dispatch:
 
@@ -34,5 +32,4 @@ jobs:
         with:
           node-version: 20
       - run: npm install --no-audit --no-fund
-      - run: node scripts/mlb_all_15_patch.mjs
       - run: npm run build

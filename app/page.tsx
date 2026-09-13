@@ -6546,10 +6546,10 @@ export default function Home() {
       try {
         const endpoint =
           activeSport === "NFL" || activeSport === "NCAAF"
-            ? `/api/public-data?sport=${activeSport}${forceFresh ? "&refresh=1" : ""}`
+            ? `/api/public-data-v2?sport=${activeSport}${forceFresh ? "&refresh=1" : ""}`
             : forceFresh
-              ? "/api/public-data?refresh=1"
-              : "/api/public-data";
+              ? "/api/public-data-v2?refresh=1"
+              : "/api/public-data-v2";
         const response = await fetch(endpoint, {
           cache: "no-store",
           signal: controller.signal,
