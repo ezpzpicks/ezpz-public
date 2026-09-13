@@ -6,6 +6,7 @@ import {
   sportDatabaseLabel,
   upsertSportRows,
 } from "./sportSheets";
+import { readWeeklyFootballMarket } from "./footballWeeklyMarket";
 
 export type FootballMarket = "Spread" | "Total";
 type Tone = "negative" | "caution" | "positive" | "neutral";
@@ -1682,7 +1683,18 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
       displayTrendMap.set(displayTrendKey(play),play);
     }catch{/* ignore malformed legacy JSON */}
   }
-  const displayTrendPlays=[...displayTrendMap.values()];
+  // The weekly market worksheet is the authoritative scored board. It contains
+  // the exact persisted market state, including FINAL_PREGAME cards. Use the same
+  // objects for the Trends tab and EZPZ candidate construction so lock-time
+  // displays cannot drift from the object that was actually graded.
+  let weeklyTrendPlays: TrendPlay[] = [];
+  try {
+    const weekly = await readWeeklyFootballMarket(sport);
+    weeklyTrendPlays = Array.isArray(weekly.trendPlays) ? weekly.trendPlays as TrendPlay[] : [];
+  } catch (error) {
+    console.warn(sport + " weekly football trend read failed; retaining legacy trend board", error);
+  }
+  const displayTrendPlays = weeklyTrendPlays.length ? weeklyTrendPlays : [...displayTrendMap.values()];
   // EZPZ is a daily card, even though the football trend board tracks the full market week.
   // Keep the weekly trend payload for the Trend Plays tab, but only today's games may enter EZPZ.
   const todaySlate=slate.filter((row)=>isoDate(row.Date||row["Game Date"]||"")===today);
