@@ -1,6 +1,6 @@
 import {
   buildFootballPublicData as buildLegacyFootballPublicData,
-} from "./footballPublicDataLegacy";
+} from "./footballPublicDataCore";
 import {
   readSportWorksheet,
   type FootballSport,
@@ -11,8 +11,8 @@ export {
   PUBLIC_SPLIT_HEADERS,
   ALL_GAME_TRENDS_HEADERS,
   __test__,
-} from "./footballPublicDataLegacy";
-export type { FootballMarket } from "./footballPublicDataLegacy";
+} from "./footballPublicDataCore";
+export type { FootballMarket } from "./footballPublicDataCore";
 
 type EzpzForm = "HOT" | "COLD" | "NEUTRAL" | "SAMPLE";
 
