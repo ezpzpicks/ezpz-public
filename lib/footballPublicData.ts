@@ -1,5 +1,5 @@
 import {
-  buildFootballPublicData as buildLegacyFootballPublicData,
+  buildFootballPublicData as buildCoreFootballPublicData,
 } from "./footballPublicDataCore";
 import {
   readSportWorksheet,
@@ -15,7 +15,6 @@ export {
 export type { FootballMarket } from "./footballPublicDataCore";
 
 type EzpzForm = "HOT" | "COLD" | "NEUTRAL" | "SAMPLE";
-
 type FormResult = {
   status: EzpzForm;
   record: string;
@@ -24,7 +23,6 @@ type FormResult = {
   losses: number;
   pushes: number;
 };
-
 type NflEzpzPick = {
   source: "Best Play" | "Trend Play" | "Best + Trend";
   game: string;
@@ -64,8 +62,8 @@ function textKey(value: unknown) {
 
 function isoDate(value: unknown) {
   const raw = String(value || "").trim();
-  const match = raw.match(/(20\d{2})[-/](\d{1,2})[-/](\d{1,2})/);
-  if (match) return `${match[1]}-${match[2].padStart(2, "0")}-${match[3].padStart(2, "0")}`;
+  const iso = raw.match(/(20\d{2})[-/](\d{1,2})[-/](\d{1,2})/);
+  if (iso) return `${iso[1]}-${iso[2].padStart(2, "0")}-${iso[3].padStart(2, "0")}`;
   const us = raw.match(/(\d{1,2})\/(\d{1,2})(?:\/(20\d{2}))?/);
   if (!us) return "";
   const year = us[3] || String(new Date().getFullYear());
@@ -174,24 +172,19 @@ for (const [slug, aliases] of Object.entries(NFL_TEAM_ALIASES)) {
 function teamSlug(value: unknown) {
   return NFL_TEAM_SLUGS[textKey(value)] || textKey(value).replace(/\s+/g, "");
 }
-
 function sameTeam(a: unknown, b: unknown) {
   const left = teamSlug(a);
   const right = teamSlug(b);
   return Boolean(left && right && left === right);
 }
-
 function rowGameTeams(row: SheetRow) {
   const game = String(row.Game || "").trim();
   const parts = game.split(/\s+(?:@|at)\s+/i).map((part) => part.trim()).filter(Boolean);
   if (parts.length === 2) return { away: parts[0], home: parts[1] };
   const team = String(row.Team || "").trim();
   const opponent = String(row.Opponent || "").trim();
-  return textKey(row["Home/Away"]) === "home"
-    ? { away: opponent, home: team }
-    : { away: team, home: opponent };
+  return textKey(row["Home/Away"]) === "home" ? { away: opponent, home: team } : { away: team, home: opponent };
 }
-
 function matchingSlateGame(prop: SheetRow, slate: SheetRow[]) {
   const propId = String(prop["Game ID"] || prop["Game Key"] || "").trim();
   const teams = rowGameTeams(prop);
@@ -202,28 +195,30 @@ function matchingSlateGame(prop: SheetRow, slate: SheetRow[]) {
   });
 }
 
-function qualifiedNflPropGrade(value: unknown) {
-  const grade = textKey(value);
-  return grade === "a prop" || grade === "b prop";
-}
-
-function propSide(row: SheetRow) {
-  const direct = String(row.Pick || row.Side || "").trim();
-  const key = textKey(direct);
-  if (key.startsWith("under")) return "Under";
-  if (key.startsWith("over")) return "Over";
-  return direct;
-}
-
 function nflGradeLabel(value: unknown) {
   const key = textKey(value);
   if (key === "a" || key === "a grade" || key === "a prop" || key.startsWith("a grade ") || key.startsWith("a prop ")) return "A";
   if (key === "b" || key === "b grade" || key === "b prop" || key.startsWith("b grade ") || key.startsWith("b prop ")) return "B";
   return "";
 }
-
+function nflRowGrade(row: SheetRow) {
+  return nflGradeLabel(row.Grade || row["Model Grade"] || row["Bet Type"] || row.Tier);
+}
+function qualifiedNflPropGrade(value: unknown) {
+  return Boolean(nflGradeLabel(value));
+}
+function qualifiedNflPropRow(row: SheetRow) {
+  return Boolean(nflRowGrade(row));
+}
+function propSide(row: SheetRow) {
+  const direct = String(row.Pick || row.Side || row.Selection || "").trim();
+  const key = textKey(direct);
+  if (key.startsWith("under")) return "Under";
+  if (key.startsWith("over")) return "Over";
+  return direct;
+}
 function propBaseRecordType(row: SheetRow) {
-  const market = String(row.Market || "Player Prop").trim();
+  const market = String(row.Market || row["Bet Type"] || "Player Prop").trim();
   const key = textKey(market);
   if ((key.includes("passing") || key.includes("pass ") || key.startsWith("pass ")) && key.includes("yard")) return "Passing Yards";
   if ((key.includes("rushing") || key.includes("rush ") || key.startsWith("rush ")) && key.includes("yard")) return "Rushing Yards";
@@ -237,30 +232,26 @@ function propBaseRecordType(row: SheetRow) {
   if ((key.includes("rushing") || key.startsWith("rush ")) && key.includes("attempt")) return "Rush Attempts";
   return market || "Player Prop";
 }
-
 function propRecordType(row: SheetRow) {
-  const grade = nflGradeLabel(row.Grade || row["Model Grade"]);
+  const grade = nflRowGrade(row);
   const market = propBaseRecordType(row);
   const side = propSide(row);
   return [grade, market, side].filter(Boolean).join(" ").trim();
 }
-
 function propMarketLine(row: SheetRow) {
   const direct = row["Market Line"] ?? row.Line ?? row["Listed Line"] ?? row["Prop Line"];
   if (String(direct ?? "").trim()) return String(direct).trim();
-  const pick = String(row.Pick || "").trim();
+  const pick = String(row.Pick || row.Selection || "").trim();
   const match = pick.match(/(?:over|under)\s+([+-]?\d+(?:\.\d+)?)/i);
   return match?.[1] || "";
 }
-
 function propTrackerMatchesType(row: SheetRow, recordType: string) {
   return textKey(propRecordType(row)) === textKey(recordType);
 }
 
-function gameBestMarket(play: any): "Spread" | "Total" {
+function gameModelMarket(play: any): "Spread" | "Total" {
   return textKey(play.role || play.playType).includes("total") ? "Total" : "Spread";
 }
-
 function spreadLine(value: unknown) {
   const raw = String(value ?? "").replace(/−/g, "-");
   const matches = raw.match(/[+-]\d+(?:\.\d+)?/g) || [];
@@ -273,10 +264,9 @@ function spreadLine(value: unknown) {
   const line = Number(plain);
   return Number.isFinite(line) && Math.abs(line) <= 60 ? line : null;
 }
-
-function gameBestRecordType(play: any, split?: any) {
+function gameModelRecordType(play: any, split?: any) {
   const grade = nflGradeLabel(play.playType || play.grade || play["Model Grade"]);
-  const market = gameBestMarket(play);
+  const market = gameModelMarket(play);
   let subtype: string = market;
   if (market === "Total") {
     const side = textKey(split?.side || play.play);
@@ -294,10 +284,9 @@ function gameBestRecordType(play: any, split?: any) {
   }
   return [grade, subtype].filter(Boolean).join(" ").trim();
 }
-
 function gameTrackerRecordType(row: SheetRow) {
   const market = textKey(row["Bet Type"] || row.Market);
-  const grade = nflGradeLabel(row["Model Grade"] || row.Grade || row["Bet Type"]);
+  const grade = nflRowGrade(row);
   if (market.includes("total")) {
     const side = textKey(row.Selection || row.Side || row.Pick);
     const subtype = side.startsWith("under") ? "Under" : side.startsWith("over") ? "Over" : "Total";
@@ -310,20 +299,17 @@ function gameTrackerRecordType(row: SheetRow) {
   }
   return "";
 }
-
-function trackerMatchesGameBest(row: SheetRow, recordType: string) {
+function trackerMatchesGameModel(row: SheetRow, recordType: string) {
   return textKey(gameTrackerRecordType(row)) === textKey(recordType);
 }
-
 function sameGame(play: any, split: any) {
   if (textKey(play.game) && textKey(play.game) === textKey(split.game)) return true;
   return sameTeam(play.awayTeam, split.awayTeam) && sameTeam(play.homeTeam, split.homeTeam);
 }
-
-function splitForBestPlay(play: any, splits: any[]) {
-  const recordType = gameBestMarket(play);
+function splitForModelPlay(play: any, splits: any[]) {
+  const market = gameModelMarket(play);
   const same = splits.filter((split) => sameGame(play, split));
-  if (recordType === "Total") {
+  if (market === "Total") {
     const side = textKey(play.play).startsWith("under") ? "under" : "over";
     return same.find((split) => textKey(split.market) === "total" && textKey(split.side) === side);
   }
@@ -333,7 +319,6 @@ function splitForBestPlay(play: any, splits: any[]) {
 
 const rosterCache = new Map<string, { savedAt: number; players: Map<string, string> }>();
 const ROSTER_CACHE_MS = 6 * 60 * 60 * 1000;
-
 function flattenRosterAthletes(payload: any) {
   const groups = Array.isArray(payload?.athletes) ? payload.athletes : [];
   const athletes: any[] = [];
@@ -344,7 +329,6 @@ function flattenRosterAthletes(payload: any) {
   }
   return athletes;
 }
-
 async function rosterHeadshots(slug: string) {
   if (!slug) return new Map<string, string>();
   const cached = rosterCache.get(slug);
@@ -367,12 +351,11 @@ async function rosterHeadshots(slug: string) {
       }
     }
   } catch {
-    // A missing headshot should never block the public NFL payload.
+    // Missing headshots never block the football payload.
   }
   rosterCache.set(slug, { savedAt: Date.now(), players });
   return players;
 }
-
 async function playerHeadshotMap(rows: SheetRow[]) {
   const byTeam = new Map<string, SheetRow[]>();
   for (const row of rows) {
@@ -394,11 +377,11 @@ async function playerHeadshotMap(rows: SheetRow[]) {
   return result;
 }
 
-function annotateGameBestPlays(best: any[], tracker: SheetRow[], splits: any[]) {
-  return best.map((play) => {
-    const split = splitForBestPlay(play, splits);
-    const formType = gameBestRecordType(play, split);
-    const form = formFromRows(tracker.filter((row) => trackerMatchesGameBest(row, formType)));
+function annotateGameModelPlays(plays: any[], tracker: SheetRow[], splits: any[]) {
+  return plays.map((play) => {
+    const split = splitForModelPlay(play, splits);
+    const formType = gameModelRecordType(play, split);
+    const form = formFromRows(tracker.filter((row) => trackerMatchesGameModel(row, formType)));
     return {
       ...play,
       formStatus: form.status,
@@ -410,19 +393,13 @@ function annotateGameBestPlays(best: any[], tracker: SheetRow[], splits: any[]) 
   });
 }
 
-async function buildNflPropBestPlays(
-  propRows: SheetRow[],
-  propTracker: SheetRow[],
-  slate: SheetRow[],
-  today: string,
-) {
+async function buildNflPropModelPlays(propRows: SheetRow[], propTracker: SheetRow[], slate: SheetRow[], today: string) {
   const eligible = propRows
     .filter((row) => isoDate(row.Date || row["Game Date"] || "") === today)
-    .filter((row) => qualifiedNflPropGrade(row.Grade))
+    .filter((row) => qualifiedNflPropRow(row))
     .map((row) => ({ row, game: matchingSlateGame(row, slate) }))
     .filter((entry) => Boolean(entry.game));
   const headshots = await playerHeadshotMap(eligible.map((entry) => entry.row));
-
   return eligible.map(({ row, game }) => {
     const playerName = String(row.Player || "").trim();
     const propMarket = String(row.Market || "Player Prop").trim();
@@ -436,7 +413,7 @@ async function buildNflPropBestPlays(
     const odds = formatAmericanOdds(row["Pick Odds"] || row.Odds || "");
     const projection = String(row.Projection || row["Raw Projection"] || "").trim();
     return {
-      playType: String(row.Grade || "").trim(),
+      playType: String(row.Grade || row["Model Grade"] || "").trim(),
       game: `${awayTeam} @ ${homeTeam}`,
       play: `${playerName} ${side}${line ? ` ${line}` : ""}`.replace(/\s+/g, " ").trim(),
       oddsLine: odds,
@@ -462,17 +439,17 @@ async function buildNflPropBestPlays(
       formType,
     };
   }).sort((a, b) => {
-    const hot = (value: EzpzForm) => value === "HOT" ? 4 : value === "NEUTRAL" ? 3 : value === "SAMPLE" ? 2 : 1;
-    const formDiff = hot(b.formStatus) - hot(a.formStatus);
+    const formRank = (value: EzpzForm) => value === "HOT" ? 4 : value === "NEUTRAL" ? 3 : value === "SAMPLE" ? 2 : 1;
+    const formDiff = formRank(b.formStatus) - formRank(a.formStatus);
     if (formDiff) return formDiff;
-    const grade = (value: unknown) => textKey(value) === "a prop" ? 2 : 1;
-    const gradeDiff = grade(b.playType) - grade(a.playType);
+    const gradeRank = (value: unknown) => nflGradeLabel(value) === "A" ? 2 : 1;
+    const gradeDiff = gradeRank(b.playType) - gradeRank(a.playType);
     if (gradeDiff) return gradeDiff;
     return Number(b.score || 0) - Number(a.score || 0);
   });
 }
 
-function bestPlayEzpzPick(play: any): NflEzpzPick | null {
+function modelPlayEzpzPick(play: any): NflEzpzPick | null {
   if (play.formStatus !== "HOT") return null;
   const odds = parseAmericanOdds(play.marketOdds || play.oddsLine);
   if (odds == null || odds < -150) return null;
@@ -482,12 +459,12 @@ function bestPlayEzpzPick(play: any): NflEzpzPick | null {
   return {
     source: "Best Play",
     game: play.game,
-    market: isProp ? "Player Prop" : gameBestMarket(play),
+    market: isProp ? "Player Prop" : gameModelMarket(play),
     selection: play.play,
     odds: formatAmericanOdds(odds),
     score,
-    tier: play.playType || "Best Play",
-    qualification: `HOT Last 7 ${play.formType || "Best Play"} (${play.formRecord || "0-0-0"}) • -150 or better`,
+    tier: play.playType || "Model Play",
+    qualification: `HOT Last 7 ${play.formType || "Model Play"} (${play.formRecord || "0-0-0"}) • -150 or better`,
     record: play.formRecord,
     formStatus: play.formStatus,
     formType: play.formType,
@@ -509,7 +486,6 @@ type NflTrendModelSpec = {
   coef: number[];
   intercept: number;
 };
-
 type NflTrendModelState = {
   status: string;
   version: string;
@@ -517,21 +493,16 @@ type NflTrendModelState = {
   model: NflTrendModelSpec | null;
   reason: string;
 };
-
 function finiteNumber(value: unknown) {
   if (value == null || value === "") return null;
   const n = Number(String(value).replace(/%/g, "").trim());
   return Number.isFinite(n) ? n : null;
 }
-
 function impliedProbabilityPct(value: unknown) {
   const odds = parseAmericanOdds(value);
   if (odds == null || odds === 0) return null;
-  return odds > 0
-    ? (100 / (odds + 100)) * 100
-    : (Math.abs(odds) / (Math.abs(odds) + 100)) * 100;
+  return odds > 0 ? (100 / (odds + 100)) * 100 : (Math.abs(odds) / (Math.abs(odds) + 100)) * 100;
 }
-
 function parseNflTrendModelState(rows: SheetRow[]): NflTrendModelState {
   const row = rows.find((entry) => textKey(entry.Sport) === "nfl") || rows[0] || {};
   const status = String(row.Status || "COLLECTING").trim() || "COLLECTING";
@@ -554,22 +525,14 @@ function parseNflTrendModelState(rows: SheetRow[]): NflTrendModelState {
       model = null;
     }
   }
-  return {
-    status,
-    version,
-    threshold,
-    model,
-    reason: String(row["Promotion Reason"] || "").trim(),
-  };
+  return { status, version, threshold, model, reason: String(row["Promotion Reason"] || "").trim() };
 }
-
 function trendSignalKeys(play: any) {
   const keys = (Array.isArray(play?.signals) ? play.signals : [])
     .map((signal: any) => String(signal?.signalKey || "").trim())
     .filter((key: string) => Boolean(key));
   return new Set<string>(keys);
 }
-
 function trendSideGroup(play: any) {
   const direct = textKey(play?.sideGroup || "");
   if (direct) return direct;
@@ -578,7 +541,6 @@ function trendSideGroup(play: any) {
   const line = finiteNumber(play?.line);
   return line != null && line < 0 ? "favorite" : "underdog";
 }
-
 function nflTrendFeatureValue(play: any, feature: string, implied: number | null, signalKeys: Set<string>) {
   const side = trendSideGroup(play);
   const market = textKey(play?.market || "");
@@ -597,13 +559,10 @@ function nflTrendFeatureValue(play: any, feature: string, implied: number | null
   if (feature.startsWith("sig_")) return signalKeys.has(feature.slice(4)) ? 1 : 0;
   return finiteNumber(play?.[feature]);
 }
-
 function scoreNflTrendPlay(play: any, state: NflTrendModelState) {
   const spec = state.model;
   if (!spec) return null;
-  const implied = finiteNumber(play?.currentImpliedPct)
-    ?? finiteNumber(play?.impliedPct)
-    ?? impliedProbabilityPct(play?.odds);
+  const implied = finiteNumber(play?.currentImpliedPct) ?? finiteNumber(play?.impliedPct) ?? impliedProbabilityPct(play?.odds);
   if (implied == null) return null;
   const signalKeys = trendSignalKeys(play);
   let linear = Number(spec.intercept);
@@ -613,25 +572,14 @@ function scoreNflTrendPlay(play: any, state: NflTrendModelState) {
     const scale = Number(spec.scale[i]) || 1;
     linear += Number(spec.coef[i]) * ((value - Number(spec.mean[i])) / scale);
   }
-  const probability = linear >= 0
-    ? 1 / (1 + Math.exp(-linear))
-    : Math.exp(linear) / (1 + Math.exp(linear));
+  const probability = linear >= 0 ? 1 / (1 + Math.exp(-linear)) : Math.exp(linear) / (1 + Math.exp(linear));
   const predictedWinPct = probability * 100;
   const modelGapPct = predictedWinPct - implied;
-  return {
-    ...play,
-    predictedWinPct,
-    impliedProbabilityPct: implied,
-    modelGapPct,
-    trendModelVersion: state.version,
-  };
+  return { ...play, predictedWinPct, impliedProbabilityPct: implied, modelGapPct, trendModelVersion: state.version };
 }
-
 function scoreNflTrendBoard(plays: any[], state: NflTrendModelState) {
   if (!state.model) return [];
-  const scored = plays
-    .map((play) => scoreNflTrendPlay(play, state))
-    .filter(Boolean) as any[];
+  const scored = plays.map((play) => scoreNflTrendPlay(play, state)).filter(Boolean) as any[];
   const groups = new Map<string, any[]>();
   for (const play of scored) {
     const key = `${textKey(play.game)}|${textKey(play.market)}`;
@@ -646,7 +594,6 @@ function scoreNflTrendBoard(plays: any[], state: NflTrendModelState) {
   }
   return winners;
 }
-
 function trendEzpzPick(play: any, threshold: number): NflEzpzPick | null {
   const modelGapPct = Number(play.modelGapPct);
   if (!Number.isFinite(modelGapPct) || modelGapPct < threshold) return null;
@@ -673,7 +620,6 @@ function trendEzpzPick(play: any, threshold: number): NflEzpzPick | null {
     snapshotStatus: String(play.snapshotStatus || "LIVE"),
   };
 }
-
 function dedupeEzpzPicks(picks: NflEzpzPick[]) {
   const map = new Map<string, NflEzpzPick>();
   for (const pick of picks) {
@@ -704,8 +650,8 @@ export async function buildFootballPublicData(
   sport: FootballSport,
   options: { forceFresh?: boolean; persist?: boolean } = {},
 ) {
-  const legacy = await buildLegacyFootballPublicData(sport, options) as any;
-  if (sport !== "NFL") return legacy;
+  const core = await buildCoreFootballPublicData(sport, options) as any;
+  if (sport !== "NFL") return core;
 
   const [propRows, propTracker, trendModelRows] = await Promise.all([
     readSportWorksheet("NFL", "prop_projections"),
@@ -713,13 +659,18 @@ export async function buildFootballPublicData(
     readSportWorksheet("NFL", "trend_v2_models"),
   ]);
   const nflTrendModel = parseNflTrendModelState(trendModelRows);
+  const today = String(core.today || "");
+  const slate = Array.isArray(core.slateToday) ? core.slateToday : [];
+  const tracker = Array.isArray(core.betTrackerRows) ? core.betTrackerRows : [];
+  const splits = Array.isArray(core.draftKings?.splits) ? core.draftKings.splits : [];
 
-  const today = String(legacy.today || "");
-  const slate = Array.isArray(legacy.slateToday) ? legacy.slateToday : [];
-  const tracker = Array.isArray(legacy.betTrackerRows) ? legacy.betTrackerRows : [];
-  const splits = Array.isArray(legacy.draftKings?.splits) ? legacy.draftKings.splits : [];
-  const qualifiedPropTrackerForRecords = propTracker.filter((row) => qualifiedNflPropGrade(row.Grade));
-  const combinedBestPlayTracker = [...tracker, ...qualifiedPropTrackerForRecords];
+  // The prop tracker is the canonical history for NFL player props. Do not
+  // gate record ingestion on one exact legacy Grade spelling; normalize A/B
+  // grade variants and retain every qualifying row so historical props cannot
+  // silently disappear from the public record.
+  const propTrackerForRecords = propTracker.filter(qualifiedNflPropRow);
+  const combinedModelTracker = [...tracker, ...propTrackerForRecords];
+
   const nflRecordTotals = (rows: SheetRow[], days?: number) => {
     const referenceDate = today || new Date().toISOString().slice(0, 10);
     const reference = Date.parse(`${referenceDate}T12:00:00Z`);
@@ -744,9 +695,7 @@ export async function buildFootballPublicData(
       } else if (result === "L") {
         losses += 1;
         units -= 1;
-      } else {
-        pushes += 1;
-      }
+      } else pushes += 1;
     }
     const totalBets = wins + losses + pushes;
     const decisions = wins + losses;
@@ -773,7 +722,7 @@ export async function buildFootballPublicData(
   const exactRecordTypeForRow = (row: SheetRow) => {
     const market = textKey(row["Bet Type"] || row.Market);
     if (market.includes("spread") || market.includes("total")) return gameTrackerRecordType(row);
-    if (qualifiedNflPropGrade(row.Grade || row["Model Grade"])) return propRecordType(row);
+    if (qualifiedNflPropRow(row)) return propRecordType(row);
     return "";
   };
   const recordOrder = [
@@ -794,56 +743,55 @@ export async function buildFootballPublicData(
     const rightGrade = right.startsWith("A ") ? 0 : right.startsWith("B ") ? 1 : 2;
     if (leftGrade !== rightGrade) return leftGrade - rightGrade;
     const strip = (value: string) => value.replace(/^[AB]\s+/, "");
-    const leftType = strip(left);
-    const rightType = strip(right);
-    const leftRank = recordOrder.indexOf(leftType);
-    const rightRank = recordOrder.indexOf(rightType);
+    const leftRank = recordOrder.indexOf(strip(left));
+    const rightRank = recordOrder.indexOf(strip(right));
     if (leftRank !== rightRank) return (leftRank < 0 ? 999 : leftRank) - (rightRank < 0 ? 999 : rightRank);
     return left.localeCompare(right);
   };
-  const exactRecordTypes = [...new Set(combinedBestPlayTracker.map(exactRecordTypeForRow).filter(Boolean))].sort(nflRecordTypeSort);
+  const exactRecordTypes = [...new Set(combinedModelTracker.map(exactRecordTypeForRow).filter(Boolean))].sort(nflRecordTypeSort);
   const nflRecordSummary = exactRecordTypes.map((betType) =>
-    nflSummaryRow(betType, combinedBestPlayTracker.filter((row) => exactRecordTypeForRow(row) === betType)),
+    nflSummaryRow(betType, combinedModelTracker.filter((row) => exactRecordTypeForRow(row) === betType)),
   );
   const nflLast7RecordSummary = exactRecordTypes.map((betType) =>
-    nflSummaryRow(betType, combinedBestPlayTracker.filter((row) => exactRecordTypeForRow(row) === betType), 7),
+    nflSummaryRow(betType, combinedModelTracker.filter((row) => exactRecordTypeForRow(row) === betType), 7),
   );
-  const nflOverallBestRecord = nflRecordTotals(combinedBestPlayTracker);
-  const nflLast7BestRecord = nflRecordTotals(combinedBestPlayTracker, 7);
-  const nflPendingBestPlays = combinedBestPlayTracker.filter((row) => !resultCode(row.Result || row.Status)).length;
-    const legacyGameBest = (Array.isArray(legacy.bestPlays) ? legacy.bestPlays : [])
-    .filter((play: any) => !textKey(play.role || "").includes("player prop"));
-  const gameBest = annotateGameBestPlays(legacyGameBest, tracker, splits);
-  const propBest = await buildNflPropBestPlays(propRows, propTracker, slate, today);
-  const bestPlays = [...gameBest, ...propBest];
+  const nflOverallModelRecord = nflRecordTotals(combinedModelTracker);
+  const nflLast7ModelRecord = nflRecordTotals(combinedModelTracker, 7);
+  const nflPendingModelPlays = combinedModelTracker.filter((row) => !resultCode(row.Result || row.Status)).length;
 
-  const todayTrendPlays = (Array.isArray(legacy.trendPlays) ? legacy.trendPlays : [])
+  const coreGameModelPlays = (Array.isArray(core.bestPlays) ? core.bestPlays : [])
+    .filter((play: any) => !textKey(play.role || "").includes("player prop"));
+  const gameModelPlays = annotateGameModelPlays(coreGameModelPlays, tracker, splits);
+  const propModelPlays = await buildNflPropModelPlays(propRows, propTracker, slate, today);
+  const bestPlays = [...gameModelPlays, ...propModelPlays];
+
+  const todayTrendPlays = (Array.isArray(core.trendPlays) ? core.trendPlays : [])
     .filter((play: any) => isoDate(play.date || today) === today);
-  const bestPicks = bestPlays.map(bestPlayEzpzPick).filter(Boolean) as NflEzpzPick[];
+  const modelPicks = bestPlays.map(modelPlayEzpzPick).filter(Boolean) as NflEzpzPick[];
   const scoredTrendPlays = scoreNflTrendBoard(todayTrendPlays, nflTrendModel);
   const trendPicks = scoredTrendPlays
     .map((play) => trendEzpzPick(play, nflTrendModel.threshold))
     .filter(Boolean) as NflEzpzPick[];
-  const aiPicks = dedupeEzpzPicks([...bestPicks, ...trendPicks]);
+  const aiPicks = dedupeEzpzPicks([...modelPicks, ...trendPicks]);
 
   const trendRule = nflTrendModel.model
     ? `Trend gate = NFL V2 predicted win probability − market-implied probability ≥ +${nflTrendModel.threshold.toFixed(1)}%.`
     : `NFL Trend V2 is ${nflTrendModel.status || "COLLECTING"}; no Trend EZPZ pick can qualify until an active NFL regression is promoted.${nflTrendModel.reason ? ` ${nflTrendModel.reason}` : ""}`;
   const ruleMessage = aiPicks.length
-    ? `NFL EZPZ Picks live: Best Play = HOT Last-7 + -150 or better. ${trendRule} Net ROI is not used.`
-    : `No NFL EZPZ Picks qualify right now. Best Play = HOT Last-7 + -150 or better. ${trendRule} Net ROI is not used.`;
+    ? `NFL EZPZ Picks live: Model Play = HOT Last-7 + -150 or better. ${trendRule} Net ROI is not used.`
+    : `No NFL EZPZ Picks qualify right now. Model Play = HOT Last-7 + -150 or better. ${trendRule} Net ROI is not used.`;
 
   return {
-    ...legacy,
+    ...core,
     bestPlays,
-    betTrackerRows: combinedBestPlayTracker,
+    betTrackerRows: combinedModelTracker,
     tiles: {
-      ...(legacy.tiles || {}),
-      last7Days: nflLast7BestRecord,
-      overallGreen: nflOverallBestRecord,
-      handpickedLast7: nflLast7BestRecord,
-      handpickedOverall: nflOverallBestRecord,
-      pendingGreen: nflPendingBestPlays,
+      ...(core.tiles || {}),
+      last7Days: nflLast7ModelRecord,
+      overallGreen: nflOverallModelRecord,
+      handpickedLast7: nflLast7ModelRecord,
+      handpickedOverall: nflOverallModelRecord,
+      pendingGreen: nflPendingModelPlays,
       bestPlaysToday: bestPlays.length,
     },
     recordSummary: nflRecordSummary,
@@ -859,11 +807,11 @@ export async function buildFootballPublicData(
       reason: nflTrendModel.reason,
     },
     aiSelectorStatus: {
-      ...(legacy.aiSelectorStatus || {}),
+      ...(core.aiSelectorStatus || {}),
       message: ruleMessage,
       candidateCount: bestPlays.length + scoredTrendPlays.length,
       selectedCount: aiPicks.length,
-      updatedAt: legacy.lastUpdated,
+      updatedAt: core.lastUpdated,
     },
   };
 }
