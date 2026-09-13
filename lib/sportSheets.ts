@@ -103,6 +103,15 @@ const SPORT_WORKSHEET_READ_CACHE_TTL_MS = 60_000;
 const SPORT_WORKSHEET_READ_STALE_MS = 30 * 60_000;
 const SPORT_WORKSHEET_SHARED_CACHE_SECONDS = 60;
 
+// prop_projections is replaced whenever the NFL builder resets/reruns a slate.
+// It must turn over much faster than historical/record worksheets or the public
+// board can legitimately render a previous run after the underlying Sheet is
+// already current. A time-bucketed shared key preserves cross-visitor quota
+// protection while guaranteeing a fresh Sheets read at least every few seconds.
+const VOLATILE_WORKSHEET_CACHE_TTL_MS = 5_000;
+const VOLATILE_WORKSHEET_STALE_MS = 30_000;
+const VOLATILE_WORKSHEETS = new Set(["prop_projections"]);
+
 type SportWorksheetCacheEntry = {
   savedAt: number;
   rows: SheetRow[];
@@ -113,6 +122,18 @@ const sportWorksheetReadInFlight = new Map<string, Promise<SheetRow[]>>();
 
 function sportWorksheetCacheKey(sport: FootballSport, worksheetName: string) {
   return `${sport}|${worksheetName}`;
+}
+
+function sportWorksheetReadTtlMs(worksheetName: string) {
+  return VOLATILE_WORKSHEETS.has(String(worksheetName || "").trim().toLowerCase())
+    ? VOLATILE_WORKSHEET_CACHE_TTL_MS
+    : SPORT_WORKSHEET_READ_CACHE_TTL_MS;
+}
+
+function sportWorksheetStaleMs(worksheetName: string) {
+  return VOLATILE_WORKSHEETS.has(String(worksheetName || "").trim().toLowerCase())
+    ? VOLATILE_WORKSHEET_STALE_MS
+    : SPORT_WORKSHEET_READ_STALE_MS;
 }
 
 function copySportRows(rows: SheetRow[], columns?: string[]) {
@@ -220,9 +241,16 @@ function quoteSheetName(name: string) {
 
 // Unlike the in-memory Map above, this cache is shared by Next/Vercel across
 // public requests. That means 100 visitors opening the NFL or NCAAF board inside
-// the same minute reuse one Google Sheets result for each worksheet.
+// the same cache window reuse one Google Sheets result for each worksheet.
+// freshnessBucket is intentionally unused by the Sheets query itself: because
+// unstable_cache keys include function arguments, volatile worksheets receive a
+// new shared cache identity when their short freshness window rolls over.
 const readSportWorksheetShared = unstable_cache(
-  async (sport: FootballSport, worksheetName: string): Promise<SheetRow[]> => {
+  async (
+    sport: FootballSport,
+    worksheetName: string,
+    _freshnessBucket = 0,
+  ): Promise<SheetRow[]> => {
     const spreadsheetId = await resolveSportSpreadsheetId(sport);
     const sheets = await sheetsClient();
     const physicalName = physicalWorksheetName(sport, worksheetName);
@@ -241,7 +269,7 @@ const readSportWorksheetShared = unstable_cache(
       throw error;
     }
   },
-  ["ezpz-public-sport-worksheet-v1"],
+  ["ezpz-public-sport-worksheet-v2"],
   { revalidate: SPORT_WORKSHEET_SHARED_CACHE_SECONDS },
 );
 
@@ -252,9 +280,11 @@ export async function readSportWorksheet(
 ): Promise<SheetRow[]> {
   const key = sportWorksheetCacheKey(sport, worksheetName);
   const now = Date.now();
+  const cacheTtlMs = sportWorksheetReadTtlMs(worksheetName);
+  const staleMs = sportWorksheetStaleMs(worksheetName);
   const cached = sportWorksheetReadCache.get(key);
 
-  if (cached && now - cached.savedAt < SPORT_WORKSHEET_READ_CACHE_TTL_MS) {
+  if (cached && now - cached.savedAt < cacheTtlMs) {
     return copySportRows(cached.rows, columns);
   }
 
@@ -263,11 +293,14 @@ export async function readSportWorksheet(
 
   const operation = (async () => {
     try {
-      const rows = await readSportWorksheetShared(sport, worksheetName);
+      const freshnessBucket = cacheTtlMs < SPORT_WORKSHEET_READ_CACHE_TTL_MS
+        ? Math.floor(Date.now() / cacheTtlMs)
+        : 0;
+      const rows = await readSportWorksheetShared(sport, worksheetName, freshnessBucket);
       sportWorksheetReadCache.set(key, { savedAt: Date.now(), rows: copySportRows(rows) });
       return rows;
     } catch (error: any) {
-      if (cached && Date.now() - cached.savedAt < SPORT_WORKSHEET_READ_STALE_MS && isSheetsQuotaError(error)) {
+      if (cached && Date.now() - cached.savedAt < staleMs && isSheetsQuotaError(error)) {
         console.warn(`Using stale ${sport} ${worksheetName} worksheet cache after Sheets quota error.`);
         return copySportRows(cached.rows, columns);
       }
@@ -341,7 +374,6 @@ export async function ensureSportWorksheet(
     }
   }
   invalidateSportWorksheetReadCache(sport, worksheetName);
-
 }
 
 export async function writeSportWorksheet(
@@ -366,7 +398,6 @@ export async function writeSportWorksheet(
     requestBody: { values: [headers, ...values] },
   });
   invalidateSportWorksheetReadCache(sport, worksheetName);
-
 }
 
 export async function upsertSportRows(
