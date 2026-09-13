@@ -691,14 +691,20 @@ function fbSignedPercent(value: number) {
 
 function fbTrendPlayForPick(pick: EzpzPick, trendPlays: TrendPlay[]) {
   const sameMarket = trendPlays.filter((play) => fbSameGame(play.game, pick.game) && play.market === pick.market);
+  const requestedLine = fbTrailingLine(pick.selection);
+  const sameLine = (play: TrendPlay) => {
+    if (requestedLine == null) return true;
+    const playLine = Number(play.line);
+    return Number.isFinite(playLine) && Math.abs(playLine - requestedLine) < 0.001;
+  };
   if (pick.market === "Total") {
     const wantedSide = textKey(pick.selection).startsWith("under") ? "under" : "over";
-    return sameMarket.find((play) => textKey(play.side) === wantedSide) || null;
+    return sameMarket.find((play) => textKey(play.side) === wantedSide && sameLine(play)) || null;
   }
   const pickTeam = textKey(String(pick.selection || "").replace(/\s+[+-]?\d+(?:\.\d+)?\s*$/, ""));
   return sameMarket.find((play) => {
     const trendTeam = textKey(play.selectionTeam || play.selection);
-    return Boolean(trendTeam && (pickTeam === trendTeam || pickTeam.includes(trendTeam) || trendTeam.includes(pickTeam)));
+    return sameLine(play) && Boolean(trendTeam && (pickTeam === trendTeam || pickTeam.includes(trendTeam) || trendTeam.includes(pickTeam)));
   }) || null;
 }
 
