@@ -1641,60 +1641,12 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
     return{...row,"Public Bets %":String(split.betsPct),"Public Money %":String(split.moneyPct),"Public Gap %":String(split.gapPct),"Public Warning":split.warning,"Public Warning Negative":split.warningNegative?"TRUE":"FALSE","Public Split Source":"DraftKings","Public Split Market":split.market,"Public Split Selection":split.market==="Total"?split.side:split.selectionTeam,"Public Split Line":split.line==null?"":String(split.line),"Public Split Odds":split.odds,"Public Split Match Confidence":locked?"Final 15-minute football market lock":"Live weekly football market","Public Split Snapshot Time":marketStamp,"Opening Public %":String(split.openingBetsPct??split.betsPct),"Current Public %":String(split.betsPct),"Public Change %":String(split.publicMovementPct??0),"Opening Sharp %":String(split.openingMoneyPct??split.moneyPct),"Current Sharp %":String(split.moneyPct),"Sharp Change %":String(split.sharpMovementPct??0),"Opening Public Split Line":split.openingLine==null?"":String(split.openingLine),"Opening Public Split Odds":split.openingOdds||split.odds,"Opening Public Split Snapshot Time":split.openingSnapshotTime||String(snapshotMap.get(splitSnapshotKey(split))?.["Opening Snapshot Time ET"]||marketStamp),"Opening Implied %":split.openingImpliedPct==null?"":String(split.openingImpliedPct),"Current Implied %":split.currentImpliedPct==null?"":String(split.currentImpliedPct),"Line Movement Signal":split.lineMovementSignal||"","Line Movement Tone":split.lineMovementTone||"","Line Movement Basis":split.lineMovementBasis||"","Line Movement Value":split.lineMovementValue==null?"":String(split.lineMovementValue),"Trend Play":play?"TRUE":"FALSE","Trend Score":play?String(Math.round(play.score)):"","Trend Tier":play?.tier||"","Trend Signals":play?.signals.map(s=>s.signal).join(" | ")||"","Trend All Time Record":primary?.records.allTime.record||"","Trend Last 30 Record":primary?.records.last30.record||"","Trend Last 7 Record":primary?.records.last7.record||"","Trend Exact Sample":play?.signals.map(s=>s.exactSample).join(" | ")||"","Trend Sample Size":play?String(play.TrendSampleSize):"","History Source":play?.HistorySource||"","Fallback Reason":play?.FallbackReason||"","Trend Score Details":play?JSON.stringify({...play,frozenAt:locked?marketStamp:undefined,snapshotStatus:locked?"FINAL_PREGAME":"LIVE",gradingVersion:locked?FROZEN_TREND_GRADING_VERSION:undefined}):""};
   });
   if(persist) await upsertSportRows(sport,"all_game_trends",ALL_GAME_TRENDS_HEADERS,trendRows,trendRowKey);
-  // The public board must render the same frozen object that was persisted.
-  // Otherwise the UI recalculates a LIVE play after lock and shows an Updated
-  // timestamp later than the advertised final-lock time.
-  const displayTrendMap=new Map<string,TrendPlay>();
-  const displayTrendKey=(play:TrendPlay)=>`${play.gameKey||textKey(play.game)}|${play.market}|${textKey(play.market==="Total"?play.side:play.selection)}`;
-  for(const rawPlay of trendPlays){
-  const play=rawPlay as TrendPlay;
-  const matchingSplit=enriched.find((split)=>
-    textKey(split.game)===textKey(play.game)&&
-    split.market===play.market&&
-    (play.market==="Total"
-      ? textKey(split.side)===textKey(play.side)
-      : textKey(split.selectionTeam)===textKey(play.selectionTeam))
-  );
-  const matchingSlate=slate.find((row)=>
-    String(row["Game ID"]||row["Game Key"]||"")===play.gameKey
-  );
-  const minutesToKickoff=matchingSplit
-    ? minutesUntilDraftKingsKickoff(matchingSplit) ?? (matchingSlate?minutesUntilKickoff(matchingSlate):null)
-    : matchingSlate?minutesUntilKickoff(matchingSlate):null;
-  // Never silently remove a trend card at T-15. If the authoritative
-  // FINAL_PREGAME object was missed, keep the last verified view visible
-  // and label it clearly. The persisted final object below still wins
-  // whenever a valid lock was captured.
-  if(minutesToKickoff!=null&&minutesToKickoff<=15){
-    const lastVerified=matchingSplit?.snapshotTime||play.updatedAt||"unavailable";
-    displayTrendMap.set(displayTrendKey(play),{
-      ...play,
-      snapshotStatus:"MISSED_LOCK",
-      lockWarning:`Lock capture missed — last verified ${lastVerified}.`,
-    });
-    continue;
-  }
-  displayTrendMap.set(displayTrendKey(play),play);
-}
-  for(const row of trendRows){
-    if(isoDate(row.Date)!==today||!authoritativeFinalTrend(row)) continue;
-    try{
-      const play=JSON.parse(String(row["Trend Score Details"]||"")) as TrendPlay;
-      displayTrendMap.set(displayTrendKey(play),play);
-    }catch{/* ignore malformed legacy JSON */}
-  }
-  // The weekly market worksheet is the authoritative scored board. It contains
-  // the exact persisted market state, including FINAL_PREGAME cards. Use the same
-  // objects for the Trends tab and EZPZ candidate construction so lock-time
-  // displays cannot drift from the object that was actually graded.
-  let weeklyTrendPlays: TrendPlay[] = [];
-  try {
-    const weekly = await readWeeklyFootballMarket(sport);
-    weeklyTrendPlays = Array.isArray(weekly.trendPlays) ? weekly.trendPlays as unknown as TrendPlay[] : [];
-  } catch (error) {
-    console.warn(sport + " weekly football trend read failed; retaining legacy trend board", error);
-  }
-  const displayTrendPlays = weeklyTrendPlays.length ? weeklyTrendPlays : [...displayTrendMap.values()];
+  // The weekly market worksheet is the sole public trend source. It stores
+  // the scored object and its immutable FINAL_PREGAME state.
+  const weeklyMarket = await readWeeklyFootballMarket(sport);
+  const displayTrendPlays = Array.isArray(weeklyMarket.trendPlays)
+    ? weeklyMarket.trendPlays as unknown as TrendPlay[]
+    : [];
   // EZPZ is a daily card, even though the football trend board tracks the full market week.
   // Keep the weekly trend payload for the Trend Plays tab, but only today's games may enter EZPZ.
   const todaySlate=slate.filter((row)=>isoDate(row.Date||row["Game Date"]||"")===today);
