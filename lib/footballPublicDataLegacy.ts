@@ -1690,7 +1690,7 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
   let weeklyTrendPlays: TrendPlay[] = [];
   try {
     const weekly = await readWeeklyFootballMarket(sport);
-    weeklyTrendPlays = Array.isArray(weekly.trendPlays) ? weekly.trendPlays as TrendPlay[] : [];
+    weeklyTrendPlays = Array.isArray(weekly.trendPlays) ? weekly.trendPlays as unknown as TrendPlay[] : [];
   } catch (error) {
     console.warn(sport + " weekly football trend read failed; retaining legacy trend board", error);
   }
