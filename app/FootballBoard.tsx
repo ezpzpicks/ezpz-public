@@ -95,6 +95,7 @@ type NflEzpzPick = {
   propMarket?: string;
   propSide?: string;
   propLine?: string | number;
+  propProjection?: string | number;
   gapPct?: number;
   modelGapPct?: number;
   predictedWinPct?: number;
@@ -168,6 +169,8 @@ function NflEzpzCard({ pick }: { pick: NflEzpzPick }) {
   const final = hasModel || String(pick.snapshotStatus || "").toUpperCase() === "FINAL_PREGAME";
   const form = formBadge(pick.formStatus, pick.record);
   const gap = Number(pick.modelGapPct ?? pick.gapPct);
+  const propLine = String(pick.propLine ?? "").trim() || "—";
+  const propProjection = String(pick.propProjection ?? "").trim() || "—";
   return (
     <article className={`nflEzpzCard ${isProp ? "prop" : ""}`}>
       <div className="nflEzpzTop"><div className="nflEzpzBadges"><span className="nflSourceBadge">{sourceLabel(pick.source)}</span><span className={`nflStatusBadge ${final ? "final" : "pending"}`}>{final ? "FINAL" : "PENDING"}</span></div><strong className="nflEzpzOdds">{displayOdds(pick.odds)}</strong></div>
@@ -177,7 +180,7 @@ function NflEzpzCard({ pick }: { pick: NflEzpzPick }) {
         <div className="nflEzpzSelection"><span><MatchupWithLogos sport="NFL" game={pick.game || ""} compact /></span><h3><SelectionWithTeamLogo sport="NFL" selection={pick.selection || ""} game={pick.game || ""} /></h3><p>{pick.market}</p></div>
       )}
       <div className="nflGateRow">
-        {hasModel ? <div className={`nflGate best ${form.cls}`}><span>Model Play Gate</span><strong>{form.icon} HOT + -150 or better</strong><small>{pick.formType || "Bet type"} • {pick.record || "—"}</small></div> : null}
+        {hasModel ? <div className={`nflGate best ${form.cls}`}><span>Model Play Gate</span><strong>{isProp ? `${form.icon} HOT • LINE ${propLine} • PROJ ${propProjection}` : `${form.icon} HOT`}</strong><small>{pick.formType || "Bet type"} • {pick.record || "—"}</small></div> : null}
         {hasTrend ? <div className="nflGate trend"><span>Trend Gate</span><strong>{Number.isFinite(gap) ? `${gap >= 0 ? "+" : ""}${gap.toFixed(1)}% GAP` : "15%+ GAP"}</strong><small>NFL V2 predicted win probability − market-implied probability must be +15.0% or higher</small></div> : null}
       </div>
       <div className="nflEzpzRuleText"><strong>{pick.qualification || "Qualified"}</strong>{hasTrend ? <span>Raw Handle − Bets is an input to the regression, not the 15% qualification gap. Net ROI is not a Trend gate.</span> : null}</div>
