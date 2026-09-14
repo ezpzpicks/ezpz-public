@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { buildFootballPublicData } from "../../../../lib/footballPublicData";
+import { settlePendingFootballResults } from "../../../../lib/footballResultSettlement";
 import { evaluateFootballTrendV2 } from "../../../../lib/footballTrendV2Lifecycle";
 import type { FootballSport } from "../../../../lib/sportSheets";
 
@@ -37,6 +38,17 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    let settlement: unknown = null;
+    try {
+      settlement = await settlePendingFootballResults(sport, { force: true });
+    } catch (error) {
+      console.warn(`${sport} final-score settlement failed`, error);
+      settlement = {
+        sport,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+
     const payload = await buildFootballPublicData(sport, {
       forceFresh: true,
       persist: true,
@@ -54,7 +66,7 @@ export async function GET(request: NextRequest) {
         reason: "Lifecycle evaluation failed; incumbent/legacy scoring was left unchanged.",
       };
     }
-    return NextResponse.json({ ...payload, trendV2Lifecycle }, {
+    return NextResponse.json({ ...payload, settlement, trendV2Lifecycle }, {
       headers: {
         "Cache-Control": "no-store, max-age=0",
       },
