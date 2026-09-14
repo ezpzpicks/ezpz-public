@@ -174,5 +174,16 @@ if (text.includes('from "googleapis"') || text.includes("google.")) {
 }
 
 fs.writeFileSync(path, text);
+
+// Trend lifecycle no longer uses the Google client; remove the obsolete import
+// so the runtime has no googleapis dependency after the storage cutover.
+const lifecyclePath = "lib/mlbTrendV2Lifecycle.ts";
+let lifecycle = fs.readFileSync(lifecyclePath, "utf8");
+lifecycle = lifecycle.replace('import { google } from "googleapis";\n', "");
+if (lifecycle.includes('from "googleapis"') || lifecycle.includes("google.")) {
+  throw new Error("googleapis runtime reference remains in mlbTrendV2Lifecycle.ts");
+}
+fs.writeFileSync(lifecyclePath, lifecycle);
+
 fs.rmSync("scripts/turso_source_cutover.mjs", { force: true });
 fs.rmSync(".github/workflows/turso-source-cutover.yml", { force: true });
