@@ -1,5 +1,5 @@
-import { google } from "googleapis";
 import { readWorksheet, type SheetRow } from "./googleSheets";
+import { readTursoDataset, replaceTursoDataset } from "./tursoStore";
 import {
   type AnyRow,
   type V2TrendPlay,
@@ -577,149 +577,20 @@ function average(values: Array<number | null | undefined>) {
   return valid.length ? valid.reduce((sum, value) => sum + value, 0) / valid.length : null;
 }
 
-function credentials() {
-  const raw = process.env.GOOGLE_CREDENTIALS || process.env.GOOGLE_SERVICE_ACCOUNT_JSON || "";
-  if (!raw) throw new Error("Missing Google credentials for MLB Trend V2 lifecycle.");
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return JSON.parse(raw.replace(/\\n/g, "\n"));
-  }
-}
-
-function spreadsheetId() {
-  const id =
-    process.env.GOOGLE_SHEET_ID ||
-    process.env.GOOGLE_SPREADSHEET_ID ||
-    process.env.SPREADSHEET_ID ||
-    "";
-  if (!id) throw new Error("Missing GOOGLE_SHEET_ID for MLB Trend V2 lifecycle.");
-  return id;
-}
-
-let sheetsPromise: Promise<ReturnType<typeof google.sheets>> | null = null;
-
-async function sheetsClient() {
-  if (!sheetsPromise) {
-    sheetsPromise = (async () => {
-      const auth = new google.auth.GoogleAuth({
-        credentials: credentials(),
-        scopes: ["https://www.googleapis.com/auth/spreadsheets"],
-      });
-      return google.sheets({ version: "v4", auth });
-    })();
-  }
-  return sheetsPromise;
-}
-
-function colName(index: number) {
-  let value = index;
-  let out = "";
-  while (value > 0) {
-    const mod = (value - 1) % 26;
-    out = String.fromCharCode(65 + mod) + out;
-    value = Math.floor((value - 1) / 26);
-  }
-  return out;
-}
-
-async function ensureRegistryTab() {
-  const sheets = await sheetsClient();
-  const id = spreadsheetId();
-  const meta = await sheets.spreadsheets.get({
-    spreadsheetId: id,
-    fields: "sheets.properties",
-  });
-  const existing = (meta.data.sheets || []).find(
-    (sheet) => sheet.properties?.title === MODEL_TAB,
-  );
-  if (!existing) {
-    await sheets.spreadsheets.batchUpdate({
-      spreadsheetId: id,
-      requestBody: {
-        requests: [{
-          addSheet: {
-            properties: {
-              title: MODEL_TAB,
-              gridProperties: {
-                rowCount: 100,
-                columnCount: Math.max(20, MODEL_HEADERS.length),
-              },
-            },
-          },
-        }],
-      },
-    });
-    await sheets.spreadsheets.values.update({
-      spreadsheetId: id,
-      range: `'${MODEL_TAB}'!A1:${colName(MODEL_HEADERS.length)}1`,
-      valueInputOption: "RAW",
-      requestBody: { values: [MODEL_HEADERS] },
-    });
-  }
-}
-
-function rowToObject(headers: string[], row: any[]) {
-  const out: SheetRow = {};
-  headers.forEach((header, index) => {
-    out[header] = String(row[index] ?? "");
-  });
-  return out;
-}
-
 async function registryRow() {
-  await ensureRegistryTab();
-  const sheets = await sheetsClient();
-  const response = await sheets.spreadsheets.values.get({
-    spreadsheetId: spreadsheetId(),
-    range: `'${MODEL_TAB}'!A:${colName(MODEL_HEADERS.length)}`,
-  });
-  const values = (response.data.values || []) as any[][];
-  if (!values.length) return undefined;
-  const headers = values[0].map((value) => String(value || "").trim());
-  return values
-    .slice(1)
-    .map((row) => rowToObject(headers, row))
-    .find((row) => String(row.Sport || "").toUpperCase() === "MLB");
+  const rows = await readTursoDataset("MLB", MODEL_TAB, MODEL_HEADERS);
+  return rows.find((row) => String(row.Sport || "").toUpperCase() === "MLB");
 }
 
 async function upsertRegistryRow(row: SheetRow) {
-  await ensureRegistryTab();
-  const sheets = await sheetsClient();
-  const id = spreadsheetId();
-  const response = await sheets.spreadsheets.values.get({
-    spreadsheetId: id,
-    range: `'${MODEL_TAB}'!A:${colName(MODEL_HEADERS.length)}`,
-  });
-  const values = (response.data.values || []) as any[][];
-  const headers = values.length
-    ? values[0].map((value) => String(value || "").trim())
-    : MODEL_HEADERS;
-  let targetRow = -1;
-  for (let index = 1; index < values.length; index += 1) {
-    const object = rowToObject(headers, values[index] || []);
-    if (String(object.Sport || "").toUpperCase() === "MLB") {
-      targetRow = index + 1;
-      break;
-    }
-  }
-  const cells = MODEL_HEADERS.map((header) => String(row[header] ?? ""));
-  if (targetRow > 0) {
-    await sheets.spreadsheets.values.update({
-      spreadsheetId: id,
-      range: `'${MODEL_TAB}'!A${targetRow}:${colName(MODEL_HEADERS.length)}${targetRow}`,
-      valueInputOption: "RAW",
-      requestBody: { values: [cells] },
-    });
-  } else {
-    await sheets.spreadsheets.values.append({
-      spreadsheetId: id,
-      range: `'${MODEL_TAB}'!A:${colName(MODEL_HEADERS.length)}`,
-      valueInputOption: "RAW",
-      insertDataOption: "INSERT_ROWS",
-      requestBody: { values: [cells] },
-    });
-  }
+  const rows = await readTursoDataset("MLB", MODEL_TAB, MODEL_HEADERS);
+  const normalized: SheetRow = {};
+  for (const header of MODEL_HEADERS) normalized[header] = String(row[header] ?? "");
+  const index = rows.findIndex((existing) => String(existing.Sport || "").toUpperCase() === "MLB");
+  const nextRows = rows.map((existing) => ({ ...existing }));
+  if (index >= 0) nextRows[index] = normalized;
+  else nextRows.push(normalized);
+  await replaceTursoDataset("MLB", MODEL_TAB, nextRows, MODEL_HEADERS);
 }
 
 function lifecycleFromRow(row?: SheetRow): MlbTrendV2Lifecycle {

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { google } from "googleapis";
 import { readWorksheet as readWorksheetUncached } from "../../lib/googleSheets";
 import { buildFootballPublicData } from "../../lib/footballPublicData";
+import { appendTursoDataset, isTursoConfigured, readTursoDataset, replaceTursoDataset } from "../../lib/tursoStore";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -1480,231 +1480,113 @@ type SheetBlockUpdate = {
   fields: SheetRow;
 };
 
-function mainSpreadsheetId() {
-  return (
-    process.env.GOOGLE_SHEET_ID ||
-    process.env.GOOGLE_SPREADSHEET_ID ||
-    process.env.SPREADSHEET_ID ||
-    ""
-  ).trim();
-}
-
-function escapedSheetName(value: string) {
-  return String(value || "").replace(/'/g, "''");
-}
-
-function columnLetter(indexZeroBased: number) {
-  let value = indexZeroBased + 1;
-  let output = "";
-  while (value > 0) {
-    const remainder = (value - 1) % 26;
-    output = String.fromCharCode(65 + remainder) + output;
-    value = Math.floor((value - 1) / 26);
+function assertTursoStorage() {
+  if (!isTursoConfigured()) {
+    throw new Error("Turso is not configured. Google Sheets is no longer a production fallback.");
   }
-  return output;
 }
 
 function mainSheetsClient() {
-  const spreadsheetId = mainSpreadsheetId();
-  const { clientEmail, privateKey } = serviceAccountFromEnv();
-  if (!spreadsheetId) throw new Error("Missing GOOGLE_SHEET_ID for pregame DraftKings persistence.");
-  if (!clientEmail || !privateKey) {
-    throw new Error("Missing Google service-account credentials for pregame DraftKings persistence.");
-  }
-  const auth = new google.auth.JWT({
-    email: clientEmail,
-    key: privateKey,
-    scopes: ["https://www.googleapis.com/auth/spreadsheets"],
-  });
-  return {
-    spreadsheetId,
-    sheets: google.sheets({ version: "v4", auth }),
-  };
+  assertTursoStorage();
+  return { spreadsheetId: "turso:MLB", sheets: null as any };
 }
 
-function matrixFromValues(values: unknown[][]): WorksheetMatrix {
-  const headers = (values[0] || []).map((value) => String(value ?? "").trim());
-  const rows: WorksheetMatrixRow[] = [];
-  for (let index = 1; index < values.length; index += 1) {
-    const raw = (values[index] || []).map((value) => String(value ?? ""));
-    if (!raw.some((value) => value.trim())) continue;
+function matrixFromDataset(headers: string[], sourceRows: SheetRow[]): WorksheetMatrix {
+  const rows = sourceRows.map((source, index) => {
     const object: SheetRow = {};
-    headers.forEach((header, columnIndex) => {
-      if (header) object[header] = raw[columnIndex] || "";
-    });
-    rows.push({ sheetRow: index + 1, values: raw, object });
-  }
+    for (const header of headers) object[header] = String(source?.[header] ?? "");
+    return {
+      sheetRow: index + 2,
+      values: headers.map((header) => object[header]),
+      object,
+    };
+  });
   return { headers, rows };
 }
 
 async function ensureWorksheet(
-  sheets: any,
-  spreadsheetId: string,
+  _sheets: any,
+  _spreadsheetId: string,
   tabName: string,
   headers: string[] = [],
 ) {
-  const metadata = await sheets.spreadsheets.get({
-    spreadsheetId,
-    fields: "sheets.properties.title",
-  });
-  const exists = (metadata.data.sheets || []).some(
-    (sheet: any) => String(sheet?.properties?.title || "") === tabName,
-  );
-  if (!exists) {
-    await sheets.spreadsheets.batchUpdate({
-      spreadsheetId,
-      requestBody: { requests: [{ addSheet: { properties: { title: tabName } } }] },
-    });
-  }
-  if (headers.length) {
-    const result = await sheets.spreadsheets.values.get({
-      spreadsheetId,
-      range: `'${escapedSheetName(tabName)}'!1:1`,
-    });
-    const currentHeaders = (result.data.values?.[0] || []).map((value: unknown) =>
-      String(value ?? "").trim(),
-    );
-    const mergedHeaders = currentHeaders.length
-      ? [
-          ...currentHeaders,
-          ...headers.filter((header) => !currentHeaders.includes(header)),
-        ]
-      : headers;
-    if (mergedHeaders.length !== currentHeaders.length) {
-      await sheets.spreadsheets.values.update({
-        spreadsheetId,
-        range: `'${escapedSheetName(tabName)}'!A1:${columnLetter(mergedHeaders.length - 1)}1`,
-        valueInputOption: "RAW",
-        requestBody: { values: [mergedHeaders] },
-      });
-    }
+  assertTursoStorage();
+  const existing = await readTursoDataset("MLB", tabName, headers);
+  if (!existing.length) {
+    await replaceTursoDataset("MLB", tabName, [], headers);
+    invalidateWorksheetReadCache(tabName);
   }
 }
 
 async function readWorksheetMatrixWithClient(
-  sheets: any,
-  spreadsheetId: string,
+  _sheets: any,
+  _spreadsheetId: string,
   tabName: string,
   createHeaders: string[] = [],
 ): Promise<WorksheetMatrix> {
-  if (createHeaders.length) {
-    await ensureWorksheet(sheets, spreadsheetId, tabName, createHeaders);
+  assertTursoStorage();
+  await ensureWorksheet(null, "turso:MLB", tabName, createHeaders);
+  const rows = await readTursoDataset("MLB", tabName, createHeaders);
+  const headers = [...createHeaders];
+  for (const row of rows) {
+    for (const key of Object.keys(row || {})) {
+      if (key && !headers.includes(key)) headers.push(key);
+    }
   }
-  const result = await sheets.spreadsheets.values.get({
-    spreadsheetId,
-    range: `'${escapedSheetName(tabName)}'!A:ZZ`,
-  });
-  return matrixFromValues((result.data.values || []) as unknown[][]);
+  return matrixFromDataset(headers, rows as SheetRow[]);
 }
 
 async function writeWholeWorksheet(
-  sheets: any,
-  spreadsheetId: string,
+  _sheets: any,
+  _spreadsheetId: string,
   tabName: string,
   headers: string[],
   rows: SheetRow[],
-  existingMatrix?: WorksheetMatrix,
+  _existingMatrix?: WorksheetMatrix,
 ) {
-  await ensureWorksheet(sheets, spreadsheetId, tabName, headers);
-  const values = [
-    headers,
-    ...rows.map((row) => headers.map((header) => String(row[header] ?? ""))),
-  ];
-
-  // Write the replacement first. If Google rejects the update, the existing
-  // worksheet remains intact instead of being left completely empty.
-  await sheets.spreadsheets.values.update({
-    spreadsheetId,
-    range: `'${escapedSheetName(tabName)}'!A1`,
-    valueInputOption: "RAW",
-    requestBody: { values },
-  });
-
-  const oldRowCount = existingMatrix ? existingMatrix.rows.length + 1 : values.length;
-  const oldColumnCount = existingMatrix?.headers.length || headers.length;
-  const clearRanges: string[] = [];
-  if (oldRowCount > values.length) {
-    clearRanges.push(
-      `'${escapedSheetName(tabName)}'!A${values.length + 1}:ZZ${oldRowCount}`,
-    );
-  }
-  if (oldColumnCount > headers.length) {
-    clearRanges.push(
-      `'${escapedSheetName(tabName)}'!${columnLetter(headers.length)}1:${columnLetter(
-        oldColumnCount - 1,
-      )}${Math.max(oldRowCount, values.length)}`,
-    );
-  }
-  await Promise.all(
-    clearRanges.map((range) =>
-      sheets.spreadsheets.values.clear({
-        spreadsheetId,
-        range,
-        requestBody: {},
-      }),
-    ),
-  );
+  assertTursoStorage();
+  await replaceTursoDataset("MLB", tabName, rows, headers);
   invalidateWorksheetReadCache(tabName);
 }
 
 async function appendWorksheetRows(
-  sheets: any,
-  spreadsheetId: string,
+  _sheets: any,
+  _spreadsheetId: string,
   tabName: string,
   headers: string[],
   rows: SheetRow[],
 ) {
   if (!rows.length) return;
-  if (!headers.length) {
-    throw new Error(`${tabName} is missing a header row.`);
-  }
-  await sheets.spreadsheets.values.append({
-    spreadsheetId,
-    range: `'${escapedSheetName(tabName)}'!A:${columnLetter(headers.length - 1)}`,
-    valueInputOption: "RAW",
-    insertDataOption: "INSERT_ROWS",
-    requestBody: {
-      values: rows.map((row) => headers.map((header) => String(row[header] ?? ""))),
-    },
-  });
+  assertTursoStorage();
+  await ensureWorksheet(null, "turso:MLB", tabName, headers);
+  await appendTursoDataset("MLB", tabName, rows);
   invalidateWorksheetReadCache(tabName);
 }
 
 async function writeWorksheetBlocks(
-  sheets: any,
-  spreadsheetId: string,
+  _sheets: any,
+  _spreadsheetId: string,
   tabName: string,
   matrix: WorksheetMatrix,
   updates: SheetBlockUpdate[],
-  startHeader: string,
-  endHeader: string,
+  _startHeader: string,
+  _endHeader: string,
 ) {
   if (!updates.length) return;
-  const startIndex = matrix.headers.indexOf(startHeader);
-  const endIndex = matrix.headers.indexOf(endHeader);
-  if (startIndex < 0 || endIndex < startIndex) {
-    throw new Error(`${tabName} is missing the DraftKings columns from ${startHeader} through ${endHeader}.`);
-  }
-
-  const data = updates.map((update) => {
-    const existing = matrix.rows.find((row) => row.sheetRow === update.sheetRow);
-    const fullRow = Array.from({ length: matrix.headers.length }, (_, index) =>
-      String(existing?.values[index] ?? ""),
-    );
-    for (const [header, value] of Object.entries(update.fields)) {
-      const index = matrix.headers.indexOf(header);
-      if (index >= startIndex && index <= endIndex) fullRow[index] = String(value ?? "");
+  assertTursoStorage();
+  const headers = [...matrix.headers];
+  for (const update of updates) {
+    for (const key of Object.keys(update.fields || {})) {
+      if (key && !headers.includes(key)) headers.push(key);
     }
-    return {
-      range: `'${escapedSheetName(tabName)}'!${columnLetter(startIndex)}${update.sheetRow}:${columnLetter(endIndex)}${update.sheetRow}`,
-      values: [fullRow.slice(startIndex, endIndex + 1)],
-    };
-  });
-
-  await sheets.spreadsheets.values.batchUpdate({
-    spreadsheetId,
-    requestBody: { valueInputOption: "RAW", data },
-  });
+  }
+  const rows = matrix.rows.map((entry) => ({ ...entry.object }));
+  for (const update of updates) {
+    const index = Number(update.sheetRow) - 2;
+    if (index < 0 || index >= rows.length) continue;
+    rows[index] = { ...rows[index], ...update.fields };
+  }
+  await replaceTursoDataset("MLB", tabName, rows, headers);
   invalidateWorksheetReadCache(tabName);
 }
 
@@ -10058,74 +9940,8 @@ function emptyUfcData(): UfcData {
   };
 }
 
-function serviceAccountFromEnv() {
-  const rawJson =
-    process.env.GOOGLE_SERVICE_ACCOUNT_JSON ||
-    process.env.GCP_SERVICE_ACCOUNT_JSON ||
-    process.env.GOOGLE_CREDENTIALS;
-  if (rawJson) {
-    const parsed = JSON.parse(rawJson);
-    return {
-      clientEmail: parsed.client_email,
-      privateKey: String(parsed.private_key || "").replace(/\\n/g, "\n"),
-    };
-  }
-
-  return {
-    clientEmail:
-      process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL ||
-      process.env.GOOGLE_CLIENT_EMAIL ||
-      process.env.GCP_SERVICE_ACCOUNT_EMAIL,
-    privateKey: String(
-      process.env.GOOGLE_PRIVATE_KEY || process.env.PRIVATE_KEY || "",
-    ).replace(/\\n/g, "\n"),
-  };
-}
-
-async function readWorksheetBySpreadsheetId(
-  spreadsheetId: string,
-  tabName: string,
-): Promise<SheetRow[]> {
-  const { clientEmail, privateKey } = serviceAccountFromEnv();
-  if (!clientEmail || !privateKey) {
-    throw new Error(
-      "Missing Google service account env vars for UFC spreadsheet access.",
-    );
-  }
-
-  const auth = new google.auth.JWT({
-    email: clientEmail,
-    key: privateKey,
-    scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"],
-  });
-
-  const sheets = google.sheets({ version: "v4", auth });
-  const result = await sheets.spreadsheets.values.get({
-    spreadsheetId,
-    range: `'${tabName}'!A:Z`,
-  });
-
-  const values = result.data.values || [];
-  if (values.length < 2) return [];
-
-  const headers = values[0].map((header: unknown) => String(header || "").trim());
-  return values.slice(1).map((row: unknown[]) => {
-    const obj: SheetRow = {};
-    headers.forEach((header: string, index: number) => {
-      if (header) obj[header] = String(row[index] ?? "");
-    });
-    return obj;
-  });
-}
-
-async function readUfcWorksheet(tabName: string): Promise<SheetRow[]> {
-  const ufcSpreadsheetId =
-    process.env.UFC_GOOGLE_SHEET_ID || process.env.UFC_SPREADSHEET_ID;
-  if (ufcSpreadsheetId)
-    return readWorksheetBySpreadsheetId(ufcSpreadsheetId, tabName);
-
-  // Fallback: useful if you later move UFC tabs into the same public spreadsheet.
-  return readWorksheet(tabName);
+async function readUfcWorksheet(_tabName: string): Promise<SheetRow[]> {
+  return [];
 }
 
 function ufcRowDate(row: SheetRow) {
@@ -10578,7 +10394,7 @@ function publicResponseFromCache(
       ...(stale
         ? {
             "X-EZPZ-Stale-Data": "true",
-            Warning: '110 - "Response is stale while Google Sheets recovers"',
+            Warning: '110 - "Response is stale while data refresh recovers"',
           }
         : {}),
     },
@@ -10632,7 +10448,7 @@ export async function buildPublicDataResponse(request: NextRequest) {
 
   // Background/scheduled requests must run the snapshot workflow immediately.
   // Normal public-page requests share one result for 45 seconds, matching the
-  // existing DraftKings refresh interval and preventing Sheets quota bursts.
+  // existing DraftKings refresh interval and preventing storage quota bursts.
   if (isBackgroundSnapshotRequest(request)) {
     if (!isAuthorizedBackgroundSnapshotRequest(request)) {
       return NextResponse.json(
