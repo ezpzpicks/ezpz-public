@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo, useState } from "react";
 import FootballBoardBase from "./FootballBoardBase";
 import FootballGameTabs from "./FootballGameTabs";
 import { MatchupWithLogos, SelectionWithTeamLogo, TeamLogoName } from "./TeamLogoName";
@@ -20,6 +21,39 @@ type RecordTotals = {
   pushes: number;
 };
 type Summary = RecordTotals & { betType: string; status?: "WINNING" | "EVEN" | "LOSING" };
+
+type DraftKingsSignalRow = {
+  date: string;
+  market: "Spread" | "Total";
+  sideGroup: "Favorite" | "Underdog" | "Over" | "Under" | "";
+  betType: string;
+  modelVersion: string;
+  qualified: boolean;
+  signalType: "Public Split" | "Line Movement";
+  signalKey: string;
+  signal: string;
+  tone: "negative" | "caution" | "positive" | "neutral";
+  result: "W" | "L" | "P";
+  odds: number;
+  units: number;
+  historySource?: string;
+  fallbackReason?: string;
+};
+
+type DraftKingsSignalSummary = {
+  signalType: DraftKingsSignalRow["signalType"];
+  signalKey: string;
+  signal: string;
+  tone: DraftKingsSignalRow["tone"];
+  wins: number;
+  losses: number;
+  pushes: number;
+  totalBets: number;
+  winPct: number;
+  unitsWon: number;
+  roiPct: number;
+  sampleLabel: string;
+};
 
 type NflPlay = {
   playType?: string;
@@ -77,6 +111,7 @@ type FootballData = {
   aiSelectorStatus?: { message?: string };
   betTrackerRows?: SheetRow[];
   trendRecordRows?: SheetRow[];
+  draftKingsSignalRows?: DraftKingsSignalRow[];
   recordSummary?: Summary[];
   last7RecordSummary?: Summary[];
   database?: string;
@@ -268,6 +303,130 @@ function recentGame(row: SheetRow) {
   const opponent = String(row.Opponent || "").trim();
   return [team, opponent].filter(Boolean).join(" vs ") || "—";
 }
+
+function signalIsoDate(value: unknown) {
+  const raw = String(value || "").trim();
+  const iso = raw.match(/(20\d{2})[-/](\d{1,2})[-/](\d{1,2})/);
+  if (iso) return `${iso[1]}-${iso[2].padStart(2, "0")}-${iso[3].padStart(2, "0")}`;
+  const us = raw.match(/(\d{1,2})\/(\d{1,2})(?:\/(20\d{2}))?/);
+  if (!us) return "";
+  const year = us[3] || String(new Date().getFullYear());
+  return `${year}-${us[1].padStart(2, "0")}-${us[2].padStart(2, "0")}`;
+}
+function signalDateWithin(date: unknown, today: string, days: number) {
+  if (!days) return true;
+  const rowDate = signalIsoDate(date);
+  const referenceDate = signalIsoDate(today);
+  if (!rowDate || !referenceDate) return false;
+  const diff = Math.round((Date.parse(`${referenceDate}T12:00:00Z`) - Date.parse(`${rowDate}T12:00:00Z`)) / 86_400_000);
+  return Number.isFinite(diff) && diff >= 0 && diff < days;
+}
+function signalSampleLabel(totalBets: number) {
+  if (totalBets >= 20) return "Established";
+  if (totalBets >= 8) return "Growing";
+  return "Small Sample";
+}
+function summarizeDraftKingsSignals(rows: DraftKingsSignalRow[]): DraftKingsSignalSummary[] {
+  const grouped = new Map<string, DraftKingsSignalSummary>();
+  for (const row of rows) {
+    const key = `${row.signalType}|${row.signalKey || row.signal}`;
+    const current = grouped.get(key) || {
+      signalType: row.signalType,
+      signalKey: row.signalKey,
+      signal: row.signal,
+      tone: row.tone,
+      wins: 0,
+      losses: 0,
+      pushes: 0,
+      totalBets: 0,
+      winPct: 0,
+      unitsWon: 0,
+      roiPct: 0,
+      sampleLabel: "Small Sample",
+    };
+    if (row.result === "W") current.wins += 1;
+    else if (row.result === "L") current.losses += 1;
+    else if (row.result === "P") current.pushes += 1;
+    current.unitsWon += Number(row.units) || 0;
+    grouped.set(key, current);
+  }
+  return [...grouped.values()]
+    .map((row) => {
+      const totalBets = row.wins + row.losses + row.pushes;
+      const decisions = row.wins + row.losses;
+      const unitsWon = Math.round(row.unitsWon * 100) / 100;
+      return {
+        ...row,
+        totalBets,
+        winPct: decisions ? Math.round((row.wins / decisions) * 1000) / 10 : 0,
+        unitsWon,
+        roiPct: totalBets ? Math.round((unitsWon / totalBets) * 1000) / 10 : 0,
+        sampleLabel: signalSampleLabel(totalBets),
+      };
+    })
+    .sort((a, b) => b.totalBets - a.totalBets || a.signalType.localeCompare(b.signalType) || a.signal.localeCompare(b.signal));
+}
+function FootballDraftKingsSignalRecords({ rows, today }: { rows: DraftKingsSignalRow[]; today: string }) {
+  const [period, setPeriod] = useState<"all" | "30" | "7">("all");
+  const [market, setMarket] = useState<"All" | "Spread" | "Total">("All");
+  const [scope, setScope] = useState<"Qualified" | "All">("All");
+  const [side, setSide] = useState<"All" | "Favorite" | "Underdog" | "Over" | "Under">("All");
+  const [modelVersion, setModelVersion] = useState("All");
+  const modelVersions = useMemo(
+    () => ["All", ...Array.from(new Set(rows.map((row) => String(row.modelVersion || "").trim()).filter(Boolean))).sort().reverse()],
+    [rows],
+  );
+  const filtered = useMemo(() => {
+    const days = period === "7" ? 7 : period === "30" ? 30 : 0;
+    return rows.filter((row) => {
+      if (scope === "Qualified" && !row.qualified) return false;
+      if (market !== "All" && row.market !== market) return false;
+      if (side !== "All" && row.sideGroup !== side) return false;
+      if (modelVersion !== "All" && row.modelVersion !== modelVersion) return false;
+      return signalDateWithin(row.date, today, days);
+    });
+  }, [market, modelVersion, period, rows, scope, side, today]);
+  const summaries = useMemo(() => summarizeDraftKingsSignals(filtered), [filtered]);
+  return (
+    <details className="recordsDropdown dkSignalRecordsDropdown">
+      <summary className="recordsSummary">
+        <div>
+          <div className="recordsSummaryTitle">DraftKings Market Signals</div>
+          <div className="recordsSummarySub">Historical Bets / Handle and line-movement signal records</div>
+        </div>
+        <span className="recordsCount">{summaries.length} signals</span>
+      </summary>
+      <div className="dkRecordsCard">
+        <div className="dkRecordFilters">
+          <label><span>Period</span><select value={period} onChange={(event) => setPeriod(event.target.value as "all" | "30" | "7")}><option value="all">Overall</option><option value="30">Last 30 Days</option><option value="7">Last 7 Days</option></select></label>
+          <label><span>Market</span><select value={market} onChange={(event) => setMarket(event.target.value as "All" | "Spread" | "Total")}><option>All</option><option>Spread</option><option value="Total">Totals</option></select></label>
+          <label><span>Tracking Set</span><select value={scope} onChange={(event) => setScope(event.target.value as "Qualified" | "All")}><option value="Qualified">Qualified Plays</option><option value="All">All Tracked Sides</option></select></label>
+          <label><span>Side</span><select value={side} onChange={(event) => setSide(event.target.value as "All" | "Favorite" | "Underdog" | "Over" | "Under")}><option>All</option><option>Favorite</option><option>Underdog</option><option>Over</option><option>Under</option></select></label>
+          <label><span>Model Version</span><select value={modelVersion} onChange={(event) => setModelVersion(event.target.value)}>{modelVersions.map((version) => <option key={version} value={version}>{version}</option>)}</select></label>
+        </div>
+        {summaries.length ? (
+          <div className="tableWrap dkSignalTableWrap">
+            <table className="dkSignalTable">
+              <thead><tr><th>Signal</th><th>Type</th><th>Record</th><th>Win %</th><th>Units</th><th>ROI</th><th>Sample</th></tr></thead>
+              <tbody>{summaries.map((row) => (
+                <tr key={`${row.signalType}-${row.signalKey || row.signal}`}>
+                  <td><span className={`signalName ${row.tone}`}>{row.signal}</span></td>
+                  <td>{row.signalType === "Public Split" ? "Bets / Handle" : "Line Movement"}</td>
+                  <td>{row.wins}-{row.losses}-{row.pushes}</td>
+                  <td>{row.winPct}%</td>
+                  <td className={row.unitsWon > 0 ? "metricPositive" : row.unitsWon < 0 ? "metricNegative" : ""}>{row.unitsWon > 0 ? "+" : ""}{row.unitsWon}u</td>
+                  <td className={row.roiPct > 0 ? "metricPositive" : row.roiPct < 0 ? "metricNegative" : ""}>{row.roiPct > 0 ? "+" : ""}{row.roiPct}%</td>
+                  <td><span className={`sampleChip sample${row.sampleLabel.replace(/\s+/g, "")}`}>{row.totalBets} • {row.sampleLabel}</span></td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+        ) : <div className="empty insideSignalRecords">No completed spread or total sides match these filters yet. Records will populate automatically as tracked games finish.</div>}
+      </div>
+    </details>
+  );
+}
+
 function FootballRecords({ sport, data }: { sport: Sport; data: FootballData }) {
   const overall = data.tiles?.overallGreen || fallbackTotals();
   const last7 = data.tiles?.last7Days || fallbackTotals();
@@ -285,12 +444,15 @@ function FootballRecords({ sport, data }: { sport: Sport; data: FootballData }) 
           <RecordTile label="Model Plays - Running Total" value={overall} />
           {nflPropRecord ? <RecordTile label="NFL Player Props - Running Total" value={nflPropRecord} /> : null}
         </div>
+        <div className="recordsDropdownStack advancedRecordsStack">
+          <FootballDraftKingsSignalRecords rows={data.draftKingsSignalRows || []} today={data.today || ""} />
+        </div>
         <div className="sectionHead"><div><h2>Bet Type Records</h2><p>These are the exact subsets used for HOT / COLD / SMALL SAMPLE status.</p></div></div>
         <div className="advancedRecordsStack"><RecordDropdown title="Last 7 Days Model Plays" subtitle={`Exact ${sport} grade / market / direction records`} rows={last7Rows} open /><RecordDropdown title="Overall Model Plays" subtitle={`Running exact ${sport} grade / market / direction records`} rows={overallRows} /></div>
         <details className="recordsDropdown"><summary className="recordsSummary"><div><div className="recordsSummaryTitle">Recent Graded Model Plays</div><div className="recordsSummarySub">Individual graded plays behind the record</div></div><span className="recordsCount">{recent.length} results</span></summary>
           {recent.length ? <div className="tableWrap"><table className="recordsTable"><thead><tr><th>Date</th><th>Game</th><th>Type</th><th>Play</th><th>Result</th></tr></thead><tbody>{recent.map((row, index) => { const result = resultCode(row.Result || row.Status); return <tr className={`footballRecentResult result-${result.toLowerCase()}`} key={`${row.Date}-${recentGame(row)}-${recentSelection(row)}-${index}`}><td>{row.Date || row["Game Date"]}</td><td>{recentGame(row)}</td><td>{recentLabel(row)}</td><td><strong>{recentSelection(row)}</strong></td><td><b>{result}</b></td></tr>; })}</tbody></table></div> : <div className="empty insideDropdown">Completed Model Plays will populate here automatically.</div>}
         </details>
-        <div className="card footballCanonicalInfo"><b>Record grading database:</b> {data.database || `${sport} Model Database`}<br />Model Plays are graded only after a completed game has a verified final result.</div>
+        <div className="card footballCanonicalInfo"><b>Record grading database:</b> {data.database || `${sport} Model Database`}<br />Model Plays and DraftKings market-signal records are graded only after a completed game has a verified final result.</div>
       </section>
       <style jsx global>{`
         .footballCanonicalRecords{display:grid;gap:18px}.footballCanonicalRecordTile{display:grid;gap:7px;transition:border-color .2s ease,box-shadow .2s ease}.footballRecordTileTop{display:flex;align-items:center;justify-content:space-between;gap:10px}.footballRecordTileTop>span{color:var(--ez-muted);font-size:.75rem;font-weight:850}.footballCanonicalRecordTile>strong{font-size:1.75rem;letter-spacing:-.035em}.footballCanonicalRecordTile>small{color:var(--ez-muted);font-size:.72rem}.footballCanonicalRecordTile.green{border-color:rgba(43,216,117,.42);box-shadow:0 0 0 1px rgba(43,216,117,.08),0 0 22px rgba(43,216,117,.09)}.footballCanonicalRecordTile.yellow{border-color:rgba(247,200,92,.38);box-shadow:0 0 0 1px rgba(247,200,92,.06)}.footballCanonicalRecordTile.red{border-color:rgba(255,105,120,.38);box-shadow:0 0 0 1px rgba(255,105,120,.06)}.footballRecordStatus{display:inline-flex;width:max-content;border:1px solid rgba(123,151,190,.18);border-radius:999px;padding:4px 7px;font-size:.62rem;font-weight:950;letter-spacing:.055em}.footballRecordStatus.green{color:#aef2c6;border-color:rgba(43,216,117,.3);background:rgba(28,130,78,.14)}.footballRecordStatus.yellow{color:#ffe29a;border-color:rgba(247,200,92,.28);background:rgba(150,105,20,.14)}.footballRecordStatus.red{color:#ffc0c8;border-color:rgba(255,105,120,.3);background:rgba(145,34,52,.15)}.footballRecordStatus.neutral{color:#c9d8eb;background:rgba(82,105,136,.12)}.footballCanonicalRecordRow.green{background:rgba(43,216,117,.035)}.footballCanonicalRecordRow.yellow{background:rgba(247,200,92,.035)}.footballCanonicalRecordRow.red{background:rgba(255,105,120,.035)}.footballCanonicalRecordRow.green td:first-child{border-left:3px solid rgba(43,216,117,.7)}.footballCanonicalRecordRow.yellow td:first-child{border-left:3px solid rgba(247,200,92,.7)}.footballCanonicalRecordRow.red td:first-child{border-left:3px solid rgba(255,105,120,.7)}.footballRecordWinPct{display:inline-flex;border-radius:999px;padding:4px 7px;font-weight:900}.footballRecordWinPct.green{color:#aef2c6;background:rgba(28,130,78,.14)}.footballRecordWinPct.yellow{color:#ffe29a;background:rgba(150,105,20,.14)}.footballRecordWinPct.red{color:#ffc0c8;background:rgba(145,34,52,.15)}.footballRecentResult.result-w td:last-child{color:#aef2c6}.footballRecentResult.result-l td:last-child{color:#ffc0c8}.footballRecentResult.result-p td:last-child{color:#ffe29a}.footballCanonicalInfo{line-height:1.55}
