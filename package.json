@@ -1,9 +1,10 @@
 {
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "node scripts/migrate-ncaam-to-turso.mjs && next build",
     "start": "next start",
     "turso:migrate": "node scripts/migrate-sheets-to-turso.mjs",
+    "turso:migrate:ncaam": "node scripts/migrate-ncaam-to-turso.mjs",
     "turso:check": "node scripts/check-turso-env.mjs"
   },
   "dependencies": {
