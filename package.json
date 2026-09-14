@@ -1,7 +1,7 @@
 {
   "scripts": {
     "dev": "next dev",
-    "build": "node scripts/migrate-ncaam-to-turso.mjs && next build",
+    "build": "next build",
     "start": "next start",
     "turso:migrate": "node scripts/migrate-sheets-to-turso.mjs",
     "turso:migrate:ncaam": "node scripts/migrate-ncaam-to-turso.mjs",
