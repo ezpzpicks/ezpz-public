@@ -1,0 +1,91 @@
+name: Final Turso-only cleanup
+
+on:
+  push:
+    branches: [turso-final-cleanup]
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: turso-final-cleanup
+          fetch-depth: 0
+
+      - name: Remove obsolete Google dependencies and migration commands
+        run: |
+          npm uninstall @googleapis/sheets google-auth-library --ignore-scripts
+          npm pkg delete 'scripts.turso:migrate' 'scripts.turso:parity'
+
+      - name: Remove legacy Sheets source names and migration tooling
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          for old in [
+              Path('scripts/migrate-sheets-to-turso.mjs'),
+              Path('scripts/audit-turso-parity.mjs'),
+          ]:
+              old.unlink(missing_ok=True)
+
+          legacy_store = Path('lib/googleSheets.ts')
+          turso_store = Path('lib/mlbStore.ts')
+          if legacy_store.exists():
+              if turso_store.exists():
+                  raise RuntimeError('Both lib/googleSheets.ts and lib/mlbStore.ts exist')
+              legacy_store.rename(turso_store)
+
+          roots = [Path('app'), Path('lib'), Path('components')]
+          extensions = {'.ts', '.tsx', '.js', '.jsx', '.mjs'}
+          for root in roots:
+              if not root.exists():
+                  continue
+              for path in root.rglob('*'):
+                  if not path.is_file() or path.suffix not in extensions:
+                      continue
+                  text = path.read_text(encoding='utf-8')
+                  original = text
+                  text = text.replace('./googleSheets', './mlbStore')
+                  text = text.replace('../googleSheets', '../mlbStore')
+                  text = text.replace('../../lib/googleSheets', '../../lib/mlbStore')
+                  text = text.replace('../../../lib/googleSheets', '../../../lib/mlbStore')
+                  text = text.replace('"google-sheets"', '"turso"')
+                  text = text.replace("'google-sheets'", "'turso'")
+                  text = text.replace('Google Sheets is no longer a production fallback.', 'No legacy storage fallback is available.')
+                  text = text.replace('Google Sheets or historical row', 'stored or historical row')
+                  text = text.replace('Google Sheets may send dates', 'Stored dates may use')
+                  text = text.replace('Google Sheets', 'legacy spreadsheet storage')
+                  if text != original:
+                      path.write_text(text, encoding='utf-8')
+
+          workflow = Path('.github/workflows/final-turso-cleanup.yml')
+          workflow.unlink(missing_ok=True)
+          PY
+
+      - name: Verify no production Google Sheets runtime remains
+        run: |
+          if grep -RniE '@googleapis/sheets|google-auth-library|from ["'"']googleapis|googleSheets|google-sheets|Google Sheets|GOOGLE_SHEET_ID|GOOGLE_CREDENTIALS' app lib components package.json 2>/dev/null; then
+            echo 'Legacy Google Sheets production reference remains'
+            exit 1
+          fi
+          test ! -e scripts/migrate-sheets-to-turso.mjs
+          test ! -e scripts/audit-turso-parity.mjs
+          test ! -e lib/googleSheets.ts
+          test -e lib/mlbStore.ts
+
+      - name: Build production app
+        run: |
+          npm ci --ignore-scripts
+          npm run build
+
+      - name: Commit final cleanup
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Remove final Google Sheets runtime remnants"
+          git push origin HEAD:turso-final-cleanup
