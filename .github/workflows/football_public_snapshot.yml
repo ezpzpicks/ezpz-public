@@ -8,8 +8,10 @@ on:
       - .github/workflows/football_public_snapshot.yml
       - app/api/cron/football-slate-sync/route.ts
       - app/api/cron/football-market-discovery/route.ts
+      - app/api/cron/football-public-snapshot/route.ts
       - app/api/football-weekly-market/route.ts
       - lib/footballWeeklyMarket.ts
+      - lib/footballResultSettlement.ts
       - app/FootballBoard.tsx
   schedule:
     # Check NFL and CFB markets every five minutes, 24/7. This same workflow also
