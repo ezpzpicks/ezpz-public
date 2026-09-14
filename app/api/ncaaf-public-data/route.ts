@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { buildFootballPublicData } from "../../../lib/footballPublicData";
-import { settlePendingFootballResults } from "../../../lib/footballResultSettlement";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -64,17 +63,6 @@ export async function GET(request: NextRequest) {
   const forceFresh = scheduled || request.nextUrl.searchParams.get("refresh") === "1";
 
   try {
-    let settlement: unknown = null;
-    try {
-      settlement = await settlePendingFootballResults("NCAAF", { force: forceFresh });
-    } catch (error) {
-      console.warn("NCAAF final-score settlement failed", error);
-      settlement = {
-        sport: "NCAAF",
-        error: error instanceof Error ? error.message : String(error),
-      };
-    }
-
     const data = await buildFootballPublicData("NCAAF", {
       forceFresh,
       persist: scheduled,
@@ -93,7 +81,6 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       ...data,
-      settlement,
       bestPlays,
       aiPicks,
       aiSelectorStatus: data.aiSelectorStatus
