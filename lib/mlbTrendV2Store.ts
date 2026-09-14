@@ -1,5 +1,11 @@
 import { google } from "googleapis";
 import { AnyRow } from "./mlbTrendV2";
+import {
+  appendTursoDataset,
+  isTursoConfigured,
+  replaceTursoDataset,
+  TursoRow,
+} from "./tursoStore";
 
 const SNAPSHOT_TAB = "trend_v2_snapshots";
 const DAILY_PICK_TAB = "trend_v2_daily_picks";
@@ -31,6 +37,16 @@ async function ensureTab(name:string,headers:string[]){
   }
 }
 function rowsToObjects(values:any[][],headers:string[]){if(!values?.length)return[] as AnyRow[];const actual=values[0].map(v=>String(v||"").trim());return values.slice(1).map(row=>{const out:AnyRow={};for(const header of headers){const idx=actual.indexOf(header);out[header]=idx>=0?String(row[idx]??""):""}return out})}
+function tursoRows(rows:AnyRow[]):TursoRow[]{return rows.map(row=>{const out:TursoRow={};for(const [key,value] of Object.entries(row||{})){out[key]=String(value??"")}return out})}
+async function mirrorAppend(tab:string,headers:string[],rows:AnyRow[]){
+  if(!isTursoConfigured()||!rows.length)return;
+  try{await appendTursoDataset("MLB",tab,tursoRows(rows))}catch(error){console.error(`[turso-dual-write] MLB/${tab} append failed; Sheets remains authoritative.`,error)}
+}
+async function mirrorReplace(tab:string,headers:string[],rows:AnyRow[]){
+  if(!isTursoConfigured())return;
+  try{await replaceTursoDataset("MLB",tab,tursoRows(rows),headers)}catch(error){console.error(`[turso-dual-write] MLB/${tab} replace failed; Sheets remains authoritative.`,error)}
+}
+
 export async function readV2Tab(name:"snapshots"|"daily"){const tab=name==="snapshots"?SNAPSHOT_TAB:DAILY_PICK_TAB,headers=name==="snapshots"?V2_SNAPSHOT_HEADERS:V2_DAILY_PICK_HEADERS;await ensureTab(tab,headers);const sheets=await sheetsClient();const response=await sheets.spreadsheets.values.get({spreadsheetId:spreadsheetId(),range:`'${tab}'!A:${colName(headers.length)}`});return rowsToObjects((response.data.values||[]) as any[][],headers)}
-export async function appendV2Rows(name:"snapshots"|"daily",rows:AnyRow[]){if(!rows.length)return;const tab=name==="snapshots"?SNAPSHOT_TAB:DAILY_PICK_TAB,headers=name==="snapshots"?V2_SNAPSHOT_HEADERS:V2_DAILY_PICK_HEADERS;await ensureTab(tab,headers);const values=rows.map(row=>headers.map(header=>String(row[header]??"")));const sheets=await sheetsClient();await sheets.spreadsheets.values.append({spreadsheetId:spreadsheetId(),range:`'${tab}'!A:${colName(headers.length)}`,valueInputOption:"RAW",insertDataOption:"INSERT_ROWS",requestBody:{values}})}
-export async function replaceV2DailyRows(rows:AnyRow[]){const headers=V2_DAILY_PICK_HEADERS;await ensureTab(DAILY_PICK_TAB,headers);const sheets=await sheetsClient(),id=spreadsheetId();await sheets.spreadsheets.values.clear({spreadsheetId:id,range:`'${DAILY_PICK_TAB}'!A:AE`});await sheets.spreadsheets.values.update({spreadsheetId:id,range:`'${DAILY_PICK_TAB}'!A1:${colName(headers.length)}`,valueInputOption:"RAW",requestBody:{values:[headers,...rows.map(row=>headers.map(h=>String(row[h]??"")))]}})}
+export async function appendV2Rows(name:"snapshots"|"daily",rows:AnyRow[]){if(!rows.length)return;const tab=name==="snapshots"?SNAPSHOT_TAB:DAILY_PICK_TAB,headers=name==="snapshots"?V2_SNAPSHOT_HEADERS:V2_DAILY_PICK_HEADERS;await ensureTab(tab,headers);const values=rows.map(row=>headers.map(header=>String(row[header]??"")));const sheets=await sheetsClient();await sheets.spreadsheets.values.append({spreadsheetId:spreadsheetId(),range:`'${tab}'!A:${colName(headers.length)}`,valueInputOption:"RAW",insertDataOption:"INSERT_ROWS",requestBody:{values}});await mirrorAppend(tab,headers,rows)}
+export async function replaceV2DailyRows(rows:AnyRow[]){const headers=V2_DAILY_PICK_HEADERS;await ensureTab(DAILY_PICK_TAB,headers);const sheets=await sheetsClient(),id=spreadsheetId();await sheets.spreadsheets.values.clear({spreadsheetId:id,range:`'${DAILY_PICK_TAB}'!A:AE`});await sheets.spreadsheets.values.update({spreadsheetId:id,range:`'${DAILY_PICK_TAB}'!A1:${colName(headers.length)}`,valueInputOption:"RAW",requestBody:{values:[headers,...rows.map(row=>headers.map(h=>String(row[h]??"")))]}});await mirrorReplace(DAILY_PICK_TAB,headers,rows)}
