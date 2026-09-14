@@ -148,19 +148,44 @@ export function MatchupWithLogos({
   const matchup = parseMatchup(game);
   if (!matchup) return <span>{game}</span>;
   return (
-    <span
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        flexWrap: "wrap",
-        gap: compact ? 6 : 9,
-        maxWidth: "100%",
-      }}
-    >
-      <TeamLogoName sport={sport} team={matchup.away} compact={compact} />
-      <span style={{ opacity: 0.52, fontSize: compact ? ".72em" : ".76em", fontWeight: 900 }}>{matchup.separator}</span>
-      <TeamLogoName sport={sport} team={matchup.home} compact={compact} />
-    </span>
+    <>
+      <span
+        className="ezpzMatchupWithLogos"
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          flexWrap: "wrap",
+          gap: compact ? 6 : 9,
+          maxWidth: "100%",
+        }}
+      >
+        <span className="ezpzMatchupAway">
+          <TeamLogoName sport={sport} team={matchup.away} compact={compact} />
+        </span>
+        <span className="ezpzMatchupSeparator" style={{ opacity: 0.52, fontSize: compact ? ".72em" : ".76em", fontWeight: 900 }}>{matchup.separator}</span>
+        <span className="ezpzMatchupHome">
+          <TeamLogoName sport={sport} team={matchup.home} compact={compact} />
+        </span>
+      </span>
+      <style jsx global>{`
+        .fgtSummaryMain .ezpzMatchupWithLogos {
+          display: grid !important;
+          grid-template-columns: minmax(0, 1fr) auto;
+          align-items: center;
+          justify-content: start;
+          width: 100%;
+          column-gap: 6px !important;
+          row-gap: 3px !important;
+        }
+        .fgtSummaryMain .ezpzMatchupAway,
+        .fgtSummaryMain .ezpzMatchupHome {
+          min-width: 0;
+        }
+        .fgtSummaryMain .ezpzMatchupHome {
+          grid-column: 1 / -1;
+        }
+      `}</style>
+    </>
   );
 }
 
