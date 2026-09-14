@@ -25,6 +25,6 @@ export async function readWorksheet(tabName: string): Promise<SheetRow[]> {
   assertTursoConfigured();
   const datasetName = String(tabName || "").trim();
   if (!datasetName) return [];
-  const dataset = await readTursoDataset("MLB", datasetName);
-  return (dataset?.rows || []).map(copyRow);
+  const rows = await readTursoDataset("MLB", datasetName);
+  return rows.map(copyRow);
 }
