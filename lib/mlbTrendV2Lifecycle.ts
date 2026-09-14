@@ -1,4 +1,4 @@
-import { readWorksheet, type SheetRow } from "./googleSheets";
+import { readWorksheet, type SheetRow } from "./mlbStore";
 import { readTursoDataset, replaceTursoDataset } from "./tursoStore";
 import {
   type AnyRow,

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { readWorksheet } from "../../../../lib/googleSheets";
+import { readWorksheet } from "../../../../lib/mlbStore";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

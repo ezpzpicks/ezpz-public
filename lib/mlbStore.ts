@@ -4,7 +4,7 @@ export type SheetRow = Record<string, string>;
 
 function assertTursoConfigured() {
   if (!isTursoConfigured()) {
-    throw new Error("Turso is not configured. Google Sheets is no longer a production fallback.");
+    throw new Error("Turso is not configured. No legacy storage fallback is available.");
   }
 }
 

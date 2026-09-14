@@ -2271,7 +2271,7 @@ function statusClass(wins: number, losses: number) {
 }
 
 function isFavoriteValue(value: unknown) {
-  // Strict on purpose: only the actual Google Sheets TRUE value should count.
+  // Strict on purpose: only the actual legacy spreadsheet storage TRUE value should count.
   return (
     String(value ?? "")
       .trim()

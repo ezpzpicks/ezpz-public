@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { readWorksheet as readWorksheetUncached } from "../../lib/googleSheets";
+import { readWorksheet as readWorksheetUncached } from "../../lib/mlbStore";
 import { buildFootballPublicData } from "../../lib/footballPublicData";
 import { appendTursoDataset, isTursoConfigured, readTursoDataset, replaceTursoDataset } from "../../lib/tursoStore";
 
@@ -516,7 +516,7 @@ let marketSlateBootstrapCache: {
 let marketSlateBootstrapInFlight: Promise<number> | null = null;
 const MARKET_SLATE_BOOTSTRAP_TTL_MS = 10 * 60_000;
 
-// Google Sheets permits only a limited number of read requests per minute for
+// legacy spreadsheet storage permits only a limited number of read requests per minute for
 // one service-account user. Keep successful worksheet reads briefly and share
 // an in-flight request so simultaneous page loads do not each hit the API.
 const WORKSHEET_READ_CACHE_TTL_MS = 60_000;
@@ -585,7 +585,7 @@ async function readWorksheet(tabName: string): Promise<SheetRow[]> {
         isRetryableSheetsReadError(error)
       ) {
         console.warn(
-          `Using stale Google Sheets data for ${tabName} after a temporary read failure.`,
+          `Using stale legacy spreadsheet storage data for ${tabName} after a temporary read failure.`,
         );
         return cached.rows;
       }
@@ -1482,7 +1482,7 @@ type SheetBlockUpdate = {
 
 function assertTursoStorage() {
   if (!isTursoConfigured()) {
-    throw new Error("Turso is not configured. Google Sheets is no longer a production fallback.");
+    throw new Error("Turso is not configured. No legacy storage fallback is available.");
   }
 }
 
@@ -3424,7 +3424,7 @@ function normalizeDate(value: unknown) {
   const raw = String(value ?? "").trim();
   if (!raw) return "";
 
-  // Google Sheets may send dates as YYYY-MM-DD, M/D/YYYY, or M/D/YY.
+  // Stored dates may use as YYYY-MM-DD, M/D/YYYY, or M/D/YY.
   // Normalize all of those to the same format as todayET(): M/D/YYYY.
   const isoMatch = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
   if (isoMatch) {

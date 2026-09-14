@@ -19,7 +19,7 @@ export const V2_DAILY_PICK_HEADERS = [
 
 function assertTursoConfigured() {
   if (!isTursoConfigured()) {
-    throw new Error("Turso is not configured. Google Sheets is no longer a production fallback.");
+    throw new Error("Turso is not configured. No legacy storage fallback is available.");
   }
 }
 
