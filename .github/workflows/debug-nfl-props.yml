@@ -1,0 +1,41 @@
+name: Debug NFL Turso Props
+on:
+  push:
+    branches:
+      - debug/nfl-props-turso-20260914
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    env:
+      TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+      TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+    steps:
+      - name: Inspect NFL datasets
+        shell: bash
+        run: |
+          node <<'NODE'
+          const raw = process.env.TURSO_DATABASE_URL || '';
+          const token = process.env.TURSO_AUTH_TOKEN || '';
+          if (!raw || !token) throw new Error('Missing Turso secrets');
+          const base = (raw.startsWith('libsql://') ? `https://${raw.slice(9)}` : raw).replace(/\/$/, '');
+          const sql = `SELECT dataset,row_index,payload_json FROM dataset_rows WHERE sport='NFL' AND dataset IN ('prop_projections','daily_slate') ORDER BY dataset,row_index`;
+          const res = await fetch(`${base}/v2/pipeline`, {method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({requests:[{type:'execute',stmt:{sql,args:[]}},{type:'close'}]})});
+          if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+          const json = await res.json();
+          const result = json.results?.[0]?.response?.result || {};
+          const cols = (result.cols || []).map(c=>c.name);
+          const rows = (result.rows || []).map(r=>Object.fromEntries(cols.map((c,i)=>[c,r[i]?.value ?? ''])));
+          const parsed = rows.map(r=>({dataset:r.dataset,row_index:r.row_index,row:JSON.parse(r.payload_json || '{}')}));
+          const props = parsed.filter(x=>x.dataset==='prop_projections');
+          const slate = parsed.filter(x=>x.dataset==='daily_slate');
+          const iso=v=>String(v||'').match(/\d{4}-\d{2}-\d{2}/)?.[0] || String(v||'');
+          const today='2026-09-14';
+          const todayProps=props.filter(x=>iso(x.row.Date||x.row['Game Date'])===today);
+          const graded=todayProps.filter(x=>['a prop','b prop'].includes(String(x.row.Grade||'').trim().toLowerCase()));
+          const todaySlate=slate.filter(x=>iso(x.row.Date||x.row['Game Date'])===today);
+          console.log(JSON.stringify({propCount:props.length,todayPropCount:todayProps.length,gradedCount:graded.length,slateCount:slate.length,todaySlateCount:todaySlate.length},null,2));
+          console.log('GRADED_ROWS');
+          for (const x of graded) console.log(JSON.stringify({row_index:x.row_index,Date:x.row.Date,GameDate:x.row['Game Date'],Grade:x.row.Grade,GameID:x.row['Game ID'],GameKey:x.row['Game Key'],Game:x.row.Game,Team:x.row.Team,Opponent:x.row.Opponent,Player:x.row.Player,Market:x.row.Market,PropType:x.row['Prop Type'],Line:x.row.Line,keys:Object.keys(x.row)}));
+          console.log('TODAY_SLATE');
+          for (const x of todaySlate) console.log(JSON.stringify({row_index:x.row_index,Date:x.row.Date,GameID:x.row['Game ID'],GameKey:x.row['Game Key'],Game:x.row.Game,Away:x.row['Away Team'],Home:x.row['Home Team']}));
+          NODE
