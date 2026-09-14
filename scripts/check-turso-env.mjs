@@ -17,6 +17,11 @@ function endpoint(value) {
   return value ? `https://${value}` : "";
 }
 
+const relevantNames = Object.keys(process.env)
+  .filter((name) => /TURSO|DATABASE/i.test(name))
+  .sort();
+console.log(`[turso-check] relevant env names=${relevantNames.length ? relevantNames.join(",") : "none"}`);
+
 const database = first(candidates.url);
 const token = first(candidates.token);
 
