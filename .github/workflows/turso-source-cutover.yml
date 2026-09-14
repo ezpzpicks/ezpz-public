@@ -16,7 +16,15 @@ jobs:
           ref: turso-full-cutover
           fetch-depth: 0
       - name: Transform permanent public storage source
-        run: node scripts/turso_source_cutover.mjs
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("scripts/turso_source_cutover.mjs")
+          text = path.read_text()
+          text = text.replace(" || lifecycle.includes(\"google.\")", "")
+          path.write_text(text)
+          PY
+          node scripts/turso_source_cutover.mjs
       - name: Remove googleapis package
         run: npm uninstall googleapis --package-lock-only --ignore-scripts
       - name: Install and verify build
