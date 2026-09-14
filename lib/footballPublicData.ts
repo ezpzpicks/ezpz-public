@@ -41,6 +41,7 @@ type NflEzpzPick = {
   propMarket?: string;
   propSide?: string;
   propLine?: string | number;
+  propProjection?: string | number;
   gapPct?: number;
   modelGapPct?: number;
   predictedWinPct?: number;
@@ -478,6 +479,7 @@ function modelPlayEzpzPick(play: any): NflEzpzPick | null {
     propMarket: play.propMarket,
     propSide: play.propSide,
     propLine: play.propLine,
+    propProjection: play.propProjection,
     snapshotStatus: "FINAL",
   };
 }
