@@ -3,7 +3,6 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "turso:migrate:ncaam": "node scripts/migrate-ncaam-to-turso.mjs",
     "turso:check": "node scripts/check-turso-env.mjs"
   },
   "dependencies": {
