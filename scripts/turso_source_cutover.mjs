@@ -176,13 +176,47 @@ if (text.includes('from "googleapis"') || text.includes("google.")) {
 
 fs.writeFileSync(path, text);
 
-// Trend lifecycle no longer uses the Google client; remove the obsolete import
-// so the runtime has no googleapis dependency after the storage cutover.
+// Trend V2 model registry is also production state, so move it to Turso rather
+// than keeping a hidden Google Sheets control plane after the main data cutover.
 const lifecyclePath = "lib/mlbTrendV2Lifecycle.ts";
 let lifecycle = fs.readFileSync(lifecyclePath, "utf8");
 lifecycle = lifecycle.replace('import { google } from "googleapis";\n', "");
-if (lifecycle.includes('from "googleapis"') || lifecycle.includes("google.")) {
-  throw new Error("googleapis runtime reference remains in mlbTrendV2Lifecycle.ts");
+const lifecycleTursoImport = 'import { readTursoDataset, replaceTursoDataset } from "./tursoStore";\n';
+if (!lifecycle.includes(lifecycleTursoImport)) {
+  const lifecycleAnchor = 'import { readWorksheet, type SheetRow } from "./googleSheets";\n';
+  if (!lifecycle.includes(lifecycleAnchor)) throw new Error("Trend V2 lifecycle import anchor not found");
+  lifecycle = lifecycle.replace(lifecycleAnchor, lifecycleAnchor + lifecycleTursoImport);
+}
+const registryStart = lifecycle.indexOf("function credentials()");
+const registryEnd = lifecycle.indexOf("function lifecycleFromRow(", registryStart);
+if (registryStart < 0 || registryEnd < 0) throw new Error("Trend V2 Google registry block markers not found");
+const tursoRegistry = `async function registryRow() {
+  const rows = await readTursoDataset("MLB", MODEL_TAB, MODEL_HEADERS);
+  return rows.find((row) => String(row.Sport || "").toUpperCase() === "MLB");
+}
+
+async function upsertRegistryRow(row: SheetRow) {
+  const rows = await readTursoDataset("MLB", MODEL_TAB, MODEL_HEADERS);
+  const normalized: SheetRow = {};
+  for (const header of MODEL_HEADERS) normalized[header] = String(row[header] ?? "");
+  const index = rows.findIndex((existing) => String(existing.Sport || "").toUpperCase() === "MLB");
+  const nextRows = rows.map((existing) => ({ ...existing }));
+  if (index >= 0) nextRows[index] = normalized;
+  else nextRows.push(normalized);
+  await replaceTursoDataset("MLB", MODEL_TAB, nextRows, MODEL_HEADERS);
+}
+
+`;
+lifecycle = lifecycle.slice(0, registryStart) + tursoRegistry + lifecycle.slice(registryEnd);
+if (
+  lifecycle.includes('from "googleapis"') ||
+  lifecycle.includes("google.auth") ||
+  lifecycle.includes("google.sheets") ||
+  lifecycle.includes("GOOGLE_CREDENTIALS") ||
+  lifecycle.includes("GOOGLE_SHEET_ID") ||
+  lifecycle.includes("sheetsClient()")
+) {
+  throw new Error("Google registry runtime reference remains in mlbTrendV2Lifecycle.ts");
 }
 fs.writeFileSync(lifecyclePath, lifecycle);
 
