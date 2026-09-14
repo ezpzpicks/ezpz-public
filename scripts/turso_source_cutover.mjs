@@ -96,6 +96,7 @@ async function writeWholeWorksheet(
   tabName: string,
   headers: string[],
   rows: SheetRow[],
+  _existingMatrix?: WorksheetMatrix,
 ) {
   assertTursoStorage();
   await replaceTursoDataset("MLB", tabName, rows, headers);
