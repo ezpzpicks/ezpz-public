@@ -21,37 +21,82 @@ jobs:
           from pathlib import Path
           path = Path("scripts/turso_source_cutover.mjs")
           text = path.read_text()
-          text = text.replace(" || lifecycle.includes(\"google.\")", "")
-          text = text.replace('''  const existing = await readTursoDataset("MLB", tabName);
-          if (!existing) {
-            await replaceTursoDataset("MLB", tabName, [], headers);
-            invalidateWorksheetReadCache(tabName);
-            return;
-          }
-          const merged = [...(existing.headers || [])];
-          for (const header of headers) if (header && !merged.includes(header)) merged.push(header);
-          if (merged.length !== (existing.headers || []).length) {
-            await replaceTursoDataset("MLB", tabName, existing.rows, merged);
-            invalidateWorksheetReadCache(tabName);
-          }''', '''  const existing = await readTursoDataset("MLB", tabName, headers);
-          if (!existing.length) {
-            await replaceTursoDataset("MLB", tabName, [], headers);
-            invalidateWorksheetReadCache(tabName);
-          }''')
-          text = text.replace('''  const dataset = await readTursoDataset("MLB", tabName);
-          const headers = [...(dataset?.headers || [])];
-          for (const header of createHeaders) if (header && !headers.includes(header)) headers.push(header);
-          return matrixFromDataset(headers, (dataset?.rows || []) as SheetRow[]);''', '''  const rows = await readTursoDataset("MLB", tabName, createHeaders);
-          const headers = [...createHeaders];
-          for (const row of rows) {
-            for (const key of Object.keys(row || {})) if (key && !headers.includes(key)) headers.push(key);
-          }
-          return matrixFromDataset(headers, rows as SheetRow[]);''')
-          text = text.replace('''  const dataset = await readTursoDataset("UFC", tabName);
-          return ((dataset?.rows || []) as SheetRow[]).map((row) => ({ ...row }));''', '''  return [];''')
+          text = text.replace(' || lifecycle.includes("google.")', '')
           path.write_text(text)
           PY
           node scripts/turso_source_cutover.mjs
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path("app/api/public-data-core.ts")
+          text = path.read_text()
+
+          def replace_between(start_marker, end_marker, replacement):
+              global text
+              start = text.index(start_marker)
+              end = text.index(end_marker, start)
+              text = text[:start] + replacement.rstrip() + "\n\n" + text[end:]
+
+          replace_between(
+              "async function ensureWorksheet(",
+              "async function readWorksheetMatrixWithClient(",
+              '''async function ensureWorksheet(
+            _sheets: any,
+            _spreadsheetId: string,
+            tabName: string,
+            headers: string[] = [],
+          ) {
+            assertTursoStorage();
+            const existing = await readTursoDataset("MLB", tabName, headers);
+            if (!existing.length) {
+              await replaceTursoDataset("MLB", tabName, [], headers);
+              invalidateWorksheetReadCache(tabName);
+            }
+          }''',
+          )
+
+          replace_between(
+              "async function readWorksheetMatrixWithClient(",
+              "async function writeWholeWorksheet(",
+              '''async function readWorksheetMatrixWithClient(
+            _sheets: any,
+            _spreadsheetId: string,
+            tabName: string,
+            createHeaders: string[] = [],
+          ): Promise<WorksheetMatrix> {
+            assertTursoStorage();
+            await ensureWorksheet(null, "turso:MLB", tabName, createHeaders);
+            const rows = await readTursoDataset("MLB", tabName, createHeaders);
+            const headers = [...createHeaders];
+            for (const row of rows) {
+              for (const key of Object.keys(row || {})) {
+                if (key && !headers.includes(key)) headers.push(key);
+              }
+            }
+            return matrixFromDataset(headers, rows as SheetRow[]);
+          }''',
+          )
+
+          ufc_start = text.find("async function readUfcWorksheet(")
+          if ufc_start >= 0:
+              match = re.search(r"\n(?:async )?function\s+", text[ufc_start + 1:])
+              if not match:
+                  raise RuntimeError("Could not find function after readUfcWorksheet")
+              ufc_end = ufc_start + 1 + match.start() + 1
+              text = (
+                  text[:ufc_start]
+                  + '''async function readUfcWorksheet(_tabName: string): Promise<SheetRow[]> {
+            return [];
+          }\n\n'''
+                  + text[ufc_end:]
+              )
+
+          if "existing.headers" in text or "dataset?.headers" in text or "dataset?.rows" in text:
+              raise RuntimeError("Old Turso object-shape assumptions remain in public-data-core.ts")
+
+          path.write_text(text)
+          PY
       - name: Remove googleapis package
         run: npm uninstall googleapis --package-lock-only --ignore-scripts
       - name: Install and verify build
