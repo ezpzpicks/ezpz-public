@@ -1,5 +1,10 @@
 import { google } from "googleapis";
 import { unstable_cache } from "next/cache";
+import {
+  appendTursoDataset,
+  isTursoConfigured,
+  replaceTursoDataset,
+} from "./tursoStore";
 
 export type FootballSport = "NFL" | "NCAAF";
 export type SheetRow = Record<string, string>;
@@ -96,18 +101,10 @@ const spreadsheetIdCache = new Map<FootballSport, string>();
 const spreadsheetResolutionInFlight = new Map<FootballSport, Promise<string>>();
 const sharedContainerSports = new Set<FootballSport>();
 
-// Public sport tabs can trigger several worksheet reads at once. Cache successful
-// reads and share in-flight work so multiple visitors / tab switches do not each
-// consume the Google Sheets per-user read quota.
 const SPORT_WORKSHEET_READ_CACHE_TTL_MS = 60_000;
 const SPORT_WORKSHEET_READ_STALE_MS = 30 * 60_000;
 const SPORT_WORKSHEET_SHARED_CACHE_SECONDS = 60;
 
-// prop_projections is replaced whenever the NFL builder resets/reruns a slate.
-// It must turn over much faster than historical/record worksheets or the public
-// board can legitimately render a previous run after the underlying Sheet is
-// already current. A time-bucketed shared key preserves cross-visitor quota
-// protection while guaranteeing a fresh Sheets read at least every few seconds.
 const VOLATILE_WORKSHEET_CACHE_TTL_MS = 5_000;
 const VOLATILE_WORKSHEET_STALE_MS = 30_000;
 const VOLATILE_WORKSHEETS = new Set(["prop_projections"]);
@@ -144,6 +141,39 @@ function copySportRows(rows: SheetRow[], columns?: string[]) {
     }
     return row;
   });
+}
+
+async function mirrorSportReplace(
+  sport: FootballSport,
+  worksheetName: string,
+  headers: string[],
+  rows: SheetRow[],
+) {
+  if (!isTursoConfigured()) return;
+  try {
+    await replaceTursoDataset(sport, worksheetName, copySportRows(rows), headers);
+  } catch (error) {
+    console.error(
+      `[turso-dual-write] ${sport}/${worksheetName} replace failed; Google Sheets remains authoritative.`,
+      error,
+    );
+  }
+}
+
+async function mirrorSportAppend(
+  sport: FootballSport,
+  worksheetName: string,
+  rows: SheetRow[],
+) {
+  if (!isTursoConfigured() || !rows.length) return;
+  try {
+    await appendTursoDataset(sport, worksheetName, copySportRows(rows));
+  } catch (error) {
+    console.error(
+      `[turso-dual-write] ${sport}/${worksheetName} append failed; Google Sheets remains authoritative.`,
+      error,
+    );
+  }
 }
 
 function isSheetsQuotaError(error: any) {
@@ -198,10 +228,6 @@ export async function resolveSportSpreadsheetId(sport: FootballSport) {
     const config = sportSheetConfig(sport);
     if (config.spreadsheetId) return config.spreadsheetId;
 
-    // A specifically named dedicated workbook is still supported. If it does
-    // not exist, do not attempt to create a Drive file because service accounts
-    // can have zero ownership quota; use isolated tabs in the already-authorized
-    // shared workbook instead.
     const dedicated = await findSpreadsheetByName(config.spreadsheetName);
     if (dedicated) return dedicated;
 
@@ -239,12 +265,6 @@ function quoteSheetName(name: string) {
   return `'${String(name).replace(/'/g, "''")}'`;
 }
 
-// Unlike the in-memory Map above, this cache is shared by Next/Vercel across
-// public requests. That means 100 visitors opening the NFL or NCAAF board inside
-// the same cache window reuse one Google Sheets result for each worksheet.
-// freshnessBucket is intentionally unused by the Sheets query itself: because
-// unstable_cache keys include function arguments, volatile worksheets receive a
-// new shared cache identity when their short freshness window rolls over.
 const readSportWorksheetShared = unstable_cache(
   async (
     sport: FootballSport,
@@ -398,6 +418,7 @@ export async function writeSportWorksheet(
     requestBody: { values: [headers, ...values] },
   });
   invalidateSportWorksheetReadCache(sport, worksheetName);
+  await mirrorSportReplace(sport, worksheetName, headers, rows);
 }
 
 export async function upsertSportRows(
@@ -441,6 +462,7 @@ export async function appendSportRows(
     requestBody: { values },
   });
   invalidateSportWorksheetReadCache(sport, worksheetName);
+  await mirrorSportAppend(sport, worksheetName, rows);
 }
 
 export function sportDatabaseLabel(sport: FootballSport) {
