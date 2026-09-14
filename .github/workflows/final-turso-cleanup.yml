@@ -62,20 +62,48 @@ jobs:
                   if text != original:
                       path.write_text(text, encoding='utf-8')
 
-          workflow = Path('.github/workflows/final-turso-cleanup.yml')
-          workflow.unlink(missing_ok=True)
+          Path('.github/workflows/final-turso-cleanup.yml').unlink(missing_ok=True)
           PY
 
       - name: Verify no production Google Sheets runtime remains
         run: |
-          if grep -RniE '@googleapis/sheets|google-auth-library|from ["'"']googleapis|googleSheets|google-sheets|Google Sheets|GOOGLE_SHEET_ID|GOOGLE_CREDENTIALS' app lib components package.json 2>/dev/null; then
-            echo 'Legacy Google Sheets production reference remains'
-            exit 1
-          fi
-          test ! -e scripts/migrate-sheets-to-turso.mjs
-          test ! -e scripts/audit-turso-parity.mjs
-          test ! -e lib/googleSheets.ts
-          test -e lib/mlbStore.ts
+          python - <<'PY'
+          from pathlib import Path
+
+          forbidden = [
+              '@googleapis/sheets',
+              'google-auth-library',
+              'googleapis',
+              'googleSheets',
+              'google-sheets',
+              'Google Sheets',
+              'GOOGLE_SHEET_ID',
+              'GOOGLE_CREDENTIALS',
+          ]
+          roots = [Path('app'), Path('lib'), Path('components')]
+          failures = []
+          for root in roots:
+              if not root.exists():
+                  continue
+              for path in root.rglob('*'):
+                  if not path.is_file() or path.suffix not in {'.ts', '.tsx', '.js', '.jsx', '.mjs'}:
+                      continue
+                  text = path.read_text(encoding='utf-8')
+                  for token in forbidden:
+                      if token in text:
+                          failures.append(f'{path}: {token}')
+          package_text = Path('package.json').read_text(encoding='utf-8')
+          for token in forbidden:
+              if token in package_text:
+                  failures.append(f'package.json: {token}')
+          if Path('scripts/migrate-sheets-to-turso.mjs').exists(): failures.append('migration script remains')
+          if Path('scripts/audit-turso-parity.mjs').exists(): failures.append('parity script remains')
+          if Path('lib/googleSheets.ts').exists(): failures.append('legacy lib/googleSheets.ts remains')
+          if not Path('lib/mlbStore.ts').exists(): failures.append('lib/mlbStore.ts is missing')
+          if failures:
+              raise SystemExit('\n'.join(failures))
+          print('No production Google Sheets runtime references remain.')
+          PY
 
       - name: Build production app
         run: |
