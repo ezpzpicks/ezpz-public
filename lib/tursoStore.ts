@@ -13,6 +13,10 @@ type PipelineResult = {
   };
 };
 
+type PipelineRequest =
+  | { type: "execute"; stmt: { sql: string; args: never[] } }
+  | { type: "close" };
+
 const URL_ENV_NAMES = [
   "TURSO_DATABASE_URL",
   "TURSO_URL",
@@ -67,7 +71,6 @@ function metadata(row: TursoRow) {
 }
 
 function hashText(input: string) {
-  // Fast deterministic non-cryptographic hash is enough for change detection.
   let hash = 2166136261;
   for (let index = 0; index < input.length; index += 1) {
     hash ^= input.charCodeAt(index);
@@ -85,7 +88,10 @@ async function pipeline(sqlStatements: string[]) {
   const token = firstEnv(TOKEN_ENV_NAMES);
   if (!rawUrl || !token) throw new Error("Turso is not configured.");
   const base = endpoint(rawUrl).replace(/\/$/, "");
-  const requests = sqlStatements.map((sql) => ({ type: "execute", stmt: { sql, args: [] } }));
+  const requests: PipelineRequest[] = sqlStatements.map((sql) => ({
+    type: "execute" as const,
+    stmt: { sql, args: [] },
+  }));
   requests.push({ type: "close" });
   const response = await fetch(`${base}/v2/pipeline`, {
     method: "POST",
