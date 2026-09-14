@@ -266,25 +266,30 @@ function odds(play: Play) {
 
 function mergeSlateRows(data: FootballData, weekly: WeeklyData | null, sport: Sport) {
   const rows: SheetRow[] = [];
-  const add = (row: SheetRow) => {
+  const primary = data.slateToday || [];
+
+  const add = (row: SheetRow, allowNew: boolean, overwrite: boolean) => {
     const existingIndex = rows.findIndex((candidate) => rowsSameGame(candidate, row, sport));
     if (existingIndex < 0) {
-      rows.push({ ...row });
+      if (allowNew) rows.push({ ...row });
       return;
     }
+
     const merged = { ...rows[existingIndex] };
     for (const [field, value] of Object.entries(row)) {
-      if (String(value ?? "").trim()) merged[field] = value;
+      if (!String(value ?? "").trim()) continue;
+      if (overwrite || !String(merged[field] ?? "").trim()) merged[field] = value;
     }
     rows[existingIndex] = merged;
   };
 
+  for (const row of primary) add(row, true, true);
+
   for (const row of weekly?.games || []) {
     const date = String(row.Date || row["Game Date"] || "").trim();
     if (data.today && date && date !== data.today) continue;
-    add(row);
+    add(row, primary.length === 0, false);
   }
-  for (const row of data.slateToday || []) add(row);
 
   return rows.sort((a, b) => {
     const timeDiff = timeSortValue(rowGameTime(a)) - timeSortValue(rowGameTime(b));
@@ -293,27 +298,7 @@ function mergeSlateRows(data: FootballData, weekly: WeeklyData | null, sport: Sp
   });
 }
 
-function mergeSplits(data: FootballData, weekly: WeeklyData | null, sport: Sport) {
-  const output: Split[] = [];
-  for (const split of [...(data.draftKings?.splits || []), ...(weekly?.splits || [])]) {
-    const existingIndex = output.findIndex((candidate) => {
-      const sameMarket = candidate.market === split.market;
-      if (!sameMarket) return false;
-      const candidateTeams = parseGameTeams(candidate.game);
-      const splitTeams = parseGameTeams(split.game);
-      const gameMatch = candidateTeams && splitTeams
-        ? sameTeam(candidateTeams.away, splitTeams.away, sport) && sameTeam(candidateTeams.home, splitTeams.home, sport)
-        : textKey(candidate.game) === textKey(split.game);
-      if (!gameMatch) return false;
-      return split.market === "Total"
-        ? candidate.side === split.side
-        : sameTeam(candidate.selectionTeam || candidate.selection, split.selectionTeam || split.selection, sport);
-    });
-    if (existingIndex < 0) output.push(split);
-    else output[existingIndex] = split;
-  }
-  return output;
-}
+
 
 function GameSummary({ sport, game, time, count, noun = "plays" }: { sport: Sport; game: string; time: string; count?: number; noun?: string }) {
   return (
@@ -328,32 +313,11 @@ function GameSummary({ sport, game, time, count, noun = "plays" }: { sport: Spor
   );
 }
 
-function PropMiniRow({ play }: { play: Play }) {
-  const form = badge(play.formStatus);
-  const sideLine = [play.propSide, play.propLine].filter((value) => String(value ?? "").trim()).join(" ");
-  return (
-    <div className="fgtPropRow">
-      <div className="fgtPropIdentity">
-        <strong>{play.playerName || play.play || "Player Prop"}</strong>
-        <small>{play.propMarket || play.role || "Player Prop"}{sideLine ? ` • ${sideLine}` : ""}</small>
-      </div>
-      <div className="fgtPropNumbers">
-        <span>PROJ <b>{projection(play.propProjection)}</b></span>
-        <span>LINE <b>{String(play.propLine ?? "—")}</b></span>
-      </div>
-      <span className={`fgtBadge ${form.cls}`}>{form.icon} {form.label}</span>
-    </div>
-  );
-}
 
-function FullSlateCard({ row, sport, plays, splits }: { row: SheetRow; sport: Sport; plays: Play[]; splits: Split[] }) {
+
+function FullSlateCard({ row, sport }: { row: SheetRow; sport: Sport }) {
   const game = rowGame(row);
   const teams = rowTeams(row);
-  const props = plays.filter((play) => textKey(play.role).includes("player prop") && playMatchesRow(play, row, sport));
-  const gameSplits = splits.filter((split) => {
-    const parsed = parseGameTeams(split.game);
-    return Boolean(parsed && sameTeam(parsed.away, teams.away, sport) && sameTeam(parsed.home, teams.home, sport));
-  });
   const spreadGrade = row["Spread Grade"] || "No Play";
   const totalGrade = row["Total Grade"] || "No Play";
 
@@ -388,26 +352,6 @@ function FullSlateCard({ row, sport, plays, splits }: { row: SheetRow; sport: Sp
           <small>Model probability {probability(row["Total Probability"])}</small>
         </div>
       </div>
-
-      {props.length ? (
-        <section className="fgtProps">
-          <div className="fgtSectionTitle"><span>GRADED PLAYER PROPS</span><b>{props.length}</b></div>
-          <div className="fgtPropStack">{props.map((play, index) => <PropMiniRow key={`${play.playerName}-${play.propMarket}-${play.propSide}-${play.propLine}-${index}`} play={play} />)}</div>
-        </section>
-      ) : null}
-
-      {gameSplits.length ? (
-        <section className="fgtDk">
-          <div className="fgtSectionTitle"><span>DRAFTKINGS MARKET</span></div>
-          {gameSplits.map((split, index) => (
-            <div className="fgtDkRow" key={`${split.market}-${split.selection}-${index}`}>
-              <strong>{split.market}</strong>
-              <span>{split.selection || `${split.side || ""} ${split.line ?? ""}`.trim()} {split.odds || ""}</span>
-              {Number.isFinite(Number(split.betsPct)) && Number.isFinite(Number(split.moneyPct)) ? <small>{split.betsPct}% bets / {split.moneyPct}% handle</small> : null}
-            </div>
-          ))}
-        </section>
-      ) : null}
     </div>
   );
 }
@@ -416,14 +360,29 @@ function ModelPlayRow({ play, sport }: { play: Play; sport: Sport }) {
   const isProp = textKey(play.role).includes("player prop");
   const form = play.formStatus ? badge(play.formStatus) : null;
   const sideLine = [play.propSide, play.propLine].filter((value) => String(value ?? "").trim()).join(" ");
+  const headshot = String(play.headshotUrl || "").trim();
+  const formRecord = String(play.formRecord || "").trim();
+
   return (
     <article className={`fgtPlayRow ${isProp ? "prop" : "game"} ${play.formStatus === "HOT" ? "hot" : ""}`}>
       <div className="fgtPlayMain">
         {isProp ? (
           <>
             <span className="fgtEyebrow">{play.playType || "PROP"} • {play.propMarket || "Player Prop"}</span>
-            <strong>{play.playerName || play.play}</strong>
-            <small>{sideLine || play.play || "—"}</small>
+            <div className="fgtPlayerNameRow">
+              {headshot ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  className="fgtHeadshot"
+                  src={headshot}
+                  alt={`${play.playerName || "Player"} headshot`}
+                  loading="lazy"
+                  onError={(event) => { event.currentTarget.style.display = "none"; }}
+                />
+              ) : null}
+              <strong>{play.playerName || play.play}</strong>
+            </div>
+            <span className="fgtPropSelection">{sideLine || play.play || "—"}</span>
           </>
         ) : (
           <>
@@ -439,7 +398,12 @@ function ModelPlayRow({ play, sport }: { play: Play; sport: Sport }) {
         <span>MODEL <b>{probability(play.score)}</b></span>
         <span>ODDS <b>{odds(play)}</b></span>
       </div>
-      {form ? <span className={`fgtBadge ${form.cls}`}>{form.icon} {form.label}</span> : null}
+      {form ? (
+        <div className="fgtFormLine">
+          <span className={`fgtBadge ${form.cls}`}>{form.icon} {form.label}</span>
+          {formRecord ? <span className="fgtFormRecord">L7 <b>{formRecord}</b></span> : null}
+        </div>
+      ) : null}
     </article>
   );
 }
@@ -458,7 +422,6 @@ export default function FootballGameTabs({ sport, tab, data }: { sport: Sport; t
   }, [sport, data.lastUpdated]);
 
   const slate = useMemo(() => mergeSlateRows(data, weekly, sport), [data, weekly, sport]);
-  const splits = useMemo(() => mergeSplits(data, weekly, sport), [data, weekly, sport]);
   const plays = data.bestPlays || [];
 
   const groups = useMemo(() => {
@@ -484,7 +447,7 @@ export default function FootballGameTabs({ sport, tab, data }: { sport: Sport; t
       <div className="fgtHead">
         <div>
           <h2>{sport === "NFL" ? "NFL" : "College Football"} {tab}</h2>
-          <p>{tab === "Full Slate" ? "One matchup tile per game • whole-number score projections • graded props inside each matchup" : "Model Plays grouped by matchup so the full Saturday/Sunday board stays easy to scan"}</p>
+          <p>{tab === "Full Slate" ? "One matchup tile per game • whole-number score projections" : "Model Plays grouped by matchup so the full Saturday/Sunday board stays easy to scan"}</p>
         </div>
         <div className="fgtHeadBadges"><span>{tab === "Full Slate" ? slate.length : groups.length} games</span><span className={live ? "live" : ""}>{live ? "DraftKings live" : "DraftKings pending"}</span></div>
       </div>
@@ -493,10 +456,9 @@ export default function FootballGameTabs({ sport, tab, data }: { sport: Sport; t
         slate.length ? <div className="fgtStack">{slate.map((row, index) => {
           const game = rowGame(row);
           const time = rowGameTime(row);
-          const propCount = plays.filter((play) => textKey(play.role).includes("player prop") && playMatchesRow(play, row, sport)).length;
           return <details className="fgtGame" key={stableGameId(row) || `${teamKey(rowTeams(row).away, sport)}-${teamKey(rowTeams(row).home, sport)}-${index}`} open={slate.length === 1}>
-            <GameSummary sport={sport} game={game} time={time} count={propCount || undefined} noun={propCount === 1 ? "prop" : "props"} />
-            <FullSlateCard row={row} sport={sport} plays={plays} splits={splits} />
+            <GameSummary sport={sport} game={game} time={time} />
+            <FullSlateCard row={row} sport={sport} />
           </details>;
         })}</div> : <div className="fgtEmpty">No {sport} games are posted for {data.today || "today"} yet.</div>
       ) : (
@@ -511,8 +473,8 @@ export default function FootballGameTabs({ sport, tab, data }: { sport: Sport; t
         .fgtStack{display:grid;gap:12px}.fgtGame{overflow:hidden;border:1px solid rgba(68,151,248,.2);border-radius:22px;background:linear-gradient(145deg,rgba(8,17,31,.94),rgba(4,10,20,.92));box-shadow:0 18px 48px rgba(0,0,0,.28)}.fgtSummary{cursor:pointer;list-style:none;display:grid;grid-template-columns:20px minmax(0,1fr) auto;align-items:center;gap:10px;padding:16px 18px;user-select:none}.fgtSummary::-webkit-details-marker{display:none}.fgtChevron{color:#78b9ff;font-size:25px;font-weight:800;line-height:1;transition:transform .18s ease}.fgtGame[open] .fgtChevron{transform:rotate(90deg)}.fgtGame[open] .fgtSummary{border-bottom:1px solid rgba(78,153,241,.13);background:linear-gradient(90deg,rgba(31,110,216,.1),transparent)}.fgtSummaryMain{display:grid;gap:4px;min-width:0}.fgtSummaryMain strong{color:#f7fbff;font-size:16px;line-height:1.25;font-weight:920}.fgtSummaryMain small{color:rgba(151,175,205,.76);font-size:11px;font-weight:700}.fgtCount{border:1px solid rgba(76,163,255,.24);border-radius:999px;padding:7px 10px;background:rgba(32,105,210,.13);color:#d9edff;font-size:10px;font-weight:900;letter-spacing:.04em;text-transform:uppercase;white-space:nowrap}
         .fgtSlateBody{display:grid;gap:10px;padding:10px}.fgtScoreboard{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.fgtTeamScore{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px;border:1px solid rgba(98,139,191,.15);border-radius:16px;padding:13px;background:rgba(7,16,30,.66)}.fgtTeamScore>div{min-width:0}.fgtTeamScore span{display:block;color:var(--ez-muted);font-size:9px;font-weight:900;letter-spacing:.07em}.fgtTeamScore strong{display:block;margin-top:4px;color:#f2f7ff;font-size:15px;overflow-wrap:anywhere}.fgtTeamScore>b{color:#8bc5ff;font-size:32px;line-height:1;letter-spacing:-.04em}.fgtMetrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.fgtMetrics>div{border:1px solid rgba(98,139,191,.14);border-radius:14px;padding:11px 12px;background:rgba(8,17,31,.62)}.fgtMetrics span{display:block;color:var(--ez-muted);font-size:9px}.fgtMetrics strong{display:block;margin-top:4px}.fgtMarkets{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.fgtMarketCard{min-width:0;border:1px solid rgba(93,137,192,.16);border-radius:16px;padding:12px 13px;background:linear-gradient(145deg,rgba(10,22,40,.72),rgba(6,14,26,.82))}.fgtMarketCard>div{display:flex;align-items:center;justify-content:space-between;gap:8px}.fgtMarketCard>div span{color:#78b9ff;font-size:10px;font-weight:950;letter-spacing:.07em}.fgtMarketCard>div b{border:1px solid rgba(93,137,192,.18);border-radius:999px;padding:4px 7px;color:#cfe6ff;font-size:9px}.fgtMarketCard>strong{display:block;margin-top:9px;color:#f4f8ff;font-size:17px;line-height:1.2;overflow-wrap:anywhere}.fgtMarketCard>small{display:block;margin-top:5px;color:var(--ez-muted);font-size:10px}
         .fgtProps,.fgtDk{border:1px solid rgba(75,132,201,.15);border-radius:16px;padding:12px;background:rgba(5,13,25,.62)}.fgtSectionTitle{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}.fgtSectionTitle span{color:#8fc7ff;font-size:9px;font-weight:950;letter-spacing:.08em}.fgtSectionTitle b{display:grid;place-items:center;min-width:24px;height:24px;border-radius:999px;background:rgba(47,140,255,.12);color:#cfe6ff;font-size:10px}.fgtPropStack{display:grid;gap:7px}.fgtPropRow{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:10px;border:1px solid rgba(98,139,191,.12);border-radius:13px;padding:9px 10px;background:rgba(8,18,34,.62)}.fgtPropIdentity{display:grid;gap:2px;min-width:0}.fgtPropIdentity strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#f3f8ff;font-size:13px}.fgtPropIdentity small{color:var(--ez-muted);font-size:9px}.fgtPropNumbers{display:flex;gap:8px}.fgtPropNumbers span,.fgtPlayMetrics span{display:grid;gap:1px;color:var(--ez-muted);font-size:8px;font-weight:850;letter-spacing:.04em}.fgtPropNumbers b,.fgtPlayMetrics b{color:#eef6ff;font-size:11px}.fgtBadge{display:inline-flex;align-items:center;width:max-content;border:1px solid rgba(112,145,186,.2);border-radius:999px;padding:5px 7px;font-size:8px;font-weight:950;letter-spacing:.025em;white-space:nowrap}.fgtBadge.hot{color:#adf4c7;border-color:rgba(43,216,117,.34);background:rgba(28,130,78,.15)}.fgtBadge.cold{color:#b7d7ff;border-color:rgba(94,167,255,.3);background:rgba(50,108,180,.14)}.fgtBadge.neutral{color:#d4deeb;background:rgba(100,120,146,.12)}.fgtBadge.sample{color:#f7d98d;border-color:rgba(247,200,92,.26);background:rgba(155,115,30,.13)}.fgtDk{display:grid;gap:6px}.fgtDk .fgtSectionTitle{margin-bottom:2px}.fgtDkRow{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:8px;align-items:center;color:var(--ez-muted);font-size:10px}.fgtDkRow strong{color:#dcecff}.fgtDkRow span{color:#eef5ff}.fgtDkRow small{white-space:nowrap}
-        .fgtModelBody{display:grid;gap:8px;padding:10px}.fgtPlayRow{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:12px;border:1px solid rgba(88,137,196,.17);border-radius:16px;padding:12px 13px;background:linear-gradient(145deg,rgba(9,19,35,.78),rgba(5,12,23,.85))}.fgtPlayRow.hot{border-color:rgba(43,216,117,.38);box-shadow:0 0 18px rgba(43,216,117,.07)}.fgtPlayMain{display:grid;gap:3px;min-width:0}.fgtEyebrow{color:#78b9ff;font-size:8px;font-weight:950;letter-spacing:.06em;text-transform:uppercase}.fgtPlayMain>strong{color:#f4f8ff;font-size:15px;overflow-wrap:anywhere}.fgtPlayMain>small{color:var(--ez-muted);font-size:9px}.fgtPlayMetrics{display:flex;gap:10px}.fgtEmpty{border:1px solid var(--ez-border);border-radius:22px;padding:30px;text-align:center;color:var(--ez-muted);background:linear-gradient(145deg,var(--ez-panel),var(--ez-panel-2))}
-        @media(max-width:700px){.fgtHead{align-items:flex-start;flex-direction:column}.fgtHeadBadges{justify-content:flex-start}.fgtSummary{padding:14px 15px}.fgtScoreboard,.fgtMarkets{grid-template-columns:1fr}.fgtMetrics{grid-template-columns:1fr}.fgtPropRow,.fgtPlayRow{grid-template-columns:minmax(0,1fr) auto}.fgtPropRow>.fgtBadge,.fgtPlayRow>.fgtBadge{grid-column:1/-1}.fgtPropNumbers,.fgtPlayMetrics{justify-content:flex-end}.fgtDkRow{grid-template-columns:auto minmax(0,1fr)}.fgtDkRow small{grid-column:1/-1}.fgtCount{font-size:9px;padding:6px 8px}}
+        .fgtModelBody{display:grid;gap:8px;padding:10px}.fgtPlayRow{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:12px;border:1px solid rgba(88,137,196,.17);border-radius:16px;padding:12px 13px;background:linear-gradient(145deg,rgba(9,19,35,.78),rgba(5,12,23,.85))}.fgtPlayRow.hot{border-color:rgba(43,216,117,.38);box-shadow:0 0 18px rgba(43,216,117,.07)}.fgtPlayMain{display:grid;gap:3px;min-width:0}.fgtEyebrow{color:#78b9ff;font-size:8px;font-weight:950;letter-spacing:.06em;text-transform:uppercase}.fgtPlayMain>strong{color:#f4f8ff;font-size:15px;overflow-wrap:anywhere}.fgtPlayMain>small{color:var(--ez-muted);font-size:9px}.fgtPlayerNameRow{display:flex;align-items:center;gap:8px;min-width:0}.fgtPlayerNameRow strong{color:#f4f8ff;font-size:15px;overflow-wrap:anywhere}.fgtHeadshot{width:36px;height:36px;border-radius:50%;object-fit:cover;object-position:center top;border:1px solid rgba(98,164,239,.28);background:rgba(28,57,91,.2);flex:0 0 auto}.fgtPropSelection{color:#f1f7ff;font-size:14px;font-weight:900;line-height:1.25}.fgtFormLine{display:flex;align-items:center;gap:7px;flex-wrap:wrap}.fgtFormRecord{display:inline-flex;align-items:center;gap:4px;border:1px solid rgba(112,145,186,.18);border-radius:999px;padding:5px 7px;color:var(--ez-muted);font-size:8px;font-weight:900;white-space:nowrap}.fgtFormRecord b{color:#eef6ff;font-size:9px}.fgtPlayMetrics{display:flex;gap:10px}.fgtEmpty{border:1px solid var(--ez-border);border-radius:22px;padding:30px;text-align:center;color:var(--ez-muted);background:linear-gradient(145deg,var(--ez-panel),var(--ez-panel-2))}
+        @media(max-width:700px){.fgtHead{align-items:flex-start;flex-direction:column}.fgtHeadBadges{justify-content:flex-start}.fgtSummary{padding:14px 15px}.fgtScoreboard,.fgtMarkets{grid-template-columns:1fr}.fgtMetrics{grid-template-columns:1fr}.fgtPropRow,.fgtPlayRow{grid-template-columns:minmax(0,1fr) auto}.fgtPropRow>.fgtBadge,.fgtPlayRow>.fgtFormLine{grid-column:1/-1}.fgtPropNumbers,.fgtPlayMetrics{justify-content:flex-end}.fgtDkRow{grid-template-columns:auto minmax(0,1fr)}.fgtDkRow small{grid-column:1/-1}.fgtCount{font-size:9px;padding:6px 8px}}
       `}</style>
     </section>
   );
