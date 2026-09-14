@@ -1,6 +1,7 @@
 "use client";
 
 import FootballBoardBase from "./FootballBoardBase";
+import FootballGameTabs from "./FootballGameTabs";
 import { MatchupWithLogos, SelectionWithTeamLogo, TeamLogoName } from "./TeamLogoName";
 
 type Tab = "Today’s Model Plays" | "Today’s Trend Plays" | "EZPZ Picks" | "Full Slate" | "Records";
@@ -121,54 +122,6 @@ function PlayerHeadshot({ play, compact = false }: { play: NflPlay | NflEzpzPick
     </div>
   );
 }
-function FormPill({ play }: { play: NflPlay }) {
-  const form = formBadge(play.formStatus, play.formRecord, play.formTotalBets);
-  return (
-    <div className={`nflFormPill ${form.cls}`} title="EZPZ Model Play form uses the most recent 7 completed bets for this exact bet type.">
-      <strong>{form.icon} {form.label}</strong>
-      <span>{play.formType || "Bet type"} • {form.detail}</span>
-    </div>
-  );
-}
-function Metric({ label, value, accent = false }: { label: string; value: string | number; accent?: boolean }) {
-  return <div className={`nflMetric ${accent ? "accent" : ""}`}><span>{label}</span><strong>{value || "—"}</strong></div>;
-}
-function NflModelCard({ play, index }: { play: NflPlay; index: number }) {
-  const isProp = String(play.role || "").toLowerCase().includes("player prop");
-  const form = formBadge(play.formStatus, play.formRecord, play.formTotalBets);
-  return (
-    <article className={`nflOptimizedCard ${isProp ? "prop" : "game"} ${play.formStatus === "HOT" ? "hotCard" : ""}`}>
-      <div className="nflCardTop"><span className="nflRank">#{index + 1}</span><span className={`nflMiniForm ${form.cls}`}>{form.icon} {form.label}</span></div>
-      {isProp ? (
-        <div className="nflPlayerHero">
-          <PlayerHeadshot play={play} />
-          <div><span className="nflEyebrow"><TeamLogoName sport="NFL" team={play.playerTeam || ""} text={play.playerTeam || "NFL"} compact /> • {play.propMarket || "Player Prop"}</span><h3>{play.playerName || play.play}</h3><p><MatchupWithLogos sport="NFL" game={play.game || ""} compact /></p></div>
-        </div>
-      ) : (
-        <div className="nflGameHero"><span className="nflEyebrow">{play.formType || play.role || "NFL Model Play"}</span><h3><SelectionWithTeamLogo sport="NFL" selection={play.play || ""} game={play.game || ""} /></h3><p><MatchupWithLogos sport="NFL" game={play.game || ""} compact /></p></div>
-      )}
-      {isProp ? <div className="nflPropPickLine"><span>{play.propSide || "Pick"}</span><strong>{play.propLine || "—"}</strong><small>{play.playType || "Prop"}</small></div> : <div className="nflGradeLine">{play.playType || "Model Play"}</div>}
-      <div className="nflMetricGrid">
-        <Metric label="Odds" value={displayOdds(play.marketOdds || play.oddsLine)} accent />
-        <Metric label="Model Probability" value={pct(play.score)} accent />
-        {isProp ? <Metric label="Projection" value={play.propProjection || "—"} /> : null}
-        <Metric label="Reliability" value={play.reliability || "—"} />
-      </div>
-      <FormPill play={play} />
-      <div className="nflRuleHint">{play.formStatus === "HOT" ? "Model Play form gate passed • EZPZ still requires price -150 or better" : "Model Play form gate not currently passed"}</div>
-    </article>
-  );
-}
-function NflModelPlays({ data }: { data: FootballData }) {
-  const plays = data.bestPlays || [];
-  return (
-    <section className="nflOptimizedSection">
-      <div className="nflOptimizedHead"><div><h2>NFL Today’s Model Plays</h2><p>Regression model plays with player headshots and exact Last-7 bet-type form badges.</p></div><span>{plays.length} plays</span></div>
-      {plays.length ? <div className="nflOptimizedGrid">{plays.map((play, index) => <NflModelCard key={`${play.game}-${play.play}-${index}`} play={play} index={index} />)}</div> : <div className="nflOptimizedEmpty">No graded NFL Model Plays are saved for {data.today || "today"}.</div>}
-    </section>
-  );
-}
-
 function sourceLabel(source: NflEzpzPick["source"]) {
   if (source === "Best + Trend") return "MODEL + TREND";
   return source === "Best Play" ? "MODEL PLAY" : "TREND";
@@ -347,13 +300,16 @@ function FootballRecords({ sport, data }: { sport: Sport; data: FootballData }) 
 }
 
 export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab: Tab; data: FootballData & Record<string, any> }) {
+  if (tab === "Full Slate" || tab === "Today’s Model Plays") {
+    return <FootballGameTabs sport={sport} tab={tab} data={data} />;
+  }
   if (tab === "Records") return <FootballRecords sport={sport} data={data} />;
-  if (sport !== "NFL" || (tab !== "Today’s Model Plays" && tab !== "EZPZ Picks")) {
+  if (sport !== "NFL" || tab !== "EZPZ Picks") {
     return <FootballBoardBase sport={sport} tab={tab} data={data as any} />;
   }
   return (
     <>
-      {tab === "Today’s Model Plays" ? <NflModelPlays data={data} /> : <NflEzpzPicks data={data} />}
+      <NflEzpzPicks data={data} />
       <style jsx global>{`
         .nflOptimizedSection{display:grid;gap:18px}.nflOptimizedHead{display:flex;align-items:flex-end;justify-content:space-between;gap:18px}.nflOptimizedHead h2{margin:0 0 5px;font-size:clamp(1.4rem,4vw,2.2rem);letter-spacing:-.04em}.nflOptimizedHead p{margin:0;max-width:800px;color:var(--ez-muted);font-size:.86rem;line-height:1.45}.nflOptimizedHead>span{flex:0 0 auto;border:1px solid var(--ez-border);border-radius:999px;padding:7px 11px;color:var(--ez-muted);font-size:.8rem;font-weight:850}.nflOptimizedGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.nflOptimizedCard,.nflEzpzCard{position:relative;overflow:hidden;border:1px solid rgba(80,132,197,.2);border-radius:24px;padding:18px;background:linear-gradient(145deg,var(--ez-panel),var(--ez-panel-2));box-shadow:0 24px 65px rgba(0,0,0,.24)}.nflOptimizedCard.hotCard{border-color:rgba(43,216,117,.42);box-shadow:0 0 0 1px rgba(43,216,117,.1),0 0 25px rgba(43,216,117,.12),0 24px 65px rgba(0,0,0,.25)}.nflCardTop,.nflEzpzTop{display:flex;align-items:center;justify-content:space-between;gap:12px}.nflRank{display:grid;place-items:center;width:38px;height:38px;border-radius:12px;background:rgba(47,140,255,.12);border:1px solid rgba(47,140,255,.2);font-size:.78rem;font-weight:950}.nflMiniForm,.nflStatusBadge,.nflSourceBadge{display:inline-flex;align-items:center;border-radius:999px;padding:6px 9px;border:1px solid rgba(112,145,186,.2);font-size:.68rem;font-weight:950;letter-spacing:.04em}.nflMiniForm.hot,.nflFormPill.hot,.nflGate.hot{color:#adf4c7;border-color:rgba(43,216,117,.34);background:rgba(28,130,78,.15)}.nflMiniForm.cold,.nflFormPill.cold,.nflGate.cold{color:#b7d7ff;border-color:rgba(94,167,255,.3);background:rgba(50,108,180,.14)}.nflMiniForm.neutral,.nflFormPill.neutral,.nflGate.neutral{color:#d4deeb;background:rgba(100,120,146,.12)}.nflMiniForm.sample,.nflFormPill.sample,.nflGate.sample{color:#f7d98d;border-color:rgba(247,200,92,.26);background:rgba(155,115,30,.13)}.nflPlayerHero{display:grid;grid-template-columns:92px minmax(0,1fr);align-items:center;gap:14px;margin-top:15px}.nflPlayerHero.compactHero{grid-template-columns:72px minmax(0,1fr)}.nflHeadshot{position:relative;display:grid;place-items:center;width:92px;height:92px;overflow:hidden;border:1px solid rgba(94,159,247,.24);border-radius:20px;background:radial-gradient(circle at 50% 30%,rgba(64,146,255,.22),rgba(8,18,34,.88));color:rgba(181,211,246,.7);font-weight:950}.nflHeadshot.compact{width:72px;height:72px;border-radius:17px}.nflHeadshot img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;object-position:center bottom}.nflEyebrow{display:block;color:#78b9ff;font-size:.7rem;font-weight:900;letter-spacing:.06em;text-transform:uppercase}.nflPlayerHero h3,.nflGameHero h3,.nflEzpzSelection h3{margin:4px 0 3px;color:#f5f9ff;font-size:clamp(1.35rem,4vw,2rem);line-height:1.06;letter-spacing:-.035em}.nflPlayerHero p,.nflGameHero p,.nflEzpzSelection p{margin:0;color:var(--ez-muted);font-size:.8rem}.nflGameHero{margin-top:18px}.nflPropPickLine{display:grid;grid-template-columns:auto 1fr auto;align-items:baseline;gap:9px;margin-top:15px;border-radius:16px;padding:12px 14px;background:rgba(47,140,255,.075);border:1px solid rgba(47,140,255,.15)}.nflPropPickLine span{color:#9ccaff;font-size:.8rem;font-weight:950;text-transform:uppercase}.nflPropPickLine strong{font-size:1.7rem;letter-spacing:-.04em}.nflPropPickLine small,.nflGradeLine{color:var(--ez-muted);font-size:.75rem;font-weight:850}.nflGradeLine{margin-top:12px}.nflMetricGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin-top:13px}.nflMetric{min-width:0;border:1px solid rgba(105,140,184,.14);border-radius:14px;padding:10px 11px;background:rgba(8,17,31,.6)}.nflMetric.accent{border-color:rgba(43,216,117,.16);background:rgba(11,38,35,.35)}.nflMetric span{display:block;color:var(--ez-muted);font-size:.62rem;font-weight:850;text-transform:uppercase;letter-spacing:.055em}.nflMetric strong{display:block;margin-top:4px;color:#f1f7ff;font-size:.95rem;overflow-wrap:anywhere}.nflFormPill{display:grid;gap:3px;margin-top:13px;border:1px solid rgba(112,145,186,.2);border-radius:14px;padding:10px 12px}.nflFormPill strong{font-size:.78rem}.nflFormPill span{font-size:.68rem;opacity:.78}.nflRuleHint{margin-top:9px;color:var(--ez-muted);font-size:.67rem;line-height:1.35}.nflOptimizedEmpty{border:1px solid var(--ez-border);border-radius:22px;padding:30px;text-align:center;color:var(--ez-muted);background:linear-gradient(145deg,var(--ez-panel),var(--ez-panel-2))}.nflRulesStrip{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px}.nflRulesStrip>div{display:grid;gap:3px;border:1px solid rgba(83,127,181,.17);border-radius:15px;padding:11px 12px;background:rgba(8,18,34,.55)}.nflRulesStrip b{font-size:.77rem}.nflRulesStrip span{color:var(--ez-muted);font-size:.67rem;line-height:1.3}.nflEzpzStack{display:grid;gap:12px}.nflEzpzCard{border-color:rgba(43,216,117,.35)}.nflEzpzBadges{display:flex;flex-wrap:wrap;gap:6px}.nflSourceBadge{color:#aef2c6;border-color:rgba(43,216,117,.28);background:rgba(28,130,78,.13)}.nflStatusBadge.final{color:#aef2c6}.nflStatusBadge.pending{color:#f4d482;border-color:rgba(247,200,92,.25)}.nflEzpzOdds{font-size:1.05rem}.nflEzpzSelection{margin-top:15px}.nflGateRow{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:9px;margin-top:14px}.nflGate{display:grid;gap:4px;border:1px solid rgba(83,127,181,.17);border-radius:15px;padding:11px 12px;background:rgba(8,18,34,.58)}.nflGate>span{color:var(--ez-muted);font-size:.62rem;font-weight:900;text-transform:uppercase;letter-spacing:.06em}.nflGate strong{font-size:.95rem}.nflGate small{color:var(--ez-muted);font-size:.67rem}.nflGate.trend{border-color:rgba(47,140,255,.26);background:rgba(47,140,255,.075)}.nflGate.trend strong{color:#8bc5ff;font-size:1.22rem}.nflEzpzRuleText{display:grid;gap:4px;margin-top:11px;padding-top:10px;border-top:1px solid rgba(103,139,185,.12)}.nflEzpzRuleText strong{font-size:.72rem;color:#dcecff}.nflEzpzRuleText span{font-size:.66rem;color:var(--ez-muted);line-height:1.35}.footballCanonicalRecords{display:grid;gap:18px}.footballCanonicalRecordTile{display:grid;gap:5px}.footballCanonicalRecordTile>span{color:var(--ez-muted);font-size:.78rem;font-weight:850}.footballCanonicalRecordTile>strong{font-size:1.7rem}.footballCanonicalRecordTile>small{color:var(--ez-muted)}.footballCanonicalInfo{line-height:1.55}
         @media(max-width:850px){.nflOptimizedGrid{grid-template-columns:1fr}.nflRulesStrip{grid-template-columns:1fr}}

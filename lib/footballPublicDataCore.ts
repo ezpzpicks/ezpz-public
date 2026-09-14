@@ -769,10 +769,11 @@ function trendRecord(rows: SignalHistoryRow[]) {
 }
 function withinDays(rows: SignalHistoryRow[], referenceDate: string, days: number) {
   const ref = Date.parse(`${referenceDate}T12:00:00Z`);
-  return rows.filter((row) => { const at = Date.parse(`${row.date}T12:00:00Z`); const diff = Math.round((ref - at) / 86400000); return Number.isFinite(diff) && diff >= 0 && diff < days; });
+  return rows.filter((row) => { const at = Date.parse(`${row.date}T12:00:00Z`); const diff = Math.round((ref - at) / 86400000); return Number.isFinite(diff) && diff > 0 && diff <= days; });
 }
 function windows(rows: SignalHistoryRow[], referenceDate: string): TrendWindowRecords {
-  return { allTime: trendRecord(rows), last30: trendRecord(withinDays(rows, referenceDate, 30)), last7: trendRecord(withinDays(rows, referenceDate, 7)) };
+  const prior = rows.filter((row) => Boolean(row.date) && row.date < referenceDate);
+  return { allTime: trendRecord(prior), last30: trendRecord(withinDays(prior, referenceDate, 30)), last7: trendRecord(withinDays(prior, referenceDate, 7)) };
 }
 
 type ScorePoint = readonly [number, number];
@@ -1423,10 +1424,15 @@ function footballTrackerRecordType(row: SheetRow, sport: FootballSport): Footbal
   return base ? footballCfbRecordType(base, row.Grade || row["Model Grade"]) : "";
 }
 
-function footballLastSevenForType(rows: SheetRow[], recordType: FootballBestRecordType, sport: FootballSport) {
+function footballLastSevenForType(rows: SheetRow[], recordType: FootballBestRecordType, sport: FootballSport, beforeDate: string) {
   const completed = rows
     .map((row, index) => ({ row, index, stamp: Date.parse(`${isoDate(row.Date)}T12:00:00Z`) || 0 }))
-    .filter(({ row }) => resultCode(row.Result || row.Status) && footballTrackerRecordType(row, sport) === recordType)
+    .filter(({ row }) => {
+      const rowDate = isoDate(row.Date || row["Game Date"] || "");
+      return Boolean(resultCode(row.Result || row.Status))
+        && footballTrackerRecordType(row, sport) === recordType
+        && Boolean(rowDate && rowDate < beforeDate);
+    })
     .sort((a, b) => b.stamp - a.stamp || b.index - a.index)
     .slice(0, 7)
     .map(({ row }) => row);
@@ -1474,6 +1480,7 @@ function buildFootballEzpzPicks(
   tracker: SheetRow[],
   splits: DraftKingsSplit[],
   sport: FootballSport,
+  referenceDate: string,
 ) {
   const picks: FootballEzpzPick[] = [];
   const formCache = new Map<FootballBestRecordType, ReturnType<typeof recordTotals>>();
@@ -1481,7 +1488,7 @@ function buildFootballEzpzPicks(
     const market: "Spread" | "Total" = textKey(play.role || play.playType).includes("total") ? "Total" : "Spread";
     const split = footballBestPlaySplit(play, splits, sport);
     const recordType = footballBestPlayRecordType(play, split, sport);
-    const lastSeven = formCache.get(recordType) || footballLastSevenForType(tracker, recordType, sport);
+    const lastSeven = formCache.get(recordType) || footballLastSevenForType(tracker, recordType, sport, referenceDate);
     formCache.set(recordType, lastSeven);
     if (footballBestForm(lastSeven) !== "HOT") continue;
     const odds = americanOddsText(split?.odds || play.oddsLine);
@@ -1655,7 +1662,7 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
   const modelBest=bestPlays(todaySlate,sport);
   const propBest=sport==="NFL"?nflPlayerPropBestPlays(propProjectionRows,todaySlate,today):[];
   const best=[...modelBest,...propBest];
-  const aiPicks=buildFootballEzpzPicks(modelBest,todayTrendPlays,tracker,todayEnriched,sport);
+  const aiPicks=buildFootballEzpzPicks(modelBest,todayTrendPlays,tracker,todayEnriched,sport,today);
   const overall=recordTotals(tracker);const last7=recordTotals(tracker,7);const pending=tracker.filter((r)=>!resultCode(r.Result||r.Status)).length;
   const recordGroups = sport === "NCAAF"
     ? CFB_MODEL_RECORD_TYPES.map((betType) => ({

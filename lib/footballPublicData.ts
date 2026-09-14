@@ -97,14 +97,18 @@ function formatAmericanOdds(value: unknown) {
   return odds > 0 ? `+${odds}` : String(odds);
 }
 
-function formFromRows(rows: SheetRow[]): FormResult {
+function formFromRows(rows: SheetRow[], beforeDate = ""): FormResult {
   const settled = rows
     .map((row, index) => ({
       row,
       index,
       stamp: Date.parse(`${isoDate(row.Date || row["Game Date"] || "")}T12:00:00Z`) || 0,
     }))
-    .filter(({ row }) => Boolean(resultCode(row.Result || row.Status)))
+    .filter(({ row }) => {
+      if (!resultCode(row.Result || row.Status)) return false;
+      const rowDate = isoDate(row.Date || row["Game Date"] || "");
+      return !beforeDate || Boolean(rowDate && rowDate < beforeDate);
+    })
     .sort((a, b) => b.stamp - a.stamp || b.index - a.index)
     .slice(0, 7)
     .map(({ row }) => row);
@@ -377,11 +381,11 @@ async function playerHeadshotMap(rows: SheetRow[]) {
   return result;
 }
 
-function annotateGameModelPlays(plays: any[], tracker: SheetRow[], splits: any[]) {
+function annotateGameModelPlays(plays: any[], tracker: SheetRow[], splits: any[], beforeDate: string) {
   return plays.map((play) => {
     const split = splitForModelPlay(play, splits);
     const formType = gameModelRecordType(play, split);
-    const form = formFromRows(tracker.filter((row) => trackerMatchesGameModel(row, formType)));
+    const form = formFromRows(tracker.filter((row) => trackerMatchesGameModel(row, formType)), beforeDate);
     return {
       ...play,
       formStatus: form.status,
@@ -406,7 +410,7 @@ async function buildNflPropModelPlays(propRows: SheetRow[], propTracker: SheetRo
     const side = propSide(row);
     const line = propMarketLine(row);
     const formType = propRecordType(row);
-    const form = formFromRows(propTracker.filter((trackerRow) => propTrackerMatchesType(trackerRow, formType)));
+    const form = formFromRows(propTracker.filter((trackerRow) => propTrackerMatchesType(trackerRow, formType)), today);
     const awayTeam = String(game?.["Away Team"] || rowGameTeams(row).away || "").trim();
     const homeTeam = String(game?.["Home Team"] || rowGameTeams(row).home || "").trim();
     const playerTeam = String(row.Team || row["Player Team"] || "").trim();
@@ -761,7 +765,7 @@ export async function buildFootballPublicData(
 
   const coreGameModelPlays = (Array.isArray(core.bestPlays) ? core.bestPlays : [])
     .filter((play: any) => !textKey(play.role || "").includes("player prop"));
-  const gameModelPlays = annotateGameModelPlays(coreGameModelPlays, tracker, splits);
+  const gameModelPlays = annotateGameModelPlays(coreGameModelPlays, tracker, splits, today);
   const propModelPlays = await buildNflPropModelPlays(propRows, propTracker, slate, today);
   const bestPlays = [...gameModelPlays, ...propModelPlays];
 

@@ -780,12 +780,13 @@ function withinDays(rows: HistoryRow[], referenceDate: string, days: number) {
   return rows.filter((row) => {
     const at = Date.parse(`${row.date}T12:00:00Z`);
     const diff = Math.round((ref - at) / 86_400_000);
-    return Number.isFinite(diff) && diff >= 0 && diff < days;
+    return Number.isFinite(diff) && diff > 0 && diff <= days;
   });
 }
 
 function windows(rows: HistoryRow[], referenceDate: string): WindowRecords {
-  return { allTime: record(rows), last30: record(withinDays(rows, referenceDate, 30)), last7: record(withinDays(rows, referenceDate, 7)) };
+  const prior = rows.filter((row) => Boolean(row.date) && row.date < referenceDate);
+  return { allTime: record(prior), last30: record(withinDays(prior, referenceDate, 30)), last7: record(withinDays(prior, referenceDate, 7)) };
 }
 
 type ScorePoint = readonly [number, number];
