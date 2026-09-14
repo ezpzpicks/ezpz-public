@@ -22,6 +22,33 @@ jobs:
           path = Path("scripts/turso_source_cutover.mjs")
           text = path.read_text()
           text = text.replace(" || lifecycle.includes(\"google.\")", "")
+          text = text.replace('''  const existing = await readTursoDataset("MLB", tabName);
+          if (!existing) {
+            await replaceTursoDataset("MLB", tabName, [], headers);
+            invalidateWorksheetReadCache(tabName);
+            return;
+          }
+          const merged = [...(existing.headers || [])];
+          for (const header of headers) if (header && !merged.includes(header)) merged.push(header);
+          if (merged.length !== (existing.headers || []).length) {
+            await replaceTursoDataset("MLB", tabName, existing.rows, merged);
+            invalidateWorksheetReadCache(tabName);
+          }''', '''  const existing = await readTursoDataset("MLB", tabName, headers);
+          if (!existing.length) {
+            await replaceTursoDataset("MLB", tabName, [], headers);
+            invalidateWorksheetReadCache(tabName);
+          }''')
+          text = text.replace('''  const dataset = await readTursoDataset("MLB", tabName);
+          const headers = [...(dataset?.headers || [])];
+          for (const header of createHeaders) if (header && !headers.includes(header)) headers.push(header);
+          return matrixFromDataset(headers, (dataset?.rows || []) as SheetRow[]);''', '''  const rows = await readTursoDataset("MLB", tabName, createHeaders);
+          const headers = [...createHeaders];
+          for (const row of rows) {
+            for (const key of Object.keys(row || {})) if (key && !headers.includes(key)) headers.push(key);
+          }
+          return matrixFromDataset(headers, rows as SheetRow[]);''')
+          text = text.replace('''  const dataset = await readTursoDataset("UFC", tabName);
+          return ((dataset?.rows || []) as SheetRow[]).map((row) => ({ ...row }));''', '''  return [];''')
           path.write_text(text)
           PY
           node scripts/turso_source_cutover.mjs
