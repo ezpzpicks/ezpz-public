@@ -41,24 +41,16 @@ function anyRows(rows: TursoRow[], headers: string[]): AnyRow[] {
 
 async function ensureDataset(tab: string, headers: string[]) {
   assertTursoConfigured();
-  const existing = await readTursoDataset("MLB", tab);
-  if (!existing) {
-    await replaceTursoDataset("MLB", tab, [], headers);
-    return;
-  }
-  const merged = [...(existing.headers || [])];
-  for (const header of headers) if (header && !merged.includes(header)) merged.push(header);
-  if (merged.length !== (existing.headers || []).length) {
-    await replaceTursoDataset("MLB", tab, existing.rows, merged);
-  }
+  const existing = await readTursoDataset("MLB", tab, headers);
+  if (!existing.length) await replaceTursoDataset("MLB", tab, [], headers);
 }
 
 export async function readV2Tab(name: "snapshots" | "daily") {
   const tab = name === "snapshots" ? SNAPSHOT_TAB : DAILY_PICK_TAB;
   const headers = name === "snapshots" ? V2_SNAPSHOT_HEADERS : V2_DAILY_PICK_HEADERS;
   await ensureDataset(tab, headers);
-  const dataset = await readTursoDataset("MLB", tab);
-  return anyRows(dataset?.rows || [], headers);
+  const rows = await readTursoDataset("MLB", tab, headers);
+  return anyRows(rows, headers);
 }
 
 export async function appendV2Rows(name: "snapshots" | "daily", rows: AnyRow[]) {
