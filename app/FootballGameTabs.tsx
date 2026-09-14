@@ -368,7 +368,7 @@ function ModelPlayRow({ play, sport }: { play: Play; sport: Sport }) {
       <div className="fgtPlayMain">
         {isProp ? (
           <>
-            <span className="fgtEyebrow">{play.playType || "PROP"} • {play.propMarket || "Player Prop"}</span>
+            <span className="fgtEyebrow">{play.playType || "PROP"} • {play.propMarket || "Player Prop"}{play.propSide ? ` • ${play.propSide}` : ""}</span>
             <div className="fgtPlayerNameRow">
               {headshot ? (
                 // eslint-disable-next-line @next/next/no-img-element
