@@ -17,12 +17,8 @@ function assertTursoConfigured() {
 
 function normalizeRow(source: TursoRow | SheetRow, columns?: string[]): SheetRow {
   const row: SheetRow = {};
-  for (const [key, value] of Object.entries(source || {})) {
-    row[key] = String(value ?? "");
-  }
-  for (const column of columns || []) {
-    if (row[column] === undefined) row[column] = "";
-  }
+  for (const [key, value] of Object.entries(source || {})) row[key] = String(value ?? "");
+  for (const column of columns || []) if (row[column] === undefined) row[column] = "";
   return row;
 }
 
@@ -30,10 +26,7 @@ function normalizeRows(rows: Array<TursoRow | SheetRow>, columns?: string[]) {
   return rows.map((row) => normalizeRow(row, columns));
 }
 
-/**
- * Historical compatibility helper retained for callers that only need a stable
- * storage identity. There is no spreadsheet behind this identifier anymore.
- */
+/** Historical compatibility identity. There is no spreadsheet behind it. */
 export async function resolveSportSpreadsheetId(sport: FootballSport) {
   assertTursoConfigured();
   return `turso:${sport}`;
@@ -45,8 +38,8 @@ export async function readSportWorksheet(
   columns?: string[],
 ): Promise<SheetRow[]> {
   assertTursoConfigured();
-  const dataset = await readTursoDataset(sport, worksheetName);
-  return normalizeRows(dataset?.rows || [], columns);
+  const rows = await readTursoDataset(sport, worksheetName, columns);
+  return normalizeRows(rows, columns);
 }
 
 export async function ensureSportWorksheet(
@@ -55,19 +48,8 @@ export async function ensureSportWorksheet(
   headers: string[],
 ) {
   assertTursoConfigured();
-  const existing = await readTursoDataset(sport, worksheetName);
-  if (!existing) {
-    await replaceTursoDataset(sport, worksheetName, [], headers);
-    return;
-  }
-  const currentHeaders = existing.headers || [];
-  const mergedHeaders = [...currentHeaders];
-  for (const header of headers) {
-    if (header && !mergedHeaders.includes(header)) mergedHeaders.push(header);
-  }
-  if (mergedHeaders.length !== currentHeaders.length) {
-    await replaceTursoDataset(sport, worksheetName, existing.rows, mergedHeaders);
-  }
+  const existing = await readTursoDataset(sport, worksheetName, headers);
+  if (!existing.length) await replaceTursoDataset(sport, worksheetName, [], headers);
 }
 
 export async function writeSportWorksheet(
