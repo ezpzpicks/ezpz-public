@@ -1,28 +1,14 @@
-name: EZPZ Football Public Snapshots
+name: EZPZ Football Public Snapshots (Manual Fallback)
 
+# Production football live-data scheduling now runs on Vercel Cron. Keep this
+# workflow only as an explicit manual recovery tool so GitHub Actions is no
+# longer part of the normal NFL/CFB market-collection path.
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - .github/workflows/football_public_snapshot.yml
-      - app/api/cron/football-slate-sync/route.ts
-      - app/api/cron/football-market-discovery/route.ts
-      - app/api/cron/football-public-snapshot/route.ts
-      - app/api/football-weekly-market/route.ts
-      - lib/footballWeeklyMarket.ts
-      - lib/footballResultSettlement.ts
-      - app/FootballBoard.tsx
-  schedule:
-    # Check NFL and CFB markets every five minutes, 24/7. This same workflow also
-    # runs on football code/feed changes so the corrected production collector is exercised immediately.
-    - cron: "2,7,12,17,22,27,32,37,42,47,52,57 * * * *"
-      timezone: "America/New_York"
   workflow_dispatch:
 
 concurrency:
-  group: ezpz-football-public-snapshots
-  cancel-in-progress: false
+  group: ezpz-football-public-snapshots-manual
+  cancel-in-progress: true
 
 jobs:
   capture:
