@@ -1,0 +1,235 @@
+name: Football public site refinements
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/football-public-site-refinements.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  refine:
+    if: github.event.head_commit.message == 'Apply football public site refinements'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Refine football public site source
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("app/FootballGameTabs.tsx")
+          text = path.read_text()
+
+          def replace_between(source: str, start_marker: str, end_marker: str, replacement: str, label: str) -> str:
+              start = source.find(start_marker)
+              end = source.find(end_marker, start + len(start_marker))
+              if start < 0 or end < 0 or end <= start:
+                  raise SystemExit(f"{label}: markers not found")
+              return source[:start] + replacement.rstrip() + "\n\n" + source[end:]
+
+          # The model slate is authoritative. Weekly schedule rows may enrich an
+          # existing game, but cannot create blank duplicate matchup cards while
+          # an actual model slate is available.
+          merge_slate = r'''function mergeSlateRows(data: FootballData, weekly: WeeklyData | null, sport: Sport) {
+            const rows: SheetRow[] = [];
+            const primary = data.slateToday || [];
+
+            const add = (row: SheetRow, allowNew: boolean, overwrite: boolean) => {
+              const existingIndex = rows.findIndex((candidate) => rowsSameGame(candidate, row, sport));
+              if (existingIndex < 0) {
+                if (allowNew) rows.push({ ...row });
+                return;
+              }
+
+              const merged = { ...rows[existingIndex] };
+              for (const [field, value] of Object.entries(row)) {
+                if (!String(value ?? "").trim()) continue;
+                if (overwrite || !String(merged[field] ?? "").trim()) merged[field] = value;
+              }
+              rows[existingIndex] = merged;
+            };
+
+            for (const row of primary) add(row, true, true);
+
+            for (const row of weekly?.games || []) {
+              const date = String(row.Date || row["Game Date"] || "").trim();
+              if (data.today && date && date !== data.today) continue;
+              add(row, primary.length === 0, false);
+            }
+
+            return rows.sort((a, b) => {
+              const timeDiff = timeSortValue(rowGameTime(a)) - timeSortValue(rowGameTime(b));
+              if (Number.isFinite(timeDiff) && timeDiff !== 0) return timeDiff;
+              return rowGame(a).localeCompare(rowGame(b));
+            });
+          }'''
+          text = replace_between(text, "function mergeSlateRows(", "function mergeSplits(", merge_slate, "mergeSlateRows")
+
+          # Full Slate no longer needs a second split/prop presentation layer.
+          text = replace_between(text, "function mergeSplits(", "function GameSummary(", "", "mergeSplits")
+          text = replace_between(text, "function PropMiniRow(", "function FullSlateCard(", "", "PropMiniRow")
+
+          full_slate_card = r'''function FullSlateCard({ row, sport }: { row: SheetRow; sport: Sport }) {
+            const game = rowGame(row);
+            const teams = rowTeams(row);
+            const spreadGrade = row["Spread Grade"] || "No Play";
+            const totalGrade = row["Total Grade"] || "No Play";
+
+            return (
+              <div className="fgtSlateBody">
+                <div className="fgtScoreboard">
+                  <div className="fgtTeamScore">
+                    <div><span>AWAY</span><strong><TeamLogoName sport={sport} team={teams.away} text={teams.away || "Away"} /></strong></div>
+                    <b>{whole(row["Projected Away"])}</b>
+                  </div>
+                  <div className="fgtTeamScore">
+                    <div><span>HOME</span><strong><TeamLogoName sport={sport} team={teams.home} text={teams.home || "Home"} /></strong></div>
+                    <b>{whole(row["Projected Home"])}</b>
+                  </div>
+                </div>
+
+                <div className="fgtMetrics">
+                  <div><span>Projected margin</span><strong>{oneDecimal(row["Projected Margin"])}</strong></div>
+                  <div><span>Projected total</span><strong>{oneDecimal(row["Projected Total"])}</strong></div>
+                  <div><span>Reliability</span><strong>{row.Reliability || "—"}</strong></div>
+                </div>
+
+                <div className="fgtMarkets">
+                  <div className="fgtMarketCard">
+                    <div><span>SPREAD</span><b>{spreadGrade}</b></div>
+                    <strong><SelectionWithTeamLogo sport={sport} selection={row["Spread Pick"] || "No model play"} game={game} /></strong>
+                    <small>Model probability {probability(row["Spread Probability"])}</small>
+                  </div>
+                  <div className="fgtMarketCard">
+                    <div><span>TOTAL</span><b>{totalGrade}</b></div>
+                    <strong>{row["Total Pick"] || "No model play"}</strong>
+                    <small>Model probability {probability(row["Total Probability"])}</small>
+                  </div>
+                </div>
+              </div>
+            );
+          }'''
+          text = replace_between(text, "function FullSlateCard(", "function ModelPlayRow(", full_slate_card, "FullSlateCard")
+
+          model_play_row = r'''function ModelPlayRow({ play, sport }: { play: Play; sport: Sport }) {
+            const isProp = textKey(play.role).includes("player prop");
+            const form = play.formStatus ? badge(play.formStatus) : null;
+            const sideLine = [play.propSide, play.propLine].filter((value) => String(value ?? "").trim()).join(" ");
+            const headshot = String(play.headshotUrl || "").trim();
+            const formRecord = String(play.formRecord || "").trim();
+
+            return (
+              <article className={`fgtPlayRow ${isProp ? "prop" : "game"} ${play.formStatus === "HOT" ? "hot" : ""}`}>
+                <div className="fgtPlayMain">
+                  {isProp ? (
+                    <>
+                      <span className="fgtEyebrow">{play.playType || "PROP"} • {play.propMarket || "Player Prop"}</span>
+                      <div className="fgtPlayerNameRow">
+                        {headshot ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            className="fgtHeadshot"
+                            src={headshot}
+                            alt={`${play.playerName || "Player"} headshot`}
+                            loading="lazy"
+                            onError={(event) => { event.currentTarget.style.display = "none"; }}
+                          />
+                        ) : null}
+                        <strong>{play.playerName || play.play}</strong>
+                      </div>
+                      <span className="fgtPropSelection">{sideLine || play.play || "—"}</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="fgtEyebrow">{play.playType || play.role || "MODEL PLAY"}</span>
+                      <strong><SelectionWithTeamLogo sport={sport} selection={play.play || ""} game={play.game || ""} /></strong>
+                      <small>{play.role || "Game market"}</small>
+                    </>
+                  )}
+                </div>
+                <div className="fgtPlayMetrics">
+                  {isProp ? <span>PROJ <b>{projection(play.propProjection)}</b></span> : null}
+                  {isProp ? <span>LINE <b>{String(play.propLine ?? "—")}</b></span> : null}
+                  <span>MODEL <b>{probability(play.score)}</b></span>
+                  <span>ODDS <b>{odds(play)}</b></span>
+                </div>
+                {form ? (
+                  <div className="fgtFormLine">
+                    <span className={`fgtBadge ${form.cls}`}>{form.icon} {form.label}</span>
+                    {formRecord ? <span className="fgtFormRecord">L7 <b>{formRecord}</b></span> : null}
+                  </div>
+                ) : null}
+              </article>
+            );
+          }'''
+          text = replace_between(text, "function ModelPlayRow(", "export default function FootballGameTabs(", model_play_row, "ModelPlayRow")
+
+          old = '  const splits = useMemo(() => mergeSplits(data, weekly, sport), [data, weekly, sport]);\n'
+          if old not in text:
+              raise SystemExit("splits memo not found")
+          text = text.replace(old, "", 1)
+
+          old = '          <p>{tab === "Full Slate" ? "One matchup tile per game • whole-number score projections • graded props inside each matchup" : "Model Plays grouped by matchup so the full Saturday/Sunday board stays easy to scan"}</p>'
+          new = '          <p>{tab === "Full Slate" ? "One matchup tile per game • whole-number score projections" : "Model Plays grouped by matchup so the full Saturday/Sunday board stays easy to scan"}</p>'
+          if old not in text:
+              raise SystemExit("Full Slate subtitle not found")
+          text = text.replace(old, new, 1)
+
+          old = '''          const game = rowGame(row);
+                    const time = rowGameTime(row);
+                    const propCount = plays.filter((play) => textKey(play.role).includes("player prop") && playMatchesRow(play, row, sport)).length;
+                    return <details className="fgtGame" key={stableGameId(row) || `${teamKey(rowTeams(row).away, sport)}-${teamKey(rowTeams(row).home, sport)}-${index}`} open={slate.length === 1}>
+                      <GameSummary sport={sport} game={game} time={time} count={propCount || undefined} noun={propCount === 1 ? "prop" : "props"} />
+                      <FullSlateCard row={row} sport={sport} plays={plays} splits={splits} />
+                    </details>;'''
+          new = '''          const game = rowGame(row);
+                    const time = rowGameTime(row);
+                    return <details className="fgtGame" key={stableGameId(row) || `${teamKey(rowTeams(row).away, sport)}-${teamKey(rowTeams(row).home, sport)}-${index}`} open={slate.length === 1}>
+                      <GameSummary sport={sport} game={game} time={time} />
+                      <FullSlateCard row={row} sport={sport} />
+                    </details>;'''
+          if old not in text:
+              raise SystemExit("Full Slate render block not found")
+          text = text.replace(old, new, 1)
+
+          css_anchor = '.fgtPlayMain>small{color:var(--ez-muted);font-size:9px}'
+          css_extra = css_anchor + '.fgtPlayerNameRow{display:flex;align-items:center;gap:8px;min-width:0}.fgtPlayerNameRow strong{color:#f4f8ff;font-size:15px;overflow-wrap:anywhere}.fgtHeadshot{width:36px;height:36px;border-radius:50%;object-fit:cover;object-position:center top;border:1px solid rgba(98,164,239,.28);background:rgba(28,57,91,.2);flex:0 0 auto}.fgtPropSelection{color:#f1f7ff;font-size:14px;font-weight:900;line-height:1.25}.fgtFormLine{display:flex;align-items:center;gap:7px;flex-wrap:wrap}.fgtFormRecord{display:inline-flex;align-items:center;gap:4px;border:1px solid rgba(112,145,186,.18);border-radius:999px;padding:5px 7px;color:var(--ez-muted);font-size:8px;font-weight:900;white-space:nowrap}.fgtFormRecord b{color:#eef6ff;font-size:9px}'
+          if css_anchor not in text:
+              raise SystemExit("model-play CSS anchor not found")
+          text = text.replace(css_anchor, css_extra, 1)
+
+          old = '.fgtPropRow>.fgtBadge,.fgtPlayRow>.fgtBadge{grid-column:1/-1}'
+          new = '.fgtPropRow>.fgtBadge,.fgtPlayRow>.fgtFormLine{grid-column:1/-1}'
+          if old not in text:
+              raise SystemExit("mobile badge selector not found")
+          text = text.replace(old, new, 1)
+
+          path.write_text(text)
+          PY
+
+      - name: Type check
+        run: |
+          npm ci
+          npx tsc --noEmit
+
+      - name: Commit source refinements
+        shell: bash
+        run: |
+          git config user.name "EZPZ Source Refinement"
+          git config user.email "actions@users.noreply.github.com"
+          git rm .github/workflows/football-public-site-refinements.yml
+          git add app/FootballGameTabs.tsx
+          git commit -m "Refine football slate and model play cards"
+          git push origin HEAD:main
