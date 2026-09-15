@@ -3395,11 +3395,14 @@ function mlbTrackerMarket(row: SheetRow): MlbTrackerMarket {
 }
 
 function firstInningSide(row: SheetRow): "YRFI" | "NRFI" | "" {
-  const value = textKey(
-    `${row["Bet Type"] || ""} ${row.Market || ""} ${row.Selection || ""}`,
-  );
-  if (value.includes("nrfi") || value.includes("no run first inning")) return "NRFI";
-  if (value.includes("yrfi") || value.includes("yes run first inning")) return "YRFI";
+  // Bet Type is authoritative because the generic Market value is commonly
+  // "NRFI/YRFI" and therefore contains both tokens.
+  const values = [row["Bet Type"], row.Selection, row.Market];
+  for (const rawValue of values) {
+    const value = textKey(rawValue || "");
+    if (value.includes("nrfi") || value.includes("no run first inning")) return "NRFI";
+    if (value.includes("yrfi") || value.includes("yes run first inning")) return "YRFI";
+  }
   return "";
 }
 
@@ -3549,11 +3552,12 @@ async function syncMlbResultsNow(today: string): Promise<MlbResultSyncSummary> {
     const row = matrixRow.object;
     const rowDate = isoPublicDate(row.Date || "");
     const gameKey = String(row["Game Key"] || "").trim();
+    const market = mlbTrackerMarket(row);
     return (
       isRecentMlbResultDate(rowDate, todayIso) &&
       Boolean(gameKey) &&
-      !isCompletedResult(row.Result) &&
-      Boolean(mlbTrackerMarket(row))
+      Boolean(market) &&
+      (!isCompletedResult(row.Result) || market === "FirstInning")
     );
   });
 
@@ -3609,7 +3613,9 @@ async function syncMlbResultsNow(today: string): Promise<MlbResultSyncSummary> {
     if (!game) continue;
     const gameKey = String(row["Game Key"] || "").trim().replace(/\.0$/, "");
     const fields = mlbTrackerResultFields(row, game, pitcherResults.get(gameKey) || []);
-    if (fields) trackerUpdates.push({ sheetRow: matrixRow.sheetRow, fields });
+    if (fields && resultCode(fields.Result) !== resultCode(row.Result)) {
+      trackerUpdates.push({ sheetRow: matrixRow.sheetRow, fields });
+    }
   }
 
   const trendUpdates: SheetBlockUpdate[] = [];
