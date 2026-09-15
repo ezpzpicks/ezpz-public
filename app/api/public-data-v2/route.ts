@@ -320,7 +320,9 @@ async function postProcessMlbPayload(request:NextRequest,payload:AnyRow){
   todayLocks=currentLocksForToday(dailyPicks,today,nowMs);
 
   const legacyAiPicks=Array.isArray(payload.aiPicks)?payload.aiPicks:[];
-  const filteredAiPicks=legacyAiPicks.filter((pick:AnyRow)=>!isLaunchOrLater(pick?.date||today));
+  // Trend v2 replaces only pure legacy Trend Play selections after launch.
+  // Model-backed Best Play / Best + Trend rows remain authoritative and visible.
+  const filteredAiPicks=legacyAiPicks.filter((pick:AnyRow)=>!isLaunchOrLater(pick?.date||today)||!pureLegacyTrendPick(pick));
   const lockedGames=new Set(todayLocks.map(v2GameIdentity).filter(Boolean));
   const livePendingV2Picks=[...currentQualifiers.values()]
     .filter((play)=>!lockedGames.has(v2GameIdentity(play)))
@@ -340,7 +342,7 @@ async function postProcessMlbPayload(request:NextRequest,payload:AnyRow){
   for(const lock of todayLocks)filteredAiPicks.push(lock);
   payload.aiPicks=filteredAiPicks;
   const legacyRecordRows=Array.isArray(payload.aiPickRecordRows)?payload.aiPickRecordRows:[];
-  const filteredRecordRows=legacyRecordRows.filter((pick:AnyRow)=>!isLaunchOrLater(pick?.date||pick?.Date));
+  const filteredRecordRows=legacyRecordRows.filter((pick:AnyRow)=>!isLaunchOrLater(pick?.date||pick?.Date)||!pureLegacyTrendPick(pick));
   const visibleDailyPicks=[...dailyPicks.filter(pick=>isoDate(pick.date)!==today),...todayLocks];
   payload.aiPickRecordRows=[...filteredRecordRows,...visibleDailyPicks];
 
