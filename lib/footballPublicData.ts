@@ -415,7 +415,12 @@ async function buildNflPropModelPlays(propRows: SheetRow[], propTracker: SheetRo
     const awayTeam = String(game?.["Away Team"] || rowGameTeams(row).away || "").trim();
     const homeTeam = String(game?.["Home Team"] || rowGameTeams(row).home || "").trim();
     const playerTeam = String(row.Team || row["Player Team"] || "").trim();
-    const odds = formatAmericanOdds(row["Pick Odds"] || row.Odds || "");
+    const sideOdds = textKey(side).startsWith("under") ? row["Under Odds"] : row["Over Odds"];
+    const odds = formatAmericanOdds(row["Pick Odds"])
+      || formatAmericanOdds(row.Odds)
+      || formatAmericanOdds(row["Odds/Line"])
+      || formatAmericanOdds(sideOdds)
+      || "";
     const projection = String(row.Projection || row["Raw Projection"] || "").trim();
     return {
       playType: String(row.Grade || row["Model Grade"] || "").trim(),
