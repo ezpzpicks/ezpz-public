@@ -18,6 +18,7 @@ type SettlementSummary = {
   sport: FootballSport;
   checkedGames: number;
   resolvedFinals: number;
+  recoveredTrackerRows: number;
   settledTrackerRows: number;
   repairedScheduleRows: number;
   pendingTrackerRows: number;
@@ -28,6 +29,14 @@ const SETTLEMENT_INTERVAL_MS = 5 * 60_000;
 const MAX_PENDING_AGE_DAYS = 45;
 const lastSettlementRun = new Map<FootballSport, number>();
 const settlementInFlight = new Map<FootballSport, Promise<SettlementSummary>>();
+
+const FOOTBALL_TRACKER_HEADERS = [
+  "Date", "Season", "Week", "Game ID", "Game", "Bet Type", "Selection", "Odds/Line",
+  "Model Probability", "Push Probability", "Implied Probability", "Edge", "Expected Value",
+  "Grade", "Confluence", "Result", "Units", "Closing Line", "Closing Line Value", "Reliability",
+  "Data Confidence", "Personnel Confidence", "Projected Away", "Projected Home", "Actual Away",
+  "Actual Home", "Margin Residual", "Total Residual", "Model Version", "Notes",
+];
 
 function todayET(date = new Date()) {
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -104,6 +113,16 @@ function parseOdds(value: unknown) {
   return Number.isFinite(parsed) ? parsed : -110;
 }
 
+function americanImpliedProbability(odds: number) {
+  if (!Number.isFinite(odds) || odds === 0) return 0.5;
+  return odds < 0 ? Math.abs(odds) / (Math.abs(odds) + 100) : 100 / (odds + 100);
+}
+
+function expectedValuePerUnit(probability: number, odds: number) {
+  const winProfit = odds > 0 ? odds / 100 : 100 / Math.abs(odds || -110);
+  return probability * winProfit - (1 - probability);
+}
+
 function profitUnits(odds: number) {
   return odds > 0 ? odds / 100 : odds < 0 ? 100 / Math.abs(odds) : 1;
 }
@@ -119,6 +138,140 @@ function trackerKey(row: SheetRow) {
 
 function scheduleKey(row: SheetRow) {
   return String(row["Game ID"] || row["Game Key"] || "").trim();
+}
+
+function rowHeaders(rows: SheetRow[], fallback: string[] = []) {
+  const headers = new Set<string>(fallback);
+  for (const row of rows) for (const key of Object.keys(row || {})) headers.add(key);
+  return [...headers];
+}
+
+function qualifiedFootballModelGrade(value: unknown) {
+  const grade = textKey(value);
+  return Boolean(grade) &&
+    !grade.includes("no play") &&
+    !grade.includes("non edge") &&
+    grade !== "research" &&
+    grade !== "projection only" &&
+    grade !== "no market line";
+}
+
+function selectionTeam(value: unknown) {
+  return String(value || "")
+    .trim()
+    .replace(/\s+[+-]?\d+(?:\.\d+)?\s*$/, "")
+    .trim();
+}
+
+function finiteNumber(value: unknown, fallback = 0) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function modelTrackerRowsFromSlate(slate: SheetRow[]) {
+  const rows: SheetRow[] = [];
+  for (const row of slate) {
+    const date = isoDate(row.Date || row["Game Date"] || "");
+    const gameId = String(row["Game ID"] || row["Game Key"] || "").trim();
+    const game = String(row.Game || `${row["Away Team"] || ""} at ${row["Home Team"] || ""}`).trim();
+    if (!date || !gameId) continue;
+
+    const common: SheetRow = {
+      Date: date,
+      Season: String(row.Season || ""),
+      Week: String(row.Week || ""),
+      "Game ID": gameId,
+      Game: game,
+      "Push Probability": "",
+      Result: "Pending",
+      Units: "",
+      "Closing Line": "",
+      "Closing Line Value": "",
+      Reliability: String(row.Reliability || ""),
+      "Data Confidence": String(row["Data Confidence"] || ""),
+      "Personnel Confidence": String(row["Personnel Confidence"] || ""),
+      "Projected Away": String(row["Projected Away"] || ""),
+      "Projected Home": String(row["Projected Home"] || ""),
+      "Actual Away": "",
+      "Actual Home": "",
+      "Margin Residual": "",
+      "Total Residual": "",
+      "Model Version": String(row["Model Version"] || ""),
+      Notes: String(row.Notes || ""),
+    };
+
+    const spreadGrade = String(row["Spread Grade"] || "").trim();
+    const spreadPick = String(row["Spread Pick"] || "").trim();
+    if (spreadPick && qualifiedFootballModelGrade(spreadGrade)) {
+      const pickedTeam = selectionTeam(spreadPick);
+      const pickedHome = sameTeam(pickedTeam, row["Home Team"]);
+      const spreadOdds = parseOdds(
+        pickedHome
+          ? row["Home Spread Odds"] || row["Spread Odds"] || -110
+          : row["Away Spread Odds"] || row["Spread Odds"] || -110,
+      );
+      const probability = finiteNumber(row["Spread Probability"]);
+      const implied = americanImpliedProbability(spreadOdds);
+      rows.push({
+        ...common,
+        "Bet Type": "Spread",
+        Selection: spreadPick,
+        "Odds/Line": String(spreadOdds),
+        "Model Probability": String(probability),
+        "Implied Probability": String(implied),
+        Edge: String(probability - implied),
+        "Expected Value": String(expectedValuePerUnit(probability, spreadOdds)),
+        Grade: spreadGrade,
+        Confluence: String(row["Spread Confluence"] || ""),
+      });
+    }
+
+    const totalGrade = String(row["Total Grade"] || "").trim();
+    const totalPick = String(row["Total Pick"] || "").trim();
+    if (totalPick && qualifiedFootballModelGrade(totalGrade)) {
+      const under = textKey(totalPick).startsWith("under");
+      const totalOdds = parseOdds(
+        under
+          ? row["Total Under Odds"] || row["Total Odds"] || -110
+          : row["Total Over Odds"] || row["Total Odds"] || -110,
+      );
+      const probability = finiteNumber(row["Total Probability"]);
+      const implied = americanImpliedProbability(totalOdds);
+      rows.push({
+        ...common,
+        "Bet Type": "Total",
+        Selection: totalPick,
+        "Odds/Line": String(totalOdds),
+        "Model Probability": String(probability),
+        "Implied Probability": String(implied),
+        Edge: String(probability - implied),
+        "Expected Value": String(expectedValuePerUnit(probability, totalOdds)),
+        Grade: totalGrade,
+        Confluence: String(row["Total Confluence"] || ""),
+      });
+    }
+  }
+  return rows;
+}
+
+async function reconcileModelTrackerRows(
+  sport: FootballSport,
+  tracker: SheetRow[],
+  slate: SheetRow[],
+) {
+  const existingKeys = new Set(tracker.map(trackerKey));
+  const missing = modelTrackerRowsFromSlate(slate).filter((row) => {
+    const key = trackerKey(row);
+    if (!key || existingKeys.has(key)) return false;
+    existingKeys.add(key);
+    return true;
+  });
+
+  if (missing.length) {
+    const headers = rowHeaders([...tracker, ...missing], FOOTBALL_TRACKER_HEADERS);
+    await upsertSportRows(sport, "bet_tracker", headers, missing, trackerKey);
+  }
+  return { tracker: [...tracker, ...missing], recovered: missing.length };
 }
 
 function kickoffDateET(value: unknown) {
@@ -160,6 +313,25 @@ function parseFinalGame(payload: any, requestedGameId: string): FinalGame | null
     date: kickoffDateET(competition?.date || payload?.header?.competitions?.[0]?.date),
     awayTeam: name(away),
     homeTeam: name(home),
+    awayScore,
+    homeScore,
+  };
+}
+
+function finalFromScheduleRow(row: SheetRow): FinalGame | null {
+  const gameId = scheduleKey(row);
+  const awayScore = Number(row["Away Score"]);
+  const homeScore = Number(row["Home Score"]);
+  if (!gameId || !Number.isFinite(awayScore) || !Number.isFinite(homeScore)) return null;
+  const completed = ["TRUE", "YES", "Y", "1", "COMPLETED", "FINAL"].includes(
+    String(row.Completed || row.Status || "").trim().toUpperCase(),
+  );
+  if (!completed && (String(row["Away Score"] ?? "").trim() === "" || String(row["Home Score"] ?? "").trim() === "")) return null;
+  return {
+    gameId,
+    date: isoDate(row.Date || row["Game Date"] || ""),
+    awayTeam: String(row["Away Team"] || "").trim(),
+    homeTeam: String(row["Home Team"] || "").trim(),
     awayScore,
     homeScore,
   };
@@ -250,11 +422,14 @@ function scheduleRepair(row: SheetRow | undefined, final: FinalGame): SheetRow {
 
 async function settlePendingFootballResultsNow(sport: FootballSport): Promise<SettlementSummary> {
   const today = todayET();
-  const [tracker, schedule] = await Promise.all([
+  const [trackerRaw, schedule, slate] = await Promise.all([
     readSportWorksheet(sport, "bet_tracker"),
     readSportWorksheet(sport, "schedule"),
+    readSportWorksheet(sport, "daily_slate"),
   ]);
 
+  const reconciled = await reconcileModelTrackerRows(sport, trackerRaw, slate);
+  const tracker = reconciled.tracker;
   const pending = tracker.filter((row) =>
     !resultCode(row.Result || row.Status) &&
     pendingDateEligible(row, today) &&
@@ -266,6 +441,7 @@ async function settlePendingFootballResultsNow(sport: FootballSport): Promise<Se
       sport,
       checkedGames: 0,
       resolvedFinals: 0,
+      recoveredTrackerRows: reconciled.recovered,
       settledTrackerRows: 0,
       repairedScheduleRows: 0,
       pendingTrackerRows: 0,
@@ -273,7 +449,18 @@ async function settlePendingFootballResultsNow(sport: FootballSport): Promise<Se
     };
   }
 
-  const finals = await fetchFinalGames(sport, gameIds);
+  const finals = new Map<string, FinalGame>();
+  for (const row of schedule) {
+    const final = finalFromScheduleRow(row);
+    if (final && gameIds.includes(final.gameId)) finals.set(final.gameId, final);
+  }
+
+  const unresolvedIds = gameIds.filter((gameId) => !finals.has(gameId));
+  if (unresolvedIds.length) {
+    const fetched = await fetchFinalGames(sport, unresolvedIds);
+    for (const [gameId, final] of fetched) finals.set(gameId, final);
+  }
+
   const changedTracker: SheetRow[] = [];
   for (const row of pending) {
     const gameId = String(row["Game ID"] || row["Game Key"] || "").trim();
@@ -284,14 +471,16 @@ async function settlePendingFootballResultsNow(sport: FootballSport): Promise<Se
   }
 
   const scheduleById = new Map(schedule.map((row) => [scheduleKey(row), row]));
-  const repairedSchedule = [...finals.values()].map((final) => scheduleRepair(scheduleById.get(final.gameId), final));
+  const repairedSchedule = [...finals.values()]
+    .filter((final) => !finalFromScheduleRow(scheduleById.get(final.gameId) || {}))
+    .map((final) => scheduleRepair(scheduleById.get(final.gameId), final));
 
   if (repairedSchedule.length) {
-    const scheduleHeaders = Object.keys(schedule[0] || repairedSchedule[0]);
+    const scheduleHeaders = rowHeaders([...schedule, ...repairedSchedule]);
     await upsertSportRows(sport, "schedule", scheduleHeaders, repairedSchedule, scheduleKey);
   }
   if (changedTracker.length) {
-    const trackerHeaders = Object.keys(tracker[0] || changedTracker[0]);
+    const trackerHeaders = rowHeaders([...tracker, ...changedTracker], FOOTBALL_TRACKER_HEADERS);
     await upsertSportRows(sport, "bet_tracker", trackerHeaders, changedTracker, trackerKey);
   }
 
@@ -299,6 +488,7 @@ async function settlePendingFootballResultsNow(sport: FootballSport): Promise<Se
     sport,
     checkedGames: gameIds.length,
     resolvedFinals: finals.size,
+    recoveredTrackerRows: reconciled.recovered,
     settledTrackerRows: changedTracker.length,
     repairedScheduleRows: repairedSchedule.length,
     pendingTrackerRows: Math.max(0, pending.length - changedTracker.length),
@@ -318,6 +508,7 @@ export async function settlePendingFootballResults(
       sport,
       checkedGames: 0,
       resolvedFinals: 0,
+      recoveredTrackerRows: 0,
       settledTrackerRows: 0,
       repairedScheduleRows: 0,
       pendingTrackerRows: 0,
