@@ -6,7 +6,7 @@ export const revalidate = 0;
 export const maxDuration = 180;
 
 const MLB_TRACKING_START_MINUTE_ET = 10 * 60 + 30;
-const MLB_TRACKING_END_MINUTE_ET = 22 * 60 + 30;
+const MLB_TRACKING_END_MINUTE_ET = 4 * 60 + 30;
 const RETRY_DELAYS_MS = [12_000];
 const ATTEMPT_TIMEOUT_MS = 75_000;
 
@@ -37,7 +37,7 @@ function easternClock(date = new Date()) {
 
 function isMlbTrackingWindow(minuteOfDay: number) {
   return (
-    minuteOfDay >= MLB_TRACKING_START_MINUTE_ET &&
+    minuteOfDay >= MLB_TRACKING_START_MINUTE_ET ||
     minuteOfDay <= MLB_TRACKING_END_MINUTE_ET
   );
 }
@@ -67,7 +67,7 @@ export async function GET(request: NextRequest) {
       source: "VERCEL_CRON",
       dateET: clock.date,
       timeET: `${String(clock.hour).padStart(2, "0")}:${String(clock.minute).padStart(2, "0")}`,
-      reason: "Outside the 10:30 AM-10:30 PM ET MLB tracking window.",
+      reason: "Outside the 10:30 AM-4:30 AM ET MLB tracking window.",
     });
   }
 
@@ -106,6 +106,7 @@ export async function GET(request: NextRequest) {
             draftKingsStatus: payload?.draftKings?.status || "UNKNOWN",
             aiPickCount: Array.isArray(payload?.aiPicks) ? payload.aiPicks.length : 0,
             trendPlayCount: Array.isArray(payload?.trendPlays) ? payload.trendPlays.length : 0,
+            mlbResultSync: payload?.mlbResultSync || null,
           },
           { headers: { "Cache-Control": "no-store, max-age=0" } },
         );

@@ -503,11 +503,12 @@ let draftKingsPersistenceCache: {
   savedAt: number;
   result: DraftKingsPersistence;
 } | null = null;
-let allGameTrendResultSyncCache: {
+let mlbResultSyncCache: {
   key: string;
   savedAt: number;
-  updated: number;
+  result: MlbResultSyncSummary;
 } | null = null;
+let mlbResultSyncInFlight: Promise<MlbResultSyncSummary> | null = null;
 let marketSlateBootstrapCache: {
   date: string;
   savedAt: number;
@@ -3227,34 +3228,274 @@ type MlbFinalGame = {
   homeTeam: string;
   awayRuns: number;
   homeRuns: number;
+  firstInningRuns: number | null;
 };
+
+type MlbPitcherResult = {
+  names: string[];
+  strikeouts: number;
+};
+
+type MlbResultSyncSummary = {
+  checkedGames: number;
+  resolvedFinals: number;
+  trackerUpdated: number;
+  trendUpdated: number;
+  pitcherBoxscores: number;
+};
+
+type MlbTrackerMarket =
+  | "Moneyline"
+  | "Total"
+  | "FirstInning"
+  | "PitcherStrikeouts"
+  | "";
+
+const MLB_RESULT_SYNC_INTERVAL_MS = 5 * 60_000;
+const MLB_RESULT_MAX_AGE_DAYS = 45;
+
+function emptyMlbResultSyncSummary(): MlbResultSyncSummary {
+  return {
+    checkedGames: 0,
+    resolvedFinals: 0,
+    trackerUpdated: 0,
+    trendUpdated: 0,
+    pitcherBoxscores: 0,
+  };
+}
+
+function isRecentMlbResultDate(dateIso: string, todayIso: string) {
+  if (!dateIso || !todayIso || dateIso > todayIso) return false;
+  const rowStamp = Date.parse(`${dateIso}T12:00:00Z`);
+  const todayStamp = Date.parse(`${todayIso}T12:00:00Z`);
+  if (!Number.isFinite(rowStamp) || !Number.isFinite(todayStamp)) return false;
+  const ageDays = Math.floor((todayStamp - rowStamp) / 86_400_000);
+  return ageDays >= 0 && ageDays <= MLB_RESULT_MAX_AGE_DAYS;
+}
 
 async function finalMlbGamesForDate(dateIso: string): Promise<Map<string, MlbFinalGame>> {
   const output = new Map<string, MlbFinalGame>();
   const url = new URL("https://statsapi.mlb.com/api/v1/schedule");
   url.searchParams.set("sportId", "1");
   url.searchParams.set("date", dateIso);
-  const response = await fetch(url, { cache: "no-store" });
-  if (!response.ok) return output;
-  const payload = (await response.json()) as any;
-  for (const day of payload?.dates || []) {
-    for (const game of day?.games || []) {
-      const state = `${String(game?.status?.detailedState || "")} ${String(
-        game?.status?.abstractGameState || "",
-      )}`.toLowerCase();
-      if (!state.includes("final")) continue;
-      const gameKey = String(game?.gamePk || "").replace(/\.0$/, "");
-      if (!gameKey) continue;
-      output.set(gameKey, {
-        gameKey,
-        awayTeam: normalizeTeam(game?.teams?.away?.team?.name || ""),
-        homeTeam: normalizeTeam(game?.teams?.home?.team?.name || ""),
-        awayRuns: Number(game?.teams?.away?.score || 0),
-        homeRuns: Number(game?.teams?.home?.score || 0),
-      });
+  url.searchParams.set("hydrate", "linescore");
+  try {
+    const response = await fetch(url, {
+      cache: "no-store",
+      headers: { Accept: "application/json" },
+    });
+    if (!response.ok) return output;
+    const payload = (await response.json()) as any;
+    for (const day of payload?.dates || []) {
+      for (const game of day?.games || []) {
+        const state = `${String(game?.status?.detailedState || "")} ${String(
+          game?.status?.abstractGameState || "",
+        )}`.toLowerCase();
+        if (!state.includes("final")) continue;
+        const gameKey = String(game?.gamePk || "").replace(/\.0$/, "");
+        const awayRuns = Number(game?.teams?.away?.score);
+        const homeRuns = Number(game?.teams?.home?.score);
+        if (!gameKey || !Number.isFinite(awayRuns) || !Number.isFinite(homeRuns)) continue;
+
+        const innings = Array.isArray(game?.linescore?.innings)
+          ? game.linescore.innings
+          : [];
+        const firstInning =
+          innings.find((inning: any) => Number(inning?.num) === 1) || innings[0];
+        const firstAwayRuns = Number(firstInning?.away?.runs);
+        const firstHomeRuns = Number(firstInning?.home?.runs);
+        const firstInningRuns =
+          Number.isFinite(firstAwayRuns) && Number.isFinite(firstHomeRuns)
+            ? firstAwayRuns + firstHomeRuns
+            : null;
+
+        output.set(gameKey, {
+          gameKey,
+          awayTeam: normalizeTeam(game?.teams?.away?.team?.name || ""),
+          homeTeam: normalizeTeam(game?.teams?.home?.team?.name || ""),
+          awayRuns,
+          homeRuns,
+          firstInningRuns,
+        });
+      }
     }
+  } catch (error) {
+    console.error(`MLB final-score lookup failed for ${dateIso}`, error);
   }
   return output;
+}
+
+async function pitcherResultsForGame(gameKey: string): Promise<MlbPitcherResult[]> {
+  const url = new URL(`https://statsapi.mlb.com/api/v1/game/${gameKey}/boxscore`);
+  try {
+    const response = await fetch(url, {
+      cache: "no-store",
+      headers: { Accept: "application/json" },
+    });
+    if (!response.ok) return [];
+    const payload = (await response.json()) as any;
+    const output: MlbPitcherResult[] = [];
+    for (const side of ["away", "home"] as const) {
+      const players = payload?.teams?.[side]?.players || {};
+      for (const player of Object.values(players) as any[]) {
+        const strikeouts = Number(player?.stats?.pitching?.strikeOuts);
+        if (!Number.isFinite(strikeouts)) continue;
+        const names = [
+          player?.person?.fullName,
+          player?.person?.boxscoreName,
+          player?.person?.lastFirstName,
+        ]
+          .map((value) => String(value || "").trim())
+          .filter(Boolean);
+        if (names.length) output.push({ names: [...new Set(names)], strikeouts });
+      }
+    }
+    return output;
+  } catch (error) {
+    console.error(`MLB pitcher boxscore lookup failed for ${gameKey}`, error);
+    return [];
+  }
+}
+
+async function pitcherResultsForGames(gameKeys: string[]) {
+  const output = new Map<string, MlbPitcherResult[]>();
+  const uniqueKeys = [...new Set(gameKeys.filter(Boolean))];
+  const batchSize = 8;
+  for (let start = 0; start < uniqueKeys.length; start += batchSize) {
+    const batch = uniqueKeys.slice(start, start + batchSize);
+    const results = await Promise.all(
+      batch.map(async (gameKey) => [gameKey, await pitcherResultsForGame(gameKey)] as const),
+    );
+    for (const [gameKey, pitchers] of results) output.set(gameKey, pitchers);
+  }
+  return output;
+}
+
+function mlbTrackerMarket(row: SheetRow): MlbTrackerMarket {
+  const market = textKey(row.Market || row["Market Type"] || "");
+  const betType = textKey(row["Bet Type"] || row["Model Grade"] || "");
+  const propType = textKey(row.Prop || row["Prop Type"] || "");
+  const combined = `${market} ${betType} ${propType}`;
+  if (
+    combined.includes("nrfi") ||
+    combined.includes("yrfi") ||
+    combined.includes("first inning")
+  ) {
+    return "FirstInning";
+  }
+  if (
+    market.includes("strikeout") ||
+    market.includes("pitcher k") ||
+    propType.includes("strikeout") ||
+    propType.includes("pitcher k")
+  ) {
+    return "PitcherStrikeouts";
+  }
+  return trackerMarket(row);
+}
+
+function firstInningSide(row: SheetRow): "YRFI" | "NRFI" | "" {
+  const value = textKey(
+    `${row["Bet Type"] || ""} ${row.Market || ""} ${row.Selection || ""}`,
+  );
+  if (value.includes("nrfi") || value.includes("no run first inning")) return "NRFI";
+  if (value.includes("yrfi") || value.includes("yes run first inning")) return "YRFI";
+  return "";
+}
+
+function pitcherPropSide(row: SheetRow): "Over" | "Under" | "" {
+  const value = normalizeType(
+    `${row["Bet Type"] || ""} ${row.Side || ""} ${row.Selection || ""}`,
+  );
+  if (value.includes("UNDER")) return "Under";
+  if (value.includes("OVER")) return "Over";
+  return "";
+}
+
+function mlbTrackerLine(row: SheetRow) {
+  return numericLine(
+    row["Public Split Line"] ||
+      row.Line ||
+      row["Prop Line"] ||
+      row["Strikeout Line"] ||
+      row["Odds/Line"] ||
+      "",
+  );
+}
+
+function pitcherMatchScore(selectedName: string, officialName: string) {
+  const selectedTokens = pitcherNameTokens(selectedName);
+  const officialTokens = pitcherNameTokens(officialName);
+  if (!selectedTokens.length || !officialTokens.length) return 0;
+  const officialSet = new Set(officialTokens);
+  const shared = selectedTokens.filter((token) => officialSet.has(token)).length;
+  if (shared === selectedTokens.length && shared === officialTokens.length) return 100 + shared;
+  if (shared >= 2) return 20 + shared;
+  if (shared === 1 && (selectedTokens.length === 1 || officialTokens.length === 1)) return 10;
+  return 0;
+}
+
+function pitcherStrikeoutsForRow(row: SheetRow, pitchers: MlbPitcherResult[]) {
+  const selectedName = String(
+    row.Pitcher ||
+      row.Player ||
+      row.Name ||
+      extractPitcherFromSelection(row.Selection || row.Pick || ""),
+  ).trim();
+  if (!selectedName) return null;
+
+  let best: { score: number; strikeouts: number } | null = null;
+  for (const pitcher of pitchers) {
+    const score = Math.max(
+      0,
+      ...pitcher.names.map((name) => pitcherMatchScore(selectedName, name)),
+    );
+    if (score > 0 && (!best || score > best.score)) {
+      best = { score, strikeouts: pitcher.strikeouts };
+    }
+  }
+  return best?.strikeouts ?? null;
+}
+
+function mlbTrackerResultFields(
+  row: SheetRow,
+  game: MlbFinalGame,
+  pitchers: MlbPitcherResult[] = [],
+): SheetRow | null {
+  const market = mlbTrackerMarket(row);
+  let result = "";
+
+  if (market === "Moneyline") {
+    const selectedTeam = teamFromSelection(row.Selection || row.Team || row.Pick || "");
+    const winner = game.homeRuns > game.awayRuns ? game.homeTeam : game.awayTeam;
+    if (!selectedTeam || !winner) return null;
+    result = selectedTeam === winner ? "Win" : "Loss";
+  } else if (market === "Total") {
+    const side = trackerTotalSide(row);
+    const line = mlbTrackerLine(row);
+    if (!side || line == null) return null;
+    const actualTotal = game.awayRuns + game.homeRuns;
+    if (actualTotal === line) result = "Push";
+    else if (side === "Over") result = actualTotal > line ? "Win" : "Loss";
+    else result = actualTotal < line ? "Win" : "Loss";
+  } else if (market === "FirstInning") {
+    const side = firstInningSide(row);
+    if (!side || game.firstInningRuns == null) return null;
+    const runScored = game.firstInningRuns > 0;
+    result = side === "YRFI" ? (runScored ? "Win" : "Loss") : runScored ? "Loss" : "Win";
+  } else if (market === "PitcherStrikeouts") {
+    const side = pitcherPropSide(row);
+    const line = mlbTrackerLine(row);
+    const actualStrikeouts = pitcherStrikeoutsForRow(row, pitchers);
+    if (!side || line == null || actualStrikeouts == null) return null;
+    if (actualStrikeouts === line) result = "Push";
+    else if (side === "Over") result = actualStrikeouts > line ? "Win" : "Loss";
+    else result = actualStrikeouts < line ? "Win" : "Loss";
+  } else {
+    return null;
+  }
+
+  return { Result: result };
 }
 
 function allGameTrendResultFields(row: SheetRow, game: MlbFinalGame): SheetRow | null {
@@ -3291,89 +3532,169 @@ function allGameTrendResultFields(row: SheetRow, game: MlbFinalGame): SheetRow |
   };
 }
 
-async function syncAllGameTrendResults(today: string) {
+async function syncMlbResultsNow(today: string): Promise<MlbResultSyncSummary> {
   const todayIso = isoPublicDate(today);
-  const cacheKey = todayIso;
-  if (
-    allGameTrendResultSyncCache &&
-    allGameTrendResultSyncCache.key === cacheKey &&
-    Date.now() - allGameTrendResultSyncCache.savedAt < 5 * 60_000
-  ) {
-    return allGameTrendResultSyncCache.updated;
-  }
-
-  try {
-    const { spreadsheetId, sheets } = mainSheetsClient();
-    const matrix = await readWorksheetMatrixWithClient(
+  const { spreadsheetId, sheets } = mainSheetsClient();
+  const [trackerMatrix, trendMatrix] = await Promise.all([
+    readWorksheetMatrixWithClient(sheets, spreadsheetId, "bet_tracker"),
+    readWorksheetMatrixWithClient(
       sheets,
       spreadsheetId,
       ALL_GAME_TRENDS_TAB,
       ALL_GAME_TRENDS_HEADERS,
+    ),
+  ]);
+
+  const trackerPending = trackerMatrix.rows.filter((matrixRow) => {
+    const row = matrixRow.object;
+    const rowDate = isoPublicDate(row.Date || "");
+    const gameKey = String(row["Game Key"] || "").trim();
+    return (
+      isRecentMlbResultDate(rowDate, todayIso) &&
+      Boolean(gameKey) &&
+      !isCompletedResult(row.Result) &&
+      Boolean(mlbTrackerMarket(row))
     );
-    const pending = matrix.rows.filter((matrixRow) => {
-      const row = matrixRow.object;
-      const rowDate = isoPublicDate(row.Date || "");
-      const gameKey = String(row["Game Key"] || "").trim();
-      if (!rowDate || rowDate > todayIso || !gameKey) return false;
+  });
 
-      if (!isCompletedResult(row.Result)) return true;
+  const trendPending = trendMatrix.rows.filter((matrixRow) => {
+    const row = matrixRow.object;
+    const rowDate = isoPublicDate(row.Date || "");
+    const gameKey = String(row["Game Key"] || "").trim();
+    if (!isRecentMlbResultDate(rowDate, todayIso) || !gameKey) return false;
 
-      // Reconcile completed totals when the final public line differs from the
-      // builder line. This repairs cases such as Under 8 being graded against
-      // the earlier 7.5 instead of pushing at eight runs.
-      if (trackerMarket(row) === "Total" && row["Public Split Line"] !== "") {
-        const corrected = trendRecordResultCode(row);
-        return Boolean(corrected && corrected !== resultCode(row.Result));
-      }
-      return false;
-    });
-    if (!pending.length) {
-      allGameTrendResultSyncCache = { key: cacheKey, savedAt: Date.now(), updated: 0 };
-      return 0;
+    if (!isCompletedResult(row.Result)) return true;
+
+    // Reconcile completed totals when the final public line differs from the
+    // builder line. This repairs cases such as Under 8 being graded against
+    // the earlier 7.5 instead of pushing at eight runs.
+    if (trackerMarket(row) === "Total" && String(row["Public Split Line"] || "").trim()) {
+      const corrected = trendRecordResultCode(row);
+      return Boolean(corrected && corrected !== resultCode(row.Result));
     }
+    return false;
+  });
 
-    const dates = [...new Set(pending.map((row) => isoPublicDate(row.object.Date)))]
-      .filter(Boolean)
-      .sort()
-      .reverse()
-      .slice(0, 14);
-    const resultsByDate = new Map<string, Map<string, MlbFinalGame>>();
-    await Promise.all(
-      dates.map(async (dateIso) => {
-        resultsByDate.set(dateIso, await finalMlbGamesForDate(dateIso));
-      }),
+  const candidates = [...trackerPending, ...trendPending];
+  if (!candidates.length) return emptyMlbResultSyncSummary();
+
+  const dates = [...new Set(candidates.map((row) => isoPublicDate(row.object.Date)))]
+    .filter(Boolean)
+    .sort()
+    .reverse()
+    .slice(0, 14);
+  const resultsByDate = new Map<string, Map<string, MlbFinalGame>>();
+  await Promise.all(
+    dates.map(async (dateIso) => {
+      resultsByDate.set(dateIso, await finalMlbGamesForDate(dateIso));
+    }),
+  );
+
+  const gameForRow = (row: SheetRow) => {
+    const rowDate = isoPublicDate(row.Date || "");
+    const gameKey = String(row["Game Key"] || "").trim().replace(/\.0$/, "");
+    return resultsByDate.get(rowDate)?.get(gameKey) || null;
+  };
+
+  const pitcherGameKeys = trackerPending
+    .filter((matrixRow) => mlbTrackerMarket(matrixRow.object) === "PitcherStrikeouts")
+    .filter((matrixRow) => Boolean(gameForRow(matrixRow.object)))
+    .map((matrixRow) => String(matrixRow.object["Game Key"] || "").trim().replace(/\.0$/, ""));
+  const pitcherResults = await pitcherResultsForGames(pitcherGameKeys);
+
+  const trackerUpdates: SheetBlockUpdate[] = [];
+  for (const matrixRow of trackerPending) {
+    const row = matrixRow.object;
+    const game = gameForRow(row);
+    if (!game) continue;
+    const gameKey = String(row["Game Key"] || "").trim().replace(/\.0$/, "");
+    const fields = mlbTrackerResultFields(row, game, pitcherResults.get(gameKey) || []);
+    if (fields) trackerUpdates.push({ sheetRow: matrixRow.sheetRow, fields });
+  }
+
+  const trendUpdates: SheetBlockUpdate[] = [];
+  for (const matrixRow of trendPending) {
+    const game = gameForRow(matrixRow.object);
+    if (!game) continue;
+    const fields = allGameTrendResultFields(matrixRow.object, game);
+    if (fields) trendUpdates.push({ sheetRow: matrixRow.sheetRow, fields });
+  }
+
+  let trackerUpdated = 0;
+  let trendUpdated = 0;
+  try {
+    await writeWorksheetBlocks(
+      sheets,
+      spreadsheetId,
+      "bet_tracker",
+      trackerMatrix,
+      trackerUpdates,
+      "Result",
+      "Result",
     );
+    trackerUpdated = trackerUpdates.length;
+  } catch (error) {
+    console.error("MLB tracker result sync failed", error);
+  }
 
-    const updates: SheetBlockUpdate[] = [];
-    for (const matrixRow of pending) {
-      const row = matrixRow.object;
-      const rowDate = isoPublicDate(row.Date || "");
-      const gameKey = String(row["Game Key"] || "").trim().replace(/\.0$/, "");
-      const game = resultsByDate.get(rowDate)?.get(gameKey);
-      if (!game) continue;
-      const fields = allGameTrendResultFields(row, game);
-      if (fields) updates.push({ sheetRow: matrixRow.sheetRow, fields });
-    }
-
+  try {
     await writeWorksheetBlocks(
       sheets,
       spreadsheetId,
       ALL_GAME_TRENDS_TAB,
-      matrix,
-      updates,
+      trendMatrix,
+      trendUpdates,
       "Result",
       "Result Updated",
     );
-    allGameTrendResultSyncCache = {
-      key: cacheKey,
-      savedAt: Date.now(),
-      updated: updates.length,
-    };
-    return updates.length;
+    trendUpdated = trendUpdates.length;
   } catch (error) {
     console.error("All-game trend result sync failed", error);
-    allGameTrendResultSyncCache = { key: cacheKey, savedAt: Date.now(), updated: 0 };
-    return 0;
+  }
+
+  const resolvedFinals = new Set(
+    candidates
+      .filter((matrixRow) => Boolean(gameForRow(matrixRow.object)))
+      .map((matrixRow) => String(matrixRow.object["Game Key"] || "").trim().replace(/\.0$/, "")),
+  ).size;
+  const checkedGames = new Set(
+    candidates.map((matrixRow) => String(matrixRow.object["Game Key"] || "").trim().replace(/\.0$/, "")),
+  ).size;
+  return {
+    checkedGames,
+    resolvedFinals,
+    trackerUpdated,
+    trendUpdated,
+    pitcherBoxscores: pitcherResults.size,
+  };
+}
+
+async function syncMlbResults(today: string): Promise<MlbResultSyncSummary> {
+  const cacheKey = isoPublicDate(today);
+  if (
+    mlbResultSyncCache &&
+    mlbResultSyncCache.key === cacheKey &&
+    Date.now() - mlbResultSyncCache.savedAt < MLB_RESULT_SYNC_INTERVAL_MS
+  ) {
+    return mlbResultSyncCache.result;
+  }
+  if (mlbResultSyncInFlight) return mlbResultSyncInFlight;
+
+  mlbResultSyncInFlight = (async () => {
+    try {
+      const result = await syncMlbResultsNow(today);
+      mlbResultSyncCache = { key: cacheKey, savedAt: Date.now(), result };
+      return result;
+    } catch (error) {
+      console.error("MLB result sync failed", error);
+      return emptyMlbResultSyncSummary();
+    }
+  })();
+
+  try {
+    return await mlbResultSyncInFlight;
+  } finally {
+    mlbResultSyncInFlight = null;
   }
 }
 
@@ -5863,7 +6184,7 @@ function extractPitcherFromSelection(value: unknown) {
 }
 
 function pitcherNameTokens(value: unknown) {
-  return normalizeText(value)
+  return textKey(value)
     .split(" ")
     .filter((token) => token.length >= 2)
     .filter(
@@ -10101,7 +10422,7 @@ async function buildUncachedPublicResponse(request: NextRequest) {
           : scheduledCapture
             ? "scheduled"
             : "live";
-    const [initialSlateTodayRaw, trackerRaw, liveDraftKings, initialSavedPublicSplits, storedAiPickRows, matchupDetailsRaw] = await Promise.all([
+    const [initialSlateTodayRaw, initialTrackerRaw, liveDraftKings, initialSavedPublicSplits, storedAiPickRows, matchupDetailsRaw] = await Promise.all([
       readWorksheet("daily_slate"),
       readWorksheet("bet_tracker"),
       loadDraftKingsData(),
@@ -10140,7 +10461,10 @@ async function buildUncachedPublicResponse(request: NextRequest) {
       );
     }
 
-    await syncAllGameTrendResults(today);
+    const mlbResultSync = await syncMlbResults(today);
+    const trackerRaw = mlbResultSync.trackerUpdated > 0
+      ? await readWorksheet("bet_tracker")
+      : initialTrackerRaw;
     const allGameTrendRaw = await safeReadAllGameTrendRows();
 
     const slateToday = slateTodayRaw.filter(
@@ -10262,6 +10586,7 @@ async function buildUncachedPublicResponse(request: NextRequest) {
       ok: true,
       today,
       lastUpdated: nowET(),
+      mlbResultSync,
       draftKings: publicDraftKings,
       ufc,
       tiles: {
