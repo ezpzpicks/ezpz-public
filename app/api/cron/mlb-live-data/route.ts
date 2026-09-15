@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { GET as runPublicDataV2 } from "../../public-data-v2/route";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -8,7 +9,6 @@ export const maxDuration = 180;
 const MLB_TRACKING_START_MINUTE_ET = 10 * 60 + 30;
 const MLB_TRACKING_END_MINUTE_ET = 4 * 60 + 30;
 const RETRY_DELAYS_MS = [12_000];
-const ATTEMPT_TIMEOUT_MS = 75_000;
 
 function easternClock(date = new Date()) {
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -81,17 +81,21 @@ export async function GET(request: NextRequest) {
 
   for (let attempt = 1; attempt <= RETRY_DELAYS_MS.length + 1; attempt += 1) {
     try {
-      const response = await fetch(target, {
+      // Run the refresh handler directly inside this invocation instead of
+      // making an HTTP request back into the same Vercel deployment. The
+      // previous self-fetch could return an intermediary/protected response
+      // with HTTP 200 but no { ok: true }, causing the cron to report a false
+      // 502 even though the underlying refresh route itself was healthy.
+      const scheduledRequest = new NextRequest(target, {
         method: "GET",
-        cache: "no-store",
         headers: {
           Authorization: `Bearer ${cronSecret}`,
           "x-ezpz-v2-tracking": "true",
           "x-ezpz-scheduled-snapshot": "true",
           "x-ezpz-live-source": "vercel-cron",
         },
-        signal: AbortSignal.timeout(ATTEMPT_TIMEOUT_MS),
       });
+      const response = await runPublicDataV2(scheduledRequest);
 
       lastStatus = response.status;
       const payload = await response.json().catch(() => null);
