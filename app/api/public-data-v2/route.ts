@@ -361,10 +361,42 @@ async function postProcessMlbPayload(request:NextRequest,payload:AnyRow){
   return payload;
 }
 
+function compactScheduledPayload(payload:AnyRow){
+  return{
+    ok:Boolean(payload?.ok),
+    today:String(payload?.today||""),
+    lastUpdated:String(payload?.lastUpdated||""),
+    mlbResultSync:payload?.mlbResultSync||null,
+    draftKingsStatus:String(payload?.draftKings?.status||"UNKNOWN"),
+    draftKingsPersistence:payload?.draftKings?.persistence||null,
+    aiPickCount:Array.isArray(payload?.aiPicks)?payload.aiPicks.length:0,
+    trendPlayCount:Array.isArray(payload?.trendPlays)?payload.trendPlays.length:0,
+    trendV2Error:payload?.trendV2Error||"",
+  };
+}
+
 export async function GET(request:NextRequest){
-  const sport=String(request.nextUrl.searchParams.get("sport")||"MLB").trim().toUpperCase();if(sport==="NFL"||sport==="NCAAF")return buildPublicDataResponse(request);
-  const legacyResponse=await buildPublicDataResponse(request);const contentType=legacyResponse.headers.get("content-type")||"";if(!contentType.includes("application/json"))return legacyResponse;
-  let payload:AnyRow;try{payload=await legacyResponse.json()}catch{return legacyResponse}if(!payload?.ok)return NextResponse.json(payload,{status:legacyResponse.status,headers:{"Cache-Control":"no-store, max-age=0"}});
-  try{payload=await postProcessMlbPayload(request,payload)}catch(error){console.error("MLB Trend v2 wrapper failed; returning legacy response",error);payload.trendV2Error=error instanceof Error?error.message:String(error)}
-  return NextResponse.json(payload,{status:legacyResponse.status,headers:{"Cache-Control":"no-store, max-age=0"}});
+  const sport=String(request.nextUrl.searchParams.get("sport")||"MLB").trim().toUpperCase();
+  if(sport==="NFL"||sport==="NCAAF")return buildPublicDataResponse(request);
+
+  const compact=truthy(request.nextUrl.searchParams.get("compact"));
+  const legacyResponse=await buildPublicDataResponse(request);
+  const contentType=legacyResponse.headers.get("content-type")||"";
+  if(!contentType.includes("application/json"))return legacyResponse;
+
+  let payload:AnyRow;
+  try{payload=await legacyResponse.json()}catch{return legacyResponse}
+  if(!payload?.ok){
+    return NextResponse.json(payload,{status:legacyResponse.status,headers:{"Cache-Control":"no-store, max-age=0"}});
+  }
+  try{
+    payload=await postProcessMlbPayload(request,payload);
+  }catch(error){
+    console.error("MLB Trend v2 wrapper failed; returning legacy response",error);
+    payload.trendV2Error=error instanceof Error?error.message:String(error);
+  }
+  return NextResponse.json(compact?compactScheduledPayload(payload):payload,{
+    status:legacyResponse.status,
+    headers:{"Cache-Control":"no-store, max-age=0"},
+  });
 }

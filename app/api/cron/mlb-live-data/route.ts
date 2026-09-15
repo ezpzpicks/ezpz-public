@@ -74,6 +74,7 @@ export async function GET(request: NextRequest) {
   const target = new URL("/api/public-data-v2", request.url);
   target.searchParams.set("scheduled", "1");
   target.searchParams.set("tracking", "v2");
+  target.searchParams.set("compact", "1");
 
   let lastStatus = 0;
   let lastError = "";
@@ -103,9 +104,16 @@ export async function GET(request: NextRequest) {
             dateET: clock.date,
             timeET: `${String(clock.hour).padStart(2, "0")}:${String(clock.minute).padStart(2, "0")}`,
             today: payload?.today || "",
-            draftKingsStatus: payload?.draftKings?.status || "UNKNOWN",
-            aiPickCount: Array.isArray(payload?.aiPicks) ? payload.aiPicks.length : 0,
-            trendPlayCount: Array.isArray(payload?.trendPlays) ? payload.trendPlays.length : 0,
+            draftKingsStatus:
+              payload?.draftKingsStatus || payload?.draftKings?.status || "UNKNOWN",
+            aiPickCount: Number(
+              payload?.aiPickCount ??
+                (Array.isArray(payload?.aiPicks) ? payload.aiPicks.length : 0),
+            ),
+            trendPlayCount: Number(
+              payload?.trendPlayCount ??
+                (Array.isArray(payload?.trendPlays) ? payload.trendPlays.length : 0),
+            ),
             mlbResultSync: payload?.mlbResultSync || null,
           },
           { headers: { "Cache-Control": "no-store, max-age=0" } },
