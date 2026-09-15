@@ -134,18 +134,6 @@ function displayOdds(value: unknown) {
   const signed = raw.replace(/−/g, "-").match(/[+-]\d{3,4}/)?.[0];
   return signed || raw;
 }
-function formBadge(status?: FormStatus, record?: string, totalBets?: number) {
-  if (status === "HOT") return { icon: "🔥", label: "HOT", cls: "hot", detail: record || "—" };
-  if (status === "COLD") return { icon: "❄️", label: "COLD", cls: "cold", detail: record || "—" };
-  if (status === "NEUTRAL") return { icon: "➖", label: "NEUTRAL", cls: "neutral", detail: record || "—" };
-  return {
-    icon: "⚠️",
-    label: "SMALL SAMPLE",
-    cls: "sample",
-    detail: `${record || "0-0-0"}${Number.isFinite(Number(totalBets)) ? ` • ${Number(totalBets)}/7` : ""}`,
-  };
-}
-
 function PlayerHeadshot({ play, compact = false }: { play: NflPlay | NflEzpzPick; compact?: boolean }) {
   const name = String(play.playerName || "").trim();
   const initials = name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase() || "NFL";
@@ -158,42 +146,56 @@ function PlayerHeadshot({ play, compact = false }: { play: NflPlay | NflEzpzPick
     </div>
   );
 }
-function sourceLabel(source: NflEzpzPick["source"]) {
-  if (source === "Best + Trend") return "MODEL + TREND";
-  return source === "Best Play" ? "MODEL PLAY" : "TREND";
+function ezpzTextKey(value: unknown) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/−/g, "-")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
-function NflEzpzCard({ pick }: { pick: NflEzpzPick }) {
-  const hasModel = pick.source === "Best Play" || pick.source === "Best + Trend";
-  const hasTrend = pick.source === "Trend Play" || pick.source === "Best + Trend";
+function ezpzPickIsFinal(pick: NflEzpzPick, data: FootballData) {
+  if (pick.source !== "Trend Play") return true;
+  if (String(pick.snapshotStatus || "").toUpperCase() === "FINAL_PREGAME") return true;
+  const trendPlays = (data as FootballData & { trendPlays?: Array<Record<string, unknown>> }).trendPlays || [];
+  const pickGame = ezpzTextKey(pick.game);
+  const pickMarket = ezpzTextKey(pick.market);
+  const pickSide = ezpzTextKey(pick.selection).startsWith("under") ? "under" : ezpzTextKey(pick.selection).startsWith("over") ? "over" : "";
+  const pickTeam = ezpzTextKey(String(pick.selection || "").replace(/\s+[+-]?\d+(?:\.\d+)?\s*$/, ""));
+  const match = trendPlays.find((play) => {
+    if (ezpzTextKey(play.game) !== pickGame || ezpzTextKey(play.market) !== pickMarket) return false;
+    if (pickMarket === "total") return ezpzTextKey(play.side || play.selection) === pickSide;
+    const trendTeam = ezpzTextKey(play.selectionTeam || play.selection);
+    return Boolean(pickTeam && trendTeam && (pickTeam === trendTeam || pickTeam.includes(trendTeam) || trendTeam.includes(pickTeam)));
+  });
+  return String(match?.snapshotStatus || "").toUpperCase() === "FINAL_PREGAME";
+}
+function FootballEzpzCard({ pick, sport, data }: { pick: NflEzpzPick; sport: Sport; data: FootballData }) {
   const isProp = pick.market === "Player Prop" || Boolean(pick.playerName);
-  const final = hasModel || String(pick.snapshotStatus || "").toUpperCase() === "FINAL_PREGAME";
-  const form = formBadge(pick.formStatus, pick.record);
-  const gap = Number(pick.modelGapPct ?? pick.gapPct);
-  const propLine = String(pick.propLine ?? "").trim() || "—";
-  const propProjection = String(pick.propProjection ?? "").trim() || "—";
+  const final = ezpzPickIsFinal(pick, data);
+  const propPick = [String(pick.propSide || "").trim(), String(pick.propLine ?? "").trim()].filter(Boolean).join(" ") || pick.selection;
   return (
     <article className={`nflEzpzCard ${isProp ? "prop" : ""}`}>
-      <div className="nflEzpzTop"><div className="nflEzpzBadges"><span className="nflSourceBadge">{sourceLabel(pick.source)}</span><span className={`nflStatusBadge ${final ? "final" : "pending"}`}>{final ? "FINAL" : "PENDING"}</span></div><strong className="nflEzpzOdds">{displayOdds(pick.odds)}</strong></div>
+      <div className="nflEzpzTop"><div className="nflEzpzBadges"><span className={`nflStatusBadge ${final ? "final" : "pending"}`}>{final ? "FINAL" : "PENDING"}</span></div><strong className="nflEzpzOdds">{displayOdds(pick.odds)}</strong></div>
       {isProp ? (
-        <div className="nflPlayerHero compactHero"><PlayerHeadshot play={pick} compact /><div><span className="nflEyebrow"><TeamLogoName sport="NFL" team={pick.playerTeam || ""} text={pick.playerTeam || "NFL"} compact /> • {pick.propMarket || "Player Prop"}</span><h3>{pick.playerName || pick.selection}</h3><p><MatchupWithLogos sport="NFL" game={pick.game || ""} compact /></p></div></div>
+        <>
+          <div className="nflPlayerHero compactHero"><PlayerHeadshot play={pick} compact /><div><span className="nflEyebrow"><TeamLogoName sport="NFL" team={pick.playerTeam || ""} text={pick.playerTeam || "NFL"} compact /> • {pick.propMarket || "Player Prop"}</span><h3>{pick.playerName || pick.selection}</h3><p><MatchupWithLogos sport="NFL" game={pick.game || ""} compact /></p></div></div>
+          <div className="nflPropPickLine"><span>Pick</span><strong>{propPick}</strong></div>
+        </>
       ) : (
-        <div className="nflEzpzSelection"><span><MatchupWithLogos sport="NFL" game={pick.game || ""} compact /></span><h3><SelectionWithTeamLogo sport="NFL" selection={pick.selection || ""} game={pick.game || ""} /></h3><p>{pick.market}</p></div>
+        <div className="nflEzpzSelection"><span><MatchupWithLogos sport={sport} game={pick.game || ""} compact /></span><h3><SelectionWithTeamLogo sport={sport} selection={pick.selection || ""} game={pick.game || ""} /></h3><p>{pick.market}</p></div>
       )}
-      <div className="nflGateRow">
-        {hasModel ? <div className={`nflGate best ${form.cls}`}><span>Model Play Gate</span><strong>{isProp ? `${form.icon} HOT • LINE ${propLine} • PROJ ${propProjection}` : `${form.icon} HOT`}</strong><small>{pick.formType || "Bet type"} • {pick.record || "—"}</small></div> : null}
-        {hasTrend ? <div className="nflGate trend"><span>Trend Gate</span><strong>{Number.isFinite(gap) ? `${gap >= 0 ? "+" : ""}${gap.toFixed(1)}% GAP` : "15%+ GAP"}</strong><small>NFL V2 predicted win probability − market-implied probability must be +15.0% or higher</small></div> : null}
-      </div>
-      <div className="nflEzpzRuleText"><strong>{pick.qualification || "Qualified"}</strong>{hasTrend ? <span>Raw Handle − Bets is an input to the regression, not the 15% qualification gap. Net ROI is not a Trend gate.</span> : null}</div>
     </article>
   );
 }
-function NflEzpzPicks({ data }: { data: FootballData }) {
+function FootballEzpzPicks({ sport, data }: { sport: Sport; data: FootballData }) {
   const picks = data.aiPicks || [];
   return (
     <section className="nflOptimizedSection">
-      <div className="nflOptimizedHead"><div><h2>NFL EZPZ Picks</h2><p>{data.aiSelectorStatus?.message || "Model Play = HOT + -150 or better. Trend = NFL V2 model gap ≥ +15%."}</p></div><span>{picks.length} picks</span></div>
-      <div className="nflRulesStrip"><div><b>🔥 Model Play</b><span>HOT Last-7 badge + price -150 or better</span></div><div><b>📈 Trend</b><span>NFL V2 model gap ≥ +15%</span></div><div><b>ROI</b><span>Display/history only — never a qualification gate</span></div></div>
-      {picks.length ? <div className="nflEzpzStack">{picks.map((pick, index) => <NflEzpzCard key={`${pick.game}-${pick.market}-${pick.selection}-${index}`} pick={pick} />)}</div> : <div className="nflOptimizedEmpty">No NFL EZPZ Picks qualify for {data.today || "today"} right now.</div>}
+      <div className="nflOptimizedHead"><div><h2>{sport} EZPZ Picks</h2></div><span>{picks.length} picks</span></div>
+      {picks.length ? <div className="nflEzpzStack">{picks.map((pick, index) => <FootballEzpzCard key={`${pick.game}-${pick.market}-${pick.selection}-${index}`} pick={pick} sport={sport} data={data} />)}</div> : <div className="nflOptimizedEmpty">No {sport} EZPZ Picks right now.</div>}
     </section>
   );
 }
@@ -283,6 +285,164 @@ function recordTotalsFromRows(rows: SheetRow[]): RecordTotals {
     pushes,
   };
 }
+function ezpzGradeBucket(row: SheetRow) {
+  const grade = ezpzTextKey(row.Grade || row["Model Grade"] || row.Tier || "");
+  if (grade === "a" || grade.startsWith("a ")) return "A";
+  if (grade === "b" || grade.startsWith("b ")) return "B";
+  return "";
+}
+function ezpzMarketLine(value: unknown) {
+  const matches = String(value || "").replace(/[−–—]/g, "-").match(/[+-]?\d+(?:\.\d+)?/g) || [];
+  for (const raw of [...matches].reverse()) {
+    const line = Number(raw);
+    if (Number.isFinite(line) && Math.abs(line) <= 60) return line;
+  }
+  return null;
+}
+function ezpzSide(value: unknown) {
+  const key = ezpzTextKey(value);
+  if (key.startsWith("under")) return "Under";
+  if (key.startsWith("over")) return "Over";
+  return "";
+}
+function ezpzModelRecordType(row: SheetRow, sport: Sport) {
+  const grade = ezpzGradeBucket(row);
+  if (!grade) return "";
+  if (sport === "NFL" && isNflPlayerPropRow(row)) {
+    const market = ezpzTextKey(row.Market || row["Bet Type"] || "Player Prop");
+    const side = ezpzSide(row.Pick || row.Side || row.Selection);
+    return market && side ? `${grade}|PROP|${market}|${side}` : "";
+  }
+  const market = ezpzTextKey(row["Bet Type"] || row.Market);
+  if (market.includes("total")) {
+    const side = ezpzSide(row.Selection || row.Side || row.Pick);
+    return side ? `${grade}|TOTAL|${side}` : "";
+  }
+  if (market.includes("spread")) {
+    const line = ezpzMarketLine(row.Selection) ?? ezpzMarketLine(row.Line) ?? ezpzMarketLine(row["Odds/Line"]);
+    if (line == null || Math.abs(line) < 1e-9) return "";
+    return `${grade}|SPREAD|${line < 0 ? "Favorite" : "Underdog"}`;
+  }
+  return "";
+}
+function ezpzModelHistoryRows(rows: SheetRow[], sport: Sport) {
+  const settled = rows
+    .map((row, index) => ({ row, index, date: signalIsoDate(row.Date || row["Game Date"] || ""), type: ezpzModelRecordType(row, sport) }))
+    .filter((item) => Boolean(item.date && item.type && resultCode(item.row.Result || item.row.Status)))
+    .sort((a, b) => a.date.localeCompare(b.date) || a.index - b.index);
+  const dates = [...new Set(settled.map((item) => item.date))];
+  const priorByType = new Map<string, SheetRow[]>();
+  const picks: SheetRow[] = [];
+  for (const date of dates) {
+    const day = settled.filter((item) => item.date === date);
+    for (const item of day) {
+      const prior = priorByType.get(item.type) || [];
+      const lastSeven = prior.slice(-7);
+      const form = recordTotalsFromRows(lastSeven);
+      if (form.totalBets === 7 && form.wins >= 5 && rowAmericanOdds(item.row) >= -150) picks.push(item.row);
+    }
+    for (const item of day) {
+      const prior = priorByType.get(item.type) || [];
+      prior.push(item.row);
+      priorByType.set(item.type, prior);
+    }
+  }
+  return picks;
+}
+function ezpzTrendDetails(row: SheetRow): Record<string, any> | null {
+  const raw = String(row["Trend Score Details"] || "").trim();
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+function ezpzTrendSignalRoi(signal: Record<string, any>) {
+  const records = signal?.records;
+  if (!records?.allTime || !records?.last30 || !records?.last7) return null;
+  const last7Decisions = Number(records.last7.wins || 0) + Number(records.last7.losses || 0);
+  const last7Weight = Math.min(0.5, Math.max(0, last7Decisions) * 0.1);
+  const carry = (0.5 - last7Weight) / 2;
+  const windows = [
+    { row: records.allTime, weight: 0.25 + carry },
+    { row: records.last30, weight: 0.25 + carry },
+    { row: records.last7, weight: last7Weight },
+  ].filter((item) => Number(item.row.totalBets || 0) > 0 && item.weight > 0);
+  if (!windows.length) return null;
+  const totalWeight = windows.reduce((sum, item) => sum + item.weight, 0);
+  return windows.reduce((sum, item) => sum + Number(item.row.roiPct || 0) * item.weight, 0) / totalWeight;
+}
+function ezpzTrendRoi(details: Record<string, any> | null) {
+  const signals = Array.isArray(details?.signals) ? details.signals as Array<Record<string, any>> : [];
+  const values = signals.map(ezpzTrendSignalRoi).filter((value): value is number => value != null && Number.isFinite(value));
+  return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
+}
+function ezpzCfbTrendHistoryRows(rows: SheetRow[]) {
+  const settled = rows
+    .map((row, index) => ({ row, index, details: ezpzTrendDetails(row) }))
+    .filter((item) => Boolean(resultCode(item.row.Result || item.row.Status)) && ezpzTextKey(item.row["Trend Play"]) !== "false")
+    .map((item) => ({
+      ...item,
+      date: signalIsoDate(item.row.Date || item.row["Game Date"] || ""),
+      game: ezpzTextKey(item.row.Game || item.row["Game Key"] || ""),
+      market: ezpzTextKey(item.row.Market || item.details?.market || ""),
+      selection: ezpzTextKey(item.row.Selection || item.row.Side || item.details?.selection || item.details?.side || ""),
+      tier: String(item.details?.tier || item.row["Trend Tier"] || ""),
+      score: Number(item.details?.score ?? item.row["Trend Score"] ?? 0),
+      sample: Number(item.details?.TrendSampleSize ?? item.row["Trend Sample Size"] ?? 0),
+      roi: ezpzTrendRoi(item.details),
+    }))
+    .filter((item) => Boolean(item.date && item.game && item.market));
+  const qualified: typeof settled = [];
+  for (const item of settled) {
+    if (item.tier !== "Strong" && item.tier !== "Elite") continue;
+    if (item.sample < 8 || item.roi == null || item.roi <= 0 || rowAmericanOdds(item.row) < -150) continue;
+    const signals = Array.isArray(item.details?.signals) ? item.details.signals as Array<Record<string, any>> : [];
+    if (!signals.length || !signals.every((signal) => Number(signal?.records?.allTime?.wins || 0) > Number(signal?.records?.allTime?.losses || 0))) continue;
+    const peers = settled.filter((peer) => peer.date === item.date && peer.game === item.game && peer.market === item.market);
+    const maxScore = Math.max(...peers.map((peer) => Number(peer.score || 0)));
+    if (Number(item.score || 0) + 1e-9 < maxScore) continue;
+    const opponents = peers.filter((peer) => peer.selection !== item.selection && peer.roi != null).map((peer) => Number(peer.roi));
+    if (!opponents.length) continue;
+    const opposingRoi = Math.max(...opponents);
+    if (item.roi - opposingRoi < 25) continue;
+    qualified.push(item);
+  }
+  const byGame = new Map<string, (typeof qualified)[number]>();
+  for (const item of qualified.sort((a, b) => b.score - a.score || a.index - b.index)) {
+    const key = `${item.date}|${item.game}`;
+    if (!byGame.has(key)) byGame.set(key, item);
+  }
+  return [...byGame.values()].map((item) => item.row);
+}
+function ezpzHistoryKey(row: SheetRow) {
+  const date = signalIsoDate(row.Date || row["Game Date"] || "");
+  const game = ezpzTextKey(row.Game || row["Game Key"] || "");
+  const market = ezpzTextKey(row.Market || row["Bet Type"] || "");
+  if (String(row.Player || "").trim()) {
+    const player = ezpzTextKey(row.Player);
+    const propMarket = ezpzTextKey(row.Market || row["Bet Type"]);
+    const side = ezpzTextKey(ezpzSide(row.Pick || row.Side || row.Selection));
+    const line = String(row["Market Line"] || row.Line || row["Prop Line"] || "").trim();
+    return `${date}|${game}|prop|${player}|${propMarket}|${side}|${line}`;
+  }
+  if (market.includes("total")) return `${date}|${game}|total|${ezpzTextKey(ezpzSide(row.Selection || row.Side || row.Pick))}`;
+  const team = ezpzTextKey(String(row.Selection || row.Pick || "").replace(/\s+[+-]?\d+(?:\.\d+)?\s*$/, ""));
+  return `${date}|${game}|spread|${team}`;
+}
+function footballEzpzHistoryRows(data: FootballData, sport: Sport) {
+  const modelRows = ezpzModelHistoryRows(data.betTrackerRows || [], sport);
+  const trendRows = sport === "NCAAF" ? ezpzCfbTrendHistoryRows(data.trendRecordRows || []) : [];
+  const merged = new Map<string, SheetRow>();
+  for (const row of [...modelRows, ...trendRows]) {
+    const key = ezpzHistoryKey(row);
+    if (key && !merged.has(key)) merged.set(key, row);
+  }
+  return [...merged.values()].sort((a, b) => signalIsoDate(a.Date || a["Game Date"] || "").localeCompare(signalIsoDate(b.Date || b["Game Date"] || "")));
+}
+
 function isNflPlayerPropRow(row: SheetRow) {
   return Boolean(String(row.Player || "").trim());
 }
@@ -436,6 +596,9 @@ function FootballRecords({ sport, data }: { sport: Sport; data: FootballData }) 
   const overallRows = data.recordSummary || [];
   const last7Rows = data.last7RecordSummary || [];
   const trackerRows = data.betTrackerRows || [];
+  const ezpzRows = footballEzpzHistoryRows(data, sport);
+  const ezpzOverall = recordTotalsFromRows(ezpzRows);
+  const ezpzLast7 = recordTotalsFromRows(ezpzRows.filter((row) => signalDateWithin(row.Date || row["Game Date"] || "", data.today || "", 7)));
   const nflPropRecord = sport === "NFL" ? recordTotalsFromRows(trackerRows.filter(isNflPlayerPropRow)) : null;
   const recent = trackerRows.filter((row) => resultCode(row.Result || row.Status)).sort((a, b) => String(b.Date || b["Game Date"] || "").localeCompare(String(a.Date || a["Game Date"] || ""))).slice(0, 30);
   return (
@@ -446,6 +609,11 @@ function FootballRecords({ sport, data }: { sport: Sport; data: FootballData }) 
           <RecordTile label="Model Plays - Last 7 Days" value={last7} />
           <RecordTile label="Model Plays - Running Total" value={overall} />
           {nflPropRecord ? <RecordTile label="NFL Player Props - Running Total" value={nflPropRecord} /> : null}
+        </div>
+        <div className="sectionHead"><div><h2>{sport} EZPZ Pick Records</h2></div></div>
+        <div className="qualifiedGrid">
+          <RecordTile label="EZPZ Picks - Last 7 Days" value={ezpzLast7} />
+          <RecordTile label="EZPZ Picks - Running Total" value={ezpzOverall} />
         </div>
         <div className="recordsDropdownStack advancedRecordsStack">
           <FootballDraftKingsSignalRecords rows={data.draftKingsSignalRows || []} today={data.today || ""} />
@@ -469,12 +637,12 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
     return <FootballGameTabs sport={sport} tab={tab} data={data} />;
   }
   if (tab === "Records") return <FootballRecords sport={sport} data={data} />;
-  if (sport !== "NFL" || tab !== "EZPZ Picks") {
+  if (tab !== "EZPZ Picks") {
     return <FootballBoardBase sport={sport} tab={tab} data={data as any} />;
   }
   return (
     <>
-      <NflEzpzPicks data={data} />
+      <FootballEzpzPicks sport={sport} data={data} />
       <style jsx global>{`
         .nflOptimizedSection{display:grid;gap:18px}.nflOptimizedHead{display:flex;align-items:flex-end;justify-content:space-between;gap:18px}.nflOptimizedHead h2{margin:0 0 5px;font-size:clamp(1.4rem,4vw,2.2rem);letter-spacing:-.04em}.nflOptimizedHead p{margin:0;max-width:800px;color:var(--ez-muted);font-size:.86rem;line-height:1.45}.nflOptimizedHead>span{flex:0 0 auto;border:1px solid var(--ez-border);border-radius:999px;padding:7px 11px;color:var(--ez-muted);font-size:.8rem;font-weight:850}.nflOptimizedGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.nflOptimizedCard,.nflEzpzCard{position:relative;overflow:hidden;border:1px solid rgba(80,132,197,.2);border-radius:24px;padding:18px;background:linear-gradient(145deg,var(--ez-panel),var(--ez-panel-2));box-shadow:0 24px 65px rgba(0,0,0,.24)}.nflOptimizedCard.hotCard{border-color:rgba(43,216,117,.42);box-shadow:0 0 0 1px rgba(43,216,117,.1),0 0 25px rgba(43,216,117,.12),0 24px 65px rgba(0,0,0,.25)}.nflCardTop,.nflEzpzTop{display:flex;align-items:center;justify-content:space-between;gap:12px}.nflRank{display:grid;place-items:center;width:38px;height:38px;border-radius:12px;background:rgba(47,140,255,.12);border:1px solid rgba(47,140,255,.2);font-size:.78rem;font-weight:950}.nflMiniForm,.nflStatusBadge,.nflSourceBadge{display:inline-flex;align-items:center;border-radius:999px;padding:6px 9px;border:1px solid rgba(112,145,186,.2);font-size:.68rem;font-weight:950;letter-spacing:.04em}.nflMiniForm.hot,.nflFormPill.hot,.nflGate.hot{color:#adf4c7;border-color:rgba(43,216,117,.34);background:rgba(28,130,78,.15)}.nflMiniForm.cold,.nflFormPill.cold,.nflGate.cold{color:#b7d7ff;border-color:rgba(94,167,255,.3);background:rgba(50,108,180,.14)}.nflMiniForm.neutral,.nflFormPill.neutral,.nflGate.neutral{color:#d4deeb;background:rgba(100,120,146,.12)}.nflMiniForm.sample,.nflFormPill.sample,.nflGate.sample{color:#f7d98d;border-color:rgba(247,200,92,.26);background:rgba(155,115,30,.13)}.nflPlayerHero{display:grid;grid-template-columns:92px minmax(0,1fr);align-items:center;gap:14px;margin-top:15px}.nflPlayerHero.compactHero{grid-template-columns:72px minmax(0,1fr)}.nflHeadshot{position:relative;display:grid;place-items:center;width:92px;height:92px;overflow:hidden;border:1px solid rgba(94,159,247,.24);border-radius:20px;background:radial-gradient(circle at 50% 30%,rgba(64,146,255,.22),rgba(8,18,34,.88));color:rgba(181,211,246,.7);font-weight:950}.nflHeadshot.compact{width:72px;height:72px;border-radius:17px}.nflHeadshot img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;object-position:center bottom}.nflEyebrow{display:block;color:#78b9ff;font-size:.7rem;font-weight:900;letter-spacing:.06em;text-transform:uppercase}.nflPlayerHero h3,.nflGameHero h3,.nflEzpzSelection h3{margin:4px 0 3px;color:#f5f9ff;font-size:clamp(1.35rem,4vw,2rem);line-height:1.06;letter-spacing:-.035em}.nflPlayerHero p,.nflGameHero p,.nflEzpzSelection p{margin:0;color:var(--ez-muted);font-size:.8rem}.nflGameHero{margin-top:18px}.nflPropPickLine{display:grid;grid-template-columns:auto 1fr auto;align-items:baseline;gap:9px;margin-top:15px;border-radius:16px;padding:12px 14px;background:rgba(47,140,255,.075);border:1px solid rgba(47,140,255,.15)}.nflPropPickLine span{color:#9ccaff;font-size:.8rem;font-weight:950;text-transform:uppercase}.nflPropPickLine strong{font-size:1.7rem;letter-spacing:-.04em}.nflPropPickLine small,.nflGradeLine{color:var(--ez-muted);font-size:.75rem;font-weight:850}.nflGradeLine{margin-top:12px}.nflMetricGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin-top:13px}.nflMetric{min-width:0;border:1px solid rgba(105,140,184,.14);border-radius:14px;padding:10px 11px;background:rgba(8,17,31,.6)}.nflMetric.accent{border-color:rgba(43,216,117,.16);background:rgba(11,38,35,.35)}.nflMetric span{display:block;color:var(--ez-muted);font-size:.62rem;font-weight:850;text-transform:uppercase;letter-spacing:.055em}.nflMetric strong{display:block;margin-top:4px;color:#f1f7ff;font-size:.95rem;overflow-wrap:anywhere}.nflFormPill{display:grid;gap:3px;margin-top:13px;border:1px solid rgba(112,145,186,.2);border-radius:14px;padding:10px 12px}.nflFormPill strong{font-size:.78rem}.nflFormPill span{font-size:.68rem;opacity:.78}.nflRuleHint{margin-top:9px;color:var(--ez-muted);font-size:.67rem;line-height:1.35}.nflOptimizedEmpty{border:1px solid var(--ez-border);border-radius:22px;padding:30px;text-align:center;color:var(--ez-muted);background:linear-gradient(145deg,var(--ez-panel),var(--ez-panel-2))}.nflRulesStrip{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px}.nflRulesStrip>div{display:grid;gap:3px;border:1px solid rgba(83,127,181,.17);border-radius:15px;padding:11px 12px;background:rgba(8,18,34,.55)}.nflRulesStrip b{font-size:.77rem}.nflRulesStrip span{color:var(--ez-muted);font-size:.67rem;line-height:1.3}.nflEzpzStack{display:grid;gap:12px}.nflEzpzCard{border-color:rgba(43,216,117,.35)}.nflEzpzBadges{display:flex;flex-wrap:wrap;gap:6px}.nflSourceBadge{color:#aef2c6;border-color:rgba(43,216,117,.28);background:rgba(28,130,78,.13)}.nflStatusBadge.final{color:#aef2c6}.nflStatusBadge.pending{color:#f4d482;border-color:rgba(247,200,92,.25)}.nflEzpzOdds{font-size:1.05rem}.nflEzpzSelection{margin-top:15px}.nflGateRow{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:9px;margin-top:14px}.nflGate{display:grid;gap:4px;border:1px solid rgba(83,127,181,.17);border-radius:15px;padding:11px 12px;background:rgba(8,18,34,.58)}.nflGate>span{color:var(--ez-muted);font-size:.62rem;font-weight:900;text-transform:uppercase;letter-spacing:.06em}.nflGate strong{font-size:.95rem}.nflGate small{color:var(--ez-muted);font-size:.67rem}.nflGate.trend{border-color:rgba(47,140,255,.26);background:rgba(47,140,255,.075)}.nflGate.trend strong{color:#8bc5ff;font-size:1.22rem}.nflEzpzRuleText{display:grid;gap:4px;margin-top:11px;padding-top:10px;border-top:1px solid rgba(103,139,185,.12)}.nflEzpzRuleText strong{font-size:.72rem;color:#dcecff}.nflEzpzRuleText span{font-size:.66rem;color:var(--ez-muted);line-height:1.35}.footballCanonicalRecords{display:grid;gap:18px}.footballCanonicalRecordTile{display:grid;gap:5px}.footballCanonicalRecordTile>span{color:var(--ez-muted);font-size:.78rem;font-weight:850}.footballCanonicalRecordTile>strong{font-size:1.7rem}.footballCanonicalRecordTile>small{color:var(--ez-muted)}.footballCanonicalInfo{line-height:1.55}
         @media(max-width:850px){.nflOptimizedGrid{grid-template-columns:1fr}.nflRulesStrip{grid-template-columns:1fr}}
