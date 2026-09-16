@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { GET as runPublicDataV2 } from "../../public-data-v2/route";
+import { repairHistoricalEzpzGrades } from "../../../../lib/ezpzHistoricalGrading";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -100,6 +101,16 @@ export async function GET(request: NextRequest) {
       lastStatus = response.status;
       const payload = await response.json().catch(() => null);
       if (response.ok && payload?.ok) {
+        let historicalGradeRepair = null;
+        let historicalGradeRepairError = "";
+        try {
+          historicalGradeRepair = await repairHistoricalEzpzGrades();
+        } catch (error) {
+          historicalGradeRepairError =
+            error instanceof Error ? error.message : String(error);
+          console.warn("Historical EZPZ grade repair failed", historicalGradeRepairError);
+        }
+
         return NextResponse.json(
           {
             ok: true,
@@ -119,6 +130,8 @@ export async function GET(request: NextRequest) {
                 (Array.isArray(payload?.trendPlays) ? payload.trendPlays.length : 0),
             ),
             mlbResultSync: payload?.mlbResultSync || null,
+            historicalGradeRepair,
+            historicalGradeRepairError,
           },
           { headers: { "Cache-Control": "no-store, max-age=0" } },
         );
