@@ -1,0 +1,51 @@
+name: One-time market-specific EZPZ qualification update
+
+on:
+  push:
+    paths:
+      - ".github/workflows/market-specific-ezpz-hotfix.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply market-specific EZPZ qualification patch
+        run: python scripts/patch_market_specific_ezpz.py
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript check
+        run: npx tsc --noEmit
+
+      - name: Verify qualification rules
+        shell: bash
+        run: |
+          grep -q 'ezpz-picks-market-specific-v8' app/api/public-data-core.ts
+          grep -q 'minimumReliability: 80' app/api/public-data-core.ts
+          grep -q 'minimumSelectedProbability: 65' app/api/public-data-core.ts
+          grep -q 'function finalizeImmediateBestPlays' app/api/public-data-core.ts
+          grep -q 'EZPZ Best Play is final for the full day' app/page.tsx
+          ! grep -q 'EZPZ_BEST_PLAY_POLICY' app/api/public-data-core.ts
+          ! grep -q 'aiPitcherQualificationProfile' app/api/public-data-core.ts
+          git diff --check
+
+      - name: Commit qualification update
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/api/public-data-core.ts app/page.tsx
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git commit -m "Use market-specific EZPZ Best Play qualification"
+          git push
