@@ -1,0 +1,570 @@
+name: One-time EZPZ market rules v9b
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/market-specific-ezpz-v9b.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply analyzed market-specific EZPZ rules
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path('app/api/public-data-core.ts')
+          text = path.read_text()
+
+          def replace_once(old, new, label):
+              global text
+              count = text.count(old)
+              if count != 1:
+                  raise RuntimeError(f'{label}: expected 1 match, found {count}')
+              text = text.replace(old, new, 1)
+
+          def replace_regex(pattern, replacement, label):
+              global text
+              text, count = re.subn(pattern, replacement, text, count=1, flags=re.S)
+              if count != 1:
+                  raise RuntimeError(f'{label}: expected 1 match, found {count}')
+
+          replace_once(
+              'const AI_PICK_SELECTOR_VERSION = "ezpz-picks-market-specific-v8";',
+              'const AI_PICK_SELECTOR_VERSION = "ezpz-picks-market-specific-v9";',
+              'selector version',
+          )
+
+          replace_once(
+              '  selectedProbability?: string | number;\n  reliability?: string | number;\n};',
+              '  selectedProbability?: string | number;\n  reliability?: string | number;\n  projectionEdge?: string | number;\n};',
+              'Play qualification fields',
+          )
+
+          old_policy = '''type EzpzBestPlayPolicy = {
+            requiredForm?: "HOT";
+            maxFavoritePrice: number;
+            minimumReliability?: number;
+            minimumSelectedProbability?: number;
+          };
+
+          // Each Best Play market owns its own EZPZ qualification policy.
+          // Moneyline, full-game totals, and first-inning markets retain the existing
+          // HOT + price-cap rule. Pitcher strikeouts use the stronger market-specific
+          // reliability/probability rule identified in the historical audit.
+          const EZPZ_BEST_PLAY_POLICIES: Record<AiPickMarket, EzpzBestPlayPolicy> = {
+            Moneyline: { requiredForm: "HOT", maxFavoritePrice: -150 },
+            Total: { requiredForm: "HOT", maxFavoritePrice: -150 },
+            "First Inning": { requiredForm: "HOT", maxFavoritePrice: -150 },
+            "Pitcher Strikeouts": {
+              maxFavoritePrice: -150,
+              minimumReliability: 80,
+              minimumSelectedProbability: 65,
+            },
+          };
+
+          function aiBestPlayPolicy(market: AiPickMarket) {
+            return EZPZ_BEST_PLAY_POLICIES[market];
+          }'''
+          new_policy = '''type EzpzBestPlayPolicy = {
+            // Retained only so older debug payloads can deserialize safely.
+            requiredForm?: "HOT";
+            maxFavoritePrice: number;
+            minimumModelEdge?: number;
+            minimumBayesianForm?: number;
+            minimumHistoryDecisions?: number;
+            minimumProjectionEdge?: number;
+            requireEliteGrade?: boolean;
+            minimumReliability?: number;
+            minimumSelectedProbability?: number;
+          };
+
+          // MARKET-SPECIFIC EZPZ BEST PLAY POLICY (historical audit, 2026-09-16).
+          // All markets keep the same -150 maximum favorite price, but the quality
+          // gate is specific to the signal that separated winners in that market.
+          const EZPZ_BEST_PLAY_POLICIES: Record<AiPickMarket, EzpzBestPlayPolicy> = {
+            Moneyline: {
+              maxFavoritePrice: -150,
+              minimumModelEdge: 8,
+              minimumBayesianForm: 55,
+              minimumHistoryDecisions: 7,
+            },
+            Total: {
+              maxFavoritePrice: -150,
+              minimumSelectedProbability: 70,
+              minimumProjectionEdge: 2,
+            },
+            "First Inning": {
+              maxFavoritePrice: -150,
+              requireEliteGrade: true,
+              minimumSelectedProbability: 68,
+            },
+            "Pitcher Strikeouts": {
+              maxFavoritePrice: -150,
+              minimumReliability: 80,
+              minimumSelectedProbability: 65,
+            },
+          };
+
+          function aiBestPlayPolicy(market: AiPickMarket) {
+            return EZPZ_BEST_PLAY_POLICIES[market];
+          }'''
+          replace_once(old_policy, new_policy, 'market policy block')
+
+          replace_once(
+              '  pitcherBetTypeRecord?: string;\n  pitcherRequiredScore?: number;\n};',
+              '  pitcherBetTypeRecord?: string;\n  pitcherRequiredScore?: number;\n  bestPlayHistoricalBayesianPct?: number;\n  bestPlayHistoricalDecisions?: number;\n};',
+              'candidate historical fields',
+          )
+
+          first_inning_helper = r'''
+          function firstInningSelectedProbability(row: SheetRow, playType: unknown) {
+            const type = normalizeType(playType);
+            const wantsYrfi = type.includes("YRFI");
+            const nrfiKeys = [
+              "NRFI %",
+              "NRFI%",
+              "NRFI Probability",
+              "NRFI Prob",
+              "NRFI Model %",
+              "NRFI Model",
+              "NRFI Projection",
+              "NRFI Projected %",
+            ];
+            const yrfiKeys = [
+              "YRFI %",
+              "YRFI%",
+              "YRFI Probability",
+              "YRFI Prob",
+              "YRFI Model %",
+              "YRFI Model",
+              "YRFI Projection",
+              "YRFI Projected %",
+            ];
+
+            let probability = normalizeProbability(
+              firstValue(row, wantsYrfi ? yrfiKeys : nrfiKeys),
+            );
+
+            if (!probability) {
+              const target = wantsYrfi ? "yrfi" : "nrfi";
+              for (const [key, rawValue] of Object.entries(row)) {
+                const lowerKey = key.toLowerCase();
+                if (!lowerKey.includes(target)) continue;
+                if (
+                  !(
+                    lowerKey.includes("%") ||
+                    lowerKey.includes("prob") ||
+                    lowerKey.includes("projection")
+                  )
+                ) continue;
+                if (
+                  lowerKey.includes("grade") ||
+                  lowerKey.includes("odds") ||
+                  lowerKey.includes("line") ||
+                  lowerKey.includes("score")
+                ) continue;
+                probability = normalizeProbability(rawValue);
+                if (probability) break;
+              }
+            }
+
+            // YRFI probability is the exact complement of NRFI when only the
+            // NRFI model probability is stored on the slate.
+            if (!probability && wantsYrfi) {
+              let nrfiProbability = normalizeProbability(firstValue(row, nrfiKeys));
+              if (!nrfiProbability) {
+                for (const [key, rawValue] of Object.entries(row)) {
+                  const lowerKey = key.toLowerCase();
+                  if (!lowerKey.includes("nrfi")) continue;
+                  if (
+                    !(
+                      lowerKey.includes("%") ||
+                      lowerKey.includes("prob") ||
+                      lowerKey.includes("projection")
+                    )
+                  ) continue;
+                  if (
+                    lowerKey.includes("grade") ||
+                    lowerKey.includes("odds") ||
+                    lowerKey.includes("line") ||
+                    lowerKey.includes("score")
+                  ) continue;
+                  nrfiProbability = normalizeProbability(rawValue);
+                  if (nrfiProbability) break;
+                }
+              }
+              if (nrfiProbability) probability = 1 - nrfiProbability;
+            }
+
+            return probability > 0 ? aiRound(probability * 100, 1) : 0;
+          }
+
+          '''
+          replace_once(
+              'function cleanTeamName(value: unknown) {',
+              first_inning_helper + 'function cleanTeamName(value: unknown) {',
+              'first inning selected probability helper',
+          )
+
+          replace_once(
+              '''        score: calculateNRFIPlayScore(row, nrfiGrade),
+                  isGreen: true,
+                  awayTeam,
+                  homeTeam,
+                });''',
+              '''        score: calculateNRFIPlayScore(row, nrfiGrade),
+                  isGreen: true,
+                  awayTeam,
+                  homeTeam,
+                  selectedProbability: firstInningSelectedProbability(row, nrfiGrade),
+                });''',
+              'first inning probability on Best Play',
+          )
+
+          # aiPendingTotalBestPlays is the only place that creates TOTAL Best Plays.
+          # Add the model inputs required by the new 70% / 2-run qualification gate.
+          total_start = text.index('function aiPendingTotalBestPlays(')
+          total_end = text.index('\nfunction aiTrackerRowIsQualified', total_start)
+          total_block = text[total_start:total_end]
+          old_total_tail = '''      homeTeam: cleanTeamName(parts[1] || row["Home Team"] || ""),
+                altLine: line,
+          '''
+          if old_total_tail not in total_block:
+              # Be indentation-agnostic while staying scoped to this one function.
+              pattern = r'(homeTeam:\s*cleanTeamName\(parts\[1\]\s*\|\|\s*row\["Home Team"\]\s*\|\|\s*""\),\s*\n)(\s*)altLine:\s*line,'
+              replacement = r'''\1\2selectedProbability: firstValue(row, [
+          \2  "Selected Probability",
+          \2  "Selected Probability %",
+          \2  "Total Selected Probability",
+          \2  "Total Probability",
+          \2  "Total Model %",
+          \2  "Model %",
+          \2]),
+          \2projectionEdge: directionalEdge,
+          \2altLine: line,'''
+              new_total_block, count = re.subn(pattern, replacement, total_block, count=1)
+              if count != 1:
+                  raise RuntimeError(f'total Best Play probability and projection edge: expected 1 scoped match, found {count}')
+          else:
+              new_total_block = total_block.replace(
+                  old_total_tail,
+                  '''      homeTeam: cleanTeamName(parts[1] || row["Home Team"] || ""),
+                selectedProbability: firstValue(row, [
+                  "Selected Probability",
+                  "Selected Probability %",
+                  "Total Selected Probability",
+                  "Total Probability",
+                  "Total Model %",
+                  "Model %",
+                ]),
+                projectionEdge: directionalEdge,
+                altLine: line,
+          ''',
+                  1,
+              )
+          text = text[:total_start] + new_total_block + text[total_end:]
+
+          last20_helper = r'''
+          function aiLastTwentyQualifiedMoneylineSummary(
+            rows: SheetRow[],
+            beforeDate = "",
+          ) {
+            const cutoffTime = parseNormalizedDate(beforeDate)?.getTime() || 0;
+            const recentRows = aiRowsForType(rows, "MONEYLINE")
+              .map((row, index) => ({
+                row,
+                index,
+                timestamp:
+                  parseNormalizedDate(row.Date || row.date || row["Bet Date"] || "")?.getTime() || 0,
+              }))
+              .filter(({ timestamp }) => !cutoffTime || (timestamp > 0 && timestamp < cutoffTime))
+              .sort((a, b) => b.timestamp - a.timestamp || b.index - a.index)
+              .slice(0, 20)
+              .map(({ row }) => row);
+            return buildTotals("MONEYLINE - Last 20 Qualified Bets", recentRows);
+          }
+
+          '''
+          replace_once(
+              'function aiPitcherBetTypeForm(record: RecordTotals): AiPitcherBetTypeForm {',
+              last20_helper + 'function aiPitcherBetTypeForm(record: RecordTotals): AiPitcherBetTypeForm {',
+              'moneyline rolling Bayesian helper',
+          )
+
+          new_qualification = r'''function aiBestPlayQualification(
+            candidate: AiSelectorCandidate,
+          ): AiBestPlayQualification {
+            if (!candidate.bestPlayType) {
+              return { qualifies: false, label: "", status: "", failure: "" };
+            }
+
+            const policy = aiBestPlayPolicy(candidate.market);
+
+            if (candidate.market === "Moneyline") {
+              const minimumModelEdge = policy.minimumModelEdge ?? 8;
+              const minimumBayesianForm = policy.minimumBayesianForm ?? 55;
+              const minimumHistoryDecisions = policy.minimumHistoryDecisions ?? 7;
+              const explicitEdge = normalizePercentValue(
+                firstValue(candidate.slateRow || undefined, [
+                  "Edge %",
+                  "ML Edge %",
+                  "Moneyline Edge %",
+                  "Model Edge %",
+                ]),
+              );
+              const implied =
+                candidate.marketImpliedProbability || aiImpliedProbability(candidate.odds);
+              const modelEdge = explicitEdge > 0
+                ? explicitEdge
+                : implied > 0
+                  ? aiRound(candidate.baselineProbability - implied, 1)
+                  : 0;
+              const bayesianForm = candidate.bestPlayHistoricalBayesianPct ?? 0;
+              const historyDecisions = candidate.bestPlayHistoricalDecisions ?? 0;
+              const failures: string[] = [];
+
+              if (historyDecisions < minimumHistoryDecisions) {
+                failures.push(
+                  `Moneyline history has ${historyDecisions} decisions; ${minimumHistoryDecisions}+ are required`,
+                );
+              }
+              if (bayesianForm < minimumBayesianForm) {
+                failures.push(
+                  `Moneyline Bayesian last-20 form ${bayesianForm.toFixed(1)}% did not reach ${minimumBayesianForm}%+`,
+                );
+              }
+              if (modelEdge < minimumModelEdge) {
+                failures.push(
+                  `Moneyline model edge ${modelEdge.toFixed(1)}% did not reach ${minimumModelEdge}%+`,
+                );
+              }
+
+              return {
+                qualifies: failures.length === 0,
+                label: `Moneyline edge ${modelEdge.toFixed(1)}% / Bayesian form ${bayesianForm.toFixed(1)}%`,
+                status: `Moneyline EZPZ gate: model edge ${modelEdge.toFixed(1)}% (min ${minimumModelEdge}%) • Bayesian last-20 ${bayesianForm.toFixed(1)}% over ${historyDecisions} decisions (min ${minimumBayesianForm}%, ${minimumHistoryDecisions} decisions) • odds no worse than ${policy.maxFavoritePrice}`,
+                failure: failures.join(" • "),
+              };
+            }
+
+            if (candidate.market === "Total") {
+              const minimumSelectedProbability = policy.minimumSelectedProbability ?? 70;
+              const minimumProjectionEdge = policy.minimumProjectionEdge ?? 2;
+              const selectedProbability = normalizePercentValue(
+                candidate.bestPlay?.selectedProbability || "",
+              );
+              const projectionEdge = toNumber(candidate.bestPlay?.projectionEdge || 0);
+              const failures: string[] = [];
+
+              if (selectedProbability < minimumSelectedProbability) {
+                failures.push(
+                  `Total selected probability ${selectedProbability.toFixed(1)}% did not reach ${minimumSelectedProbability}%+`,
+                );
+              }
+              if (projectionEdge < minimumProjectionEdge) {
+                failures.push(
+                  `Total projected run edge ${projectionEdge.toFixed(2)} did not reach ${minimumProjectionEdge.toFixed(1)}+ runs`,
+                );
+              }
+
+              return {
+                qualifies: failures.length === 0,
+                label: `Total probability ${selectedProbability.toFixed(1)}% / run edge ${projectionEdge.toFixed(2)}`,
+                status: `Total EZPZ gate: selected probability ${selectedProbability.toFixed(1)}% (min ${minimumSelectedProbability}%) • projected run edge ${projectionEdge.toFixed(2)} (min ${minimumProjectionEdge.toFixed(1)}) • odds no worse than ${policy.maxFavoritePrice}`,
+                failure: failures.join(" • "),
+              };
+            }
+
+            if (candidate.market === "First Inning") {
+              const minimumSelectedProbability = policy.minimumSelectedProbability ?? 68;
+              const grade = aiCanonicalBestPlayType(
+                candidate.bestPlayType || candidate.bestPlay?.playType || "",
+              );
+              const elite = grade === "ELITE NRFI" || grade === "ELITE YRFI";
+              const selectedProbability = normalizePercentValue(
+                candidate.bestPlay?.selectedProbability || "",
+              );
+              const failures: string[] = [];
+
+              if (policy.requireEliteGrade && !elite) {
+                failures.push(
+                  `First-inning grade ${grade || "Unknown"} is not ELITE`,
+                );
+              }
+              if (selectedProbability < minimumSelectedProbability) {
+                failures.push(
+                  `First-inning selected probability ${selectedProbability.toFixed(1)}% did not reach ${minimumSelectedProbability}%+`,
+                );
+              }
+
+              return {
+                qualifies: failures.length === 0,
+                label: `${grade || "First Inning"} / selected probability ${selectedProbability.toFixed(1)}%`,
+                status: `First Inning EZPZ gate: ELITE grade required • selected probability ${selectedProbability.toFixed(1)}% (min ${minimumSelectedProbability}%) • odds no worse than ${policy.maxFavoritePrice}`,
+                failure: failures.join(" • "),
+              };
+            }
+
+            if (candidate.market === "Pitcher Strikeouts") {
+              const reliability = normalizePercentValue(candidate.bestPlay?.reliability || "");
+              const selectedProbability = normalizePercentValue(
+                candidate.bestPlay?.selectedProbability || "",
+              );
+              const minimumReliability = policy.minimumReliability ?? 80;
+              const minimumSelectedProbability = policy.minimumSelectedProbability ?? 65;
+              const failures: string[] = [];
+              if (reliability < minimumReliability) {
+                failures.push(
+                  `Pitcher K reliability ${reliability.toFixed(0)} did not reach ${minimumReliability}+`,
+                );
+              }
+              if (selectedProbability < minimumSelectedProbability) {
+                failures.push(
+                  `Pitcher K selected probability ${selectedProbability.toFixed(1)}% did not reach ${minimumSelectedProbability}%+`,
+                );
+              }
+              return {
+                qualifies: failures.length === 0,
+                label: `Pitcher K reliability ${reliability.toFixed(0)} / selected probability ${selectedProbability.toFixed(1)}%`,
+                status: `Pitcher K EZPZ gate: reliability ${reliability.toFixed(0)} (min ${minimumReliability}) • selected probability ${selectedProbability.toFixed(1)}% (min ${minimumSelectedProbability}%) • odds no worse than ${policy.maxFavoritePrice}`,
+                failure: failures.join(" • "),
+              };
+            }
+
+            return {
+              qualifies: false,
+              label: candidate.market,
+              status: `${candidate.market} has no configured EZPZ Best Play qualification rule`,
+              failure: `${candidate.market} has no configured EZPZ Best Play qualification rule`,
+            };
+          }'''
+          replace_regex(
+              r'function aiBestPlayQualification\(\n\s*candidate: AiSelectorCandidate,\n\): AiBestPlayQualification \{.*?\n\}\n\nfunction aiHistoricalRecordType',
+              new_qualification + '\n\nfunction aiHistoricalRecordType',
+              'Best Play qualification function',
+          )
+
+          new_record_adjustments = r'''function aiRecordAdjustments(candidate: AiSelectorCandidate, completedTrackerRows: SheetRow[]) {
+            const recordType = aiHistoricalRecordType(candidate);
+            if (!recordType) return;
+
+            if (!candidate.bestPlayType) {
+              candidate.dataStatus.push(
+                "Trend-only candidate: Best Play market qualification does not apply",
+              );
+              return;
+            }
+
+            // Last-7 remains visible as context, but HOT/COLD is no longer an
+            // EZPZ qualification gate for any Best Play market in v9.
+            const lastSeven = aiLastSevenBetsSummaryForType(
+              completedTrackerRows,
+              recordType,
+              candidate.date,
+            );
+            candidate.pitcherBetTypeForm = aiPitcherBetTypeForm(lastSeven);
+            candidate.pitcherBetTypeRecord = lastSeven.record;
+
+            if (candidate.market === "Moneyline") {
+              const lastTwenty = aiLastTwentyQualifiedMoneylineSummary(
+                completedTrackerRows,
+                candidate.date,
+              );
+              const decisions = lastTwenty.wins + lastTwenty.losses;
+              candidate.bestPlayHistoricalDecisions = decisions;
+              candidate.bestPlayHistoricalBayesianPct = decisions > 0
+                ? aiRound(((lastTwenty.wins + 4) / (decisions + 8)) * 100, 1)
+                : 0;
+              candidate.historicalNotes.push(
+                `Moneyline last 20 qualified bets: ${lastTwenty.record} • Bayesian form ${candidate.bestPlayHistoricalBayesianPct.toFixed(1)}%`,
+              );
+            } else {
+              candidate.historicalNotes.push(
+                `${recordType} Last 7 Bets: ${lastSeven.record} • informational only for ${candidate.market} EZPZ qualification`,
+              );
+            }
+
+            const qualification = aiBestPlayQualification(candidate);
+            candidate.dataStatus.push(qualification.status);
+            if (qualification.qualifies) {
+              candidate.whySelected.push(
+                `${candidate.market} qualifies with ${qualification.label}`,
+              );
+            } else if (candidate.trendPlay && qualification.failure) {
+              candidate.dataStatus.push(
+                `${qualification.failure} • Best Play path excluded; Trend path remains independently eligible`,
+              );
+            }
+          }'''
+          replace_regex(
+              r'function aiRecordAdjustments\(candidate: AiSelectorCandidate, completedTrackerRows: SheetRow\[\]\) \{.*?\n\}\nfunction aiApplyMarketContext',
+              new_record_adjustments + '\nfunction aiApplyMarketContext',
+              'record adjustment function',
+          )
+
+          # Retire the old pre-first-pitch Last-7 repair so it cannot re-impose HOT.
+          replace_regex(
+              r'const AI_STORED_LAST7_GATE_PREFIX = "Last-7 qualification recheck:";.*?\nfunction aiStoredFinalSelectionIsLocked',
+              'function aiStoredFinalSelectionIsLocked',
+              'legacy stored Last-7 recheck function',
+          )
+
+          replace_regex(
+              r'  // Re-run the rolling Last-7 gate only for markets that still use HOT.*?\n  // A HOT pitcher Best Play',
+              '  // Market-specific Best Play gates are evaluated from the candidate and pre-date history.\n  // Legacy HOT rechecks are retired in v9 so they cannot override the new rules.\n\n  // A market-qualified pitcher Best Play',
+              'legacy Last-7 correction lifecycle block',
+          )
+
+          path.write_text(text)
+          PY
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript check
+        run: npx tsc --noEmit
+
+      - name: Verify v9 EZPZ rules
+        shell: bash
+        run: |
+          set -euo pipefail
+          file='app/api/public-data-core.ts'
+          grep -q 'ezpz-picks-market-specific-v9' "$file"
+          grep -q 'minimumModelEdge: 8' "$file"
+          grep -q 'minimumBayesianForm: 55' "$file"
+          grep -q 'minimumHistoryDecisions: 7' "$file"
+          grep -q 'minimumSelectedProbability: 70' "$file"
+          grep -q 'minimumProjectionEdge: 2' "$file"
+          grep -q 'requireEliteGrade: true' "$file"
+          grep -q 'minimumSelectedProbability: 68' "$file"
+          grep -q 'minimumReliability: 80' "$file"
+          grep -q 'minimumSelectedProbability: 65' "$file"
+          grep -q 'aiLastTwentyQualifiedMoneylineSummary' "$file"
+          grep -q 'firstInningSelectedProbability' "$file"
+          grep -q 'projectionEdge: directionalEdge' "$file"
+          ! grep -q 'Best Play EZPZ Picks require HOT form' "$file"
+          ! grep -q 'AI_STORED_LAST7_GATE_PREFIX' "$file"
+          git diff --check
+
+      - name: Commit production rule update and remove one-time workflows
+        shell: bash
+        run: |
+          rm -f .github/workflows/market-specific-ezpz-v9.yml
+          rm -f .github/workflows/market-specific-ezpz-v9b.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/api/public-data-core.ts .github/workflows/market-specific-ezpz-v9.yml .github/workflows/market-specific-ezpz-v9b.yml
+          git commit -m 'Use analyzed market-specific EZPZ qualification rules'
+          git push origin main
