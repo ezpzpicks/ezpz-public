@@ -1,0 +1,166 @@
+name: Patch EZPZ historical grading
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/patch_ezpz_historical_grading.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Patch public data grading
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('app/api/public-data-core.ts')
+          text = path.read_text()
+
+          old_time = '''  const pickStart = scheduledGameStart({ Date: pick.date, "Game Time": pick.gameTime });
+          const rowStart = scheduledGameStart(row);
+          if (pickStart != null && rowStart != null && Math.abs(pickStart - rowStart) > 30 * 60_000) {
+            return false;
+          }
+
+          if (teamsMatch) return true;
+          if (!rowGame) return false;
+          '''
+          new_time = '''  // Exact canonical teams on the same date are the primary historical identity.
+          // Scheduled time is only a doubleheader/ambiguous-match disambiguator; it must
+          // never reject the one obvious team/date match because legacy start times moved.
+          if (teamsMatch) return true;
+
+          const pickStart = scheduledGameStart({ Date: pick.date, "Game Time": pick.gameTime });
+          const rowStart = scheduledGameStart(row);
+          if (pickStart != null && rowStart != null && Math.abs(pickStart - rowStart) > 30 * 60_000) {
+            return false;
+          }
+
+          if (!rowGame) return false;
+          '''
+          if old_time not in text:
+              raise SystemExit('Expected aiRowMatchesGame time block was not found')
+          text = text.replace(old_time, new_time, 1)
+
+          marker = '''function overlayAiPickResults(
+            picks: AiPick[],
+            trackerRows: SheetRow[],
+            allGameTrendRows: SheetRow[],
+          ) {
+          '''
+          helper = '''function aiPickFinalScoreSource(
+            pick: AiPick,
+            allGameTrendRows: SheetRow[],
+          ): SheetRow | null {
+            if (pick.market !== "Moneyline" && pick.market !== "Total") return null;
+            const date = isoPublicDate(pick.date);
+            const candidates = allGameTrendRows.filter((row) => {
+              if (isoPublicDate(row.Date || row["Bet Date"] || "") !== date) return false;
+              if (!aiRowMatchesGame(pick, row)) return false;
+              // Actual score columns are populated by the final-result sync. Requiring
+              // a completed row prevents live/in-progress scores from grading a pick.
+              if (!resultCode(row.Result)) return false;
+              return (
+                numericLine(row["Actual Away Runs"]) != null &&
+                numericLine(row["Actual Home Runs"]) != null
+              );
+            });
+            const source = candidates[0];
+            if (!source) return null;
+
+            const awayRuns = numericLine(source["Actual Away Runs"]);
+            const homeRuns = numericLine(source["Actual Home Runs"]);
+            if (awayRuns == null || homeRuns == null) return null;
+            const storedTotal = numericLine(source["Actual Total"]);
+            const actualTotal = storedTotal == null ? awayRuns + homeRuns : storedTotal;
+            let result: AiPick["result"] = "";
+
+            if (pick.market === "Total") {
+              const line = numericLine(pick.line || pick.play || pick.selection || "");
+              const side = normalizeType(`${pick.selection} ${pick.play}`);
+              if (line == null) return null;
+              if (Math.abs(actualTotal - line) < 0.001) result = "P";
+              else if (side.includes("OVER")) result = actualTotal > line ? "W" : "L";
+              else if (side.includes("UNDER")) result = actualTotal < line ? "W" : "L";
+            } else {
+              if (awayRuns === homeRuns) return null;
+              const awayTeam = normalizeTeam(pick.awayTeam || source["Away Team"] || source.Away || "");
+              const homeTeam = normalizeTeam(pick.homeTeam || source["Home Team"] || source.Home || "");
+              const selectedTeam = normalizeTeam(
+                teamFromSelection(pick.selection || pick.play || ""),
+              );
+              const winner = awayRuns > homeRuns ? awayTeam : homeTeam;
+              if (selectedTeam && winner) result = selectedTeam === winner ? "W" : "L";
+            }
+
+            if (!result) return null;
+            return {
+              ...source,
+              Result: result,
+              "Result Updated": String(source["Result Updated"] || nowET()),
+            };
+          }
+
+          '''
+          if 'function aiPickFinalScoreSource(' not in text:
+              if marker not in text:
+                  raise SystemExit('overlayAiPickResults marker was not found')
+              text = text.replace(marker, helper + marker, 1)
+
+          old_overlay = '''    if (
+              (pick.market === "Moneyline" || pick.market === "Total") &&
+              (!source || !resultCode(source.Result))
+            ) {
+              const allGameSource = aiPickTrackerMatch(pick, allGameTrendRows);
+              if (allGameSource && resultCode(allGameSource.Result)) source = allGameSource;
+            }
+
+            const authoritativeResult = source ? resultCode(source.Result) : "";
+          '''
+          new_overlay = '''    if (
+              (pick.market === "Moneyline" || pick.market === "Total") &&
+              (!source || !resultCode(source.Result))
+            ) {
+              const allGameSource = aiPickTrackerMatch(pick, allGameTrendRows);
+              if (allGameSource && resultCode(allGameSource.Result)) source = allGameSource;
+            }
+            if (
+              (pick.market === "Moneyline" || pick.market === "Total") &&
+              (!source || !resultCode(source.Result))
+            ) {
+              // Historical EZPZ Picks are graded from their own frozen line against
+              // the final game score. This is intentionally independent of whether
+              // a legacy tracker/trend row happened to use the exact same line.
+              const finalScoreSource = aiPickFinalScoreSource(pick, allGameTrendRows);
+              if (finalScoreSource) source = finalScoreSource;
+            }
+
+            const authoritativeResult = source ? resultCode(source.Result) : "";
+          '''
+          if old_overlay not in text:
+              raise SystemExit('Expected overlay grading block was not found')
+          text = text.replace(old_overlay, new_overlay, 1)
+
+          path.write_text(text)
+          PY
+      - name: Commit patch
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo "No changes needed"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/api/public-data-core.ts
+          git commit -m "Make historical EZPZ grading score-based"
+          git push origin main
