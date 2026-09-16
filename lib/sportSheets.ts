@@ -3,6 +3,7 @@ import {
   ensureTursoDataset,
   isTursoConfigured,
   readTursoDataset,
+  readTursoDatasetByDateKeys,
   readTursoDatasetState,
   replaceTursoDataset,
   type TursoRow,
@@ -41,6 +42,17 @@ export async function readSportWorksheet(
 ): Promise<SheetRow[]> {
   assertTursoConfigured();
   const rows = await readTursoDataset(sport, worksheetName, columns);
+  return normalizeRows(rows, columns);
+}
+
+export async function readSportWorksheetByDateKeys(
+  sport: FootballSport,
+  worksheetName: string,
+  dateKeys: string[],
+  columns?: string[],
+): Promise<SheetRow[]> {
+  assertTursoConfigured();
+  const rows = await readTursoDatasetByDateKeys(sport, worksheetName, dateKeys, columns);
   return normalizeRows(rows, columns);
 }
 
