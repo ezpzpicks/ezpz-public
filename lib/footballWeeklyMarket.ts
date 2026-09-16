@@ -4,6 +4,7 @@ import {
   appendSportRows,
   ensureSportWorksheet,
   readSportWorksheet,
+  readSportWorksheetByDateKeys,
   upsertSportRows,
 } from "./sportSheets";
 
@@ -639,7 +640,6 @@ function resultCode(value: unknown): ResultCode | "" {
   if (["W", "WIN", "WON"].includes(key)) return "W";
   if (["L", "LOSS", "LOST"].includes(key)) return "L";
   if (["P", "PUSH", "VOID", "CANCELLED", "CANCELED"].includes(key)) return "P";
-  // PENDING and every other unfinished status must never enter trend history.
   return "";
 }
 
@@ -727,7 +727,7 @@ function historyFromAllGameTrends(rows: SheetRow[]): HistoryRow[] {
           });
         }
         if (savedSignals.length) continue;
-      } catch { /* reconstruct legacy rows from saved columns below */ }
+      } catch { }
     }
 
     const market = historyMarket(row);
@@ -899,8 +899,6 @@ function movement(split: Split, existing: SheetRow | undefined, marketRows: Shee
     lineMovementBasis = split.market === "Total" ? "Total Line" : "Spread Line";
     lineMovementValue = Math.round((split.line - openingLine) * 10) / 10;
   } else if (summary?.lineMoveCount && summary.lastLineMoveDelta != null) {
-    // A round trip (for example -28.5 -> -27.5 -> -28.5) is still real market
-    // movement even when first and current happen to match.
     lineMovementBasis = split.market === "Total" ? "Total Line History" : "Spread Line History";
     lineMovementValue = summary.lastLineMoveDelta;
   } else if (openingImpliedPct != null && currentImpliedPct != null && Math.abs(currentImpliedPct - openingImpliedPct) >= 1.5) {
@@ -1039,16 +1037,19 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
     ensureSportWorksheet(sport, WEEKLY_TRENDS_TAB, WEEKLY_TREND_HEADERS),
     ensureSportWorksheet(sport, MARKET_HISTORY_TAB, MARKET_HISTORY_HEADERS),
   ]);
-  const [existingGames, existingTrends, existingMarketHistory, allGameTrends, scheduleRows, slateRows] = await Promise.all([
+  const [existingGames, existingTrends, allGameTrends, scheduleRows, slateRows] = await Promise.all([
     readSportWorksheet(sport, POSTED_GAMES_TAB, POSTED_GAME_HEADERS),
     readSportWorksheet(sport, WEEKLY_TRENDS_TAB, WEEKLY_TREND_HEADERS),
-    readSportWorksheet(sport, MARKET_HISTORY_TAB, MARKET_HISTORY_HEADERS),
     readSportWorksheet(sport, "all_game_trends"),
     readSportWorksheet(sport, "schedule"),
     readSportWorksheet(sport, "daily_slate"),
   ]);
   const canonicalRows = [...scheduleRows, ...slateRows, ...allGameTrends];
   const dk = await loadPostedSplits(sport, canonicalRows);
+  const activeMarketDates = [...new Set(dk.splits.map((split) => split.date).filter(Boolean))];
+  const existingMarketHistory = activeMarketDates.length
+    ? await readSportWorksheetByDateKeys(sport, MARKET_HISTORY_TAB, activeMarketDates, MARKET_HISTORY_HEADERS)
+    : [];
   const now = nowET();
   const gameMap = new Map(existingGames.map((row) => [postedGameKey(row), row]));
   const postedRows: SheetRow[] = [];
@@ -1076,9 +1077,6 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
   const existingTrendMap = new Map(existingTrends.map((row) => [trendKey(row), row]));
   const history = historyFromAllGameTrends(allGameTrends);
 
-  // Build a durable, append-only tape. Existing weekly rows seed the first
-  // tracked state once, then every distinct DraftKings state is appended.
-  // We append only on change, not every five-minute heartbeat.
   const marketHistoryRows = [...existingMarketHistory];
   const marketHistoryRowsToAppend: SheetRow[] = [];
   const existingHistoryKeys = new Set(existingMarketHistory.map(marketHistoryLogicalKey).filter(Boolean));
@@ -1130,10 +1128,6 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
     const minutes = minutesUntil(split);
     if (minutes != null && minutes <= 15) {
       handledLockKeys.add(key);
-
-      // Never rebuild a final lock after kickoff. If DraftKings still exposes a
-      // game after its listed start, preserve/finalize only the last verified
-      // pregame state so post-kick data cannot leak into the trend record.
       if (minutes < 0) {
         if (existing && String(existing["Details JSON"] || "").trim()) {
           try {
@@ -1151,20 +1145,15 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
                   : "Finalized from the last verified pregame snapshot after DraftKings stopped updating.",
               });
             }
-          } catch { /* keep malformed existing row unchanged */ }
+          } catch { }
         }
         continue;
       }
-
-      // A split returned by DraftKings while 0-15 minutes remain is itself a
-      // verified near-lock snapshot. Rebuild from that current split instead
-      // of judging freshness from the older saved card. This also allows a
-      // prematurely marked MISSED_LOCK row to recover to FINAL_PREGAME.
       if (existing && String(existing["Details JSON"] || "").trim()) {
         try {
           const saved = JSON.parse(String(existing["Details JSON"])) as WeeklyTrendPlay;
           if (saved.snapshotStatus === "FINAL_PREGAME") continue;
-        } catch { /* rebuild from the current verified split */ }
+        } catch { }
       }
       const freshLock = buildPlay(split, existing, history, marketHistoryRows);
       liveCandidates.push({
@@ -1179,11 +1168,6 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
     liveCandidates.push({ ...buildPlay(split, existing, history, marketHistoryRows), week: footballWeekLabel(sport, split.date) });
   }
 
-  // DraftKings can remove or suspend a game before the T-15 capture. Walk
-  // the stored rows as a second lock pass so the card never disappears.
-  // A snapshot no more than 20 minutes old is safe to freeze as the last
-  // verified pregame state; older data remains visible but is explicitly
-  // marked MISSED_LOCK and is not treated as a verified final lock.
   for (const row of existingTrends) {
     const key = trendKey(row);
     if (handledLockKeys.has(key)) continue;
@@ -1205,7 +1189,7 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
           ? `Lock capture missed — last verified ${saved.updatedAt}.`
           : "DraftKings was unavailable at lock; finalized from the last verified pregame snapshot.",
       });
-    } catch { /* keep malformed legacy row unchanged */ }
+    } catch { }
   }
   const scored = headToHead(liveCandidates);
   const rows = scored.map(weeklyRow);
@@ -1251,7 +1235,7 @@ export async function readWeeklyFootballMarket(sport: FootballSport) {
       } as Split;
       if (!validFootballMarketSplit(storedSplit, sport, canonicalRows)) continue;
       trendPlays.push({ ...play, week: String(row.Week || play.week || storedFootballWeek(sport, play, canonicalRows)) });
-    } catch { /* ignore malformed display row */ }
+    } catch { }
   }
   const splits = trendPlays.map((play) => ({
     game: play.game,
