@@ -269,7 +269,7 @@ export async function ensureTursoDataset(
   await pipeline([
     `INSERT OR REPLACE INTO dataset_manifest (sport,dataset,source_workbook,source_worksheet,headers_json,row_count,imported_at,source_kind) VALUES (${sqlText(sport)},${sqlText(dataset)},'turso-native',${sqlText(dataset)},${sqlText(JSON.stringify(targetHeaders))},${rowCount},${sqlText(savedAt)},'turso')`,
   ]);
-  logTursoIo({ op: "ensure", sport, dataset, rowsRead: 1, rowsWritten: 1, rowsDeleted: 0 });
+  logTursoIo({ op: "ensure", sport, dataset, rowsRead: 2, rowsWritten: 1, rowsDeleted: 0 });
 }
 
 function rowTuple(sport: TursoSport, dataset: string, row: TursoRow, index: number, savedAt: string) {
@@ -316,7 +316,7 @@ export async function replaceTursoDataset(
   const current = new Map<number, TursoRow>();
   for (const item of state.rows) current.set(item.index, item.row);
 
-  const targetHeaders = (headers || []).map((value) => String(value));
+  const targetHeaders = headers === undefined ? state.headers : headers.map((value) => String(value));
   const changed: Array<{ index: number; row: TursoRow }> = [];
   rows.forEach((row, offset) => {
     const index = offset + 1;
@@ -335,7 +335,7 @@ export async function replaceTursoDataset(
       op: "sync",
       sport,
       dataset,
-      rowsRead: currentState ? 0 : state.rows.length + (state.rowCount == null ? 0 : 1),
+      rowsRead: 0,
       rowsTarget: rows.length,
       rowsWritten: 0,
       rowsDeleted: 0,
@@ -360,7 +360,7 @@ export async function replaceTursoDataset(
     op: "sync",
     sport,
     dataset,
-    rowsRead: currentState ? 0 : state.rows.length + (state.rowCount == null ? 0 : 1),
+    rowsRead: 0,
     rowsTarget: rows.length,
     rowsWritten: changed.length + 1,
     rowsDeleted: trailingIndexes.length,
@@ -377,14 +377,17 @@ export async function appendTursoDataset(
   headers: string[] = [],
 ) {
   if (!rows.length) return;
-  const results = await pipeline([
+  const reads = [
     `SELECT COALESCE(MAX(row_index),0) AS max_row, COUNT(*) AS row_count FROM dataset_rows WHERE sport=${sqlText(sport)} AND dataset=${sqlText(dataset)}`,
-    `SELECT headers_json FROM dataset_manifest WHERE sport=${sqlText(sport)} AND dataset=${sqlText(dataset)} LIMIT 1`,
-  ]);
+  ];
+  if (!headers.length) {
+    reads.push(`SELECT headers_json FROM dataset_manifest WHERE sport=${sqlText(sport)} AND dataset=${sqlText(dataset)} LIMIT 1`);
+  }
+  const results = await pipeline(reads);
   const aggregate = queryRows(results[0])[0] || {};
   const currentMax = Number(aggregate.max_row || 0);
   const currentCount = Number(aggregate.row_count || 0);
-  const manifest = queryRows(results[1])[0];
+  const manifest = headers.length ? undefined : queryRows(results[1])[0];
   const targetHeaders = headers.length ? headers.map(String) : parseHeaders(manifest?.headers_json);
   const savedAt = new Date().toISOString();
   const indexed = rows.map((row, offset) => ({ index: currentMax + offset + 1, row }));
@@ -399,7 +402,7 @@ export async function appendTursoDataset(
     op: "append",
     sport,
     dataset,
-    rowsRead: 1 + (manifest ? 1 : 0),
+    rowsRead: headers.length ? 1 : 1 + (manifest ? 1 : 0),
     rowsWritten: rows.length + 1,
     rowsDeleted: 0,
     appendedRows: rows.length,

@@ -72,9 +72,6 @@ export async function upsertSportRows(
 ) {
   assertTursoConfigured();
 
-  // Read the current dataset once, including row indexes/manifest metadata, then
-  // pass that same state into the differential writer. The old path read the
-  // entire dataset here and then read it a second time inside replaceTursoDataset.
   const state = await readTursoDatasetState(sport, worksheetName, headers);
   const existing = normalizeRows(state.rows.map((item) => item.row), headers);
   const map = new Map<string, SheetRow>();
@@ -99,7 +96,8 @@ export async function appendSportRows(
 ) {
   assertTursoConfigured();
   if (!rows.length) return;
-  await ensureSportWorksheet(sport, worksheetName, headers);
+  // appendTursoDataset now creates/updates the manifest itself, so an existence
+  // check here would be a redundant database read on every append.
   await appendTursoDataset(sport, worksheetName, normalizeRows(rows, headers), headers);
 }
 
