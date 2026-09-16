@@ -3,6 +3,7 @@ import {
   appendTursoDataset,
   isTursoConfigured,
   readTursoDataset,
+  readTursoDatasetByDateKeys,
   replaceTursoDataset,
   type TursoRow,
 } from "./tursoStore";
@@ -39,13 +40,39 @@ function anyRows(rows: TursoRow[], headers: string[]): AnyRow[] {
   });
 }
 
+function easternDate(date = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const get = (type: string) => parts.find((part) => part.type === type)?.value || "";
+  return `${get("year")}-${get("month")}-${get("day")}`;
+}
+
+function previousIsoDate(value: string) {
+  const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return "";
+  const timestamp = Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]) - 1, 12);
+  return new Date(timestamp).toISOString().slice(0, 10);
+}
+
+function activeSnapshotDates() {
+  const today = easternDate();
+  return [today, previousIsoDate(today)].filter(Boolean);
+}
+
 export async function readV2Tab(name: "snapshots" | "daily") {
   assertTursoConfigured();
   const tab = name === "snapshots" ? SNAPSHOT_TAB : DAILY_PICK_TAB;
   const headers = name === "snapshots" ? V2_SNAPSHOT_HEADERS : V2_DAILY_PICK_HEADERS;
-  // A SELECT against a not-yet-created logical dataset safely returns no rows,
-  // so there is no reason to perform a separate manifest existence read here.
-  const rows = await readTursoDataset("MLB", tab, headers);
+  // Trend V2 decision logic only needs the current ET slate plus the previous
+  // ET date for games/results that can cross midnight. Keeping historical
+  // snapshots out of the five-minute path avoids rereading an ever-growing tape.
+  const rows = name === "snapshots"
+    ? await readTursoDatasetByDateKeys("MLB", tab, activeSnapshotDates(), headers)
+    : await readTursoDataset("MLB", tab, headers);
   return anyRows(rows, headers);
 }
 
