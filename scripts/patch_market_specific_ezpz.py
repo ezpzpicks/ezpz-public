@@ -111,7 +111,7 @@ core = replace_count(
     core,
     "AI_HOT_BEST_PLAY_FINAL_MARKER",
     "AI_BEST_PLAY_FINAL_MARKER",
-    2,
+    3,
     "remaining final marker references",
 )
 
@@ -162,21 +162,21 @@ page = replace_count(
     page,
     "isImmediateHotBestPlayFinal",
     "isImmediateBestPlayFinal",
-    4,
+    3,
     "page immediate-final variable",
 )
 page = replace_count(
     page,
     'item.startsWith("HOT Best Play is final for the full day")',
     'item.startsWith("EZPZ Best Play is final for the full day")',
-    2,
+    1,
     "page final marker prefix",
 )
 page = replace_count(
     page,
     "HOT Model Play saved as final for the full day",
     "EZPZ Best Play saved as final for the full day",
-    2,
+    1,
     "page final status label",
 )
 

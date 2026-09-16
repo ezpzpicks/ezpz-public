@@ -4989,15 +4989,15 @@ function AiPickSelectorCard({
   handpicked?: boolean;
 }) {
   const schedule = scheduleInfoFromRaw(pick.gameTime, pick.date);
-  const isImmediateHotBestPlayFinal = Boolean(
+  const isImmediateBestPlayFinal = Boolean(
     pick.bestPlayType &&
       pick.snapshotStatus === "FINAL_PREGAME" &&
       (pick.dataStatus || []).some((item) =>
-        item.startsWith("HOT Best Play is final for the full day"),
+        item.startsWith("EZPZ Best Play is final for the full day"),
       ),
   );
   const bestPlayGate = pick.bestPlayType
-    ? isImmediateHotBestPlayFinal
+    ? isImmediateBestPlayFinal
       ? {
           label: "Hot" as const,
           className: "hot" as const,
@@ -5022,8 +5022,8 @@ function AiPickSelectorCard({
   const dataStatus = [
     ...(pick.dataStatus || []),
     pick.snapshotStatus === "FINAL_PREGAME"
-      ? isImmediateHotBestPlayFinal
-        ? `HOT Model Play saved as final for the full day ${pick.lockedAt || pick.updatedAt}`
+      ? isImmediateBestPlayFinal
+        ? `EZPZ Best Play saved as final for the full day ${pick.lockedAt || pick.updatedAt}`
         : `Final pregame selection locked ${pick.lockedAt || pick.updatedAt}`
       : "Live selector preview; the final decision can change before the pregame lock",
     aiExternalReviewLabel(pick.externalReviewStatus),
