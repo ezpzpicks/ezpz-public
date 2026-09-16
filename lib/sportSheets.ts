@@ -1,7 +1,9 @@
 import {
   appendTursoDataset,
+  ensureTursoDataset,
   isTursoConfigured,
   readTursoDataset,
+  readTursoDatasetState,
   replaceTursoDataset,
   type TursoRow,
 } from "./tursoStore";
@@ -48,8 +50,7 @@ export async function ensureSportWorksheet(
   headers: string[],
 ) {
   assertTursoConfigured();
-  const existing = await readTursoDataset(sport, worksheetName, headers);
-  if (!existing.length) await replaceTursoDataset(sport, worksheetName, [], headers);
+  await ensureTursoDataset(sport, worksheetName, headers);
 }
 
 export async function writeSportWorksheet(
@@ -70,7 +71,12 @@ export async function upsertSportRows(
   keyFor: (row: SheetRow) => string,
 ) {
   assertTursoConfigured();
-  const existing = await readSportWorksheet(sport, worksheetName, headers);
+
+  // Read the current dataset once, including row indexes/manifest metadata, then
+  // pass that same state into the differential writer. The old path read the
+  // entire dataset here and then read it a second time inside replaceTursoDataset.
+  const state = await readTursoDatasetState(sport, worksheetName, headers);
+  const existing = normalizeRows(state.rows.map((item) => item.row), headers);
   const map = new Map<string, SheetRow>();
   for (const row of existing) {
     const key = keyFor(row);
@@ -82,7 +88,7 @@ export async function upsertSportRows(
     if (!key) continue;
     map.set(key, { ...(map.get(key) || {}), ...normalized });
   }
-  await replaceTursoDataset(sport, worksheetName, [...map.values()], headers);
+  await replaceTursoDataset(sport, worksheetName, [...map.values()], headers, state);
 }
 
 export async function appendSportRows(
@@ -94,7 +100,7 @@ export async function appendSportRows(
   assertTursoConfigured();
   if (!rows.length) return;
   await ensureSportWorksheet(sport, worksheetName, headers);
-  await appendTursoDataset(sport, worksheetName, normalizeRows(rows, headers));
+  await appendTursoDataset(sport, worksheetName, normalizeRows(rows, headers), headers);
 }
 
 export function sportDatabaseLabel(sport: FootballSport) {

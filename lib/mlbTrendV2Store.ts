@@ -1,6 +1,7 @@
 import { AnyRow } from "./mlbTrendV2";
 import {
   appendTursoDataset,
+  ensureTursoDataset,
   isTursoConfigured,
   readTursoDataset,
   replaceTursoDataset,
@@ -41,8 +42,10 @@ function anyRows(rows: TursoRow[], headers: string[]): AnyRow[] {
 
 async function ensureDataset(tab: string, headers: string[]) {
   assertTursoConfigured();
-  const existing = await readTursoDataset("MLB", tab, headers);
-  if (!existing.length) await replaceTursoDataset("MLB", tab, [], headers);
+  // Manifest-only existence check. The previous implementation loaded every
+  // row simply to find out whether the dataset existed, then callers loaded it
+  // again immediately afterward.
+  await ensureTursoDataset("MLB", tab, headers);
 }
 
 export async function readV2Tab(name: "snapshots" | "daily") {
@@ -58,7 +61,7 @@ export async function appendV2Rows(name: "snapshots" | "daily", rows: AnyRow[]) 
   const tab = name === "snapshots" ? SNAPSHOT_TAB : DAILY_PICK_TAB;
   const headers = name === "snapshots" ? V2_SNAPSHOT_HEADERS : V2_DAILY_PICK_HEADERS;
   await ensureDataset(tab, headers);
-  await appendTursoDataset("MLB", tab, tursoRows(rows));
+  await appendTursoDataset("MLB", tab, tursoRows(rows), headers);
 }
 
 export async function replaceV2DailyRows(rows: AnyRow[]) {
