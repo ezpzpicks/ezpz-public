@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { syncPostedFootballMarkets } from "../../../../lib/footballWeeklyMarket";
 import type { FootballSport } from "../../../../lib/sportSheets";
+import { withTursoReadCache } from "../../../../lib/tursoStore";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 export const maxDuration = 120;
 
-export async function GET(request: NextRequest) {
+async function runCron(request: NextRequest) {
   const secret = process.env.CRON_SECRET;
   if (!secret) return NextResponse.json({ ok: false, error: "CRON_SECRET is not configured." }, { status: 500 });
   if (request.headers.get("authorization") !== `Bearer ${secret}`) {
@@ -24,4 +25,8 @@ export async function GET(request: NextRequest) {
     console.error("Football market discovery failed", error);
     return NextResponse.json({ ok: false, sport: raw, error: error instanceof Error ? error.message : String(error) }, { status: 500 });
   }
+}
+
+export async function GET(request: NextRequest) {
+  return withTursoReadCache(() => runCron(request));
 }

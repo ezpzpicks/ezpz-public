@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { GET as runPublicDataV2 } from "../../public-data-v2/route";
 import { repairHistoricalEzpzGrades } from "../../../../lib/ezpzHistoricalGrading";
+import { withTursoReadCache } from "../../../../lib/tursoStore";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -10,6 +11,7 @@ export const maxDuration = 180;
 const MLB_TRACKING_START_MINUTE_ET = 10 * 60 + 30;
 const MLB_TRACKING_END_MINUTE_ET = 4 * 60 + 30;
 const RETRY_DELAYS_MS = [12_000];
+const HISTORICAL_GRADE_REPAIR_INTERVAL_MINUTES = 15;
 
 function easternClock(date = new Date()) {
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -47,7 +49,7 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export async function GET(request: NextRequest) {
+async function runCron(request: NextRequest) {
   const cronSecret = String(process.env.CRON_SECRET || "").trim();
   if (!cronSecret) {
     return NextResponse.json(
@@ -82,11 +84,6 @@ export async function GET(request: NextRequest) {
 
   for (let attempt = 1; attempt <= RETRY_DELAYS_MS.length + 1; attempt += 1) {
     try {
-      // Run the refresh handler directly inside this invocation instead of
-      // making an HTTP request back into the same Vercel deployment. The
-      // previous self-fetch could return an intermediary/protected response
-      // with HTTP 200 but no { ok: true }, causing the cron to report a false
-      // 502 even though the underlying refresh route itself was healthy.
       const scheduledRequest = new NextRequest(target, {
         method: "GET",
         headers: {
@@ -103,12 +100,16 @@ export async function GET(request: NextRequest) {
       if (response.ok && payload?.ok) {
         let historicalGradeRepair = null;
         let historicalGradeRepairError = "";
-        try {
-          historicalGradeRepair = await repairHistoricalEzpzGrades();
-        } catch (error) {
-          historicalGradeRepairError =
-            error instanceof Error ? error.message : String(error);
-          console.warn("Historical EZPZ grade repair failed", historicalGradeRepairError);
+        const historicalGradeRepairDue =
+          clock.minute % HISTORICAL_GRADE_REPAIR_INTERVAL_MINUTES === 0;
+        if (historicalGradeRepairDue) {
+          try {
+            historicalGradeRepair = await repairHistoricalEzpzGrades();
+          } catch (error) {
+            historicalGradeRepairError =
+              error instanceof Error ? error.message : String(error);
+            console.warn("Historical EZPZ grade repair failed", historicalGradeRepairError);
+          }
         }
 
         return NextResponse.json(
@@ -131,6 +132,8 @@ export async function GET(request: NextRequest) {
             ),
             mlbResultSync: payload?.mlbResultSync || null,
             historicalGradeRepair,
+            historicalGradeRepairDue,
+            historicalGradeRepairIntervalMinutes: HISTORICAL_GRADE_REPAIR_INTERVAL_MINUTES,
             historicalGradeRepairError,
           },
           { headers: { "Cache-Control": "no-store, max-age=0" } },
@@ -163,4 +166,11 @@ export async function GET(request: NextRequest) {
     },
     { status: 502, headers: { "Cache-Control": "no-store, max-age=0" } },
   );
+}
+
+export async function GET(request: NextRequest) {
+  // All reads in one cron invocation share a request-local cache. Writes evict
+  // only the dataset they changed, so later reads remain correct without
+  // repeatedly re-reading unchanged 800-3,000-row datasets from Turso.
+  return withTursoReadCache(() => runCron(request));
 }

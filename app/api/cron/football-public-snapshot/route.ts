@@ -3,6 +3,7 @@ import { buildFootballPublicData } from "../../../../lib/footballPublicData";
 import { settlePendingFootballResults } from "../../../../lib/footballResultSettlement";
 import { evaluateFootballTrendV2 } from "../../../../lib/footballTrendV2Lifecycle";
 import type { FootballSport } from "../../../../lib/sportSheets";
+import { withTursoReadCache } from "../../../../lib/tursoStore";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,7 +17,7 @@ function requestedSport(request: NextRequest): FootballSport | null {
   return sport === "NFL" || sport === "NCAAF" ? sport : null;
 }
 
-export async function GET(request: NextRequest) {
+async function runCron(request: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) {
     return NextResponse.json(
@@ -55,8 +56,6 @@ export async function GET(request: NextRequest) {
     });
     let trendV2Lifecycle: unknown = null;
     try {
-      // evaluateFootballTrendV2 internally throttles itself to one full
-      // evaluation per ET date, so frequent market snapshots stay cheap.
       trendV2Lifecycle = await evaluateFootballTrendV2(sport);
     } catch (error) {
       console.warn(`${sport} Trend V2 lifecycle evaluation failed`, error);
@@ -82,4 +81,8 @@ export async function GET(request: NextRequest) {
       { status: 500 },
     );
   }
+}
+
+export async function GET(request: NextRequest) {
+  return withTursoReadCache(() => runCron(request));
 }
