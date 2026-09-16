@@ -241,7 +241,8 @@ function propRecordType(row: SheetRow) {
   const grade = nflRowGrade(row);
   const market = propBaseRecordType(row);
   const side = propSide(row);
-  return [grade, market, side].filter(Boolean).join(" ").trim();
+  const distinctSide = textKey(side) && textKey(side) !== textKey(market) ? side : "";
+  return [grade, market, distinctSide].filter(Boolean).join(" ").trim();
 }
 function propMarketLine(row: SheetRow) {
   const direct = row["Market Line"] ?? row.Line ?? row["Listed Line"] ?? row["Prop Line"];
@@ -698,7 +699,12 @@ export async function buildFootballPublicData(
         const diff = Math.round((reference - stamp) / 86_400_000);
         if (!rowDate || !Number.isFinite(diff) || diff < 0 || diff >= days) continue;
       }
-      const parsedOdds = parseAmericanOdds(row["Pick Odds"] || row.Odds || row["Odds/Line"] || -110);
+      const side = textKey(propSide(row));
+      const sideOdds = side.startsWith("under") ? row["Under Odds"] : row["Over Odds"];
+      const parsedOdds = parseAmericanOdds(row["Pick Odds"])
+        ?? parseAmericanOdds(row.Odds)
+        ?? parseAmericanOdds(row["Odds/Line"])
+        ?? parseAmericanOdds(sideOdds);
       const odds = parsedOdds == null || parsedOdds === 0 ? -110 : parsedOdds;
       if (result === "W") {
         wins += 1;

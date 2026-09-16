@@ -247,11 +247,16 @@ function resultCode(value: unknown) {
   return "";
 }
 function rowAmericanOdds(row: SheetRow) {
-  const raw = String(row["Pick Odds"] || row.Odds || row["Odds/Line"] || "").replace(/−/g, "-");
-  const signed = raw.match(/[+-]\d{3,4}/)?.[0];
-  if (signed) return Number(signed);
-  const exact = raw.match(/^\d{3,4}$/)?.[0];
-  return exact ? Number(exact) : -110;
+  const side = ezpzTextKey(row.Pick || row.Side || row.Selection || "");
+  const sideOdds = side.startsWith("under") ? row["Under Odds"] : row["Over Odds"];
+  for (const value of [row["Pick Odds"], row.Odds, row["Odds/Line"], sideOdds]) {
+    const raw = String(value || "").replace(/−/g, "-");
+    const signed = raw.match(/[+-]\d{3,4}/)?.[0];
+    if (signed) return Number(signed);
+    const exact = raw.match(/^\d{3,4}$/)?.[0];
+    if (exact) return Number(exact);
+  }
+  return -110;
 }
 function recordTotalsFromRows(rows: SheetRow[]): RecordTotals {
   let wins = 0;
