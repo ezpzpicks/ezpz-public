@@ -215,6 +215,14 @@ function indexedRowsFromResult(result: PipelineResult | undefined) {
   return rows;
 }
 
+function projectColumns(row: TursoRow, columns?: string[]) {
+  const projected = { ...row };
+  for (const column of columns || []) {
+    if (projected[column] === undefined) projected[column] = "";
+  }
+  return projected;
+}
+
 export async function readTursoDataset(
   sport: TursoSport,
   dataset: string,
@@ -230,13 +238,7 @@ export async function readTursoDataset(
     rowsRead = indexed.length;
     setScopedRows(sport, dataset, indexed);
   }
-  const records = indexed.map((item) => {
-    const parsed = { ...item.row };
-    for (const column of columns || []) {
-      if (parsed[column] === undefined) parsed[column] = "";
-    }
-    return parsed;
-  });
+  const records = indexed.map((item) => projectColumns(item.row, columns));
   logTursoIo({
     op: "read",
     sport,
@@ -244,6 +246,45 @@ export async function readTursoDataset(
     rowsRead,
     rowsReturned: records.length,
     cacheHit: rowsRead === 0,
+    rowsWritten: 0,
+    rowsDeleted: 0,
+  });
+  return records;
+}
+
+export async function readTursoDatasetByDateKeys(
+  sport: TursoSport,
+  dataset: string,
+  dateKeys: string[],
+  columns?: string[],
+): Promise<TursoRow[]> {
+  const normalizedDateKeys = [...new Set(dateKeys.map((value) => String(value || "").trim()).filter(Boolean))];
+  if (!normalizedDateKeys.length) return [];
+
+  const scoped = getScopedRows(sport, dataset);
+  let indexed: TursoIndexedRow[];
+  let rowsRead = 0;
+  if (scoped) {
+    const allowed = new Set(normalizedDateKeys);
+    indexed = scoped.filter((item) => allowed.has(firstRowValue(item.row, ["Date", "date", "Record Date"])));
+  } else {
+    const dateSql = normalizedDateKeys.map((value) => sqlText(value)).join(",");
+    const results = await pipeline([
+      `SELECT row_index,payload_json FROM dataset_rows WHERE sport=${sqlText(sport)} AND dataset=${sqlText(dataset)} AND date_key IN (${dateSql}) ORDER BY row_index ASC`,
+    ]);
+    indexed = indexedRowsFromResult(results[0]);
+    rowsRead = indexed.length;
+  }
+
+  const records = indexed.map((item) => projectColumns(item.row, columns));
+  logTursoIo({
+    op: "date-read",
+    sport,
+    dataset,
+    dateKeys: normalizedDateKeys,
+    rowsRead,
+    rowsReturned: records.length,
+    cacheHit: Boolean(scoped),
     rowsWritten: 0,
     rowsDeleted: 0,
   });
@@ -275,13 +316,7 @@ export async function readTursoDatasetState(
     manifestResult = results[1];
   }
 
-  const rows = indexed.map((item) => {
-    const row = { ...item.row };
-    for (const column of columns || []) {
-      if (row[column] === undefined) row[column] = "";
-    }
-    return { index: item.index, row };
-  });
+  const rows = indexed.map((item) => ({ index: item.index, row: projectColumns(item.row, columns) }));
   const manifestRows = queryRows(manifestResult);
   const manifest = manifestRows[0];
   const state = {
@@ -415,7 +450,11 @@ export async function replaceTursoDataset(
     "COMMIT",
   );
   await pipeline(statements);
-  invalidateScopedRows(sport, dataset);
+  setScopedRows(
+    sport,
+    dataset,
+    rows.map((row, offset) => ({ index: offset + 1, row: comparableRow(row) })),
+  );
   logTursoIo({
     op: "sync",
     sport,
@@ -437,18 +476,36 @@ export async function appendTursoDataset(
   headers: string[] = [],
 ) {
   if (!rows.length) return;
-  const reads = [
-    `SELECT COALESCE(MAX(row_index),0) AS max_row, COUNT(*) AS row_count FROM dataset_rows WHERE sport=${sqlText(sport)} AND dataset=${sqlText(dataset)}`,
-  ];
-  if (!headers.length) reads.push(`SELECT headers_json FROM dataset_manifest WHERE sport=${sqlText(sport)} AND dataset=${sqlText(dataset)} LIMIT 1`);
-  const results = await pipeline(reads);
-  const aggregateRows = queryRows(results[0]);
-  const aggregate = aggregateRows[0] || {};
-  const currentMax = Number(aggregate.max_row || 0);
-  const currentCount = Number(aggregate.row_count || 0);
-  const manifestRows = headers.length ? [] : queryRows(results[1]);
-  const manifest = manifestRows[0];
-  const targetHeaders = headers.length ? headers.map(String) : parseHeaders(manifest?.headers_json);
+
+  const scoped = getScopedRows(sport, dataset);
+  let currentMax = 0;
+  let currentCount = 0;
+  let rowsRead = 0;
+
+  if (scoped) {
+    currentCount = scoped.length;
+    for (const item of scoped) currentMax = Math.max(currentMax, item.index);
+  } else {
+    const results = await pipeline([
+      `SELECT COALESCE(MAX(row_index),0) AS max_row, COUNT(*) AS row_count FROM dataset_rows WHERE sport=${sqlText(sport)} AND dataset=${sqlText(dataset)}`,
+    ]);
+    const aggregateRows = queryRows(results[0]);
+    const aggregate = aggregateRows[0] || {};
+    currentMax = Number(aggregate.max_row || 0);
+    currentCount = Number(aggregate.row_count || 0);
+    rowsRead += aggregateRows.length;
+  }
+
+  let targetHeaders = headers.map(String);
+  if (!headers.length) {
+    const results = await pipeline([
+      `SELECT headers_json FROM dataset_manifest WHERE sport=${sqlText(sport)} AND dataset=${sqlText(dataset)} LIMIT 1`,
+    ]);
+    const manifestRows = queryRows(results[0]);
+    targetHeaders = parseHeaders(manifestRows[0]?.headers_json);
+    rowsRead += manifestRows.length;
+  }
+
   const savedAt = new Date().toISOString();
   const indexed = rows.map((row, offset) => ({ index: currentMax + offset + 1, row }));
   const statements = [
@@ -458,15 +515,25 @@ export async function appendTursoDataset(
     "COMMIT",
   ];
   await pipeline(statements);
-  invalidateScopedRows(sport, dataset);
+
+  if (scoped) {
+    setScopedRows(sport, dataset, [
+      ...scoped,
+      ...indexed.map((item) => ({ index: item.index, row: comparableRow(item.row) })),
+    ]);
+  } else {
+    invalidateScopedRows(sport, dataset);
+  }
+
   logTursoIo({
     op: "append",
     sport,
     dataset,
-    rowsRead: aggregateRows.length + manifestRows.length,
+    rowsRead,
     rowsWritten: rows.length + 1,
     rowsDeleted: 0,
     appendedRows: rows.length,
+    cacheExtended: Boolean(scoped),
   });
 }
 
