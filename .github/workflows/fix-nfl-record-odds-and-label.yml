@@ -1,0 +1,99 @@
+name: Fix NFL record odds and touchdown label
+
+on:
+  push:
+    paths:
+      - .github/workflows/fix-nfl-record-odds-and-label.yml
+
+permissions:
+  contents: write
+
+jobs:
+  update-canonical-source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Update canonical NFL record source
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          public_data_path = Path("lib/footballPublicData.ts")
+          public_data = public_data_path.read_text()
+
+          old_record_type = '''function propRecordType(row: SheetRow) {
+            const grade = nflRowGrade(row);
+            const market = propBaseRecordType(row);
+            const side = propSide(row);
+            return [grade, market, side].filter(Boolean).join(" ").trim();
+          }'''
+          new_record_type = '''function propRecordType(row: SheetRow) {
+            const grade = nflRowGrade(row);
+            const market = propBaseRecordType(row);
+            const side = propSide(row);
+            const distinctSide = textKey(side) && textKey(side) !== textKey(market) ? side : "";
+            return [grade, market, distinctSide].filter(Boolean).join(" ").trim();
+          }'''
+          if old_record_type not in public_data:
+              raise SystemExit("propRecordType source did not match expected canonical code")
+          public_data = public_data.replace(old_record_type, new_record_type, 1)
+
+          old_odds = '''      const parsedOdds = parseAmericanOdds(row["Pick Odds"] || row.Odds || row["Odds/Line"] || -110);
+                const odds = parsedOdds == null || parsedOdds === 0 ? -110 : parsedOdds;'''
+          new_odds = '''      const side = textKey(propSide(row));
+                const sideOdds = side.startsWith("under") ? row["Under Odds"] : row["Over Odds"];
+                const parsedOdds = parseAmericanOdds(row["Pick Odds"])
+                  ?? parseAmericanOdds(row.Odds)
+                  ?? parseAmericanOdds(row["Odds/Line"])
+                  ?? parseAmericanOdds(sideOdds);
+                const odds = parsedOdds == null || parsedOdds === 0 ? -110 : parsedOdds;'''
+          if old_odds not in public_data:
+              raise SystemExit("NFL record odds source did not match expected canonical code")
+          public_data = public_data.replace(old_odds, new_odds, 1)
+          public_data_path.write_text(public_data)
+
+          board_path = Path("app/FootballBoard.tsx")
+          board = board_path.read_text()
+          old_board_odds = '''function rowAmericanOdds(row: SheetRow) {
+            const raw = String(row["Pick Odds"] || row.Odds || row["Odds/Line"] || "").replace(/−/g, "-");
+            const signed = raw.match(/[+-]\\d{3,4}/)?.[0];
+            if (signed) return Number(signed);
+            const exact = raw.match(/^\\d{3,4}$/)?.[0];
+            return exact ? Number(exact) : -110;
+          }'''
+          new_board_odds = '''function rowAmericanOdds(row: SheetRow) {
+            const side = ezpzTextKey(row.Pick || row.Side || row.Selection || "");
+            const sideOdds = side.startsWith("under") ? row["Under Odds"] : row["Over Odds"];
+            for (const value of [row["Pick Odds"], row.Odds, row["Odds/Line"], sideOdds]) {
+              const raw = String(value || "").replace(/−/g, "-");
+              const signed = raw.match(/[+-]\\d{3,4}/)?.[0];
+              if (signed) return Number(signed);
+              const exact = raw.match(/^\\d{3,4}$/)?.[0];
+              if (exact) return Number(exact);
+            }
+            return -110;
+          }'''
+          if old_board_odds not in board:
+              raise SystemExit("FootballBoard record odds source did not match expected canonical code")
+          board = board.replace(old_board_odds, new_board_odds, 1)
+          board_path.write_text(board)
+          PY
+
+      - name: Validate build
+        run: |
+          npm ci
+          npm run build
+
+      - name: Commit canonical source changes
+        shell: bash
+        run: |
+          rm -f .github/workflows/fix-nfl-record-odds-and-label.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Fix NFL record odds and anytime TD label"
+          git push origin main
