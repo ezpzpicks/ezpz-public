@@ -215,6 +215,43 @@ function displayFootballTime(value?: string) {
   }).format(new Date(stamp));
 }
 
+const FOOTBALL_SLATE_TIME_KEYS = [
+  "Game Time ET",
+  "Game Time",
+  "Game Start Time",
+  "Scheduled Start",
+  "Start Time",
+  "Scheduled Time",
+  "First Pitch",
+  "Time",
+];
+
+function footballRowGameTime(row: SheetRow | undefined) {
+  if (!row) return "";
+  return FOOTBALL_SLATE_TIME_KEYS
+    .map((column) => String(row[column] || "").trim())
+    .find(Boolean) || "";
+}
+
+function footballSlateTimeSortValue(row: SheetRow | undefined) {
+  const raw = footballRowGameTime(row);
+  const simple = gameTimeSortValue(raw);
+  if (Number.isFinite(simple)) return simple;
+  const stamp = Date.parse(raw);
+  if (!Number.isFinite(stamp)) return Number.POSITIVE_INFINITY;
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date(stamp));
+  const hour = Number(parts.find((part) => part.type === "hour")?.value || "");
+  const minute = Number(parts.find((part) => part.type === "minute")?.value || "");
+  return Number.isFinite(hour) && Number.isFinite(minute)
+    ? hour * 60 + minute
+    : Number.POSITIVE_INFINITY;
+}
+
 function selectedSplit(play: Play, splits: DraftKingsSplit[]) {
   const role = textKey(play.role || play.playType);
   const sameGame = (split: DraftKingsSplit) => textKey(split.game) === textKey(play.game) ||
@@ -1273,8 +1310,15 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
     }
     for (const row of data.slateToday || []) addSlateRow(row);
 
-    return rows;
-  }, [weeklyData?.games, data.slateToday, data.today]);
+    return rows.sort((a, b) => {
+    const aTime = footballSlateTimeSortValue(a);
+    const bTime = footballSlateTimeSortValue(b);
+    if (aTime !== bTime) return aTime - bTime;
+    const aGame = a.Game || a["Game Label"] || `${a["Away Team"] || ""} @ ${a["Home Team"] || ""}`;
+    const bGame = b.Game || b["Game Label"] || `${b["Away Team"] || ""} @ ${b["Home Team"] || ""}`;
+    return aGame.localeCompare(bGame);
+  });
+}, [weeklyData?.games, data.slateToday, data.today]);
 
   const summaryMap = new Map<string, Summary>((data.recordSummary || []).map((row) => [row.betType, row]));
   const last7Map = new Map<string, Summary>((data.last7RecordSummary || []).map((row) => [row.betType, row]));
@@ -1310,7 +1354,7 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
       <div className="slateDropdownStack footballSlateStack">
         {slateRows.map((row, index) => {
           const game = row.Game || row["Game Label"] || `${row["Away Team"]} @ ${row["Home Team"]}`;
-          const gameTime = String(row["Game Time"] || row.Time || row["Start Time"] || "").trim();
+          const gameTime = footballRowGameTime(row);
           return (
             <details
               className="slateDropdown footballSlateDropdown"

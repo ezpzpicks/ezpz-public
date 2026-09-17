@@ -1669,6 +1669,101 @@ function sameDraftKingsGame(
   return !rowTime || !marketTime || rowTime === marketTime;
 }
 
+const PUBLIC_SLATE_TIME_KEYS = [
+  "Game Time ET",
+  "Game Time",
+  "Game Start Time",
+  "Scheduled Start",
+  "Start Time",
+  "Scheduled Time",
+  "First Pitch",
+  "Time",
+];
+
+function publicSlateRawTime(
+  row: SheetRow | undefined,
+  draftKings?: DraftKingsData | null,
+) {
+  if (!row) return "";
+  const direct = PUBLIC_SLATE_TIME_KEYS
+    .map((column) => String(row[column] || "").trim())
+    .find(Boolean);
+  if (direct) return direct;
+
+  const away = publicMatchKey(row["Away Team"]);
+  const home = publicMatchKey(row["Home Team"]);
+  if (!away || !home) return "";
+
+  const marketRow = [
+    ...(draftKings?.splits || []),
+    ...(draftKings?.props || []),
+  ].find(
+    (candidate) =>
+      publicMatchKey(candidate.awayTeam) === away &&
+      publicMatchKey(candidate.homeTeam) === home &&
+      candidate.eventTime,
+  );
+  return String(marketRow?.eventTime || "").trim();
+}
+
+function publicSlateTimeSortValue(
+  row: SheetRow | undefined,
+  draftKings?: DraftKingsData | null,
+) {
+  const raw = publicSlateRawTime(row, draftKings);
+  if (!raw) return Number.POSITIVE_INFINITY;
+  const meridiem = raw.match(/(\d{1,2})(?::(\d{2}))?\s*(AM|PM)\b/i);
+  if (meridiem) {
+    let hour = Number(meridiem[1]) % 12;
+    if (meridiem[3].toUpperCase() === "PM") hour += 12;
+    return hour * 60 + Number(meridiem[2] || 0);
+  }
+  const twentyFour = raw.match(/^(\d{1,2}):(\d{2})(?:\s*ET)?$/i);
+  if (twentyFour) return Number(twentyFour[1]) * 60 + Number(twentyFour[2]);
+  const stamp = Date.parse(raw);
+  if (Number.isFinite(stamp)) {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).formatToParts(new Date(stamp));
+    const hour = Number(parts.find((part) => part.type === "hour")?.value || "");
+    const minute = Number(parts.find((part) => part.type === "minute")?.value || "");
+    if (Number.isFinite(hour) && Number.isFinite(minute)) return hour * 60 + minute;
+  }
+  return Number.POSITIVE_INFINITY;
+}
+
+function displayPublicSlateTime(
+  row: SheetRow | undefined,
+  draftKings?: DraftKingsData | null,
+) {
+  const raw = publicSlateRawTime(row, draftKings);
+  if (!raw) return "";
+  const meridiem = raw.match(/(\d{1,2})(?::(\d{2}))?\s*(AM|PM)\b/i);
+  if (meridiem) {
+    return `${Number(meridiem[1])}:${String(meridiem[2] || "00").padStart(2, "0")} ${meridiem[3].toUpperCase()}`;
+  }
+  const twentyFour = raw.match(/^(\d{1,2}):(\d{2})(?:\s*ET)?$/i);
+  if (twentyFour) {
+    const hour24 = Number(twentyFour[1]);
+    const suffix = hour24 >= 12 ? "PM" : "AM";
+    const hour12 = hour24 % 12 || 12;
+    return `${hour12}:${twentyFour[2]} ${suffix}`;
+  }
+  const stamp = Date.parse(raw);
+  if (Number.isFinite(stamp)) {
+    return new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    }).format(new Date(stamp));
+  }
+  return raw.replace(/\s+ET$/i, "");
+}
+
 function liveSplitsForRow(
   row: SheetRow | undefined,
   market: "Moneyline" | "Spread" | "Total",
@@ -7117,7 +7212,16 @@ export default function Home() {
 
           {data.slateToday.length ? (
             <div className="slateDropdownStack">
-              {data.slateToday.map((row, index) => {
+              {[...data.slateToday]
+      .sort((a, b) => {
+        const aTime = publicSlateTimeSortValue(a, draftKings);
+        const bTime = publicSlateTimeSortValue(b, draftKings);
+        if (aTime !== bTime) return aTime - bTime;
+        const aGame = a["Game Label"] || `${a["Away Team"]} at ${a["Home Team"]}`;
+        const bGame = b["Game Label"] || `${b["Away Team"]} at ${b["Home Team"]}`;
+        return aGame.localeCompare(bGame);
+      })
+      .map((row, index) => {
                 const game =
                   row["Game Label"] || `${row["Away Team"]} at ${row["Home Team"]}`;
 
@@ -7130,6 +7234,7 @@ export default function Home() {
                     <summary className="slateDropdownSummary">
                       <div>
                         <div className="slateDropdownTitle">{game}</div>
+                        {displayPublicSlateTime(row, draftKings) ? <div className="slateDropdownSub">{displayPublicSlateTime(row, draftKings)}</div> : null}
                       </div>
                       <span className="slateDropdownAction">View matchup</span>
                     </summary>
