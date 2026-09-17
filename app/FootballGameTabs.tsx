@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { MatchupWithLogos, SelectionWithTeamLogo, TeamLogoName } from "./TeamLogoName";
+import FootballModelFormBadges from "./FootballModelFormBadges";
 
 type Sport = "NFL" | "NCAAF";
 type Tab = "Today’s Model Plays" | "Full Slate";
@@ -52,6 +53,7 @@ type FootballData = {
   lastUpdated?: string;
   bestPlays?: Play[];
   slateToday?: SheetRow[];
+  betTrackerRows?: SheetRow[];
   draftKings?: { status?: string; splits?: Split[] };
 };
 
@@ -356,7 +358,7 @@ function FullSlateCard({ row, sport }: { row: SheetRow; sport: Sport }) {
   );
 }
 
-function ModelPlayRow({ play, sport }: { play: Play; sport: Sport }) {
+function ModelPlayRow({ play, sport, data }: { play: Play; sport: Sport; data: FootballData }) {
   const isProp = textKey(play.role).includes("player prop");
   const form = play.formStatus ? badge(play.formStatus) : null;
   const sideLine = [play.propSide, play.propLine].filter((value) => String(value ?? "").trim()).join(" ");
@@ -398,7 +400,16 @@ function ModelPlayRow({ play, sport }: { play: Play; sport: Sport }) {
         <span>MODEL <b>{probability(play.score)}</b></span>
         <span>ODDS <b>{odds(play)}</b></span>
       </div>
-      {form ? (
+      {sport === "NCAAF" && !isProp ? (
+        <FootballModelFormBadges
+          rows={data.betTrackerRows || []}
+          today={data.today}
+          grade={play.playType}
+          market={play.role || play.playType}
+          selection={play.play}
+          className="fgtModelFormBadges"
+        />
+      ) : form ? (
         <div className="fgtFormLine">
           <span className={`fgtBadge ${form.cls}`}>{form.icon} {form.label}</span>
           {formRecord ? <span className="fgtFormRecord">L7 <b>{formRecord}</b></span> : null}
@@ -464,7 +475,7 @@ export default function FootballGameTabs({ sport, tab, data }: { sport: Sport; t
       ) : (
         groups.length ? <div className="fgtStack">{groups.map((group, groupIndex) => <details className="fgtGame fgtModelGame" key={`${teamKey(playTeams(group.plays[0]).away, sport)}-${teamKey(playTeams(group.plays[0]).home, sport)}-${groupIndex}`}>
           <GameSummary sport={sport} game={group.game} time={group.time} count={group.plays.length} noun={group.plays.length === 1 ? "play" : "plays"} />
-          <div className="fgtModelBody">{group.plays.map((play, index) => <ModelPlayRow key={`${play.play}-${play.playerName}-${play.propMarket}-${index}`} play={play} sport={sport} />)}</div>
+          <div className="fgtModelBody">{group.plays.map((play, index) => <ModelPlayRow key={`${play.play}-${play.playerName}-${play.propMarket}-${index}`} play={play} sport={sport} data={data} />)}</div>
         </details>)}</div> : <div className="fgtEmpty">No graded {sport} Model Plays are saved for {data.today || "today"}.</div>
       )}
 
@@ -473,7 +484,7 @@ export default function FootballGameTabs({ sport, tab, data }: { sport: Sport; t
         .fgtStack{display:grid;gap:12px}.fgtGame{overflow:hidden;border:1px solid rgba(68,151,248,.2);border-radius:22px;background:linear-gradient(145deg,rgba(8,17,31,.94),rgba(4,10,20,.92));box-shadow:0 18px 48px rgba(0,0,0,.28)}.fgtSummary{cursor:pointer;list-style:none;display:grid;grid-template-columns:20px minmax(0,1fr) auto;align-items:center;gap:10px;padding:16px 18px;user-select:none}.fgtSummary::-webkit-details-marker{display:none}.fgtChevron{color:#78b9ff;font-size:25px;font-weight:800;line-height:1;transition:transform .18s ease}.fgtGame[open] .fgtChevron{transform:rotate(90deg)}.fgtGame[open] .fgtSummary{border-bottom:1px solid rgba(78,153,241,.13);background:linear-gradient(90deg,rgba(31,110,216,.1),transparent)}.fgtSummaryMain{display:grid;gap:4px;min-width:0}.fgtSummaryMain strong{color:#f7fbff;font-size:16px;line-height:1.25;font-weight:920}.fgtSummaryMain small{color:rgba(151,175,205,.76);font-size:11px;font-weight:700}.fgtCount{border:1px solid rgba(76,163,255,.24);border-radius:999px;padding:7px 10px;background:rgba(32,105,210,.13);color:#d9edff;font-size:10px;font-weight:900;letter-spacing:.04em;text-transform:uppercase;white-space:nowrap}
         .fgtSlateBody{display:grid;gap:10px;padding:10px}.fgtScoreboard{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.fgtTeamScore{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px;border:1px solid rgba(98,139,191,.15);border-radius:16px;padding:13px;background:rgba(7,16,30,.66)}.fgtTeamScore>div{min-width:0}.fgtTeamScore span{display:block;color:var(--ez-muted);font-size:9px;font-weight:900;letter-spacing:.07em}.fgtTeamScore strong{display:block;margin-top:4px;color:#f2f7ff;font-size:15px;overflow-wrap:anywhere}.fgtTeamScore>b{color:#8bc5ff;font-size:32px;line-height:1;letter-spacing:-.04em}.fgtMetrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.fgtMetrics>div{border:1px solid rgba(98,139,191,.14);border-radius:14px;padding:11px 12px;background:rgba(8,17,31,.62)}.fgtMetrics span{display:block;color:var(--ez-muted);font-size:9px}.fgtMetrics strong{display:block;margin-top:4px}.fgtMarkets{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.fgtMarketCard{min-width:0;border:1px solid rgba(93,137,192,.16);border-radius:16px;padding:12px 13px;background:linear-gradient(145deg,rgba(10,22,40,.72),rgba(6,14,26,.82))}.fgtMarketCard>div{display:flex;align-items:center;justify-content:space-between;gap:8px}.fgtMarketCard>div span{color:#78b9ff;font-size:10px;font-weight:950;letter-spacing:.07em}.fgtMarketCard>div b{border:1px solid rgba(93,137,192,.18);border-radius:999px;padding:4px 7px;color:#cfe6ff;font-size:9px}.fgtMarketCard>strong{display:block;margin-top:9px;color:#f4f8ff;font-size:17px;line-height:1.2;overflow-wrap:anywhere}.fgtMarketCard>small{display:block;margin-top:5px;color:var(--ez-muted);font-size:10px}
         .fgtProps,.fgtDk{border:1px solid rgba(75,132,201,.15);border-radius:16px;padding:12px;background:rgba(5,13,25,.62)}.fgtSectionTitle{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}.fgtSectionTitle span{color:#8fc7ff;font-size:9px;font-weight:950;letter-spacing:.08em}.fgtSectionTitle b{display:grid;place-items:center;min-width:24px;height:24px;border-radius:999px;background:rgba(47,140,255,.12);color:#cfe6ff;font-size:10px}.fgtPropStack{display:grid;gap:7px}.fgtPropRow{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:10px;border:1px solid rgba(98,139,191,.12);border-radius:13px;padding:9px 10px;background:rgba(8,18,34,.62)}.fgtPropIdentity{display:grid;gap:2px;min-width:0}.fgtPropIdentity strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#f3f8ff;font-size:13px}.fgtPropIdentity small{color:var(--ez-muted);font-size:9px}.fgtPropNumbers{display:flex;gap:8px}.fgtPropNumbers span,.fgtPlayMetrics span{display:grid;gap:1px;color:var(--ez-muted);font-size:8px;font-weight:850;letter-spacing:.04em}.fgtPropNumbers b,.fgtPlayMetrics b{color:#eef6ff;font-size:11px}.fgtBadge{display:inline-flex;align-items:center;width:max-content;border:1px solid rgba(112,145,186,.2);border-radius:999px;padding:5px 7px;font-size:8px;font-weight:950;letter-spacing:.025em;white-space:nowrap}.fgtBadge.hot{color:#adf4c7;border-color:rgba(43,216,117,.34);background:rgba(28,130,78,.15)}.fgtBadge.cold{color:#b7d7ff;border-color:rgba(94,167,255,.3);background:rgba(50,108,180,.14)}.fgtBadge.neutral{color:#d4deeb;background:rgba(100,120,146,.12)}.fgtBadge.sample{color:#f7d98d;border-color:rgba(247,200,92,.26);background:rgba(155,115,30,.13)}.fgtDk{display:grid;gap:6px}.fgtDk .fgtSectionTitle{margin-bottom:2px}.fgtDkRow{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:8px;align-items:center;color:var(--ez-muted);font-size:10px}.fgtDkRow strong{color:#dcecff}.fgtDkRow span{color:#eef5ff}.fgtDkRow small{white-space:nowrap}
-        .fgtModelBody{display:grid;gap:8px;padding:10px}.fgtPlayRow{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:12px;border:1px solid rgba(88,137,196,.17);border-radius:16px;padding:12px 13px;background:linear-gradient(145deg,rgba(9,19,35,.78),rgba(5,12,23,.85))}.fgtPlayRow.hot{border-color:rgba(43,216,117,.38);box-shadow:0 0 18px rgba(43,216,117,.07)}.fgtPlayMain{display:grid;gap:3px;min-width:0}.fgtEyebrow{color:#78b9ff;font-size:8px;font-weight:950;letter-spacing:.06em;text-transform:uppercase}.fgtPlayMain>strong{color:#f4f8ff;font-size:15px;overflow-wrap:anywhere}.fgtPlayMain>small{color:var(--ez-muted);font-size:9px}.fgtPlayerNameRow{display:flex;align-items:center;gap:8px;min-width:0}.fgtPlayerNameRow strong{color:#f4f8ff;font-size:15px;overflow-wrap:anywhere}.fgtHeadshot{width:36px;height:36px;border-radius:50%;object-fit:cover;object-position:center top;border:1px solid rgba(98,164,239,.28);background:rgba(28,57,91,.2);flex:0 0 auto}.fgtPropSelection{color:#f1f7ff;font-size:14px;font-weight:900;line-height:1.25}.fgtFormLine{display:flex;align-items:center;gap:7px;flex-wrap:wrap}.fgtFormRecord{display:inline-flex;align-items:center;gap:4px;border:1px solid rgba(112,145,186,.18);border-radius:999px;padding:5px 7px;color:var(--ez-muted);font-size:8px;font-weight:900;white-space:nowrap}.fgtFormRecord b{color:#eef6ff;font-size:9px}.fgtPlayMetrics{display:flex;gap:10px}.fgtEmpty{border:1px solid var(--ez-border);border-radius:22px;padding:30px;text-align:center;color:var(--ez-muted);background:linear-gradient(145deg,var(--ez-panel),var(--ez-panel-2))}
+        .fgtModelBody{display:grid;gap:8px;padding:10px}.fgtPlayRow{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:12px;border:1px solid rgba(88,137,196,.17);border-radius:16px;padding:12px 13px;background:linear-gradient(145deg,rgba(9,19,35,.78),rgba(5,12,23,.85))}.fgtPlayRow.hot{border-color:rgba(43,216,117,.38);box-shadow:0 0 18px rgba(43,216,117,.07)}.fgtPlayMain{display:grid;gap:3px;min-width:0}.fgtEyebrow{color:#78b9ff;font-size:8px;font-weight:950;letter-spacing:.06em;text-transform:uppercase}.fgtPlayMain>strong{color:#f4f8ff;font-size:15px;overflow-wrap:anywhere}.fgtPlayMain>small{color:var(--ez-muted);font-size:9px}.fgtPlayerNameRow{display:flex;align-items:center;gap:8px;min-width:0}.fgtPlayerNameRow strong{color:#f4f8ff;font-size:15px;overflow-wrap:anywhere}.fgtHeadshot{width:36px;height:36px;border-radius:50%;object-fit:cover;object-position:center top;border:1px solid rgba(98,164,239,.28);background:rgba(28,57,91,.2);flex:0 0 auto}.fgtPropSelection{color:#f1f7ff;font-size:14px;font-weight:900;line-height:1.25}.fgtFormLine{display:flex;align-items:center;gap:7px;flex-wrap:wrap}.fgtModelFormBadges{grid-column:1/-1}.fgtFormRecord{display:inline-flex;align-items:center;gap:4px;border:1px solid rgba(112,145,186,.18);border-radius:999px;padding:5px 7px;color:var(--ez-muted);font-size:8px;font-weight:900;white-space:nowrap}.fgtFormRecord b{color:#eef6ff;font-size:9px}.fgtPlayMetrics{display:flex;gap:10px}.fgtEmpty{border:1px solid var(--ez-border);border-radius:22px;padding:30px;text-align:center;color:var(--ez-muted);background:linear-gradient(145deg,var(--ez-panel),var(--ez-panel-2))}
         @media(max-width:700px){.fgtHead{align-items:flex-start;flex-direction:column}.fgtHeadBadges{justify-content:flex-start}.fgtSummary{padding:14px 15px}.fgtScoreboard,.fgtMarkets{grid-template-columns:1fr}.fgtMetrics{grid-template-columns:1fr}.fgtPropRow,.fgtPlayRow{grid-template-columns:minmax(0,1fr) auto}.fgtPropRow>.fgtBadge,.fgtPlayRow>.fgtFormLine{grid-column:1/-1}.fgtPropNumbers,.fgtPlayMetrics{justify-content:flex-end}.fgtDkRow{grid-template-columns:auto minmax(0,1fr)}.fgtDkRow small{grid-column:1/-1}.fgtCount{font-size:9px;padding:6px 8px}}
       `}</style>
     </section>

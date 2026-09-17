@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import LegacyFootballBoard from "./FootballBoardLegacy";
 import { MatchupWithLogos, SelectionWithTeamLogo, TeamLogoName } from "./TeamLogoName";
+import FootballModelFormBadges from "./FootballModelFormBadges";
 
 type Tab = "Today’s Model Plays" | "Today’s Trend Plays" | "EZPZ Picks" | "Full Slate" | "Records";
 type Sport = "NFL" | "NCAAF";
@@ -352,7 +353,7 @@ function PlayerAvatar({ pick }: { pick: EzpzPick }) {
   );
 }
 
-function HistoryPickCard({ pick, sport, viewingToday }: { pick: EzpzPick; sport: Sport; viewingToday: boolean }) {
+function HistoryPickCard({ pick, sport, viewingToday, data }: { pick: EzpzPick; sport: Sport; viewingToday: boolean; data: FootballData }) {
   const isProp = pick.market === "Player Prop" || Boolean(pick.playerName);
   const result = resultMeta(pick.result);
   const liveStatus = String(pick.snapshotStatus || "").toUpperCase() === "FINAL_PREGAME" || pick.source !== "Trend Play" ? "FINAL" : "PENDING";
@@ -382,6 +383,18 @@ function HistoryPickCard({ pick, sport, viewingToday }: { pick: EzpzPick; sport:
           <p>{pick.market || "Model Play"}</p>
         </div>
       )}
+      {!isProp && pick.source !== "Trend Play" ? (
+        <FootballModelFormBadges
+          rows={data.betTrackerRows || []}
+          today={data.today}
+          grade={pick.tier || pick.formType || pick.qualification}
+          market={pick.market}
+          selection={pick.selection}
+          recordType={pick.formType}
+          qualification={pick.qualification}
+          className="footballHistoryFormBadges"
+        />
+      ) : null}
     </article>
   );
 }
@@ -432,7 +445,7 @@ function FootballEzpzHistory({ sport, data }: { sport: Sport; data: FootballData
           </div>
         </details>
 
-        {picks.length ? <div className="footballHistoryStack">{picks.map((pick, index) => <HistoryPickCard key={`${pickIdentity(pick)}-${index}`} pick={pick} sport={sport} viewingToday={viewingToday} />)}</div> : <div className="footballHistoryEmpty">{viewingToday ? `No ${sport} EZPZ Picks right now.` : `No ${sport} EZPZ Picks were saved for ${dateLabel}. Choose another date from Pick history.`}</div>}
+        {picks.length ? <div className="footballHistoryStack">{picks.map((pick, index) => <HistoryPickCard key={`${pickIdentity(pick)}-${index}`} pick={pick} sport={sport} viewingToday={viewingToday} data={data} />)}</div> : <div className="footballHistoryEmpty">{viewingToday ? `No ${sport} EZPZ Picks right now.` : `No ${sport} EZPZ Picks were saved for ${dateLabel}. Choose another date from Pick history.`}</div>}
       </section>
       <style jsx global>{`
         .footballEzpzHistorySection{display:grid;gap:18px}.footballHistoryHead{display:flex;align-items:flex-end;justify-content:space-between;gap:18px}.footballHistoryHead h2{margin:0 0 5px;font-size:clamp(1.4rem,4vw,2.2rem);letter-spacing:-.04em}.footballHistoryHead p{margin:0;color:var(--ez-muted);font-size:.86rem;line-height:1.45}.footballHistoryHead>span{flex:0 0 auto;border:1px solid var(--ez-border);border-radius:999px;padding:7px 11px;color:var(--ez-muted);font-size:.8rem;font-weight:850}.footballHistoryDropdown{overflow:hidden;border:1px solid rgba(80,132,197,.24);border-radius:22px;background:linear-gradient(145deg,var(--ez-panel),var(--ez-panel-2))}.footballHistoryDropdown>summary{display:flex;align-items:center;justify-content:space-between;gap:14px;list-style:none;cursor:pointer;padding:17px 18px}.footballHistoryDropdown>summary::-webkit-details-marker{display:none}.footballHistoryDropdown>summary>div{display:grid;gap:3px}.footballHistoryDropdown>summary strong{font-size:1rem}.footballHistoryDropdown>summary span{color:var(--ez-muted);font-size:.78rem}.footballHistoryDropdown>summary>b{color:#83c8ff;font-size:.8rem}.footballHistoryControls{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;padding:0 18px 18px}.footballHistoryControls label{display:grid;gap:6px}.footballHistoryControls label>span{color:var(--ez-muted);font-size:.7rem;font-weight:850;text-transform:uppercase;letter-spacing:.045em}.footballHistoryControls input,.footballHistoryControls select{width:100%;min-height:44px;border:1px solid rgba(93,137,191,.24);border-radius:13px;padding:10px 12px;background:rgba(5,14,27,.7);color:#eef6ff;font:inherit}.footballHistoryStack{display:grid;gap:12px}.footballHistoryPickCard{position:relative;overflow:hidden;border:1px solid rgba(43,216,117,.35);border-radius:24px;padding:18px;background:linear-gradient(145deg,var(--ez-panel),var(--ez-panel-2));box-shadow:0 24px 65px rgba(0,0,0,.24)}.footballHistoryCardTop{display:flex;align-items:center;justify-content:space-between;gap:12px}.footballHistoryCardTop>strong{font-size:1.05rem}.footballHistoryResult{display:inline-flex;align-items:center;border-radius:999px;padding:6px 9px;border:1px solid rgba(112,145,186,.2);font-size:.68rem;font-weight:950;letter-spacing:.04em}.footballHistoryResult.win,.footballHistoryResult.final{color:#aef2c6;border-color:rgba(43,216,117,.34);background:rgba(28,130,78,.15)}.footballHistoryResult.loss{color:#ffc0c8;border-color:rgba(255,105,120,.3);background:rgba(145,34,52,.15)}.footballHistoryResult.push,.footballHistoryResult.pending{color:#f4d482;border-color:rgba(247,200,92,.25);background:rgba(155,115,30,.13)}.footballHistoryGameHero{margin-top:15px}.footballHistoryGameHero h3{margin:4px 0 3px;color:#f5f9ff;font-size:clamp(1.35rem,4vw,2rem);line-height:1.06;letter-spacing:-.035em}.footballHistoryGameHero p{margin:0;color:var(--ez-muted);font-size:.8rem}.footballHistoryPropHero{display:grid;grid-template-columns:72px minmax(0,1fr);align-items:center;gap:14px;margin-top:15px}.footballHistoryHeadshot{position:relative;display:grid;place-items:center;width:72px;height:72px;overflow:hidden;border:1px solid rgba(94,159,247,.24);border-radius:17px;background:radial-gradient(circle at 50% 30%,rgba(64,146,255,.22),rgba(8,18,34,.88));color:rgba(181,211,246,.7);font-weight:950}.footballHistoryHeadshot img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;object-position:center bottom}.footballHistoryEyebrow{display:block;color:#78b9ff;font-size:.7rem;font-weight:900;letter-spacing:.06em;text-transform:uppercase}.footballHistoryPropHero h3{margin:4px 0 3px;color:#f5f9ff;font-size:clamp(1.25rem,4vw,1.8rem);line-height:1.06;letter-spacing:-.035em}.footballHistoryPropHero p{margin:0;color:var(--ez-muted);font-size:.8rem}.footballHistoryPropPick{display:flex;align-items:baseline;gap:9px;margin-top:10px}.footballHistoryPropPick span{color:#9ccaff;font-size:.72rem;font-weight:950;text-transform:uppercase}.footballHistoryPropPick b{font-size:1.25rem}.footballHistoryEmpty{border:1px solid var(--ez-border);border-radius:22px;padding:30px;text-align:center;color:var(--ez-muted);background:linear-gradient(145deg,var(--ez-panel),var(--ez-panel-2))}@media(max-width:620px){.footballHistoryHead{align-items:flex-start;flex-direction:column}.footballHistoryControls{grid-template-columns:1fr}.footballHistoryPickCard{padding:15px;border-radius:21px}.footballHistoryDropdown>summary{align-items:flex-start}.footballHistoryDropdown>summary>b{white-space:nowrap}}
