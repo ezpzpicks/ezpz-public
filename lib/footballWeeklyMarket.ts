@@ -6,6 +6,7 @@ import {
   readSportWorksheet,
   readSportWorksheetByDateKeys,
   upsertSportRows,
+  writeSportWorksheet,
 } from "./sportSheets";
 
 export type WeeklyFootballMarket = "Spread" | "Total";
@@ -121,6 +122,7 @@ export type WeeklyTrendPlay = {
   lineMoveCount?: number;
   lastLineMoveAt?: string;
   lineHistoryLabel?: string;
+  movementVersion?: string;
   score: number;
   baseScore?: number;
   opponentScore?: number | null;
@@ -677,6 +679,10 @@ function publicSplitSignalKey(label: unknown) {
 
 function movementSignalKey(value: unknown) {
   const key = textKey(value);
+  if (key.includes("strong reverse line movement support")) return "STRONG_REVERSE_LINE_MOVEMENT_SUPPORT";
+  if (key.includes("reverse line movement support")) return "REVERSE_LINE_MOVEMENT_SUPPORT";
+  if (key.includes("strong reverse line movement against")) return "STRONG_REVERSE_LINE_MOVEMENT_AGAINST";
+  if (key.includes("reverse line movement against")) return "REVERSE_LINE_MOVEMENT_AGAINST";
   if (key.includes("reverse line movement")) return "REVERSE_LINE_MOVEMENT";
   if (key.includes("line movement confirmation")) return "LINE_MOVEMENT_CONFIRMATION";
   if (key.includes("adverse line movement")) return "ADVERSE_LINE_MOVEMENT";
@@ -883,6 +889,69 @@ function existingNumber(row: SheetRow | undefined, field: string, fallback: numb
   return Number.isFinite(n) ? n : fallback;
 }
 
+const SELECTED_SIDE_MOVEMENT_VERSION = "football-selected-side-v2";
+
+function selectedSideLineMove(
+  market: WeeklyFootballMarket,
+  side: unknown,
+  fromLine: number,
+  toLine: number,
+) {
+  const rawMove = toLine - fromLine;
+  if (market === "Spread") return Math.round(-rawMove * 10) / 10;
+  const totalSide = textKey(side);
+  return Math.round((totalSide.startsWith("under") ? -rawMove : rawMove) * 10) / 10;
+}
+
+function selectedSideRawLineDelta(
+  market: WeeklyFootballMarket,
+  side: unknown,
+  rawDelta: number,
+) {
+  if (market === "Spread") return Math.round(-rawDelta * 10) / 10;
+  return Math.round((textKey(side).startsWith("under") ? -rawDelta : rawDelta) * 10) / 10;
+}
+
+function movementThresholds(basis: string) {
+  return basis === "Implied Probability"
+    ? { standard: 1.5, strong: 3 }
+    : { standard: 0.5, strong: 1 };
+}
+
+function classifySelectedSideMovement(
+  publicMovementPct: number,
+  lineMovementValue: number | null,
+  basis: string,
+) {
+  if (lineMovementValue == null) {
+    return { lineMovementSignal: "", lineMovementTone: "" as Tone | "" };
+  }
+  const thresholds = movementThresholds(basis);
+  const opposite =
+    Math.abs(publicMovementPct) >= 5 &&
+    publicMovementPct * lineMovementValue < 0 &&
+    Math.abs(lineMovementValue) >= thresholds.standard;
+  if (opposite) {
+    const isStrong =
+      Math.abs(publicMovementPct) >= 10 &&
+      Math.abs(lineMovementValue) >= thresholds.strong;
+    const support = lineMovementValue > 0;
+    return {
+      lineMovementSignal: support
+        ? isStrong
+          ? "Strong Reverse Line Movement Support"
+          : "Reverse Line Movement Support"
+        : isStrong
+          ? "Strong Reverse Line Movement Against"
+          : "Reverse Line Movement Against",
+      lineMovementTone: (support ? "positive" : "negative") as Tone,
+    };
+  }
+  return lineMovementValue > 0
+    ? { lineMovementSignal: "Line Movement Confirmation", lineMovementTone: "positive" as Tone }
+    : { lineMovementSignal: "Adverse Line Movement", lineMovementTone: "negative" as Tone };
+}
+
 function movement(split: Split, existing: SheetRow | undefined, marketRows: SheetRow[]) {
   const summary = marketHistorySummary(split, marketRows);
   const openingLine = summary?.openingLine ?? (existing ? numericLine(existing["Opening Line"]) ?? split.line : split.line);
@@ -895,25 +964,27 @@ function movement(split: Split, existing: SheetRow | undefined, marketRows: Shee
   const currentImpliedPct = impliedPct(split.odds);
   let lineMovementBasis = "";
   let lineMovementValue: number | null = null;
+
   if (openingLine != null && split.line != null && Math.abs(split.line - openingLine) >= .5) {
     lineMovementBasis = split.market === "Total" ? "Total Line" : "Spread Line";
-    lineMovementValue = Math.round((split.line - openingLine) * 10) / 10;
+    lineMovementValue = selectedSideLineMove(split.market, split.side, openingLine, split.line);
   } else if (summary?.lineMoveCount && summary.lastLineMoveDelta != null) {
     lineMovementBasis = split.market === "Total" ? "Total Line History" : "Spread Line History";
-    lineMovementValue = summary.lastLineMoveDelta;
+    lineMovementValue = selectedSideRawLineDelta(split.market, split.side, summary.lastLineMoveDelta);
   } else if (openingImpliedPct != null && currentImpliedPct != null && Math.abs(currentImpliedPct - openingImpliedPct) >= 1.5) {
     lineMovementBasis = "Implied Probability";
     lineMovementValue = Math.round((currentImpliedPct - openingImpliedPct) * 10) / 10;
   }
-  let lineMovementSignal = "";
-  if (lineMovementValue != null) {
-    const opposite = Math.abs(publicMovementPct) >= 5 && publicMovementPct * lineMovementValue < 0;
-    if (opposite) lineMovementSignal = "Reverse Line Movement";
-    else lineMovementSignal = lineMovementValue > 0 ? "Line Movement Confirmation" : "Adverse Line Movement";
-  }
+
+  const classification = classifySelectedSideMovement(
+    publicMovementPct,
+    lineMovementValue,
+    lineMovementBasis,
+  );
   return {
     openingLine, openingOdds, openingBetsPct, openingMoneyPct, publicMovementPct, sharpMovementPct,
-    openingImpliedPct, currentImpliedPct, lineMovementBasis, lineMovementValue, lineMovementSignal,
+    openingImpliedPct, currentImpliedPct, lineMovementBasis, lineMovementValue,
+    ...classification,
     firstTrackedAt: summary?.firstTrackedAt || "",
     lowLine: summary?.lowLine ?? openingLine,
     highLine: summary?.highLine ?? openingLine,
@@ -922,7 +993,6 @@ function movement(split: Split, existing: SheetRow | undefined, marketRows: Shee
     lineHistoryLabel: summary?.lineHistoryLabel || (openingLine == null ? "" : historyLineLabel(split.market, openingLine)),
   };
 }
-
 function buildPlay(split: Split, existing: SheetRow | undefined, history: HistoryRow[], marketRows: SheetRow[]): WeeklyTrendPlay {
   const move = movement(split, existing, marketRows);
   const primary = signalBreakdown(split.warningKey, split.warning, split.warningTone, split.market, split.sideGroup, history, split.date);
@@ -969,6 +1039,7 @@ function buildPlay(split: Split, existing: SheetRow | undefined, history: Histor
     lineMoveCount: move.lineMoveCount,
     lastLineMoveAt: move.lastLineMoveAt,
     lineHistoryLabel: move.lineHistoryLabel,
+    movementVersion: SELECTED_SIDE_MOVEMENT_VERSION,
     score: baseScore,
     baseScore,
     tier: "Pass",
@@ -992,6 +1063,321 @@ function headToHead(plays: WeeklyTrendPlay[]) {
     const score = eligible ? Math.min(100, own + bonus) : Math.min(59, Math.max(0, own - bonus));
     return { ...play, opponentScore: other, comparisonGap: Math.abs(gap), comparisonWinner: gap > .01, score, tier: !eligible || score < 60 ? "Pass" as const : score >= 85 ? "Elite" as const : score >= 69 ? "Strong" as const : "Good" as const };
   });
+}
+
+
+function finiteStoredNumber(value: unknown) {
+  if (value == null || String(value).trim() === "") return null;
+  const number = Number(String(value).replace("%", ""));
+  return Number.isFinite(number) ? number : null;
+}
+
+function historicalLineMoveFromLabel(
+  market: WeeklyFootballMarket,
+  side: unknown,
+  label: unknown,
+) {
+  const lines = String(label || "")
+    .split("→")
+    .map((part) => numericLine(part))
+    .filter((line): line is number => line != null);
+  if (lines.length < 2) return null;
+  return selectedSideLineMove(market, side, lines[lines.length - 2], lines[lines.length - 1]);
+}
+
+function correctedStoredMovement(row: SheetRow, details: Record<string, any>) {
+  const marketText = String(row.Market || details.market || "").trim();
+  const market: WeeklyFootballMarket | null =
+    marketText === "Spread" ? "Spread" : marketText === "Total" ? "Total" : null;
+  if (!market) return null;
+  const side = market === "Total"
+    ? String(row.Side || row.Selection || details.side || details.selection || "")
+    : "";
+  const currentLine = numericLine(
+    row["Public Split Line"] || row.Line || details.line,
+  );
+  const openingLine = numericLine(
+    row["Opening Public Split Line"] ||
+    row["Opening Line"] ||
+    details.openingLine,
+  );
+  const openingBets = finiteStoredNumber(
+    row["Opening Public %"] ??
+    row["Opening Bets %"] ??
+    details.openingBetsPct,
+  );
+  const currentBets = finiteStoredNumber(
+    row["Current Public %"] ??
+    row["Public Bets %"] ??
+    row["Current Bets %"] ??
+    details.betsPct,
+  );
+  const storedPublicMove = finiteStoredNumber(
+    row["Public Change %"] ??
+    row["Bets Change %"] ??
+    details.publicMovementPct,
+  );
+  const publicMovementPct = storedPublicMove ??
+    (openingBets != null && currentBets != null
+      ? Math.round((currentBets - openingBets) * 10) / 10
+      : 0);
+
+  const storedBasis = String(
+    row["Line Movement Basis"] || details.lineMovementBasis || "",
+  );
+  const storedValue = finiteStoredNumber(
+    row["Line Movement Value"] ?? details.lineMovementValue,
+  );
+  let lineMovementBasis = "";
+  let lineMovementValue: number | null = null;
+
+  if (
+    openingLine != null &&
+    currentLine != null &&
+    Math.abs(currentLine - openingLine) >= 0.5
+  ) {
+    lineMovementBasis = market === "Total" ? "Total Line" : "Spread Line";
+    lineMovementValue = selectedSideLineMove(market, side, openingLine, currentLine);
+  } else {
+    const historyValue = historicalLineMoveFromLabel(
+      market,
+      side,
+      details.lineHistoryLabel,
+    );
+    if (historyValue != null && Math.abs(historyValue) >= 0.5) {
+      lineMovementBasis = market === "Total" ? "Total Line History" : "Spread Line History";
+      lineMovementValue = historyValue;
+    } else if (storedBasis.includes("Line") && storedValue != null) {
+      lineMovementBasis = storedBasis;
+      lineMovementValue =
+        details.movementVersion === SELECTED_SIDE_MOVEMENT_VERSION
+          ? storedValue
+          : selectedSideRawLineDelta(market, side, storedValue);
+    }
+  }
+
+  const openingImpliedPct = finiteStoredNumber(
+    row["Opening Implied %"] ?? details.openingImpliedPct,
+  ) ?? impliedPct(
+    row["Opening Public Split Odds"] ||
+    row["Opening Odds"] ||
+    details.openingOdds,
+  );
+  const currentImpliedPct = finiteStoredNumber(
+    row["Current Implied %"] ?? details.currentImpliedPct,
+  ) ?? impliedPct(
+    row["Public Split Odds"] ||
+    row.Odds ||
+    details.odds,
+  );
+
+  if (
+    lineMovementValue == null &&
+    openingImpliedPct != null &&
+    currentImpliedPct != null &&
+    Math.abs(currentImpliedPct - openingImpliedPct) >= 1.5
+  ) {
+    lineMovementBasis = "Implied Probability";
+    lineMovementValue = Math.round((currentImpliedPct - openingImpliedPct) * 10) / 10;
+  }
+
+  const classification = classifySelectedSideMovement(
+    publicMovementPct,
+    lineMovementValue,
+    lineMovementBasis,
+  );
+  return {
+    market,
+    side,
+    openingLine,
+    currentLine,
+    publicMovementPct,
+    lineMovementBasis,
+    lineMovementValue,
+    ...classification,
+  };
+}
+
+function repairedTrendDetails(
+  details: Record<string, any>,
+  movementState: NonNullable<ReturnType<typeof correctedStoredMovement>>,
+) {
+  const originalSignals = Array.isArray(details.signals) ? details.signals : [];
+  let replaced = false;
+  const signals = originalSignals.flatMap((signal: any) => {
+    if (String(signal?.signalType || "") !== "Line Movement") return [signal];
+    replaced = true;
+    if (!movementState.lineMovementSignal) return [];
+    return [{
+      ...signal,
+      signalType: "Line Movement",
+      signalKey: movementSignalKey(movementState.lineMovementSignal),
+      signal: movementState.lineMovementSignal,
+      tone: movementState.lineMovementTone || signal.tone || "neutral",
+    }];
+  });
+  if (movementState.lineMovementSignal && !replaced) {
+    signals.push({
+      signalType: "Line Movement",
+      signalKey: movementSignalKey(movementState.lineMovementSignal),
+      signal: movementState.lineMovementSignal,
+      tone: movementState.lineMovementTone || "neutral",
+    });
+  }
+  return {
+    ...details,
+    publicMovementPct: movementState.publicMovementPct,
+    lineMovementBasis: movementState.lineMovementBasis,
+    lineMovementValue: movementState.lineMovementValue,
+    lineMovementSignal: movementState.lineMovementSignal,
+    movementVersion: SELECTED_SIDE_MOVEMENT_VERSION,
+    signals,
+  };
+}
+
+function repairAllGameTrendMovementRows(rows: SheetRow[]) {
+  let changed = 0;
+  const repaired = rows.map((row) => {
+    const raw = String(row["Trend Score Details"] || "").trim();
+    let details: Record<string, any> = {};
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) details = parsed;
+      } catch {}
+    }
+    const movementState = correctedStoredMovement(row, details);
+    if (!movementState) return row;
+
+    const nextDetails = raw ? repairedTrendDetails(details, movementState) : details;
+    const nextSignals = Array.isArray(nextDetails.signals)
+      ? nextDetails.signals.map((signal: any) => String(signal?.signal || "")).filter(Boolean).join(" | ")
+      : String(row["Trend Signals"] || "");
+    const next: SheetRow = {
+      ...row,
+      "Public Change %": String(movementState.publicMovementPct),
+      "Line Movement Signal": movementState.lineMovementSignal,
+      "Line Movement Tone": movementState.lineMovementTone,
+      "Line Movement Basis": movementState.lineMovementBasis,
+      "Line Movement Value": movementState.lineMovementValue == null ? "" : String(movementState.lineMovementValue),
+      "Trend Signals": nextSignals,
+      "Trend Score Details": raw ? JSON.stringify(nextDetails) : raw,
+    };
+    const keys = [
+      "Public Change %", "Line Movement Signal", "Line Movement Tone",
+      "Line Movement Basis", "Line Movement Value", "Trend Signals", "Trend Score Details",
+    ];
+    if (keys.some((key) => String(next[key] || "") !== String(row[key] || ""))) changed += 1;
+    return next;
+  });
+  return { rows: repaired, changed };
+}
+
+function repairWeeklyTrendRows(rows: SheetRow[], history: HistoryRow[]) {
+  const candidates: WeeklyTrendPlay[] = [];
+  const sourceByKey = new Map<string, SheetRow>();
+  for (const row of rows) {
+    const raw = String(row["Details JSON"] || "").trim();
+    if (!raw) continue;
+    try {
+      const play = JSON.parse(raw) as WeeklyTrendPlay;
+      const pseudoRow: SheetRow = {
+        Market: play.market,
+        Selection: play.selection,
+        Side: play.side,
+        Line: play.line == null ? "" : String(play.line),
+        Odds: play.odds,
+        "Public Split Line": play.line == null ? "" : String(play.line),
+        "Public Split Odds": play.odds,
+        "Opening Public Split Line": play.openingLine == null ? "" : String(play.openingLine),
+        "Opening Public Split Odds": play.openingOdds || play.odds,
+        "Opening Public %": String(play.openingBetsPct ?? play.betsPct),
+        "Current Public %": String(play.betsPct),
+        "Public Change %": String(play.publicMovementPct ?? 0),
+        "Opening Implied %": play.openingImpliedPct == null ? "" : String(play.openingImpliedPct),
+        "Current Implied %": play.currentImpliedPct == null ? "" : String(play.currentImpliedPct),
+        "Line Movement Basis": String(play.lineMovementBasis || ""),
+        "Line Movement Value": play.lineMovementValue == null ? "" : String(play.lineMovementValue),
+      };
+      const movementState = correctedStoredMovement(pseudoRow, play as Record<string, any>);
+      if (!movementState) continue;
+      const primaryWarning = warningFor(play.betsPct, play.moneyPct);
+      const signals: Signal[] = [
+        signalBreakdown(
+          primaryWarning.warningKey,
+          primaryWarning.warning,
+          primaryWarning.warningTone,
+          play.market,
+          play.sideGroup,
+          history,
+          play.date,
+        ),
+      ];
+      if (movementState.lineMovementSignal) {
+        const lineSignal = signalBreakdown(
+          movementSignalKey(movementState.lineMovementSignal),
+          movementState.lineMovementSignal,
+          movementState.lineMovementTone === "positive" ? "positive" : "negative",
+          play.market,
+          play.sideGroup,
+          history,
+          play.date,
+        );
+        signals.push({ ...lineSignal, signalType: "Line Movement" });
+      }
+      const withHistory = signals.filter((signal) => signal.records.allTime.totalBets > 0);
+      const baseScore = Math.round(
+        withHistory.length
+          ? withHistory.reduce((sum, signal) => sum + signal.score, 0) / withHistory.length
+          : 50,
+      );
+      const repairedPlay = {
+        ...play,
+        publicMovementPct: movementState.publicMovementPct,
+        lineMovementBasis: movementState.lineMovementBasis,
+        lineMovementValue: movementState.lineMovementValue,
+        lineMovementSignal: movementState.lineMovementSignal,
+        movementVersion: SELECTED_SIDE_MOVEMENT_VERSION,
+        signals,
+        baseScore,
+        score: baseScore,
+        tier: "Pass" as const,
+      };
+      candidates.push(repairedPlay);
+      sourceByKey.set(trendKey(weeklyRow(repairedPlay)), row);
+    } catch {}
+  }
+  if (!candidates.length) return { rows, changed: 0 };
+
+  const scored = headToHead(candidates);
+  const scoredByKey = new Map(scored.map((play) => [trendKey(weeklyRow(play)), play]));
+  let changed = 0;
+  const repairedRows = rows.map((row) => {
+    const play = scoredByKey.get(trendKey(row));
+    if (!play) return row;
+    const next = { ...row, ...weeklyRow(play) };
+    if (
+      String(next["Details JSON"] || "") !== String(row["Details JSON"] || "") ||
+      String(next["Line Movement Signal"] || "") !== String(row["Line Movement Signal"] || "") ||
+      String(next["Trend Score"] || "") !== String(row["Trend Score"] || "") ||
+      String(next["Trend Tier"] || "") !== String(row["Trend Tier"] || "")
+    ) changed += 1;
+    return next;
+  });
+  return { rows: repairedRows, changed };
+}
+
+function allRowHeaders(rows: SheetRow[]) {
+  const headers: string[] = [];
+  const seen = new Set<string>();
+  for (const row of rows) {
+    for (const key of Object.keys(row)) {
+      if (seen.has(key)) continue;
+      seen.add(key);
+      headers.push(key);
+    }
+  }
+  return headers;
 }
 
 function postedGameKey(row: SheetRow) {
@@ -1044,7 +1430,26 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
     readSportWorksheet(sport, "schedule"),
     readSportWorksheet(sport, "daily_slate"),
   ]);
-  const canonicalRows = [...scheduleRows, ...slateRows, ...allGameTrends];
+  const allGameRepair = sport === "NFL"
+    ? repairAllGameTrendMovementRows(allGameTrends)
+    : { rows: allGameTrends, changed: 0 };
+  const effectiveAllGameTrends = allGameRepair.rows;
+  if (allGameRepair.changed) {
+    const headers = allRowHeaders(effectiveAllGameTrends);
+    if (headers.length) {
+      await writeSportWorksheet(sport, "all_game_trends", headers, effectiveAllGameTrends);
+    }
+  }
+  const repairedHistory = historyFromAllGameTrends(effectiveAllGameTrends);
+  const weeklyRepair = sport === "NFL"
+    ? repairWeeklyTrendRows(existingTrends, repairedHistory)
+    : { rows: existingTrends, changed: 0 };
+  const effectiveExistingTrends = weeklyRepair.rows;
+  if (weeklyRepair.changed) {
+    await writeSportWorksheet(sport, WEEKLY_TRENDS_TAB, WEEKLY_TREND_HEADERS, effectiveExistingTrends);
+  }
+
+  const canonicalRows = [...scheduleRows, ...slateRows, ...effectiveAllGameTrends];
   const dk = await loadPostedSplits(sport, canonicalRows);
   const activeMarketDates = [...new Set(dk.splits.map((split) => split.date).filter(Boolean))];
   const existingMarketHistory = activeMarketDates.length
@@ -1074,8 +1479,8 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
   }
   if (postedRows.length) await upsertSportRows(sport, POSTED_GAMES_TAB, POSTED_GAME_HEADERS, postedRows, postedGameKey);
 
-  const existingTrendMap = new Map(existingTrends.map((row) => [trendKey(row), row]));
-  const history = historyFromAllGameTrends(allGameTrends);
+  const existingTrendMap = new Map(effectiveExistingTrends.map((row) => [trendKey(row), row]));
+  const history = repairedHistory;
 
   const marketHistoryRows = [...existingMarketHistory];
   const marketHistoryRowsToAppend: SheetRow[] = [];
@@ -1168,7 +1573,7 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
     liveCandidates.push({ ...buildPlay(split, existing, history, marketHistoryRows), week: footballWeekLabel(sport, split.date) });
   }
 
-  for (const row of existingTrends) {
+  for (const row of effectiveExistingTrends) {
     const key = trendKey(row);
     if (handledLockKeys.has(key)) continue;
     const raw = String(row["Details JSON"] || "").trim();
