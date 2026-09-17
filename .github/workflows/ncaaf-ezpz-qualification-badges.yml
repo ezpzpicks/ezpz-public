@@ -1,0 +1,130 @@
+name: One-time NCAAF EZPZ qualification badges
+
+on:
+  push:
+    paths:
+      - ".github/workflows/ncaaf-ezpz-qualification-badges.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Add NCAAF EZPZ qualification badges
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('app/FootballBoardBase.tsx')
+          text = path.read_text()
+
+          old_helper = '''function fbEzpzRecordType(pick: EzpzPick, splits: DraftKingsSplit[], sport: Sport): FbRecordType | null {
+            if (sport === "NFL") return pick.market;
+            const split = fbPickSplit(pick, splits);
+            const base = fbRecordTypeForSelection(pick.market, pick.market === "Total" ? split?.side || pick.selection : pick.selection, split?.line ?? fbTrailingLine(pick.selection));
+            return base ? fbCfbRecordType(base, pick.tier) : null;
+          }
+          '''
+          new_helper = '''function fbEzpzRecordType(pick: EzpzPick, splits: DraftKingsSplit[], sport: Sport): FbRecordType | null {
+            if (sport === "NFL") return pick.market;
+            const split = fbPickSplit(pick, splits);
+            const base = fbRecordTypeForSelection(pick.market, pick.market === "Total" ? split?.side || pick.selection : pick.selection, split?.line ?? fbTrailingLine(pick.selection));
+            return base ? fbCfbRecordType(base, pick.tier) : null;
+          }
+
+          function fbBackendModelQualification(pick: EzpzPick) {
+            const match = String(pick.qualification || "").match(/HOT Last 7 (.+?) Best Play \\(([^)]+)\\)/i);
+            if (!match) return null;
+            return {
+              recordType: String(match[1] || "").trim(),
+              record: String(pick.record || match[2] || "").trim(),
+            };
+          }
+          '''
+          if old_helper not in text:
+            raise SystemExit('Could not locate fbEzpzRecordType helper block')
+          text = text.replace(old_helper, new_helper, 1)
+
+          old_logic = '''  const trendPlay = pick.source !== "Best Play" ? fbTrendPlayForPick(pick, trendPlays) : null;
+            const trendRoiSummary = trendPlay ? fbTrendNetRoiSummary(trendPlay, trendPlays) : null;
+            const recordType = pick.source !== "Trend Play" ? fbEzpzRecordType(pick, splits, sport) : null;
+            const todaySummary = recordType ? todayByType.get(recordType) || null : null;
+            const last7DaysSummary = recordType ? recentByType.get(recordType) || null : null;
+            const lastSevenBetsSummary = recordType ? lastSevenBetsByType.get(recordType) || null : null;
+            const overallSummary = recordType ? overallByType.get(recordType) || null : null;
+            const bestPlayGate = recordType ? fbFormInfo(lastSevenBetsSummary, "last7Bets") : null;
+          '''
+          new_logic = '''  const trendPlay = pick.source !== "Best Play" ? fbTrendPlayForPick(pick, trendPlays) : null;
+            const trendRoiSummary = trendPlay ? fbTrendNetRoiSummary(trendPlay, trendPlays) : null;
+            const backendModelQualification = pick.source !== "Trend Play" ? fbBackendModelQualification(pick) : null;
+            const reconstructedRecordType = pick.source !== "Trend Play" ? fbEzpzRecordType(pick, splits, sport) : null;
+            const recordType = backendModelQualification?.recordType || reconstructedRecordType;
+            const todaySummary = recordType ? todayByType.get(recordType) || null : null;
+            const last7DaysSummary = recordType ? recentByType.get(recordType) || null : null;
+            const lastSevenBetsSummary = recordType ? lastSevenBetsByType.get(recordType) || null : null;
+            const overallSummary = recordType ? overallByType.get(recordType) || null : null;
+            const bestPlayGate = recordType ? fbFormInfo(lastSevenBetsSummary, "last7Bets") : null;
+            const modelQualificationRecord = backendModelQualification?.record || pick.record || fbAiSummaryRecord(lastSevenBetsSummary);
+          '''
+          if old_logic not in text:
+            raise SystemExit('Could not locate EZPZ card qualification logic')
+          text = text.replace(old_logic, new_logic, 1)
+
+          old_summary = '''          <strong><SelectionWithTeamLogo sport={sport} selection={pick.selection} game={pick.game} compact /></strong>
+                </div>
+                <div className="aiPickSummaryOdds">{pick.odds || "—"}</div>
+          '''
+          new_summary = '''          <strong><SelectionWithTeamLogo sport={sport} selection={pick.selection} game={pick.game} compact /></strong>
+                  {backendModelQualification || (bestPlayGate?.label === "Hot" && recordType) ? (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 2 }}>
+                      <span className="formPill hot">🔥 HOT</span>
+                      {recordType ? <span className="formPill">{recordType}</span> : null}
+                      {modelQualificationRecord && modelQualificationRecord !== "—" ? (
+                        <span className="formPill hot">Last 7: {modelQualificationRecord}</span>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+                <div className="aiPickSummaryOdds">{pick.odds || "—"}</div>
+          '''
+          if old_summary not in text:
+            raise SystemExit('Could not locate EZPZ collapsed summary selection block')
+          text = text.replace(old_summary, new_summary, 1)
+
+          path.write_text(text)
+          PY
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript check
+        run: npx tsc --noEmit
+
+      - name: Verify badge wiring
+        shell: bash
+        run: |
+          grep -q 'function fbBackendModelQualification' app/FootballBoardBase.tsx
+          grep -q '🔥 HOT' app/FootballBoardBase.tsx
+          grep -q 'Last 7:' app/FootballBoardBase.tsx
+          grep -q 'backendModelQualification?.recordType || reconstructedRecordType' app/FootballBoardBase.tsx
+          git diff --check
+
+      - name: Commit qualification badge update
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/FootballBoardBase.tsx
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git commit -m "Show NCAAF EZPZ qualification badges"
+          git push
