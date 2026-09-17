@@ -693,6 +693,15 @@ function fbEzpzRecordType(pick: EzpzPick, splits: DraftKingsSplit[], sport: Spor
   return base ? fbCfbRecordType(base, pick.tier) : null;
 }
 
+function fbBackendModelQualification(pick: EzpzPick) {
+  const match = String(pick.qualification || "").match(/HOT Last 7 (.+?) Best Play \(([^)]+)\)/i);
+  if (!match) return null;
+  return {
+    recordType: String(match[1] || "").trim(),
+    record: String(pick.record || match[2] || "").trim(),
+  };
+}
+
 function fbTodayRecordMap(rows: SheetRow[], today: string, sport: Sport) {
   return new Map<string, Summary>(fbRecordTypes(sport).map((betType) => {
     const matching = rows.filter((row) => fbResult(row.Result || row.Status) && fbDate(row.Date) === today && fbTrackerRecordType(row, sport) === betType);
@@ -1028,12 +1037,15 @@ function EzpzPickCard({
 }) {
   const trendPlay = pick.source !== "Best Play" ? fbTrendPlayForPick(pick, trendPlays) : null;
   const trendRoiSummary = trendPlay ? fbTrendNetRoiSummary(trendPlay, trendPlays) : null;
-  const recordType = pick.source !== "Trend Play" ? fbEzpzRecordType(pick, splits, sport) : null;
+  const backendModelQualification = pick.source !== "Trend Play" ? fbBackendModelQualification(pick) : null;
+  const reconstructedRecordType = pick.source !== "Trend Play" ? fbEzpzRecordType(pick, splits, sport) : null;
+  const recordType = backendModelQualification?.recordType || reconstructedRecordType;
   const todaySummary = recordType ? todayByType.get(recordType) || null : null;
   const last7DaysSummary = recordType ? recentByType.get(recordType) || null : null;
   const lastSevenBetsSummary = recordType ? lastSevenBetsByType.get(recordType) || null : null;
   const overallSummary = recordType ? overallByType.get(recordType) || null : null;
   const bestPlayGate = recordType ? fbFormInfo(lastSevenBetsSummary, "last7Bets") : null;
+  const modelQualificationRecord = backendModelQualification?.record || pick.record || fbAiSummaryRecord(lastSevenBetsSummary);
   const slateRow = slateRows.find((row) => fbSameGame(row.Game || `${row["Away Team"]} @ ${row["Home Team"]}`, pick.game));
   const timeLabel = displayFootballTime(trendPlay?.gameTime || String(slateRow?.["Game Time"] || slateRow?.Time || ""));
   const isFinal = pick.source !== "Trend Play" || trendPlay?.snapshotStatus === "FINAL_PREGAME";
@@ -1053,6 +1065,15 @@ function EzpzPickCard({
             </span>
           </div>
           <strong><SelectionWithTeamLogo sport={sport} selection={pick.selection} game={pick.game} compact /></strong>
+{backendModelQualification || (bestPlayGate?.label === "Hot" && recordType) ? (
+  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 2 }}>
+    <span className="formPill hot">🔥 HOT</span>
+    {recordType ? <span className="formPill">{recordType}</span> : null}
+    {modelQualificationRecord && modelQualificationRecord !== "—" ? (
+      <span className="formPill hot">Last 7: {modelQualificationRecord}</span>
+    ) : null}
+  </div>
+) : null}
         </div>
         <div className="aiPickSummaryOdds">{pick.odds || "—"}</div>
         <span className="aiPickChevron" aria-hidden="true">⌄</span>
