@@ -77,26 +77,21 @@ jobs:
             raise SystemExit('Could not locate EZPZ card qualification logic')
           text = text.replace(old_logic, new_logic, 1)
 
-          old_summary = '''          <strong><SelectionWithTeamLogo sport={sport} selection={pick.selection} game={pick.game} compact /></strong>
-                </div>
-                <div className="aiPickSummaryOdds">{pick.odds || "—"}</div>
+          old_summary_line = '          <strong><SelectionWithTeamLogo sport={sport} selection={pick.selection} game={pick.game} compact /></strong>\n'
+          if text.count(old_summary_line) != 1:
+            raise SystemExit(f'Expected one EZPZ collapsed selection line, found {text.count(old_summary_line)}')
+          new_summary_line = '''          <strong><SelectionWithTeamLogo sport={sport} selection={pick.selection} game={pick.game} compact /></strong>
+          {backendModelQualification || (bestPlayGate?.label === "Hot" && recordType) ? (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 2 }}>
+              <span className="formPill hot">🔥 HOT</span>
+              {recordType ? <span className="formPill">{recordType}</span> : null}
+              {modelQualificationRecord && modelQualificationRecord !== "—" ? (
+                <span className="formPill hot">Last 7: {modelQualificationRecord}</span>
+              ) : null}
+            </div>
+          ) : null}
           '''
-          new_summary = '''          <strong><SelectionWithTeamLogo sport={sport} selection={pick.selection} game={pick.game} compact /></strong>
-                  {backendModelQualification || (bestPlayGate?.label === "Hot" && recordType) ? (
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 2 }}>
-                      <span className="formPill hot">🔥 HOT</span>
-                      {recordType ? <span className="formPill">{recordType}</span> : null}
-                      {modelQualificationRecord && modelQualificationRecord !== "—" ? (
-                        <span className="formPill hot">Last 7: {modelQualificationRecord}</span>
-                      ) : null}
-                    </div>
-                  ) : null}
-                </div>
-                <div className="aiPickSummaryOdds">{pick.odds || "—"}</div>
-          '''
-          if old_summary not in text:
-            raise SystemExit('Could not locate EZPZ collapsed summary selection block')
-          text = text.replace(old_summary, new_summary, 1)
+          text = text.replace(old_summary_line, new_summary_line, 1)
 
           path.write_text(text)
           PY
