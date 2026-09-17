@@ -1,7 +1,7 @@
 {
   "scripts": {
     "dev": "next dev",
-    "build": "node scripts/patch-ezpz-historical-grading.mjs && next build",
+    "build": "node scripts/patch-ezpz-historical-grading.mjs && node scripts/patch-trend-v2-grading-and-naming.mjs && next build",
     "start": "next start",
     "turso:check": "node scripts/check-turso-env.mjs"
   },
