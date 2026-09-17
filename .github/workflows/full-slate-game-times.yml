@@ -25,9 +25,6 @@ jobs:
           page = Path("app/page.tsx")
           text = page.read_text()
 
-          # MLB: resolve a display/sort time from the saved slate first, then
-          # fall back to the matching DraftKings event time when the slate row
-          # itself does not contain a start-time field.
           if "function publicSlateRawTime(" not in text:
               anchor = "function liveSplitsForRow("
               if anchor not in text:
@@ -75,17 +72,14 @@ jobs:
           ) {
             const raw = publicSlateRawTime(row, draftKings);
             if (!raw) return Number.POSITIVE_INFINITY;
-
             const meridiem = raw.match(/(\\d{1,2})(?::(\\d{2}))?\\s*(AM|PM)\\b/i);
             if (meridiem) {
               let hour = Number(meridiem[1]) % 12;
               if (meridiem[3].toUpperCase() === "PM") hour += 12;
               return hour * 60 + Number(meridiem[2] || 0);
             }
-
             const twentyFour = raw.match(/^(\\d{1,2}):(\\d{2})(?:\\s*ET)?$/i);
             if (twentyFour) return Number(twentyFour[1]) * 60 + Number(twentyFour[2]);
-
             const stamp = Date.parse(raw);
             if (Number.isFinite(stamp)) {
               const parts = new Intl.DateTimeFormat("en-US", {
@@ -98,7 +92,6 @@ jobs:
               const minute = Number(parts.find((part) => part.type === "minute")?.value || "");
               if (Number.isFinite(hour) && Number.isFinite(minute)) return hour * 60 + minute;
             }
-
             return Number.POSITIVE_INFINITY;
           }
 
@@ -108,12 +101,10 @@ jobs:
           ) {
             const raw = publicSlateRawTime(row, draftKings);
             if (!raw) return "";
-
             const meridiem = raw.match(/(\\d{1,2})(?::(\\d{2}))?\\s*(AM|PM)\\b/i);
             if (meridiem) {
               return `${Number(meridiem[1])}:${String(meridiem[2] || "00").padStart(2, "0")} ${meridiem[3].toUpperCase()}`;
             }
-
             const twentyFour = raw.match(/^(\\d{1,2}):(\\d{2})(?:\\s*ET)?$/i);
             if (twentyFour) {
               const hour24 = Number(twentyFour[1]);
@@ -121,7 +112,6 @@ jobs:
               const hour12 = hour24 % 12 || 12;
               return `${hour12}:${twentyFour[2]} ${suffix}`;
             }
-
             const stamp = Date.parse(raw);
             if (Number.isFinite(stamp)) {
               return new Intl.DateTimeFormat("en-US", {
@@ -131,7 +121,6 @@ jobs:
                 hour12: true,
               }).format(new Date(stamp));
             }
-
             return raw.replace(/\\s+ET$/i, "");
           }
 
@@ -154,31 +143,16 @@ jobs:
           elif "publicSlateTimeSortValue(a, draftKings)" not in text:
               raise SystemExit("MLB Full Slate map not found")
 
-          old_game = '''                const game =
-                  row["Game Label"] || `${row["Away Team"]} at ${row["Home Team"]}`;
-
-                return ('''
-          if old_game in text:
-              new_game = '''                const game =
-                  row["Game Label"] || `${row["Away Team"]} at ${row["Home Team"]}`;
-                const gameTime = displayPublicSlateTime(row, draftKings);
-
-                return ('''
-              text = text.replace(old_game, new_game, 1)
-          elif "const gameTime = displayPublicSlateTime(row, draftKings);" not in text:
-              raise SystemExit("MLB game-time insertion point not found")
-
           old_title = '<div className="slateDropdownTitle">{game}</div>\n                      </div>'
+          inline_time = '{displayPublicSlateTime(row, draftKings) ? <div className="slateDropdownSub">{displayPublicSlateTime(row, draftKings)}</div> : null}'
           if old_title in text:
-              new_title = '<div className="slateDropdownTitle">{game}</div>\n                        {gameTime ? <div className="slateDropdownSub">{gameTime}</div> : null}\n                      </div>'
+              new_title = '<div className="slateDropdownTitle">{game}</div>\n                        ' + inline_time + '\n                      </div>'
               text = text.replace(old_title, new_title, 1)
-          elif '{gameTime ? <div className="slateDropdownSub">{gameTime}</div> : null}' not in text:
+          elif inline_time not in text:
               raise SystemExit("MLB Full Slate title block not found")
 
           page.write_text(text)
 
-          # NFL + NCAAF: keep the existing visible time, but normalize the field
-          # lookup and sort the merged slate chronologically before rendering.
           football = Path("app/FootballBoardBase.tsx")
           text = football.read_text()
 
