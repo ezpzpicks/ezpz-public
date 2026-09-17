@@ -16,22 +16,23 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Sort every live full slate by game time and show start times
+      - name: Sort live full slates by game time and show start times
         shell: bash
         run: |
           python - <<'PY'
           from pathlib import Path
 
-          # MLB public board
-          page = Path('app/page.tsx')
+          page = Path("app/page.tsx")
           text = page.read_text()
 
-          helper_marker = 'function publicSlateRawTime('
-          helper_anchor = 'function liveSplitsForRow('
-          if helper_marker not in text:
-              if helper_anchor not in text:
-                  raise SystemExit('Could not locate MLB slate helper insertion point')
-              helper = r'''const PUBLIC_SLATE_TIME_KEYS = [
+          # MLB: resolve a display/sort time from the saved slate first, then
+          # fall back to the matching DraftKings event time when the slate row
+          # itself does not contain a start-time field.
+          if "function publicSlateRawTime(" not in text:
+              anchor = "function liveSplitsForRow("
+              if anchor not in text:
+                  raise SystemExit("MLB helper anchor not found")
+              helper = '''const PUBLIC_SLATE_TIME_KEYS = [
             "Game Time ET",
             "Game Time",
             "Game Start Time",
@@ -75,17 +76,15 @@ jobs:
             const raw = publicSlateRawTime(row, draftKings);
             if (!raw) return Number.POSITIVE_INFINITY;
 
-            const meridiem = raw.match(/(\d{1,2})(?::(\d{2}))\s*(AM|PM)\b/i);
+            const meridiem = raw.match(/(\\d{1,2})(?::(\\d{2}))?\\s*(AM|PM)\\b/i);
             if (meridiem) {
               let hour = Number(meridiem[1]) % 12;
               if (meridiem[3].toUpperCase() === "PM") hour += 12;
               return hour * 60 + Number(meridiem[2] || 0);
             }
 
-            const twentyFour = raw.match(/^(\d{1,2}):(\d{2})(?:\s*ET)?$/i);
-            if (twentyFour) {
-              return Number(twentyFour[1]) * 60 + Number(twentyFour[2]);
-            }
+            const twentyFour = raw.match(/^(\\d{1,2}):(\\d{2})(?:\\s*ET)?$/i);
+            if (twentyFour) return Number(twentyFour[1]) * 60 + Number(twentyFour[2]);
 
             const stamp = Date.parse(raw);
             if (Number.isFinite(stamp)) {
@@ -100,11 +99,7 @@ jobs:
               if (Number.isFinite(hour) && Number.isFinite(minute)) return hour * 60 + minute;
             }
 
-            const normalized = draftKingsEventTimeKey(raw);
-            const normalizedMatch = normalized.match(/^(\d{1,2}):(\d{2})$/);
-            return normalizedMatch
-              ? Number(normalizedMatch[1]) * 60 + Number(normalizedMatch[2])
-              : Number.POSITIVE_INFINITY;
+            return Number.POSITIVE_INFINITY;
           }
 
           function displayPublicSlateTime(
@@ -114,12 +109,12 @@ jobs:
             const raw = publicSlateRawTime(row, draftKings);
             if (!raw) return "";
 
-            const meridiem = raw.match(/(\d{1,2})(?::(\d{2}))\s*(AM|PM)\b/i);
+            const meridiem = raw.match(/(\\d{1,2})(?::(\\d{2}))?\\s*(AM|PM)\\b/i);
             if (meridiem) {
               return `${Number(meridiem[1])}:${String(meridiem[2] || "00").padStart(2, "0")} ${meridiem[3].toUpperCase()}`;
             }
 
-            const twentyFour = raw.match(/^(\d{1,2}):(\d{2})(?:\s*ET)?$/i);
+            const twentyFour = raw.match(/^(\\d{1,2}):(\\d{2})(?:\\s*ET)?$/i);
             if (twentyFour) {
               const hour24 = Number(twentyFour[1]);
               const suffix = hour24 >= 12 ? "PM" : "AM";
@@ -137,18 +132,15 @@ jobs:
               }).format(new Date(stamp));
             }
 
-            return raw.replace(/\s+ET$/i, "");
+            return raw.replace(/\\s+ET$/i, "");
           }
 
           '''
-              text = text.replace(helper_anchor, helper + helper_anchor, 1)
+              text = text.replace(anchor, helper + anchor, 1)
 
-          old_map = '''              {data.slateToday.map((row, index) => {
-                const game =
-                  row["Game Label"] || `${row["Away Team"]} at ${row["Home Team"]}`;
-
-                return ('''
-          new_map = '''              {[...data.slateToday]
+          old_map = "data.slateToday.map((row, index) => {"
+          if old_map in text:
+              new_map = '''[...data.slateToday]
                 .sort((a, b) => {
                   const aTime = publicSlateTimeSortValue(a, draftKings);
                   const bTime = publicSlateTimeSortValue(b, draftKings);
@@ -157,114 +149,44 @@ jobs:
                   const bGame = b["Game Label"] || `${b["Away Team"]} at ${b["Home Team"]}`;
                   return aGame.localeCompare(bGame);
                 })
-                .map((row, index) => {
-                const game =
+                .map((row, index) => {'''
+              text = text.replace(old_map, new_map, 1)
+          elif "publicSlateTimeSortValue(a, draftKings)" not in text:
+              raise SystemExit("MLB Full Slate map not found")
+
+          old_game = '''                const game =
+                  row["Game Label"] || `${row["Away Team"]} at ${row["Home Team"]}`;
+
+                return ('''
+          if old_game in text:
+              new_game = '''                const game =
                   row["Game Label"] || `${row["Away Team"]} at ${row["Home Team"]}`;
                 const gameTime = displayPublicSlateTime(row, draftKings);
 
                 return ('''
-          if old_map in text:
-              text = text.replace(old_map, new_map, 1)
-          elif 'publicSlateTimeSortValue(a, draftKings)' not in text:
-              raise SystemExit('Could not locate MLB Full Slate map block')
+              text = text.replace(old_game, new_game, 1)
+          elif "const gameTime = displayPublicSlateTime(row, draftKings);" not in text:
+              raise SystemExit("MLB game-time insertion point not found")
 
-          old_title = '''                      <div>
-                        <div className="slateDropdownTitle">{game}</div>
-                      </div>'''
-          new_title = '''                      <div>
-                        <div className="slateDropdownTitle">{game}</div>
-                        {gameTime ? <div className="slateDropdownSub">{gameTime}</div> : null}
-                      </div>'''
+          old_title = '<div className="slateDropdownTitle">{game}</div>\n                      </div>'
           if old_title in text:
+              new_title = '<div className="slateDropdownTitle">{game}</div>\n                        {gameTime ? <div className="slateDropdownSub">{gameTime}</div> : null}\n                      </div>'
               text = text.replace(old_title, new_title, 1)
           elif '{gameTime ? <div className="slateDropdownSub">{gameTime}</div> : null}' not in text:
-              raise SystemExit('Could not locate MLB Full Slate title block')
+              raise SystemExit("MLB Full Slate title block not found")
 
           page.write_text(text)
 
-          # NFL + NCAAF public boards
-          football = Path('app/FootballBoardBase.tsx')
+          # NFL + NCAAF: keep the existing visible time, but normalize the field
+          # lookup and sort the merged slate chronologically before rendering.
+          football = Path("app/FootballBoardBase.tsx")
           text = football.read_text()
 
-          old_sort_fn = r'''function gameTimeSortValue(gameTime?: string) {
-            const raw = String(gameTime || "");
-            const match = raw.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
-            if (!match) return Number.POSITIVE_INFINITY;
-            let hour = Number(match[1]) % 12;
-            if (match[3].toUpperCase() === "PM") hour += 12;
-            return hour * 60 + Number(match[2]);
-          }'''
-          new_sort_fn = r'''function gameTimeSortValue(gameTime?: string) {
-            const raw = String(gameTime || "").trim();
-            if (!raw) return Number.POSITIVE_INFINITY;
-
-            const meridiem = raw.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
-            if (meridiem) {
-              let hour = Number(meridiem[1]) % 12;
-              if (meridiem[3].toUpperCase() === "PM") hour += 12;
-              return hour * 60 + Number(meridiem[2]);
-            }
-
-            const twentyFour = raw.match(/^(\d{1,2}):(\d{2})(?:\s*ET)?$/i);
-            if (twentyFour) return Number(twentyFour[1]) * 60 + Number(twentyFour[2]);
-
-            const stamp = Date.parse(raw);
-            if (Number.isFinite(stamp)) {
-              const parts = new Intl.DateTimeFormat("en-US", {
-                timeZone: "America/New_York",
-                hour: "2-digit",
-                minute: "2-digit",
-                hour12: false,
-              }).formatToParts(new Date(stamp));
-              const hour = Number(parts.find((part) => part.type === "hour")?.value || "");
-              const minute = Number(parts.find((part) => part.type === "minute")?.value || "");
-              if (Number.isFinite(hour) && Number.isFinite(minute)) return hour * 60 + minute;
-            }
-
-            return Number.POSITIVE_INFINITY;
-          }'''
-          if old_sort_fn in text:
-              text = text.replace(old_sort_fn, new_sort_fn, 1)
-          elif 'const twentyFour = raw.match(/^(\\d{1,2}):(\\d{2})(?:\\s*ET)?$/i);' not in text:
-              raise SystemExit('Could not locate football time sort helper')
-
-          old_display = r'''function displayFootballTime(value?: string) {
-            const raw = String(value || "").trim();
-            if (!raw) return "TBD";
-            const simple = raw.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)(?:\s+ET)?$/i);
-            if (simple) return `${Number(simple[1])}:${simple[2]} ${simple[3].toUpperCase()}`;
-            const stamp = Date.parse(raw);
-            if (!Number.isFinite(stamp)) return raw;
-            return new Intl.DateTimeFormat("en-US", {
-              timeZone: "America/New_York",
-              hour: "numeric",
-              minute: "2-digit",
-              hour12: true,
-            }).format(new Date(stamp));
-          }'''
-          new_display = r'''function displayFootballTime(value?: string) {
-            const raw = String(value || "").trim();
-            if (!raw) return "TBD";
-            const simple = raw.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)(?:\s+ET)?$/i);
-            if (simple) return `${Number(simple[1])}:${simple[2]} ${simple[3].toUpperCase()}`;
-            const twentyFour = raw.match(/^(\d{1,2}):(\d{2})(?:\s*ET)?$/i);
-            if (twentyFour) {
-              const hour24 = Number(twentyFour[1]);
-              const suffix = hour24 >= 12 ? "PM" : "AM";
-              const hour12 = hour24 % 12 || 12;
-              return `${hour12}:${twentyFour[2]} ${suffix}`;
-            }
-            const stamp = Date.parse(raw);
-            if (!Number.isFinite(stamp)) return raw;
-            return new Intl.DateTimeFormat("en-US", {
-              timeZone: "America/New_York",
-              hour: "numeric",
-              minute: "2-digit",
-              hour12: true,
-            }).format(new Date(stamp));
-          }
-
-          const FOOTBALL_SLATE_TIME_KEYS = [
+          if "function footballRowGameTime(" not in text:
+              anchor = "function selectedSplit("
+              if anchor not in text:
+                  raise SystemExit("Football helper anchor not found")
+              helper = '''const FOOTBALL_SLATE_TIME_KEYS = [
             "Game Time ET",
             "Game Time",
             "Game Start Time",
@@ -280,34 +202,51 @@ jobs:
             return FOOTBALL_SLATE_TIME_KEYS
               .map((column) => String(row[column] || "").trim())
               .find(Boolean) || "";
-          }'''
-          if old_display in text:
-              text = text.replace(old_display, new_display, 1)
-          elif 'function footballRowGameTime(' not in text:
-              raise SystemExit('Could not locate football display-time helper')
+          }
 
-          old_return = '''    return rows;
-          }, [weeklyData?.games, data.slateToday, data.today]);'''
-          new_return = '''    return rows.sort((a, b) => {
-              const aTime = gameTimeSortValue(footballRowGameTime(a));
-              const bTime = gameTimeSortValue(footballRowGameTime(b));
+          function footballSlateTimeSortValue(row: SheetRow | undefined) {
+            const raw = footballRowGameTime(row);
+            const simple = gameTimeSortValue(raw);
+            if (Number.isFinite(simple)) return simple;
+            const stamp = Date.parse(raw);
+            if (!Number.isFinite(stamp)) return Number.POSITIVE_INFINITY;
+            const parts = new Intl.DateTimeFormat("en-US", {
+              timeZone: "America/New_York",
+              hour: "2-digit",
+              minute: "2-digit",
+              hour12: false,
+            }).formatToParts(new Date(stamp));
+            const hour = Number(parts.find((part) => part.type === "hour")?.value || "");
+            const minute = Number(parts.find((part) => part.type === "minute")?.value || "");
+            return Number.isFinite(hour) && Number.isFinite(minute)
+              ? hour * 60 + minute
+              : Number.POSITIVE_INFINITY;
+          }
+
+          '''
+              text = text.replace(anchor, helper + anchor, 1)
+
+          old_return = "    return rows;\n  }, [weeklyData?.games, data.slateToday, data.today]);"
+          if old_return in text:
+              new_return = '''    return rows.sort((a, b) => {
+              const aTime = footballSlateTimeSortValue(a);
+              const bTime = footballSlateTimeSortValue(b);
               if (aTime !== bTime) return aTime - bTime;
               const aGame = a.Game || a["Game Label"] || `${a["Away Team"] || ""} @ ${a["Home Team"] || ""}`;
               const bGame = b.Game || b["Game Label"] || `${b["Away Team"] || ""} @ ${b["Home Team"] || ""}`;
               return aGame.localeCompare(bGame);
             });
           }, [weeklyData?.games, data.slateToday, data.today]);'''
-          if old_return in text:
               text = text.replace(old_return, new_return, 1)
-          elif 'return rows.sort((a, b) =>' not in text:
-              raise SystemExit('Could not locate football slate return block')
+          elif "return rows.sort((a, b) => {" not in text:
+              raise SystemExit("Football slate return block not found")
 
-          old_game_time = '          const gameTime = String(row["Game Time"] || row.Time || row["Start Time"] || "").trim();'
-          new_game_time = '          const gameTime = footballRowGameTime(row);'
-          if old_game_time in text:
-              text = text.replace(old_game_time, new_game_time, 1)
-          elif new_game_time not in text:
-              raise SystemExit('Could not locate football Full Slate game-time line')
+          old_time = '          const gameTime = String(row["Game Time"] || row.Time || row["Start Time"] || "").trim();'
+          new_time = '          const gameTime = footballRowGameTime(row);'
+          if old_time in text:
+              text = text.replace(old_time, new_time, 1)
+          elif new_time not in text:
+              raise SystemExit("Football Full Slate time line not found")
 
           football.write_text(text)
           PY
@@ -323,7 +262,7 @@ jobs:
         run: |
           grep -q 'publicSlateTimeSortValue(a, draftKings)' app/page.tsx
           grep -q 'displayPublicSlateTime(row, draftKings)' app/page.tsx
-          grep -q 'return rows.sort((a, b) =>' app/FootballBoardBase.tsx
+          grep -q 'footballSlateTimeSortValue(a)' app/FootballBoardBase.tsx
           grep -q 'const gameTime = footballRowGameTime(row);' app/FootballBoardBase.tsx
           git diff --check
 
