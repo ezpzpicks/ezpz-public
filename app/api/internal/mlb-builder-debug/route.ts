@@ -56,8 +56,14 @@ function trackerForPitcher(rows: Row[], pitcher: string) {
   const target = pitcherKey(pitcher);
   if (!target) return null;
   return (
-    rows.find((row) => pitcherKey(row.Selection || row.Pitcher || "").includes(target)) ||
-    rows.find((row) => target.includes(pitcherKey(row.Selection || row.Pitcher || ""))) ||
+    rows.find((row) => {
+      const candidate = pitcherKey(row.Selection || row.Pitcher || "");
+      return candidate && candidate.includes(target);
+    }) ||
+    rows.find((row) => {
+      const candidate = pitcherKey(row.Selection || row.Pitcher || "");
+      return candidate && target.includes(candidate);
+    }) ||
     null
   );
 }
