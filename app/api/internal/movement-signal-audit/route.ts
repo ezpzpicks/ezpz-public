@@ -328,11 +328,161 @@ function auditRows(sport: Sport, rows: Row[]) {
   };
 }
 
+
+function canonicalPublicSignal(value: unknown) {
+  const key = text(value).toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+  if (!key) return "";
+  if (key.includes("extreme") && (key.includes("bets") || key.includes("public")) && (key.includes("handle") || key.includes("sharp"))) return "EXTREME_PUBLIC_SHARP_AGREEMENT";
+  if (key.includes("heavy") && (key.includes("bets") || key.includes("public")) && (key.includes("handle") || key.includes("sharp"))) return "HEAVY_PUBLIC_SHARP_AGREEMENT";
+  if (key.includes("strong") && (key.includes("handle below bets") || key.includes("sharp rejection"))) return "STRONG_SHARP_REJECTION";
+  if (key.includes("handle below bets") || key === "sharp rejection") return "SHARP_REJECTION";
+  if (key.includes("strong") && (key.includes("handle above bets") || key.includes("sharp support"))) return "STRONG_SHARP_SUPPORT";
+  if (key.includes("handle above bets") || key === "sharp support") return "SHARP_SUPPORT";
+  if (key.includes("balanced")) return "BALANCED_PUBLIC_SHARP_SPLIT";
+  return text(value).toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+}
+function expectedPublicSignal(betsPct: number, moneyPct: number) {
+  const gap = Math.round((moneyPct - betsPct) * 10) / 10;
+  if (betsPct >= 90 && moneyPct >= 90) return "EXTREME_PUBLIC_SHARP_AGREEMENT";
+  if (betsPct >= 80 && moneyPct >= 80) return "HEAVY_PUBLIC_SHARP_AGREEMENT";
+  if (gap <= -20) return "STRONG_SHARP_REJECTION";
+  if (gap <= -10) return "SHARP_REJECTION";
+  if (gap >= 20) return "STRONG_SHARP_SUPPORT";
+  if (gap >= 10) return "SHARP_SUPPORT";
+  return "BALANCED_PUBLIC_SHARP_SPLIT";
+}
+function storedPublicSignal(row: Row, details: Record<string, any>) {
+  const direct = text(row["Public Warning"] || row.Warning);
+  if (direct) return canonicalPublicSignal(direct);
+  if (Array.isArray(details.signals)) {
+    const signal = details.signals.find((s: any) => text(s?.signalType) !== "Line Movement");
+    if (signal) return canonicalPublicSignal(signal.signalKey || signal.signal);
+  }
+  return "";
+}
+function auditPublicSignals(rows: Row[]) {
+  let audited = 0;
+  let mismatches = 0;
+  let completedAudited = 0;
+  let completedMismatches = 0;
+  const mismatchPairs: Record<string, number> = {};
+  const examples: any[] = [];
+  for (const row of rows) {
+    const details = parseDetails(row);
+    const bets = numberValue(row["Public Bets %"] ?? row["Current Public %"] ?? details.betsPct);
+    const money = numberValue(row["Public Money %"] ?? row["Current Sharp %"] ?? details.moneyPct);
+    if (bets == null || money == null) continue;
+    const expected = expectedPublicSignal(bets, money);
+    const stored = storedPublicSignal(row, details);
+    if (!stored) continue;
+    audited += 1;
+    const completed = Boolean(resultCode(row.Result || row.Status));
+    if (completed) completedAudited += 1;
+    if (stored === expected) continue;
+    mismatches += 1;
+    if (completed) completedMismatches += 1;
+    groupIncrement(mismatchPairs, `${stored} -> ${expected}`);
+    if (examples.length < 20) {
+      examples.push({
+        date: rowDate(row, details),
+        game: text(row.Game || details.game),
+        market: text(row.Market || details.market),
+        selection: text(row.Selection || details.selection),
+        betsPct: bets,
+        moneyPct: money,
+        gapPct: Math.round((money - bets) * 10) / 10,
+        stored,
+        expected,
+        completed,
+      });
+    }
+  }
+  return {
+    auditedRows: audited,
+    mismatches,
+    matchRatePct: audited ? Math.round(((audited - mismatches) / audited) * 10000) / 100 : 100,
+    completedAuditedRows: completedAudited,
+    completedMismatches,
+    mismatchPairs: Object.fromEntries(Object.entries(mismatchPairs).sort((a,b)=>b[1]-a[1])),
+    examples,
+  };
+}
+function movementDiagnostics(sport: Sport, rows: Row[]) {
+  const bySource: Record<string, number> = {};
+  const byVersion: Record<string, number> = {};
+  for (const row of rows) {
+    const details = parseDetails(row);
+    const market = marketOf(row, details);
+    if (!market) continue;
+    const state = sport === "NCAAF" ? expectedFootball(row, details) : expectedMlb(row, details);
+    if (!state) continue;
+    const stored = storedSignal(row, details);
+    if (!stored && !state.expected) continue;
+    groupIncrement(byVersion, text(details.movementVersion) || "(none)");
+    const openLine = openingLine(row, details);
+    const nowLine = currentLine(row, details);
+    let source = "none";
+    if (sport === "NCAAF") {
+      if ((market === "Spread" || market === "Total") && openLine != null && nowLine != null && Math.abs(nowLine - openLine) >= LINE_MIN) {
+        source = "direct opener/current line";
+      } else if (historyLineMove(market, sideOf(row, details, market), details.lineHistoryLabel) != null) {
+        source = "saved line history";
+      } else if (text(row["Line Movement Basis"] || details.lineMovementBasis).includes("Line") && numberValue(row["Line Movement Value"] ?? details.lineMovementValue) != null) {
+        source = "stored legacy line value";
+      } else {
+        const op = numberValue(row["Opening Implied %"] ?? details.openingImpliedPct) ?? impliedPct(openingOdds(row, details));
+        const cp = numberValue(row["Current Implied %"] ?? details.currentImpliedPct) ?? impliedPct(currentOdds(row, details));
+        if (op != null && cp != null && Math.abs(cp - op) >= IMPLIED_MIN) source = "direct implied probability";
+      }
+    } else {
+      if (market === "Total" && openLine != null && nowLine != null && Math.abs(nowLine - openLine) >= LINE_MIN) {
+        source = "direct opener/current total";
+      } else {
+        const op = numberValue(row["Opening Implied %"] ?? details.openingImpliedPct) ?? impliedPct(openingOdds(row, details));
+        const cp = numberValue(row["Current Implied %"] ?? details.currentImpliedPct) ?? impliedPct(currentOdds(row, details));
+        if (op != null && cp != null && Math.abs(cp - op) >= IMPLIED_MIN) source = "direct implied probability";
+      }
+    }
+    groupIncrement(bySource, source);
+  }
+  return { bySource, byVersion };
+}
+function snapshotHistoryForExamples(examples: any[], snapshots: Row[]) {
+  return examples.map((example) => {
+    const matches = snapshots.filter((row) =>
+      text(row.Date) === text(example.date) &&
+      text(row.Game) === text(example.game) &&
+      text(row.Market) === text(example.market) &&
+      text(row.Selection) === text(example.selection)
+    );
+    return {
+      ...example,
+      snapshots: matches.map((row) => ({
+        snapshotTime: text(row["Snapshot Time ET"]),
+        openingSnapshotTime: text(row["Opening Snapshot Time ET"]),
+        line: text(row.Line),
+        odds: text(row.Odds),
+        openingLine: text(row["Opening Line"]),
+        openingOdds: text(row["Opening Odds"]),
+        publicBetsPct: text(row["Public Bets %"]),
+        publicMoneyPct: text(row["Public Money %"]),
+        publicChangePct: text(row["Public Change %"]),
+        lineMovementSignal: text(row["Line Movement Signal"]),
+        lineMovementBasis: text(row["Line Movement Basis"]),
+        lineMovementValue: text(row["Line Movement Value"]),
+      })),
+    };
+  });
+}
+
 export async function GET() {
-  const [cfbRows, mlbRows] = await Promise.all([
+  const [cfbRows, mlbRows, mlbSnapshots] = await Promise.all([
     readSportWorksheet("NCAAF", "all_game_trends"),
     readTursoDataset("MLB", "all_game_trends"),
+    readTursoDataset("MLB", "public_split_snapshots"),
   ]);
+  const cfbMovement = auditRows("NCAAF", cfbRows);
+  const mlbMovement = auditRows("MLB", mlbRows);
   return NextResponse.json({
     ok: true,
     generatedAt: new Date().toISOString(),
@@ -344,7 +494,16 @@ export async function GET() {
       impliedMoveMinimumPctPoints: IMPLIED_MIN,
       strongImpliedMoveMinimumPctPoints: IMPLIED_STRONG,
     },
-    cfb: auditRows("NCAAF", cfbRows),
-    mlb: auditRows("MLB", mlbRows),
+    cfb: {
+      movement: cfbMovement,
+      publicSplit: auditPublicSignals(cfbRows),
+      diagnostics: movementDiagnostics("NCAAF", cfbRows),
+    },
+    mlb: {
+      movement: mlbMovement,
+      publicSplit: auditPublicSignals(mlbRows),
+      diagnostics: movementDiagnostics("MLB", mlbRows),
+      mismatchSnapshotHistory: snapshotHistoryForExamples(mlbMovement.examples, mlbSnapshots),
+    },
   }, { headers: { "Cache-Control": "no-store, max-age=0" } });
 }
