@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { readTursoDataset } from "../../../../../lib/tursoStore";
+import { readTursoDataset } from "../../../../lib/tursoStore";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
