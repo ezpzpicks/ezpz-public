@@ -19,6 +19,8 @@ export async function GET(request: NextRequest) {
     "game_projection_history",
     "daily_slate",
     "bet_tracker",
+    "all_game_trends",
+    "pitcher_recent_form",
     "builder_completed",
   ] as const;
   const result: Record<string, Record<string, string>[]> = {};
