@@ -11,6 +11,7 @@ import {
 } from "../../../lib/mlbTrendV2";
 import { appendV2Rows, readV2Tab, replaceV2DailyRows } from "../../../lib/mlbTrendV2Store";
 import { applyMlbTrendV2Adaptive } from "../../../lib/mlbTrendV2Lifecycle";
+import { persistEzpzCurrentPicks } from "../../../lib/ezpzCurrentPicks";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -394,6 +395,11 @@ export async function GET(request:NextRequest){
   }catch(error){
     console.error("MLB Trend v2 wrapper failed; returning legacy response",error);
     payload.trendV2Error=error instanceof Error?error.message:String(error);
+  }
+  if(isV2ScheduledCapture(request)){
+    try{await persistEzpzCurrentPicks("MLB",payload)}catch(error){
+      console.error("MLB current EZPZ picks snapshot failed",error);
+    }
   }
   return NextResponse.json(compact?compactScheduledPayload(payload):payload,{
     status:legacyResponse.status,
