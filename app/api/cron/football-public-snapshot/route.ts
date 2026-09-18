@@ -4,6 +4,7 @@ import { settlePendingFootballResults } from "../../../../lib/footballResultSett
 import { evaluateFootballTrendV2 } from "../../../../lib/footballTrendV2Lifecycle";
 import type { FootballSport } from "../../../../lib/sportSheets";
 import { withTursoReadCache } from "../../../../lib/tursoStore";
+import { persistEzpzCurrentPicks } from "../../../../lib/ezpzCurrentPicks";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -54,6 +55,11 @@ async function runCron(request: NextRequest) {
       forceFresh: true,
       persist: true,
     });
+    try {
+      await persistEzpzCurrentPicks(sport, payload);
+    } catch (error) {
+      console.error(`${sport} current EZPZ picks snapshot failed`, error);
+    }
     let trendV2Lifecycle: unknown = null;
     try {
       trendV2Lifecycle = await evaluateFootballTrendV2(sport);
