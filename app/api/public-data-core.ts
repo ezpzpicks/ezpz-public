@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readWorksheet as readWorksheetUncached } from "../../lib/mlbStore";
 import { buildFootballPublicData } from "../../lib/footballPublicData";
-import { appendTursoDataset, isTursoConfigured, readTursoDataset, replaceTursoDataset } from "../../lib/tursoStore";
+import { appendTursoDataset, isTursoConfigured, patchTursoDatasetRows, readTursoDataset, replaceTursoDataset } from "../../lib/tursoStore";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -1615,19 +1615,24 @@ async function writeWorksheetBlocks(
 ) {
   if (!updates.length) return;
   assertTursoStorage();
-  const headers = [...matrix.headers];
-  for (const update of updates) {
-    for (const key of Object.keys(update.fields || {})) {
-      if (key && !headers.includes(key)) headers.push(key);
-    }
-  }
-  const rows = matrix.rows.map((entry) => ({ ...entry.object }));
-  for (const update of updates) {
-    const index = Number(update.sheetRow) - 2;
-    if (index < 0 || index >= rows.length) continue;
-    rows[index] = { ...rows[index], ...update.fields };
-  }
-  await replaceTursoDataset("MLB", tabName, rows, headers);
+
+  // These are partial public-market/trend updates. Never rebuild the entire
+  // dataset from `matrix`: a concurrent admin-builder save may have committed a
+  // newer model row since this request read that snapshot. Patch only the fields
+  // owned by this refresh, locating each row by its stable date/game identity.
+  const patches = updates
+    .map((update) => {
+      const index = Number(update.sheetRow) - 2;
+      const source = index >= 0 && index < matrix.rows.length
+        ? matrix.rows[index]?.object
+        : null;
+      if (!source) return null;
+      return { match: source, fields: update.fields };
+    })
+    .filter((value): value is { match: SheetRow; fields: SheetRow } => Boolean(value));
+
+  if (!patches.length) return;
+  await patchTursoDatasetRows("MLB", tabName, patches);
   invalidateWorksheetReadCache(tabName);
 }
 
