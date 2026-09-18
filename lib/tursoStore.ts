@@ -537,6 +537,78 @@ export async function appendTursoDataset(
   });
 }
 
+
+export type TursoDatasetPatch = {
+  match: TursoRow;
+  fields: TursoRow;
+};
+
+/**
+ * Patch selected JSON fields on existing dataset rows without replacing the dataset.
+ *
+ * Public-data refreshes run concurrently with builder saves. Replacing a whole
+ * dataset from an earlier read can erase a builder row that was committed after
+ * that read. This helper uses the denormalized identity columns on dataset_rows
+ * and SQLite json_patch() so unrelated fields written by another process survive.
+ */
+export async function patchTursoDatasetRows(
+  sport: TursoSport,
+  dataset: string,
+  patches: TursoDatasetPatch[],
+) {
+  if (!patches.length) return;
+
+  const savedAt = new Date().toISOString();
+  const statements = ["BEGIN IMMEDIATE"];
+
+  for (const patch of patches) {
+    const info = metadata(comparableRow(patch.match));
+    const fields = comparableRow(patch.fields);
+    if (!Object.keys(fields).length) continue;
+
+    const selectors: string[] = [
+      `sport=${sqlText(sport)}`,
+      `dataset=${sqlText(dataset)}`,
+    ];
+
+    if (info.dateKey) selectors.push(`date_key=${sqlText(info.dateKey)}`);
+    if (info.gameKey) {
+      selectors.push(`game_key=${sqlText(info.gameKey)}`);
+    } else if (info.game) {
+      selectors.push(`game=${sqlText(info.game)}`);
+    }
+    if (info.market) selectors.push(`market=${sqlText(info.market)}`);
+    if (info.selection) selectors.push(`selection=${sqlText(info.selection)}`);
+
+    // Date + game identity is required. Never fall back to a stale positional
+    // row number because a builder save can remove/re-append a shell row.
+    if (!info.dateKey || (!info.gameKey && !info.game)) {
+      throw new Error(
+        `Cannot patch ${sport}/${dataset} row without stable date/game identity.`,
+      );
+    }
+
+    const patchJson = JSON.stringify(fields);
+    statements.push(
+      `UPDATE dataset_rows SET payload_json=json_patch(CASE WHEN json_valid(payload_json) THEN payload_json ELSE '{}' END,${sqlText(patchJson)}),source_hash='',imported_at=${sqlText(savedAt)} WHERE ${selectors.join(" AND ")}`,
+    );
+  }
+
+  statements.push("COMMIT");
+  if (statements.length <= 2) return;
+  await pipeline(statements);
+  invalidateScopedRows(sport, dataset);
+  logTursoIo({
+    op: "patch",
+    sport,
+    dataset,
+    rowsRead: 0,
+    rowsWritten: statements.length - 2,
+    rowsDeleted: 0,
+    requestedPatches: patches.length,
+  });
+}
+
 export async function tursoDatasetCount(sport: TursoSport, dataset: string) {
   const results = await pipeline([
     `SELECT COUNT(*) AS row_count FROM dataset_rows WHERE sport=${sqlText(sport)} AND dataset=${sqlText(dataset)}`,
