@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
+  persistEzpzCurrentPicks,
   readEzpzCurrentPicks,
   type EzpzCurrentSport,
 } from "../../../lib/ezpzCurrentPicks";
+import { GET as getPublicDataV2 } from "../public-data-v2/route";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-export const maxDuration = 15;
+export const maxDuration = 120;
 
 const SUPPORTED_SPORTS = new Set<EzpzCurrentSport>(["MLB", "NFL", "NCAAF"]);
 const MAX_SNAPSHOT_AGE_MS = 20 * 60_000;
@@ -89,6 +91,30 @@ function normalizePick(pick: AnyRow, sport: string) {
   };
 }
 
+async function primeSnapshot(request: NextRequest, sport: EzpzCurrentSport) {
+  const upstreamUrl = new URL(request.url);
+  upstreamUrl.pathname = "/api/public-data-v2";
+  upstreamUrl.search = "";
+  upstreamUrl.searchParams.set("sport", sport);
+
+  const upstreamRequest = new NextRequest(upstreamUrl, {
+    method: "GET",
+    headers: request.headers,
+  });
+  const upstreamResponse = await getPublicDataV2(upstreamRequest);
+  const contentType = upstreamResponse.headers.get("content-type") || "";
+  if (!contentType.includes("application/json")) {
+    throw new Error("EZPZ public data did not return JSON while priming snapshot.");
+  }
+  const payload = (await upstreamResponse.json()) as AnyRow;
+  if (!upstreamResponse.ok || payload?.ok === false) {
+    throw new Error(
+      String(payload?.error || payload?.message || `Public data returned HTTP ${upstreamResponse.status}`),
+    );
+  }
+  await persistEzpzCurrentPicks(sport, payload);
+}
+
 export async function GET(request: NextRequest) {
   const requested = String(request.nextUrl.searchParams.get("sport") || "MLB").trim().toUpperCase();
   if (!SUPPORTED_SPORTS.has(requested as EzpzCurrentSport)) {
@@ -101,7 +127,12 @@ export async function GET(request: NextRequest) {
   const sport = requested as EzpzCurrentSport;
 
   try {
-    const snapshot = await readEzpzCurrentPicks(sport);
+    let snapshot = await readEzpzCurrentPicks(sport);
+    const prime = request.nextUrl.searchParams.get("prime") === "1";
+    if (!snapshot && prime) {
+      await primeSnapshot(request, sport);
+      snapshot = await readEzpzCurrentPicks(sport);
+    }
     if (!snapshot) {
       return NextResponse.json(
         {
@@ -116,7 +147,19 @@ export async function GET(request: NextRequest) {
     const updatedAtMs = Date.parse(snapshot.updatedAt);
     const snapshotAgeMs = Number.isFinite(updatedAtMs) ? Date.now() - updatedAtMs : Number.POSITIVE_INFINITY;
     const currentDate = todayET();
-    const stale = snapshot.date !== currentDate || snapshotAgeMs > MAX_SNAPSHOT_AGE_MS;
+    let stale = snapshot.date !== currentDate || snapshotAgeMs > MAX_SNAPSHOT_AGE_MS;
+
+    if (stale && prime) {
+      await primeSnapshot(request, sport);
+      snapshot = await readEzpzCurrentPicks(sport);
+      if (!snapshot) throw new Error("Snapshot priming completed without creating a snapshot.");
+    }
+
+    const refreshedUpdatedAtMs = Date.parse(snapshot.updatedAt);
+    const refreshedAgeMs = Number.isFinite(refreshedUpdatedAtMs)
+      ? Date.now() - refreshedUpdatedAtMs
+      : Number.POSITIVE_INFINITY;
+    stale = snapshot.date !== currentDate || refreshedAgeMs > MAX_SNAPSHOT_AGE_MS;
 
     if (stale) {
       return NextResponse.json(
@@ -126,8 +169,8 @@ export async function GET(request: NextRequest) {
           error: "The persisted EZPZ picks snapshot is stale.",
           snapshotDate: snapshot.date,
           snapshotUpdatedAt: snapshot.updatedAt,
-          snapshotAgeSeconds: Number.isFinite(snapshotAgeMs)
-            ? Math.max(0, Math.round(snapshotAgeMs / 1000))
+          snapshotAgeSeconds: Number.isFinite(refreshedAgeMs)
+            ? Math.max(0, Math.round(refreshedAgeMs / 1000))
             : null,
         },
         { status: 503, headers: { "Cache-Control": "no-store, max-age=0" } },
@@ -144,7 +187,7 @@ export async function GET(request: NextRequest) {
         generatedAt: new Date().toISOString(),
         sourceUpdatedAt: snapshot.sourceUpdatedAt || snapshot.updatedAt,
         snapshotUpdatedAt: snapshot.updatedAt,
-        snapshotAgeSeconds: Math.max(0, Math.round(snapshotAgeMs / 1000)),
+        snapshotAgeSeconds: Math.max(0, Math.round(refreshedAgeMs / 1000)),
         source: "persisted-cron-snapshot",
         pickCount: picks.length,
         picks,
