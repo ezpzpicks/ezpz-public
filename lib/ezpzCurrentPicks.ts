@@ -27,6 +27,15 @@ function firstValue(...values: unknown[]) {
   return "";
 }
 
+function normalizedDate(value: unknown) {
+  const raw = String(value || "").trim();
+  const iso = raw.match(/^(20\d{2})[-/](\d{1,2})[-/](\d{1,2})$/);
+  if (iso) return `${iso[1]}-${iso[2].padStart(2, "0")}-${iso[3].padStart(2, "0")}`;
+  const us = raw.match(/^(\d{1,2})\/(\d{1,2})\/(20\d{2})$/);
+  if (us) return `${us[3]}-${us[1].padStart(2, "0")}-${us[2].padStart(2, "0")}`;
+  return raw;
+}
+
 function safeJson(value: unknown) {
   try {
     return JSON.stringify(value ?? {});
@@ -51,7 +60,7 @@ export async function persistEzpzCurrentPicks(
   payload: AnyRow,
 ) {
   const picks = Array.isArray(payload?.aiPicks) ? payload.aiPicks : [];
-  const date = String(firstValue(payload?.today, payload?.date));
+  const date = normalizedDate(firstValue(payload?.today, payload?.date));
   const updatedAt = new Date().toISOString();
   const sourceUpdatedAt = String(firstValue(payload?.lastUpdated, payload?.generatedAt, updatedAt));
 
@@ -66,7 +75,7 @@ export async function persistEzpzCurrentPicks(
     },
     ...picks.map((pick: AnyRow) => ({
       Kind: "PICK",
-      Date: String(firstValue(pick?.date, pick?.Date, date)),
+      Date: normalizedDate(firstValue(pick?.date, pick?.Date, date)),
       "Updated At": updatedAt,
       "Source Updated At": sourceUpdatedAt,
       "Pick Count": "",
