@@ -67,16 +67,15 @@ function normalizePick(pick: AnyRow) {
   };
 }
 
-const crawlerOnlyStyle = {
-  position: "absolute",
-  width: "1px",
-  height: "1px",
-  padding: 0,
-  margin: "-1px",
-  overflow: "hidden",
-  clip: "rect(0, 0, 0, 0)",
-  whiteSpace: "nowrap",
-  border: 0,
+const liveFeedStyle = {
+  maxWidth: "1180px",
+  margin: "0 auto 12px",
+  padding: "4px 12px",
+  fontFamily: "monospace",
+  fontSize: "9px",
+  lineHeight: 1.35,
+  opacity: 0.5,
+  overflowWrap: "anywhere",
 } as const;
 
 export default async function Home() {
@@ -90,10 +89,11 @@ export default async function Home() {
 
   return (
     <>
+      <PublicBoardClient />
       <section
         id="ezpz-live-pick-feed"
         aria-label="EZPZ live pick feed"
-        style={crawlerOnlyStyle}
+        style={liveFeedStyle}
       >
         <h2>EZPZ_LIVE_PICK_FEED</h2>
         <p>DATE_ET: {date}</p>
@@ -138,7 +138,6 @@ export default async function Home() {
           );
         })}
       </section>
-      <PublicBoardClient />
     </>
   );
 }
