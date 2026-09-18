@@ -8,11 +8,12 @@ function normalizedGameKey(row: Record<string, string>) {
   return String(row["Game Key"] || row["Game ID"] || "").trim().replace(/\.0$/, "");
 }
 
+function recentRows(rows: Record<string, string>[], limit = 12) {
+  return rows.slice(Math.max(0, rows.length - limit));
+}
+
 export async function GET(request: NextRequest) {
   const gameKey = String(request.nextUrl.searchParams.get("gameKey") || "").trim().replace(/\.0$/, "");
-  if (!gameKey) {
-    return NextResponse.json({ ok: false, error: "gameKey is required" }, { status: 400 });
-  }
 
   const datasets = [
     "matchup_details_today",
@@ -27,11 +28,13 @@ export async function GET(request: NextRequest) {
 
   await Promise.all(datasets.map(async (dataset) => {
     const rows = await readTursoDataset("MLB", dataset);
-    result[dataset] = rows.filter((row) => normalizedGameKey(row) === gameKey);
+    result[dataset] = gameKey
+      ? rows.filter((row) => normalizedGameKey(row) === gameKey)
+      : recentRows(rows);
   }));
 
   return NextResponse.json(
-    { ok: true, gameKey, datasets: result },
+    { ok: true, gameKey: gameKey || null, mode: gameKey ? "game" : "recent", datasets: result },
     { headers: { "Cache-Control": "no-store, max-age=0" } },
   );
 }
