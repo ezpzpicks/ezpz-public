@@ -132,7 +132,7 @@ const ALL_GAME_TRENDS_HEADERS = [
 const AI_PICK_SELECTOR_TAB = "ai_pick_selector";
 const AI_BUILDER_MATCHUP_DETAILS_TAB = "matchup_details_today";
 const AI_BUILDER_CONTEXT_KEY = "__EZPZ_BUILDER_CONTEXT_JSON";
-const AI_PICK_SELECTOR_VERSION = "ezpz-picks-pitcher-quality-v12";
+const AI_PICK_SELECTOR_VERSION = "ezpz-picks-pitcher-quality-v13";
 const AI_MINIMUM_ESTIMATED_ADVANTAGE = 5;
 // A durable 15-minute snapshot is allowed one short retry window after the
 // scheduled start if its selector row missed the LIVE -> FINAL_PREGAME handoff.
@@ -10214,6 +10214,50 @@ function aiStoredPitcherHotBlockQualityCorrection(
   };
 }
 
+
+function aiStoredPitcherHotAuditTextCleanup(
+  pick: AiPick,
+): AiPick | null {
+  if (pick.market !== "Pitcher Strikeouts" || !pick.selected) return null;
+
+  const hasStaleHotText = [
+    pick.rejectionReason,
+    ...pick.historicalNotes,
+    ...pick.dataStatus,
+  ].some((item) => /HOT required|HOT requires 5\+ wins/i.test(String(item || "")));
+  if (!hasStaleHotText) return null;
+
+  const clean = (item: string) =>
+    item
+      .replace(
+        /HOT requires 5\+ wins in 7 completed bets/gi,
+        "Last-7 form is informational only for Pitcher K qualification",
+      )
+      .replace(
+        /HOT required for Model Pick qualification/gi,
+        "informational only for Pitcher K qualification",
+      )
+      .replace(
+        /HOT required/gi,
+        "informational only",
+      );
+
+  return {
+    ...pick,
+    rejectionReason: "",
+    historicalNotes: sanitizeAiPublicList(
+      [...new Set(pick.historicalNotes.map(clean))],
+      5,
+    ),
+    dataStatus: sanitizeAiPublicList(
+      [...new Set(pick.dataStatus.map(clean))],
+      5,
+    ),
+    updatedAt: nowET(),
+    selectorVersion: AI_PICK_SELECTOR_VERSION,
+  };
+}
+
 async function buildAiPickSelector(args: {
   today: string;
   bestPlays: Play[];
@@ -10300,6 +10344,32 @@ async function buildAiPickSelector(args: {
       const parsed = parseAiPickRow(row);
       if (!parsed) return row;
       const replacement = repairedByKey.get(parsed.date + "|" + parsed.candidateId);
+      return replacement ? aiPickRow(replacement) : row;
+    });
+    stored = workingStoredRows
+      .map(parseAiPickRow)
+      .filter((pick): pick is AiPick => Boolean(pick));
+    storedToday = stored.filter((pick) => pick.date === isoPublicDate(today));
+  }
+
+  const pitcherHotAuditCleanups = storedToday
+    .map((pick) => aiStoredPitcherHotAuditTextCleanup(pick))
+    .filter((pick): pick is AiPick => Boolean(pick));
+  if (pitcherHotAuditCleanups.length) {
+    try {
+      await persistAiPickRows(pitcherHotAuditCleanups);
+    } catch (error) {
+      console.error("AI pitcher stale HOT audit-text cleanup persistence failed", error);
+    }
+    const cleanedByKey = new Map(
+      pitcherHotAuditCleanups.map(
+        (pick) => [pick.date + "|" + pick.candidateId, pick] as const,
+      ),
+    );
+    workingStoredRows = workingStoredRows.map((row) => {
+      const parsed = parseAiPickRow(row);
+      if (!parsed) return row;
+      const replacement = cleanedByKey.get(parsed.date + "|" + parsed.candidateId);
       return replacement ? aiPickRow(replacement) : row;
     });
     stored = workingStoredRows
