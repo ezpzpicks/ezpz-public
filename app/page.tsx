@@ -5092,15 +5092,7 @@ function AiPickSelectorCard({
       ),
   );
   const bestPlayGate = pick.bestPlayType
-    ? isImmediateBestPlayFinal
-      ? {
-          label: "Hot" as const,
-          className: "hot" as const,
-          score: 74,
-          probability: 50,
-          advantage: 1.5,
-        }
-      : aiBestPlayGateInfo(lastSevenBetsSummary)
+    ? aiBestPlayGateInfo(lastSevenBetsSummary)
     : null;
   const isFinalReview =
     pick.snapshotStatus === "FINAL_PREGAME" && pick.protectionStatus === "PASSED";
