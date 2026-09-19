@@ -707,22 +707,14 @@ async function loadDraftKingsSplits(sport: FootballSport, slate: SheetRow[]) {
   return { splits: [...map.values()], errors };
 }
 
-function snapshotMatchupKey(date: string, away: unknown, home: unknown, sport: FootballSport) {
-  const teams = [normalizeTeam(away, sport), normalizeTeam(home, sport)].filter(Boolean).sort();
-  return `${date}|${teams.join("|")}`;
-}
-
-function snapshotKey(row: SheetRow, sport: FootballSport) {
+function snapshotKey(row: SheetRow) {
   const market = String(row.Market || "");
   const selection = market === "Total" ? String(row.Selection || row.Side || "") : String(row.Selection || "");
-  const selectionKey = market === "Total" ? textKey(selection) : normalizeTeam(selection, sport);
-  return `${snapshotMatchupKey(isoDate(row.Date), row["Away Team"], row["Home Team"], sport)}|${textKey(market)}|${selectionKey}`;
+  return `${isoDate(row.Date)}|${textKey(row["Away Team"])}|${textKey(row["Home Team"])}|${textKey(market)}|${textKey(selection)}`;
 }
 
-function splitSnapshotKey(split: DraftKingsSplit, sport: FootballSport) {
-  const selection = split.market === "Total" ? split.side : split.selectionTeam;
-  const selectionKey = split.market === "Total" ? textKey(selection) : normalizeTeam(selection, sport);
-  return `${snapshotMatchupKey(split.date, split.awayTeam, split.homeTeam, sport)}|${textKey(split.market)}|${selectionKey}`;
+function splitSnapshotKey(split: DraftKingsSplit) {
+  return `${split.date}|${textKey(split.awayTeam)}|${textKey(split.homeTeam)}|${textKey(split.market)}|${textKey(split.market === "Total" ? split.side : split.selectionTeam)}`;
 }
 
 function rlmUsableBetsPct(value: unknown) {
@@ -1163,7 +1155,7 @@ function authoritativeFinalTrend(row: SheetRow) {
 function splitHasAuthoritativeFinalTrend(rows: SheetRow[], split: DraftKingsSplit, sport: FootballSport) {
   return rows.some((row) => {
     if (!authoritativeFinalTrend(row) || isoDate(row.Date) !== split.date) return false;
-    if (!sameMatchup(row, split, sport)) return false;
+    if (!sameTeam(row["Away Team"], split.awayTeam, sport) || !sameTeam(row["Home Team"], split.homeTeam, sport)) return false;
     if (String(row.Market || "") !== split.market) return false;
     return split.market === "Total"
       ? textKey(row.Side || row.Selection) === textKey(split.side)
@@ -1730,15 +1722,15 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
   const trackerSettlement=settleBestPlayTracker(trackerRaw,settlementSchedule,sport); const tracker=trackerSettlement.settled;
   trendRows=settleTrendRowsFromTracker(trendRows,tracker,sport);
   if(trackerSettlement.changed.length) await upsertSportRows(sport,"bet_tracker",FOOTBALL_TRACKER_HEADERS,trackerSettlement.changed,trackerKey); const shells=slate.flatMap(modelTrendShells); const merged=new Map(trendRows.map((row)=>[trendRowKey(row),row]));for(const shell of shells){const key=trendRowKey(shell);merged.set(key,{...(merged.get(key)||{}),...shell,Result:resultCode(merged.get(key)?.Result)?merged.get(key)!.Result:"Pending"});}trendRows=[...merged.values()];
-  const dk=await loadDraftKingsSplits(sport,trackingSlate); const snapshotMap=new Map(snapshotExisting.map((row)=>[snapshotKey(row,sport),row]));
-  const enrichedTrackingLive=dk.splits.map((split)=>movementForSplit(split,snapshotMap.get(splitSnapshotKey(split,sport))));
+  const dk=await loadDraftKingsSplits(sport,trackingSlate); const snapshotMap=new Map(snapshotExisting.map((row)=>[snapshotKey(row),row]));
+  const enrichedTrackingLive=dk.splits.map((split)=>movementForSplit(split,snapshotMap.get(splitSnapshotKey(split))));
   // A scheduled run can drift a few minutes. Once it is past T-15, do not
   // use the new scrape: reconstruct the market from the last stored snapshot.
   const enrichedTracking=enrichedTrackingLive.flatMap((split)=>{
     const slateRow=findSlateForSplit(split,trackingSlate,sport);
     const minutesToKickoff=minutesUntilDraftKingsKickoff(split) ?? (slateRow?minutesUntilKickoff(slateRow):null);
     if(minutesToKickoff!=null&&minutesToKickoff<15){
-      const persisted=splitFromPersistedSnapshot(split,snapshotMap.get(splitSnapshotKey(split,sport)));
+      const persisted=splitFromPersistedSnapshot(split,snapshotMap.get(splitSnapshotKey(split)));
       return persisted?[persisted]:[];
     }
     return [split];
@@ -1769,7 +1761,7 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
     const locked=minutesToKickoff!=null&&minutesToKickoff<=15;
     const stamp=nowET();
     const marketStamp=locked&&split.snapshotTime?split.snapshotTime:stamp;
-    return{...row,"Public Bets %":String(split.betsPct),"Public Money %":String(split.moneyPct),"Public Gap %":String(split.gapPct),"Public Warning":split.warning,"Public Warning Negative":split.warningNegative?"TRUE":"FALSE","Public Split Source":"DraftKings","Public Split Market":split.market,"Public Split Selection":split.market==="Total"?split.side:split.selectionTeam,"Public Split Line":split.line==null?"":String(split.line),"Public Split Odds":split.odds,"Public Split Match Confidence":locked?"Final 15-minute football market lock":"Live weekly football market","Public Split Snapshot Time":marketStamp,"Opening Public %":String(split.openingBetsPct??split.betsPct),"Current Public %":String(split.betsPct),"Public Change %":String(split.publicMovementPct??0),"Opening Sharp %":String(split.openingMoneyPct??split.moneyPct),"Current Sharp %":String(split.moneyPct),"Sharp Change %":String(split.sharpMovementPct??0),"Opening Public Split Line":split.openingLine==null?"":String(split.openingLine),"Opening Public Split Odds":split.openingOdds||split.odds,"Opening Public Split Snapshot Time":split.openingSnapshotTime||String(snapshotMap.get(splitSnapshotKey(split,sport))?.["Opening Snapshot Time ET"]||marketStamp),"Opening Implied %":split.openingImpliedPct==null?"":String(split.openingImpliedPct),"Current Implied %":split.currentImpliedPct==null?"":String(split.currentImpliedPct),"Line Movement Signal":split.lineMovementSignal||"","Line Movement Tone":split.lineMovementTone||"","Line Movement Basis":split.lineMovementBasis||"","Line Movement Value":split.lineMovementValue==null?"":String(split.lineMovementValue),"Trend Play":play?"TRUE":"FALSE","Trend Score":play?String(Math.round(play.score)):"","Trend Tier":play?.tier||"","Trend Signals":play?.signals.map(s=>s.signal).join(" | ")||"","Trend All Time Record":primary?.records.allTime.record||"","Trend Last 30 Record":primary?.records.last30.record||"","Trend Last 7 Record":primary?.records.last7.record||"","Trend Exact Sample":play?.signals.map(s=>s.exactSample).join(" | ")||"","Trend Sample Size":play?String(play.TrendSampleSize):"","History Source":play?.HistorySource||"","Fallback Reason":play?.FallbackReason||"","Trend Score Details":play?JSON.stringify({...play,frozenAt:locked?marketStamp:undefined,snapshotStatus:locked?"FINAL_PREGAME":"LIVE",gradingVersion:locked?FROZEN_TREND_GRADING_VERSION:undefined}):""};
+    return{...row,"Public Bets %":String(split.betsPct),"Public Money %":String(split.moneyPct),"Public Gap %":String(split.gapPct),"Public Warning":split.warning,"Public Warning Negative":split.warningNegative?"TRUE":"FALSE","Public Split Source":"DraftKings","Public Split Market":split.market,"Public Split Selection":split.market==="Total"?split.side:split.selectionTeam,"Public Split Line":split.line==null?"":String(split.line),"Public Split Odds":split.odds,"Public Split Match Confidence":locked?"Final 15-minute football market lock":"Live weekly football market","Public Split Snapshot Time":marketStamp,"Opening Public %":String(split.openingBetsPct??split.betsPct),"Current Public %":String(split.betsPct),"Public Change %":String(split.publicMovementPct??0),"Opening Sharp %":String(split.openingMoneyPct??split.moneyPct),"Current Sharp %":String(split.moneyPct),"Sharp Change %":String(split.sharpMovementPct??0),"Opening Public Split Line":split.openingLine==null?"":String(split.openingLine),"Opening Public Split Odds":split.openingOdds||split.odds,"Opening Public Split Snapshot Time":split.openingSnapshotTime||String(snapshotMap.get(splitSnapshotKey(split))?.["Opening Snapshot Time ET"]||marketStamp),"Opening Implied %":split.openingImpliedPct==null?"":String(split.openingImpliedPct),"Current Implied %":split.currentImpliedPct==null?"":String(split.currentImpliedPct),"Line Movement Signal":split.lineMovementSignal||"","Line Movement Tone":split.lineMovementTone||"","Line Movement Basis":split.lineMovementBasis||"","Line Movement Value":split.lineMovementValue==null?"":String(split.lineMovementValue),"Trend Play":play?"TRUE":"FALSE","Trend Score":play?String(Math.round(play.score)):"","Trend Tier":play?.tier||"","Trend Signals":play?.signals.map(s=>s.signal).join(" | ")||"","Trend All Time Record":primary?.records.allTime.record||"","Trend Last 30 Record":primary?.records.last30.record||"","Trend Last 7 Record":primary?.records.last7.record||"","Trend Exact Sample":play?.signals.map(s=>s.exactSample).join(" | ")||"","Trend Sample Size":play?String(play.TrendSampleSize):"","History Source":play?.HistorySource||"","Fallback Reason":play?.FallbackReason||"","Trend Score Details":play?JSON.stringify({...play,frozenAt:locked?marketStamp:undefined,snapshotStatus:locked?"FINAL_PREGAME":"LIVE",gradingVersion:locked?FROZEN_TREND_GRADING_VERSION:undefined}):""};
   });
   if(persist) await upsertSportRows(sport,"all_game_trends",ALL_GAME_TRENDS_HEADERS,trendRows,trendRowKey);
   // The weekly market worksheet is the sole public trend source. It stores
