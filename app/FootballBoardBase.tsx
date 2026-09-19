@@ -593,6 +593,15 @@ function fbTrailingLine(value: unknown) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function fbCfbProjectionOnlySpread(row: SheetRow) {
+  const marketKey = textKey(row["Bet Type"] || row.Market);
+  if (marketKey && !marketKey.includes("spread")) return false;
+  const savedMarketSpread = Number(row["Market Home Spread"]);
+  if (Number.isFinite(savedMarketSpread)) return Math.abs(savedMarketSpread) >= 20;
+  const line = fbTrailingLine(row.Selection || row["Spread Pick"]);
+  return line != null && Math.abs(line) >= 20;
+}
+
 function fbFormInfo(summary: Summary | null, window: FbFormWindow): FbFormInfo {
   const record = summary ? `${summary.wins}-${summary.losses}-${summary.pushes}` : "0-0-0";
   const totalBets = summary?.totalBets || 0;
@@ -669,6 +678,7 @@ function fbRecordTypeForSelection(market: "Spread" | "Total", selection: unknown
 function fbTrackerRecordType(row: SheetRow, sport: Sport): FbRecordType | null {
   const marketKey = textKey(row["Bet Type"] || row.Market);
   if (sport === "NFL") return marketKey.includes("total") ? "Total" : marketKey.includes("spread") ? "Spread" : null;
+  if (fbCfbProjectionOnlySpread(row)) return null;
   const base = marketKey.includes("total")
     ? fbRecordTypeForSelection("Total", row.Selection, fbTrailingLine(row.Selection))
     : marketKey.includes("spread")
@@ -1496,7 +1506,10 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
   } else {
     const trackerRows = data.betTrackerRows || [];
     const recordTrackerRows = sport === "NCAAF"
-      ? trackerRows.filter((row) => fbQualifiedModelGrade(row.Grade || row["Model Grade"]))
+      ? trackerRows.filter((row) =>
+          fbQualifiedModelGrade(row.Grade || row["Model Grade"]) &&
+          !fbCfbProjectionOnlySpread(row)
+        )
       : trackerRows;
     const trendRows = data.trendRecordRows || [];
     const overallBest = fbTotals(recordTrackerRows, data.today);

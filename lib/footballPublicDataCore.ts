@@ -1224,6 +1224,15 @@ function trackerLine(value: unknown) {
   return Number.isFinite(number) ? number : null;
 }
 
+function cfbProjectionOnlySpread(row: SheetRow) {
+  const marketKey = textKey(row["Bet Type"] || row.Market);
+  if (marketKey && !marketKey.includes("spread")) return false;
+  const savedMarketSpread = Number(row["Market Home Spread"]);
+  if (Number.isFinite(savedMarketSpread)) return Math.abs(savedMarketSpread) >= 20;
+  const line = trackerLine(row.Selection || row["Spread Pick"]);
+  return line != null && Math.abs(line) >= 20;
+}
+
 function trackerKey(row: SheetRow) {
   return [isoDate(row.Date), String(row["Game ID"] || row["Game Key"] || ""), textKey(row["Bet Type"] || row.Market), textKey(row.Selection)].join("|");
 }
@@ -1313,7 +1322,7 @@ function playerPropTeams(row: SheetRow) {
 
 function bestPlays(slate:SheetRow[],sport:FootballSport){
   const plays:any[]=[];for(const row of slate){const game=String(row.Game||`${row["Away Team"]} @ ${row["Home Team"]}`),away=String(row["Away Team"]||""),home=String(row["Home Team"]||"");
-    const sg=String(row["Spread Grade"]||"");if(qualifiedFootballModelGrade(sg)){const pick=String(row["Spread Pick"]||"");plays.push({playType:sg,game,play:pick,oddsLine:String(row["Spread Odds"]||row["Market Home Spread"]||""),score:String(row["Spread Probability"]||""),isGreen:true,awayTeam:away,homeTeam:home,reliability:row.Reliability,selectedProbability:row["Spread Probability"],modelVersion:row["Model Version"],role:"Spread",publicBetsPct:row["Spread Public Bets %"],publicMoneyPct:row["Spread Public Money %"]});}
+    const sg=String(row["Spread Grade"]||"");if(qualifiedFootballModelGrade(sg) && !(sport==="NCAAF" && cfbProjectionOnlySpread(row))){const pick=String(row["Spread Pick"]||"");plays.push({playType:sg,game,play:pick,oddsLine:String(row["Spread Odds"]||row["Market Home Spread"]||""),score:String(row["Spread Probability"]||""),isGreen:true,awayTeam:away,homeTeam:home,reliability:row.Reliability,selectedProbability:row["Spread Probability"],modelVersion:row["Model Version"],role:"Spread",publicBetsPct:row["Spread Public Bets %"],publicMoneyPct:row["Spread Public Money %"]});}
     const tg=String(row["Total Grade"]||"");if(qualifiedFootballModelGrade(tg)){plays.push({playType:tg,game,play:String(row["Total Pick"]||""),oddsLine:String(row["Total Odds"]||row["Market Total"]||""),score:String(row["Total Probability"]||""),isGreen:true,awayTeam:away,homeTeam:home,reliability:row.Reliability,selectedProbability:row["Total Probability"],modelVersion:row["Model Version"],role:"Total"});}
   }return plays;
 }
@@ -1413,6 +1422,7 @@ function footballCfbRecordType(base: FootballBestRecordType, gradeValue: unknown
 function footballTrackerRecordType(row: SheetRow, sport: FootballSport): FootballBestRecordType | "" {
   const marketKey = textKey(row["Bet Type"] || row.Market);
   if (sport !== "NCAAF") return marketKey.includes("total") ? "Total" : marketKey.includes("spread") ? "Spread" : "";
+  if (cfbProjectionOnlySpread(row)) return "";
   let base: FootballBestRecordType | "" = "";
   if (marketKey.includes("total")) {
     const side = textKey(row.Selection);
@@ -1666,7 +1676,10 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
   // CFB projection-only / No Play rows stay in the tracker for audit and model
   // research, but they are not official graded plays and must not affect records.
   const recordTracker = sport === "NCAAF"
-    ? tracker.filter((row) => qualifiedFootballModelGrade(row.Grade || row["Model Grade"]))
+    ? tracker.filter((row) =>
+        qualifiedFootballModelGrade(row.Grade || row["Model Grade"]) &&
+        !cfbProjectionOnlySpread(row)
+      )
     : tracker;
   const overall=recordTotals(recordTracker);const last7=recordTotals(recordTracker,7);const pending=recordTracker.filter((r)=>!resultCode(r.Result||r.Status)).length;
   const recordGroups = sport === "NCAAF"
