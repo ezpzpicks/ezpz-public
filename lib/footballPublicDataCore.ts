@@ -201,6 +201,53 @@ function textKey(value: unknown) {
     .toLowerCase().replace(/−/g, "-").replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
 }
 
+const NCAAF_TEAM_ALIASES: Record<string, string> = {
+  "app state": "appalachian state",
+  "fiu": "florida international",
+  "florida intl": "florida international",
+  "fau": "florida atlantic",
+  "uconn": "connecticut",
+  "southern miss": "southern mississippi",
+  "mtsu": "middle tennessee",
+  "middle tennessee state": "middle tennessee",
+  "niu": "northern illinois",
+  "ul lafayette": "louisiana",
+  "louisiana lafayette": "louisiana",
+  "la lafayette": "louisiana",
+  "ul monroe": "louisiana monroe",
+  "ulm": "louisiana monroe",
+  "jax state": "jacksonville state",
+  "ndsu": "north dakota state",
+  "sac state": "sacramento state",
+  "sjsu": "san jose state",
+  "umass": "massachusetts",
+  "nc state": "north carolina state",
+  "usc": "southern california",
+  "ucf": "central florida",
+  "usf": "south florida",
+  "smu": "southern methodist",
+  "byu": "brigham young",
+  "tcu": "texas christian",
+  "utsa": "texas san antonio",
+  "utep": "texas el paso",
+  "lsu": "louisiana state",
+  "ole miss": "mississippi",
+  "cal": "california",
+  "pitt": "pittsburgh",
+};
+
+function normalizeCollegeTeamKey(value: unknown) {
+  let key = textKey(value)
+    .replace(/\buniversity\b/g, "")
+    .replace(/\bthe\b/g, "")
+    .replace(/\baandm\b/g, "am")
+    .replace(/\ba\s+m\b/g, "am")
+    .replace(/\bst$/g, "state")
+    .replace(/\s+/g, " ")
+    .trim();
+  return NCAAF_TEAM_ALIASES[key] || key;
+}
+
 function normalizeTeam(value: unknown, sport: FootballSport) {
   // Selections commonly arrive as "Team -3.5". Strip only a trailing spread
   // number so team matching remains identical for model rows and DraftKings rows.
@@ -217,12 +264,9 @@ function normalizeTeam(value: unknown, sport: FootballSport) {
         return a === key || a.endsWith(key) || key.endsWith(a);
       })) return abbr;
     }
+    return key;
   }
-  return key
-    .replace(/\buniversity\b/g, "")
-    .replace(/\bthe\b/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
+  return normalizeCollegeTeamKey(key);
 }
 
 function sameTeam(a: unknown, b: unknown, sport: FootballSport) {
@@ -232,12 +276,18 @@ function sameTeam(a: unknown, b: unknown, sport: FootballSport) {
   if (left === right) return true;
   const compactLeft = left.replace(/\s+/g, "");
   const compactRight = right.replace(/\s+/g, "");
-  if (sport !== "NFL" && (compactLeft.includes(compactRight) || compactRight.includes(compactLeft))) return true;
-  if (sport === "NFL") return false;
-  const l = new Set(left.split(" ").filter((token) => token.length > 2));
-  const r = new Set(right.split(" ").filter((token) => token.length > 2));
-  const overlap = [...l].filter((token) => r.has(token)).length;
-  return overlap >= Math.min(2, Math.max(1, Math.min(l.size, r.size)));
+  // Compact equality safely handles formatting-only differences such as U C F vs UCF.
+  // Do not use substring/token-overlap matching for college teams: Virginia/West Virginia,
+  // Georgia/Georgia State, Utah/Utah State, etc. must never be treated as the same team.
+  return compactLeft === compactRight;
+}
+
+function sameMatchup(row: SheetRow, split: DraftKingsSplit, sport: FootballSport) {
+  const away = row["Away Team"];
+  const home = row["Home Team"];
+  const sameOrder = sameTeam(away, split.awayTeam, sport) && sameTeam(home, split.homeTeam, sport);
+  const reversedOrder = sameTeam(away, split.homeTeam, sport) && sameTeam(home, split.awayTeam, sport);
+  return sameOrder || reversedOrder;
 }
 
 function todayET(date = new Date()) {
@@ -604,8 +654,7 @@ async function fetchHtml(url: string, params: Record<string, string>) {
 function splitMatchesSlate(split: DraftKingsSplit, slate: SheetRow[], sport: FootballSport) {
   return slate.some((row) => {
     const rowDate = isoDate(row.Date || row["Game Date"] || "");
-    return (!rowDate || !split.date || rowDate === split.date) &&
-      sameTeam(row["Away Team"], split.awayTeam, sport) && sameTeam(row["Home Team"], split.homeTeam, sport);
+    return (!rowDate || !split.date || rowDate === split.date) && sameMatchup(row, split, sport);
   });
 }
 
@@ -614,26 +663,44 @@ async function loadDraftKingsSplits(sport: FootballSport, slate: SheetRow[]) {
   const map = new Map<string, DraftKingsSplit>();
   const errors: string[] = [];
   for (const group of queries) {
-    try {
-      for (let page = 1; page <= 8; page += 1) {
+    let consecutiveEmptyPages = 0;
+    const seenPageSignatures = new Set<string>();
+    for (let page = 1; page <= 12; page += 1) {
+      try {
         const parsed = parseBettingSplits(await fetchHtml(DK_BETTING_SPLITS_URL, {
           itm_content: group, tb_edate: sport === "NFL" ? "n7days" : "n30days", tb_eg: group, tb_page: String(page),
         }));
-        let added = 0;
-        for (const split of parsed.filter((item) => splitMatchesSlate(item, slate, sport))) {
-          const key = `${split.date}|${textKey(split.game)}|${split.market}|${textKey(split.selection)}`;
-          if (!map.has(key)) { map.set(key, split); added += 1; }
+        if (!parsed.length) {
+          // DraftKings occasionally serves an empty/403-backed page between valid pages.
+          // One empty page must not terminate the slate crawl.
+          consecutiveEmptyPages += 1;
+          if (consecutiveEmptyPages >= 3) break;
+          continue;
         }
-        if (!parsed.length) break;
+        consecutiveEmptyPages = 0;
+        const pageSignature = parsed
+          .map((item) => `${item.date}|${textKey(item.game)}|${item.market}|${textKey(item.selection)}`)
+          .sort()
+          .join(";");
+        if (seenPageSignatures.has(pageSignature)) break;
+        seenPageSignatures.add(pageSignature);
+        for (const split of parsed.filter((item) => splitMatchesSlate(item, slate, sport))) {
+          const key = `${split.date}|${normalizeTeam(split.awayTeam, sport)}|${normalizeTeam(split.homeTeam, sport)}|${split.market}|${normalizeTeam(split.market === "Total" ? split.side : split.selectionTeam, sport)}`;
+          if (!map.has(key)) map.set(key, split);
+        }
+      } catch (error) {
+        errors.push(`${group} page ${page}: ${error instanceof Error ? error.message : String(error)}`);
+        // Continue because a later DK page can still be valid even when one page transiently fails.
       }
-      if (map.size) break;
-    } catch (error) { errors.push(`${group}: ${error instanceof Error ? error.message : String(error)}`); }
+    }
+    if (map.size) break;
   }
   if (!map.size) {
     try {
       const parsed = parseBettingSplits(await fetchHtml(DK_BETTING_SPLITS_URL, {}));
       for (const split of parsed.filter((item) => splitMatchesSlate(item, slate, sport))) {
-        map.set(`${split.date}|${textKey(split.game)}|${split.market}|${textKey(split.selection)}`, split);
+        const key = `${split.date}|${normalizeTeam(split.awayTeam, sport)}|${normalizeTeam(split.homeTeam, sport)}|${split.market}|${normalizeTeam(split.market === "Total" ? split.side : split.selectionTeam, sport)}`;
+        map.set(key, split);
       }
     } catch (error) { errors.push(`fallback: ${error instanceof Error ? error.message : String(error)}`); }
   }
@@ -650,12 +717,48 @@ function splitSnapshotKey(split: DraftKingsSplit) {
   return `${split.date}|${textKey(split.awayTeam)}|${textKey(split.homeTeam)}|${textKey(split.market)}|${textKey(split.market === "Total" ? split.side : split.selectionTeam)}`;
 }
 
+function rlmUsableBetsPct(value: unknown) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 && parsed < 100 ? parsed : null;
+}
+
 function movementForSplit(current: DraftKingsSplit, opening: SheetRow | undefined) {
-  const openingLine = numericLine(opening?.["Opening Line"] || opening?.Line || current.line);
-  const openingOdds = String(opening?.["Opening Odds"] || opening?.Odds || current.odds);
-  const openingSnapshotTime = String(opening?.["Opening Snapshot Time ET"] || opening?.["Snapshot Time ET"] || current.snapshotTime || nowET());
-  const openingPublic = Number(opening?.["Opening Public %"] || opening?.["Public Bets %"] || current.betsPct);
-  const openingMoney = Number(opening?.["Opening Sharp %"] || opening?.["Public Money %"] || current.moneyPct);
+  const savedOpeningPublicRaw = Number(opening?.["Opening Public %"]);
+  const savedCurrentPublic = rlmUsableBetsPct(opening?.["Public Bets %"] ?? opening?.["Current Public %"]);
+  const currentPublic = rlmUsableBetsPct(current.betsPct);
+  const openingWasUnusable = savedOpeningPublicRaw === 100 || !Number.isFinite(savedOpeningPublicRaw);
+
+  // A 100% opening split is usually an immature first scrape, not a usable market baseline.
+  // Advance the baseline to the earliest later non-100% snapshot and keep the line/price
+  // from that same snapshot so bet-share movement and market movement are time-aligned.
+  const useSavedCurrentAsOpening = openingWasUnusable && savedCurrentPublic != null;
+  const useLiveCurrentAsOpening = openingWasUnusable && savedCurrentPublic == null && currentPublic != null;
+
+  const openingLine = numericLine(
+    useSavedCurrentAsOpening ? opening?.Line :
+    useLiveCurrentAsOpening ? current.line :
+    opening?.["Opening Line"] || opening?.Line || current.line
+  );
+  const openingOdds = String(
+    useSavedCurrentAsOpening ? opening?.Odds :
+    useLiveCurrentAsOpening ? current.odds :
+    opening?.["Opening Odds"] || opening?.Odds || current.odds
+  );
+  const openingSnapshotTime = String(
+    useSavedCurrentAsOpening ? opening?.["Snapshot Time ET"] :
+    useLiveCurrentAsOpening ? current.snapshotTime || nowET() :
+    opening?.["Opening Snapshot Time ET"] || opening?.["Snapshot Time ET"] || current.snapshotTime || nowET()
+  );
+  const openingPublic =
+    useSavedCurrentAsOpening ? savedCurrentPublic! :
+    useLiveCurrentAsOpening ? currentPublic! :
+    rlmUsableBetsPct(opening?.["Opening Public %"]) ?? currentPublic ?? current.betsPct;
+  const openingMoney = Number(
+    useSavedCurrentAsOpening ? opening?.["Public Money %"] :
+    useLiveCurrentAsOpening ? current.moneyPct :
+    opening?.["Opening Sharp %"] || opening?.["Public Money %"] || current.moneyPct
+  );
+
   const openingImplied = impliedPct(openingOdds);
   const currentImplied = impliedPct(current.odds);
   const publicMovementPct = Math.round((current.betsPct - openingPublic) * 10) / 10;
@@ -678,7 +781,10 @@ function movementForSplit(current: DraftKingsSplit, opening: SheetRow | undefine
   }
   let lineMovementSignal = ""; let lineMovementTone: Tone | "" = "";
   if (value != null) {
-    const opposite = Math.abs(publicMovementPct) >= 5 && publicMovementPct * value < 0;
+    // RLM baseline (all football): BET-SHARE CHANGE must move opposite the selected-side
+    // market movement. Majority bet share by itself is never RLM.
+    const canEvaluateRlm = currentPublic != null && openingPublic < 100;
+    const opposite = canEvaluateRlm && Math.abs(publicMovementPct) >= 5 && publicMovementPct * value < 0;
     if (opposite && Math.abs(value) >= standard) {
       const isStrong = Math.abs(publicMovementPct) >= 10 && Math.abs(value) >= strong;
       lineMovementSignal = value > 0
@@ -1017,8 +1123,8 @@ function headToHead(plays: TrendPlay[]) {
   });
 }
 
-function findSlateForSplit(split:DraftKingsSplit,slate:SheetRow[],sport:FootballSport){return slate.find((row)=>(!isoDate(row.Date)||isoDate(row.Date)===split.date)&&sameTeam(row["Away Team"],split.awayTeam,sport)&&sameTeam(row["Home Team"],split.homeTeam,sport));}
-function findSplitForSide(row:SheetRow,splits:DraftKingsSplit[],sport:FootballSport,market:FootballMarket,selection:string){return splits.find((split)=>split.market===market&&sameTeam(row["Away Team"],split.awayTeam,sport)&&sameTeam(row["Home Team"],split.homeTeam,sport)&&(market==="Total"?textKey(split.side)===textKey(selection):sameTeam(split.selectionTeam,selection,sport)));}
+function findSlateForSplit(split:DraftKingsSplit,slate:SheetRow[],sport:FootballSport){return slate.find((row)=>(!isoDate(row.Date)||isoDate(row.Date)===split.date)&&sameMatchup(row,split,sport));}
+function findSplitForSide(row:SheetRow,splits:DraftKingsSplit[],sport:FootballSport,market:FootballMarket,selection:string){return splits.find((split)=>split.market===market&&sameMatchup(row,split,sport)&&(market==="Total"?textKey(split.side)===textKey(selection):sameTeam(split.selectionTeam,selection,sport)));}
 
 function modelTrendShells(row:SheetRow):SheetRow[]{
   const common={Date:isoDate(row.Date||row["Game Date"]||"")||todayET(),"Game Key":String(row["Game ID"]||row["Game Key"]||""),Game:String(row.Game||`${row["Away Team"]} @ ${row["Home Team"]}`),"Game Time":gameTime(row),"Away Team":String(row["Away Team"]||""),"Home Team":String(row["Home Team"]||""),"Model Version":String(row["Model Version"]||""),Result:"Pending"};
