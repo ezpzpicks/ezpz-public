@@ -1024,8 +1024,14 @@ function movementForSplit(
   }
 
   if (value != null) {
-    const meaningfulPublicMove = Math.abs(publicMovementPct) >= RLM_PUBLIC_MOVE_MIN;
-    const oppositeDirections = publicMovementPct * value < 0;
+    // RLM baseline (all sports): the CHANGE in Bets % must move opposite the
+    // selected-side market movement. Majority bet share by itself is never RLM.
+    const usableOpeningPublic = Number.isFinite(openingPublicPct) && openingPublicPct < 100;
+    const usableCurrentPublic = Number.isFinite(current.betsPct) && current.betsPct < 100;
+    const meaningfulPublicMove =
+      usableOpeningPublic && usableCurrentPublic &&
+      Math.abs(publicMovementPct) >= RLM_PUBLIC_MOVE_MIN;
+    const oppositeDirections = meaningfulPublicMove && publicMovementPct * value < 0;
     if (
       meaningfulPublicMove &&
       oppositeDirections &&
@@ -1078,40 +1084,85 @@ function enrichDraftKingsSplit(
   const betsPct = reportedBetsPct;
   const alignedCurrent = { ...current, betsPct, reportedBetsPct };
   const primary = warningFor(betsPct, current.moneyPct);
-  const openingLine = previous?.openingLine ?? previous?.line ?? current.openingLine ?? current.line;
-  const openingOdds = previous?.openingOdds || previous?.odds || current.openingOdds || current.odds;
-  const openingMoneyPct =
-    previous?.openingMoneyPct ?? previous?.moneyPct ?? current.openingMoneyPct ?? current.moneyPct;
-  const previousOpeningBetsPct =
+
+  const rawPreviousOpeningBetsPct =
+    normalizedPctNumber(previous?.openingReportedBetsPct) ??
+    normalizedPctNumber(previous?.openingBetsPct);
+  const previousCurrentBetsPct =
+    normalizedPctNumber(previous?.reportedBetsPct) ??
+    normalizedPctNumber(previous?.betsPct);
+  const previousUsableBetsPct =
+    previousCurrentBetsPct != null && previousCurrentBetsPct < 100 ? previousCurrentBetsPct : null;
+  const currentUsableBetsPct = reportedBetsPct < 100 ? reportedBetsPct : null;
+  const openingWasUnusable = rawPreviousOpeningBetsPct === 100;
+  const advanceFromPreviousSnapshot = openingWasUnusable && previousUsableBetsPct != null;
+  const advanceFromCurrentSnapshot =
+    openingWasUnusable && previousUsableBetsPct == null && currentUsableBetsPct != null;
+
+  // If the first stored public split is 100%, treat it as an immature market snapshot.
+  // Advance the opening RLM baseline to the earliest subsequent non-100% snapshot and
+  // carry that snapshot's line/odds/handle with it so both deltas share one timestamp.
+  const openingLine = advanceFromPreviousSnapshot
+    ? previous?.line ?? current.line
+    : advanceFromCurrentSnapshot
+      ? current.line
+      : previous?.openingLine ?? previous?.line ?? current.openingLine ?? current.line;
+  const openingOdds = advanceFromPreviousSnapshot
+    ? previous?.odds || current.odds
+    : advanceFromCurrentSnapshot
+      ? current.odds
+      : previous?.openingOdds || previous?.odds || current.openingOdds || current.odds;
+  const openingMoneyPct = advanceFromPreviousSnapshot
+    ? previous?.moneyPct ?? current.moneyPct
+    : advanceFromCurrentSnapshot
+      ? current.moneyPct
+      : previous?.openingMoneyPct ?? previous?.moneyPct ?? current.openingMoneyPct ?? current.moneyPct;
+
+  const candidatePreviousOpeningBetsPct =
     normalizedPctNumber(previous?.openingReportedBetsPct) ??
     normalizedPctNumber(previous?.reportedBetsPct) ??
     normalizedPctNumber(previous?.openingBetsPct) ??
     normalizedPctNumber(previous?.betsPct);
   const previousLooksLikeLegacyComplement =
-    previousOpeningBetsPct != null &&
-    Math.abs(previousOpeningBetsPct + openingMoneyPct - 100) < 0.05 &&
+    candidatePreviousOpeningBetsPct != null &&
+    Math.abs(candidatePreviousOpeningBetsPct + openingMoneyPct - 100) < 0.05 &&
     Math.abs(betsPct + current.moneyPct - 100) >= 0.5;
-  // Rows saved while the old complement bug was active can contain a fake
-  // opening Bets %. When detected, start Bets movement from the first verified
-  // independent live Bets % rather than carrying the fabricated value forward.
-  const openingReportedBetsPct = previousLooksLikeLegacyComplement
-    ? reportedBetsPct
-    : previousOpeningBetsPct ??
-      normalizedPctNumber(current.openingReportedBetsPct) ??
-      normalizedPctNumber(current.openingBetsPct) ??
-      reportedBetsPct;
+
+  const openingReportedBetsPct = advanceFromPreviousSnapshot
+    ? previousUsableBetsPct!
+    : advanceFromCurrentSnapshot
+      ? currentUsableBetsPct!
+      : previousLooksLikeLegacyComplement
+        ? reportedBetsPct
+        : candidatePreviousOpeningBetsPct ??
+          normalizedPctNumber(current.openingReportedBetsPct) ??
+          normalizedPctNumber(current.openingBetsPct) ??
+          reportedBetsPct;
   const openingBetsPct = openingReportedBetsPct;
-  const openingSnapshotTime =
-    previous?.openingSnapshotTime ||
-    previous?.lastSeenAt ||
-    current.openingSnapshotTime ||
-    updatedAt;
+  const openingSnapshotTime = advanceFromPreviousSnapshot
+    ? previous?.lastSeenAt || previous?.openingSnapshotTime || updatedAt
+    : advanceFromCurrentSnapshot
+      ? current.lastSeenAt || updatedAt
+      : previous?.openingSnapshotTime ||
+        previous?.lastSeenAt ||
+        current.openingSnapshotTime ||
+        updatedAt;
+
   const movement = movementForSplit(
     alignedCurrent,
     openingLine ?? null,
     openingOdds || current.odds,
     openingBetsPct,
   );
+
+  // A 100% current split is also an immature observation. Keep storing it for
+  // visibility, but never let it generate an RLM label. The next non-100% snapshot
+  // will be evaluated against the preserved usable baseline.
+  if (reportedBetsPct >= 100 && movement.lineMovementSignal.includes("Reverse Line Movement")) {
+    movement.lineMovementSignal = "";
+    movement.lineMovementTone = "";
+  }
+
   const sharpMovementPct = Math.round((current.moneyPct - openingMoneyPct) * 10) / 10;
 
   return {
