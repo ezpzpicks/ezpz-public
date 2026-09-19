@@ -132,7 +132,7 @@ const ALL_GAME_TRENDS_HEADERS = [
 const AI_PICK_SELECTOR_TAB = "ai_pick_selector";
 const AI_BUILDER_MATCHUP_DETAILS_TAB = "matchup_details_today";
 const AI_BUILDER_CONTEXT_KEY = "__EZPZ_BUILDER_CONTEXT_JSON";
-const AI_PICK_SELECTOR_VERSION = "ezpz-picks-pitcher-quality-v11";
+const AI_PICK_SELECTOR_VERSION = "ezpz-picks-pitcher-quality-v12";
 const AI_MINIMUM_ESTIMATED_ADVANTAGE = 5;
 // A durable 15-minute snapshot is allowed one short retry window after the
 // scheduled start if its selector row missed the LIVE -> FINAL_PREGAME handoff.
@@ -8895,7 +8895,7 @@ MISSING INFORMATION IS NEUTRAL, NOT NEGATIVE. Failure to find or verify a reques
 
 Keep the shared fields concise, numeric, and comparison-first. Research each unique source/fact once per game, reuse it across every applicable candidate in this request, then interpret the same facts by wager type. Use the fixed checklist and exact URLs above. Show the actual comparison values and name the side with the edge even when the difference is small. Clearly distinguish SUPPORTS, OPPOSES, and NEUTRAL for grading, but never hide an available numeric edge behind phrases like 'no advantage found.' Do not award positive support for merely confirming expected starters, a normal lineup, an ordinarily rested bullpen, no material injury, or normal weather.
 
-Return candidateReviews in exactly the same order as the supplied candidates, with exactly one item for each. approved=true means the wager still deserves publication after research. approved=true means the matchup research gives enough qualitative support to publish the wager; it must not mean merely that no catastrophic veto was found. Never set approved=false solely because aiScoreBeforeResearch is below a downstream selector threshold, because the selector applies that numeric gate after research. However, for a borderline candidate near its required score/probability/advantage thresholds, neutral or ambiguous research is not sufficient for approved=true. Borderline plays should be approved only when the verified matchup context positively supports or meaningfully validates the wager. A clearly strong quantitative candidate can remain approved when research is neutral and no material contradiction is found. Use a small adjustment from -6 to +6, and use 0 when research does not change the supplied quantitative case. Each candidate needs two or three concise WHY bullets focused on the actual reason it cleared or failed—never a public risk list. For any candidate backed by a Best Play, its exact Best Play bet type uses the rolling Last-7-Bets quantitative gates: Best Play eligibility is HOT-only: HOT requires 74 score / 50% probability / 1.5% advantage, with odds no worse than -150. Neutral, Small Sample, and Cold are ineligible. This applies to pitcher props, A/B Moneylines, Total Over/Under, and Elite NRFI/YRFI. A Trend-Play-only candidate is not subject to the model bet-type form gate. It must be a Strong/Elite trend (Trend Score 69+), and the selector will require the final adjusted qualification score to reach 80+ after your research adjustment; there is no minimum historical bet count or small-sample veto. Do not reject a trend-only candidate solely because aiScoreBeforeResearch is below 80; the selector applies the final adjusted 80+ gate after research. But neutral research is no longer automatic approval. For trend-only candidates that are borderline—especially an qualification score within 3 points of 80, modest advantage, or a case driven mainly by the trend signal—approved=true requires verified matchup evidence that positively corroborates the wager. If the research is neutral, mixed, or fails to add meaningful matchup support to a borderline case, approved=false is appropriate even without one catastrophic conflict. For a clearly strong trend-only quantitative case comfortably above the threshold, neutral research may remain approved when no material contradiction is found. Concrete unfavorable starter, lineup, bullpen, weather, split, or matchup evidence should still produce approved=false. The AI is the qualitative filter; the selector remains the final numeric gatekeeper.
+Return candidateReviews in exactly the same order as the supplied candidates, with exactly one item for each. approved=true means the wager still deserves publication after research. approved=true means the matchup research gives enough qualitative support to publish the wager; it must not mean merely that no catastrophic veto was found. Never set approved=false solely because aiScoreBeforeResearch is below a downstream selector threshold, because the selector applies that numeric gate after research. However, for a borderline candidate near its required score/probability/advantage thresholds, neutral or ambiguous research is not sufficient for approved=true. Borderline plays should be approved only when the verified matchup context positively supports or meaningfully validates the wager. A clearly strong quantitative candidate can remain approved when research is neutral and no material contradiction is found. Use a small adjustment from -6 to +6, and use 0 when research does not change the supplied quantitative case. Each candidate needs two or three concise WHY bullets focused on the actual reason it cleared or failed—never a public risk list. For any candidate backed by a Best Play, Moneyline, Total, and First Inning use their rolling Last-7-Bets HOT requirement plus the configured market-specific quality gates and odds no worse than -150. Pitcher Strikeouts are explicitly exempt from HOT form: their Last-7 record is informational only, and qualification instead requires Reliability 80%+ plus Selected Probability 65%+, with odds no worse than -150. Never reject a Pitcher Strikeouts candidate solely because its Last-7 form is Neutral, Cold, or Small Sample. A Trend-Play-only candidate is not subject to the model bet-type form gate. It must be a Strong/Elite trend (Trend Score 69+), and the selector will require the final adjusted qualification score to reach 80+ after your research adjustment; there is no minimum historical bet count or small-sample veto. Do not reject a trend-only candidate solely because aiScoreBeforeResearch is below 80; the selector applies the final adjusted 80+ gate after research. But neutral research is no longer automatic approval. For trend-only candidates that are borderline—especially an qualification score within 3 points of 80, modest advantage, or a case driven mainly by the trend signal—approved=true requires verified matchup evidence that positively corroborates the wager. If the research is neutral, mixed, or fails to add meaningful matchup support to a borderline case, approved=false is appropriate even without one catastrophic conflict. For a clearly strong trend-only quantitative case comfortably above the threshold, neutral research may remain approved when no material contradiction is found. Concrete unfavorable starter, lineup, bullpen, weather, split, or matchup evidence should still produce approved=false. The AI is the qualitative filter; the selector remains the final numeric gatekeeper.
 
 For Pitcher Strikeouts, treat the supplied qualification score as the strikeout model's differentiated assessment, not a win probability or automatic approval. Preserve the model's score distinctions unless verified research justifies the permitted small adjustment. For pitcher strikeouts, use the fixed RotoWire lineup source and Baseball Savant source above. Compare the EZPZ projection to the line, the actual opposing lineup's K/contact profile, the pitcher's whiff/arsenal context, and recent workload. Grade the matchup SUPPORTS, OPPOSES, or NEUTRAL; missing data is neutral and mere confirmation is not positive evidence.
 
@@ -10126,6 +10126,94 @@ function aiStoredBestPlayHotFormCorrection(
   };
 }
 
+
+function aiStoredPitcherHotBlockQualityCorrection(
+  pick: AiPick,
+): AiPick | null {
+  if (
+    pick.market !== "Pitcher Strikeouts" ||
+    pick.selected ||
+    pick.snapshotStatus !== "FINAL_PREGAME" ||
+    pick.protectionStatus !== "PASSED" ||
+    !pick.bestPlayType
+  ) {
+    return null;
+  }
+
+  const staleHotBlock =
+    /HOT requires 5\+ wins in 7 completed bets/i.test(pick.rejectionReason) ||
+    /EZPZ Model Pick correction: Last 7 Bets/i.test(pick.rejectionReason);
+  if (!staleHotBlock) return null;
+
+  // Repair only from metrics that were already frozen into this pregame row.
+  // This avoids using any post-start information to create a retroactive pick.
+  const frozenStatus = pick.dataStatus.join(" | ");
+  const reliabilityMatch = frozenStatus.match(
+    /Pitcher K EZPZ gate:\s*reliability\s+(\d+(?:\.\d+)?)/i,
+  );
+  const probabilityMatch = frozenStatus.match(
+    /selected probability\s+(\d+(?:\.\d+)?)%/i,
+  );
+  const reliability = reliabilityMatch ? Number(reliabilityMatch[1]) : 0;
+  const selectedProbability = probabilityMatch ? Number(probabilityMatch[1]) : 0;
+  const playableOdds = parseAmericanOdds(pick.odds);
+  const policy = aiBestPlayPolicy("Pitcher Strikeouts");
+  const minimumReliability = policy.minimumReliability ?? 80;
+  const minimumSelectedProbability = policy.minimumSelectedProbability ?? 65;
+
+  if (
+    reliability < minimumReliability ||
+    selectedProbability < minimumSelectedProbability ||
+    !playableOdds ||
+    playableOdds < policy.maxFavoritePrice
+  ) {
+    return null;
+  }
+
+  const informationalStatus = frozenStatus
+    .replace(/\(\s*(Hot|Cold|Neutral|Need 7 Bets)\s*;\s*HOT required\s*\)/gi, "($1; informational only)")
+    .replace(/HOT required for Model Pick qualification/gi, "informational only for Pitcher K qualification");
+
+  const repairedHistoricalNotes = pick.historicalNotes.map((item) =>
+    item.replace(
+      /HOT required for Model Pick qualification/gi,
+      "informational only for Pitcher K qualification",
+    ),
+  );
+
+  const qualificationLine =
+    `Pitcher K EZPZ gate repaired from frozen pregame snapshot: reliability ${reliability.toFixed(0)} (min ${minimumReliability}) • selected probability ${selectedProbability.toFixed(1)}% (min ${minimumSelectedProbability}%) • odds ${playableOdds} (cap ${policy.maxFavoritePrice})`;
+
+  return {
+    ...pick,
+    selected: true,
+    protectionStatus: "PASSED",
+    rejectionReason: "",
+    confidenceReason: sanitizeAiPublicList(pick.confidenceReason, 6),
+    whySelected: sanitizeAiPublicList(
+      [AI_BEST_PLAY_FINAL_MARKER, "Qualified as a Model EZPZ Pick", ...pick.whySelected],
+      14,
+    ),
+    historicalNotes: sanitizeAiPublicList(repairedHistoricalNotes, 5),
+    risks: [],
+    researchSummary: "",
+    verdict: `FINAL Model EZPZ Pick — ${pick.play}`,
+    dataStatus: [
+      AI_BEST_PLAY_FINAL_MARKER,
+      qualificationLine,
+      informationalStatus,
+      ...pick.dataStatus.filter(
+        (item) =>
+          item !== AI_BEST_PLAY_FINAL_MARKER &&
+          !/HOT requires 5\+ wins in 7 completed bets/i.test(item),
+      ),
+    ].filter(Boolean).slice(0, 5),
+    externalReviewStatus: "NOT_REQUIRED",
+    updatedAt: nowET(),
+    selectorVersion: AI_PICK_SELECTOR_VERSION,
+  };
+}
+
 async function buildAiPickSelector(args: {
   today: string;
   bestPlays: Play[];
@@ -10183,6 +10271,35 @@ async function buildAiPickSelector(args: {
       const parsed = parseAiPickRow(row);
       if (!parsed) return row;
       const replacement = correctedByKey.get(parsed.date + "|" + parsed.candidateId);
+      return replacement ? aiPickRow(replacement) : row;
+    });
+    stored = workingStoredRows
+      .map(parseAiPickRow)
+      .filter((pick): pick is AiPick => Boolean(pick));
+    storedToday = stored.filter((pick) => pick.date === isoPublicDate(today));
+  }
+
+  // PITCHER_QUALITY_GATE_STALE_HOT_REPAIR_V1: repair same-day pitcher props that
+  // were frozen under the obsolete HOT-only rule. The decision is reconstructed
+  // only from the row's saved pregame quality metrics, never from post-start data.
+  const pitcherHotBlockRepairs = storedToday
+    .map((pick) => aiStoredPitcherHotBlockQualityCorrection(pick))
+    .filter((pick): pick is AiPick => Boolean(pick));
+  if (pitcherHotBlockRepairs.length) {
+    try {
+      await persistAiPickRows(pitcherHotBlockRepairs);
+    } catch (error) {
+      console.error("AI pitcher quality-gate stale HOT repair persistence failed", error);
+    }
+    const repairedByKey = new Map(
+      pitcherHotBlockRepairs.map(
+        (pick) => [pick.date + "|" + pick.candidateId, pick] as const,
+      ),
+    );
+    workingStoredRows = workingStoredRows.map((row) => {
+      const parsed = parseAiPickRow(row);
+      if (!parsed) return row;
+      const replacement = repairedByKey.get(parsed.date + "|" + parsed.candidateId);
       return replacement ? aiPickRow(replacement) : row;
     });
     stored = workingStoredRows
