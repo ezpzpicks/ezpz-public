@@ -132,15 +132,17 @@ const ALL_GAME_TRENDS_HEADERS = [
 const AI_PICK_SELECTOR_TAB = "ai_pick_selector";
 const AI_BUILDER_MATCHUP_DETAILS_TAB = "matchup_details_today";
 const AI_BUILDER_CONTEXT_KEY = "__EZPZ_BUILDER_CONTEXT_JSON";
-const AI_PICK_SELECTOR_VERSION = "ezpz-picks-market-specific-hot-v10";
+const AI_PICK_SELECTOR_VERSION = "ezpz-picks-pitcher-quality-v11";
 const AI_MINIMUM_ESTIMATED_ADVANTAGE = 5;
 // A durable 15-minute snapshot is allowed one short retry window after the
 // scheduled start if its selector row missed the LIVE -> FINAL_PREGAME handoff.
 // This recovery never uses ordinary live/in-game market data.
 const AI_FINAL_PREGAME_RECOVERY_GRACE_MS = 30 * 60_000;
 
-// PERMANENT EZPZ PICKS POLICY. Model picks require HOT Last-7-Bets form
-// plus their market-specific quality gate and the -150 maximum favorite price.
+// PERMANENT EZPZ PICKS POLICY. Moneyline, totals, and first-inning Model Picks
+// require HOT Last-7-Bets form plus their market-specific quality gate.
+// Pitcher strikeouts use Reliability 80+ and Selected Probability 65%+ instead
+// of HOT form. All Model Picks keep the -150 maximum favorite price.
 // Trend path: every signal green plus at least +10% net ROI vs the opposing side.
 const AI_BEST_PLAY_FINAL_MARKER =
   "EZPZ Best Play is final for the full day; no separate pregame finalization is required";
@@ -282,8 +284,8 @@ type AiPickSource = "Best Play" | "Trend Play" | "Best + Trend";
 type AiPickMarket = "Moneyline" | "Total" | "Pitcher Strikeouts" | "First Inning";
 
 type EzpzBestPlayPolicy = {
-  // Every model-pick market must be HOT before its market-specific gate can qualify.
-  requiredForm: "HOT";
+  // Optional because pitcher strikeouts intentionally use model quality instead of HOT form.
+  requiredForm?: "HOT";
   maxFavoritePrice: number;
   minimumModelEdge?: number;
   minimumBayesianForm?: number;
@@ -295,8 +297,10 @@ type EzpzBestPlayPolicy = {
 };
 
 // MARKET-SPECIFIC EZPZ MODEL-PICK POLICY.
-// HOT means seven completed prior wagers with at least five wins. A market must
-// clear HOT first, then its own quality threshold, with odds no worse than -150.
+// HOT means seven completed prior wagers with at least five wins. Moneyline,
+// totals, and first inning must clear HOT first. Pitcher strikeouts intentionally
+// use Reliability 80+ and Selected Probability 65%+ without a HOT requirement.
+// Every market keeps odds no worse than -150.
 const EZPZ_BEST_PLAY_POLICIES: Record<AiPickMarket, EzpzBestPlayPolicy> = {
   Moneyline: {
     requiredForm: "HOT",
@@ -318,7 +322,6 @@ const EZPZ_BEST_PLAY_POLICIES: Record<AiPickMarket, EzpzBestPlayPolicy> = {
     minimumSelectedProbability: 68,
   },
   "Pitcher Strikeouts": {
-    requiredForm: "HOT",
     maxFavoritePrice: -150,
     minimumReliability: 80,
     minimumSelectedProbability: 65,
@@ -7294,8 +7297,9 @@ function aiBestPlayQualification(
     policy.requiredForm === "HOT" && form !== "HOT"
       ? `Last 7 Bets ${formRecord} is ${formLabel}; HOT requires 5+ wins in 7 completed bets`
       : "";
-  const formStatus =
-    `Last 7 Bets ${formRecord} (${formLabel}; HOT required)`;
+  const formStatus = policy.requiredForm === "HOT"
+    ? `Last 7 Bets ${formRecord} (${formLabel}; HOT required)`
+    : `Last 7 Bets ${formRecord} (${formLabel}; informational only)`;
 
   if (candidate.market === "Moneyline") {
     const minimumModelEdge = policy.minimumModelEdge ?? 8;
@@ -7409,7 +7413,7 @@ function aiBestPlayQualification(
     );
     const minimumReliability = policy.minimumReliability ?? 80;
     const minimumSelectedProbability = policy.minimumSelectedProbability ?? 65;
-    const failures: string[] = formFailure ? [formFailure] : [];
+    const failures: string[] = [];
     if (reliability < minimumReliability) {
       failures.push(
         `Pitcher K reliability ${reliability.toFixed(0)} did not reach ${minimumReliability}+`,
@@ -7481,7 +7485,8 @@ function aiRecordAdjustments(candidate: AiSelectorCandidate, completedTrackerRow
   }
 
   // Last-7 is frozen from the seven completed wagers before the board date.
-  // HOT (5+ wins) is required for every Model Pick before market-specific gates.
+  // It remains a qualification gate for Moneyline, Total, and First Inning.
+  // Pitcher strikeouts keep it as context only.
   const lastSeven = aiLastSevenBetsSummaryForType(
     completedTrackerRows,
     recordType,
@@ -7491,7 +7496,9 @@ function aiRecordAdjustments(candidate: AiSelectorCandidate, completedTrackerRow
   candidate.pitcherBetTypeRecord = lastSeven.record;
 
   candidate.historicalNotes.push(
-    `${recordType} Last 7 Bets: ${lastSeven.record} • ${candidate.pitcherBetTypeForm} • HOT required for Model Pick qualification`,
+    candidate.market === "Pitcher Strikeouts"
+      ? `${recordType} Last 7 Bets: ${lastSeven.record} • ${candidate.pitcherBetTypeForm} • informational only for Pitcher K qualification`
+      : `${recordType} Last 7 Bets: ${lastSeven.record} • ${candidate.pitcherBetTypeForm} • HOT required for Model Pick qualification`,
   );
 
   if (candidate.market === "Moneyline") {
@@ -10062,6 +10069,7 @@ function aiStoredBestPlayHotFormCorrection(
   completedTrackerRows: SheetRow[],
 ): AiPick | null {
   if (
+    pick.market === "Pitcher Strikeouts" ||
     !pick.selected ||
     pick.snapshotStatus !== "FINAL_PREGAME" ||
     !pick.bestPlayType ||
@@ -10246,8 +10254,9 @@ async function buildAiPickSelector(args: {
     storedToday = stored.filter((pick) => pick.date === isoPublicDate(today));
   }
 
-  // Model Pick gates are evaluated from pre-date history. HOT Last-7 form is
-  // mandatory first, then the market-specific quality and price rules apply.
+  // Model Pick gates are evaluated from pre-date history. HOT Last-7 form remains
+  // mandatory for Moneyline, Total, and First Inning. Pitcher strikeouts instead
+  // use Reliability 80+ and Selected Probability 65%+, plus the same price cap.
 
   // A market-qualified pitcher Best Play that was frozen with only the synthetic
   // "Playable odds are missing" rejection may be retried. The pregame slate
@@ -10255,22 +10264,41 @@ async function buildAiPickSelector(args: {
   // create a new post-start candidate.
   let storedFinalCandidateIds = new Set(
     storedToday
-      .filter(
-        (pick) =>
-          pick.snapshotStatus === "FINAL_PREGAME" &&
-          !(
-            pick.market === "Pitcher Strikeouts" &&
-            !pick.selected &&
-            String(pick.rejectionReason || "").trim() === "Playable odds are missing"
-          ),
-      )
+      .filter((pick) => {
+        if (pick.snapshotStatus !== "FINAL_PREGAME") return false;
+
+        const rejectionReason = String(pick.rejectionReason || "").trim();
+        const retryableMissingPitcherOdds =
+          pick.market === "Pitcher Strikeouts" &&
+          !pick.selected &&
+          rejectionReason === "Playable odds are missing";
+
+        // PITCHER_QUALITY_GATE_RETRY_V1: v10 may have blocked an otherwise
+        // qualified pitcher prop only because its Last-7 form was not HOT.
+        // Under v11, allow that exact row to be re-evaluated only before first pitch.
+        const start = scheduledGameStart({
+          Date: pick.date,
+          "Game Time": pick.gameTime,
+        });
+        const retryableFormerHotBlock =
+          pick.market === "Pitcher Strikeouts" &&
+          !pick.selected &&
+          rejectionReason.startsWith(
+            "EZPZ Model Pick correction: Last 7 Bets",
+          ) &&
+          start != null &&
+          selectorNow < start;
+
+        return !retryableMissingPitcherOdds && !retryableFormerHotBlock;
+      })
       .map((pick) => pick.candidateId),
   );
 
-  // MARKET_BEST_PLAY_IMMEDIATE_FINAL_V3: Model Picks do not wait for the
-  // 15-minute lifecycle. As soon as a Model Pick is HOT and clears its own
-  // market-specific EZPZ rule plus the price/safety gates, save it as
-  // FINAL_PREGAME and keep that decision locked for the rest of the day.
+  // MARKET_BEST_PLAY_IMMEDIATE_FINAL_V4: Model Picks do not wait for the
+  // 15-minute lifecycle. Moneyline, Total, and First Inning must be HOT and
+  // clear their market-specific gate. Pitcher strikeouts instead clear the
+  // reliability/probability gate. All markets still pass price/safety checks,
+  // then save as FINAL_PREGAME for the rest of the day.
   // Trend-only candidates still use the frozen pregame snapshot below.
   const immediateBestPlayDecisions = finalizeImmediateBestPlays(
     candidates,
