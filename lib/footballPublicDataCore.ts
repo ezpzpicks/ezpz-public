@@ -1666,21 +1666,27 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
     : [];
   // EZPZ is a daily card, even though the football trend board tracks the full market week.
   // Keep the weekly trend payload for the Trend Plays tab, but only today's games may enter EZPZ.
-  const todaySlate=slate.filter((row)=>isoDate(row.Date||row["Game Date"]||"")===today);
+  const rawTodaySlate=slate.filter((row)=>isoDate(row.Date||row["Game Date"]||"")===today);
+  const todaySlate=sport==="NCAAF"
+    ? rawTodaySlate.map((row)=>cfbProjectionOnlySpread(row)?{...row,"Spread Grade":"No Play"}:row)
+    : rawTodaySlate;
+  const effectiveTracker=sport==="NCAAF"
+    ? tracker.map((row)=>cfbProjectionOnlySpread(row)?{...row,Grade:"No Play"}:row)
+    : tracker;
   const todayTrendPlays=displayTrendPlays.filter((play)=>isoDate(play.date)===today);
   const todayEnriched=enriched.filter((split)=>isoDate(split.date)===today);
   const modelBest=bestPlays(todaySlate,sport);
   const propBest=sport==="NFL"?nflPlayerPropBestPlays(propProjectionRows,todaySlate,today):[];
   const best=[...modelBest,...propBest];
-  const aiPicks=buildFootballEzpzPicks(modelBest,todayTrendPlays,tracker,todayEnriched,sport,today);
+  const aiPicks=buildFootballEzpzPicks(modelBest,todayTrendPlays,effectiveTracker,todayEnriched,sport,today);
   // CFB projection-only / No Play rows stay in the tracker for audit and model
   // research, but they are not official graded plays and must not affect records.
   const recordTracker = sport === "NCAAF"
-    ? tracker.filter((row) =>
+    ? effectiveTracker.filter((row) =>
         qualifiedFootballModelGrade(row.Grade || row["Model Grade"]) &&
         !cfbProjectionOnlySpread(row)
       )
-    : tracker;
+    : effectiveTracker;
   const overall=recordTotals(recordTracker);const last7=recordTotals(recordTracker,7);const pending=recordTracker.filter((r)=>!resultCode(r.Result||r.Status)).length;
   const recordGroups = sport === "NCAAF"
     ? CFB_MODEL_RECORD_TYPES.map((betType) => ({
@@ -1688,8 +1694,8 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
         rows: recordTracker.filter((row) => footballTrackerRecordType(row, sport) === betType),
       }))
     : [
-        { betType: "Spread", rows: tracker.filter((r) => textKey(r["Bet Type"] || r.Market).includes("spread")) },
-        { betType: "Total", rows: tracker.filter((r) => textKey(r["Bet Type"] || r.Market).includes("total")) },
+        { betType: "Spread", rows: effectiveTracker.filter((r) => textKey(r["Bet Type"] || r.Market).includes("spread")) },
+        { betType: "Total", rows: effectiveTracker.filter((r) => textKey(r["Bet Type"] || r.Market).includes("total")) },
       ];
   const buildRecordSummary = (days?: number) => recordGroups.map(({ betType, rows }) => {
     const totals = recordTotals(rows, days);
@@ -1697,7 +1703,7 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
   });
   const recordSummary = buildRecordSummary();
   const last7RecordSummary = buildRecordSummary(7);
-  return {ok:true,sport,database:sportDatabaseLabel(sport),today,lastUpdated:nowET(),tiles:{last7Days:last7,overallGreen:overall,handpickedLast7:last7,handpickedOverall:overall,pendingGreen:pending,bestPlaysToday:best.length},bestPlays:best,slateToday:todaySlate,betTrackerRows:tracker,draftKings:{ok:enriched.length>0,status:enriched.length?"LIVE":"UNAVAILABLE",updatedAt:nowET(),stale:false,splits:enriched,props:[],errors:dk.errors,displayMode:"LIVE",trackingMode:"WEEKLY",trackingWeekStart:trackingWeek.start,trackingWeekEnd:trackingWeek.end,trackedGames:trackingSlate.length},draftKingsSignalRows:history,trendRecordRows:trendRows.filter(r=>resultCode(r.Result)),trendPlays:displayTrendPlays,aiPicks,aiPickRecordRows:[],aiSelectorStatus:{mode:"LIVE",externalResearchConfigured:false,message:aiPicks.length?`${sport} EZPZ Picks are live for ${today}: HOT Best Plays are FINAL immediately; currently qualifying all-green Strong/Elite Trend Plays with 25%+ net ROI advantage and 8+ graded trend sample appear as PENDING until the next lock run; a delayed run may finalize after kickoff from the saved pregame snapshot; max price -150.`:`No ${sport} EZPZ Picks for ${today} currently qualify under the HOT / all-green 25%+ net ROI / 8+ graded trend sample / Strong-Elite / -150 rules. Qualifying Trend Plays appear as PENDING and can finalize on a later run even after kickoff, using only the saved pregame snapshot.`,updatedAt:nowET(),candidateCount:modelBest.length+todayTrendPlays.length,selectedCount:aiPicks.length},recordSummary,last7RecordSummary,handpickedRecordSummary:recordSummary,handpickedLast7RecordSummary:last7RecordSummary};
+  return {ok:true,sport,database:sportDatabaseLabel(sport),today,lastUpdated:nowET(),tiles:{last7Days:last7,overallGreen:overall,handpickedLast7:last7,handpickedOverall:overall,pendingGreen:pending,bestPlaysToday:best.length},bestPlays:best,slateToday:todaySlate,betTrackerRows:effectiveTracker,draftKings:{ok:enriched.length>0,status:enriched.length?"LIVE":"UNAVAILABLE",updatedAt:nowET(),stale:false,splits:enriched,props:[],errors:dk.errors,displayMode:"LIVE",trackingMode:"WEEKLY",trackingWeekStart:trackingWeek.start,trackingWeekEnd:trackingWeek.end,trackedGames:trackingSlate.length},draftKingsSignalRows:history,trendRecordRows:trendRows.filter(r=>resultCode(r.Result)),trendPlays:displayTrendPlays,aiPicks,aiPickRecordRows:[],aiSelectorStatus:{mode:"LIVE",externalResearchConfigured:false,message:aiPicks.length?`${sport} EZPZ Picks are live for ${today}: HOT Best Plays are FINAL immediately; currently qualifying all-green Strong/Elite Trend Plays with 25%+ net ROI advantage and 8+ graded trend sample appear as PENDING until the next lock run; a delayed run may finalize after kickoff from the saved pregame snapshot; max price -150.`:`No ${sport} EZPZ Picks for ${today} currently qualify under the HOT / all-green 25%+ net ROI / 8+ graded trend sample / Strong-Elite / -150 rules. Qualifying Trend Plays appear as PENDING and can finalize on a later run even after kickoff, using only the saved pregame snapshot.`,updatedAt:nowET(),candidateCount:modelBest.length+todayTrendPlays.length,selectedCount:aiPicks.length},recordSummary,last7RecordSummary,handpickedRecordSummary:recordSummary,handpickedLast7RecordSummary:last7RecordSummary};
 }
 
 const FOOTBALL_PUBLIC_DATA_CACHE_TTL_MS = 60_000;
