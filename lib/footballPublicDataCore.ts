@@ -1663,11 +1663,16 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
   const propBest=sport==="NFL"?nflPlayerPropBestPlays(propProjectionRows,todaySlate,today):[];
   const best=[...modelBest,...propBest];
   const aiPicks=buildFootballEzpzPicks(modelBest,todayTrendPlays,tracker,todayEnriched,sport,today);
-  const overall=recordTotals(tracker);const last7=recordTotals(tracker,7);const pending=tracker.filter((r)=>!resultCode(r.Result||r.Status)).length;
+  // CFB projection-only / No Play rows stay in the tracker for audit and model
+  // research, but they are not official graded plays and must not affect records.
+  const recordTracker = sport === "NCAAF"
+    ? tracker.filter((row) => qualifiedFootballModelGrade(row.Grade || row["Model Grade"]))
+    : tracker;
+  const overall=recordTotals(recordTracker);const last7=recordTotals(recordTracker,7);const pending=recordTracker.filter((r)=>!resultCode(r.Result||r.Status)).length;
   const recordGroups = sport === "NCAAF"
     ? CFB_MODEL_RECORD_TYPES.map((betType) => ({
         betType,
-        rows: tracker.filter((row) => footballTrackerRecordType(row, sport) === betType),
+        rows: recordTracker.filter((row) => footballTrackerRecordType(row, sport) === betType),
       }))
     : [
         { betType: "Spread", rows: tracker.filter((r) => textKey(r["Bet Type"] || r.Market).includes("spread")) },

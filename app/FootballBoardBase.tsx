@@ -563,6 +563,16 @@ function fbGradeBucket(value: unknown) {
   return "";
 }
 
+function fbQualifiedModelGrade(value: unknown) {
+  const grade = textKey(value);
+  return Boolean(grade) &&
+    !grade.includes("no play") &&
+    !grade.includes("non edge") &&
+    grade !== "research" &&
+    grade !== "projection only" &&
+    grade !== "no market line";
+}
+
 function fbCfbRecordType(base: FbRecordType, gradeValue: unknown): FbRecordType {
   const grade = fbGradeBucket(gradeValue);
   if (!grade) return base;
@@ -1485,9 +1495,12 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
     ) : <div className="empty footballEmpty">No {sport} games are posted for {data.today} yet.</div>;
   } else {
     const trackerRows = data.betTrackerRows || [];
+    const recordTrackerRows = sport === "NCAAF"
+      ? trackerRows.filter((row) => fbQualifiedModelGrade(row.Grade || row["Model Grade"]))
+      : trackerRows;
     const trendRows = data.trendRecordRows || [];
-    const overallBest = fbTotals(trackerRows, data.today);
-    const last7Best = fbTotals(trackerRows, data.today, 7);
+    const overallBest = fbTotals(recordTrackerRows, data.today);
+    const last7Best = fbTotals(recordTrackerRows, data.today, 7);
     content = <div className="footballRecordsPage">
       <div className="sectionHead"><div><h2>All Qualified Plays</h2><p>{sport === "NFL" ? "Official graded NFL game + player-prop plays" : "Official graded CFB model plays"}</p></div></div>
       <div className="qualifiedGrid">
@@ -1500,7 +1513,7 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
       <div className="sectionHead"><div><h2>Trend Records</h2><p>Same MLB-style record system, using sport-specific football trend history</p></div></div>
       <div className="advancedRecordsStack">
         <FbTrendRecordExplorer rows={trendRows} today={data.today} />
-        <FbCombinationRecords tracker={trackerRows} trends={trendRows} today={data.today} />
+        <FbCombinationRecords tracker={recordTrackerRows} trends={trendRows} today={data.today} />
       </div>
       <div className="advancedRecordsStack">
         <FbDraftKingsSignalRecords rows={data.draftKingsSignalRows || []} today={data.today} />
@@ -1509,7 +1522,7 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
       <div className="advancedRecordsStack">
         <FbRecordDropdown title="Last 7 Days Model Plays" subtitle={`Exact ${sport} grade / market / direction records`} rows={data.last7RecordSummary || []} defaultOpen />
         <FbRecordDropdown title="Overall Model Plays" subtitle={`Running exact ${sport} grade / market / direction records`} rows={data.recordSummary || []} />
-        <FbRecentResults rows={trackerRows} sport={sport} />
+        <FbRecentResults rows={recordTrackerRows} sport={sport} />
       </div>
       <div className="card fbInfo"><b>Record grading database:</b> {data.database || (sport + " Model Database")}<br />Model Plays and trend signals are graded only after a completed game has a verified final score.</div>
     </div>;
