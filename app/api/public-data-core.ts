@@ -132,15 +132,15 @@ const ALL_GAME_TRENDS_HEADERS = [
 const AI_PICK_SELECTOR_TAB = "ai_pick_selector";
 const AI_BUILDER_MATCHUP_DETAILS_TAB = "matchup_details_today";
 const AI_BUILDER_CONTEXT_KEY = "__EZPZ_BUILDER_CONTEXT_JSON";
-const AI_PICK_SELECTOR_VERSION = "ezpz-picks-market-specific-v9";
+const AI_PICK_SELECTOR_VERSION = "ezpz-picks-market-specific-hot-v10";
 const AI_MINIMUM_ESTIMATED_ADVANTAGE = 5;
 // A durable 15-minute snapshot is allowed one short retry window after the
 // scheduled start if its selector row missed the LIVE -> FINAL_PREGAME handoff.
 // This recovery never uses ordinary live/in-game market data.
 const AI_FINAL_PREGAME_RECOVERY_GRACE_MS = 30 * 60_000;
 
-// PERMANENT EZPZ PICKS POLICY. Best Play qualification is market-specific.
-// The individual market rules are declared after AiPickMarket below.
+// PERMANENT EZPZ PICKS POLICY. Model picks require HOT Last-7-Bets form
+// plus their market-specific quality gate and the -150 maximum favorite price.
 // Trend path: every signal green plus at least +10% net ROI vs the opposing side.
 const AI_BEST_PLAY_FINAL_MARKER =
   "EZPZ Best Play is final for the full day; no separate pregame finalization is required";
@@ -282,8 +282,8 @@ type AiPickSource = "Best Play" | "Trend Play" | "Best + Trend";
 type AiPickMarket = "Moneyline" | "Total" | "Pitcher Strikeouts" | "First Inning";
 
 type EzpzBestPlayPolicy = {
-  // Retained only so older debug payloads can deserialize safely.
-  requiredForm?: "HOT";
+  // Every model-pick market must be HOT before its market-specific gate can qualify.
+  requiredForm: "HOT";
   maxFavoritePrice: number;
   minimumModelEdge?: number;
   minimumBayesianForm?: number;
@@ -294,27 +294,31 @@ type EzpzBestPlayPolicy = {
   minimumSelectedProbability?: number;
 };
 
-// MARKET-SPECIFIC EZPZ BEST PLAY POLICY (historical audit, 2026-09-16).
-// All markets keep the same -150 maximum favorite price, but the quality
-// gate is specific to the signal that separated winners in that market.
+// MARKET-SPECIFIC EZPZ MODEL-PICK POLICY.
+// HOT means seven completed prior wagers with at least five wins. A market must
+// clear HOT first, then its own quality threshold, with odds no worse than -150.
 const EZPZ_BEST_PLAY_POLICIES: Record<AiPickMarket, EzpzBestPlayPolicy> = {
   Moneyline: {
+    requiredForm: "HOT",
     maxFavoritePrice: -150,
     minimumModelEdge: 8,
     minimumBayesianForm: 55,
     minimumHistoryDecisions: 7,
   },
   Total: {
+    requiredForm: "HOT",
     maxFavoritePrice: -150,
     minimumSelectedProbability: 70,
     minimumProjectionEdge: 2,
   },
   "First Inning": {
+    requiredForm: "HOT",
     maxFavoritePrice: -150,
     requireEliteGrade: true,
     minimumSelectedProbability: 68,
   },
   "Pitcher Strikeouts": {
+    requiredForm: "HOT",
     maxFavoritePrice: -150,
     minimumReliability: 80,
     minimumSelectedProbability: 65,
@@ -7229,6 +7233,18 @@ function aiBestPlayQualification(
   }
 
   const policy = aiBestPlayPolicy(candidate.market);
+  const form = candidate.pitcherBetTypeForm || "SAMPLE";
+  const formRecord = candidate.pitcherBetTypeRecord || "0-0-0";
+  const formLabel =
+    form === "SAMPLE"
+      ? "Need 7 Bets"
+      : form.charAt(0) + form.slice(1).toLowerCase();
+  const formFailure =
+    policy.requiredForm === "HOT" && form !== "HOT"
+      ? `Last 7 Bets ${formRecord} is ${formLabel}; HOT requires 5+ wins in 7 completed bets`
+      : "";
+  const formStatus =
+    `Last 7 Bets ${formRecord} (${formLabel}; HOT required)`;
 
   if (candidate.market === "Moneyline") {
     const minimumModelEdge = policy.minimumModelEdge ?? 8;
@@ -7251,7 +7267,7 @@ function aiBestPlayQualification(
         : 0;
     const bayesianForm = candidate.bestPlayHistoricalBayesianPct ?? 0;
     const historyDecisions = candidate.bestPlayHistoricalDecisions ?? 0;
-    const failures: string[] = [];
+    const failures: string[] = formFailure ? [formFailure] : [];
 
     if (historyDecisions < minimumHistoryDecisions) {
       failures.push(
@@ -7272,7 +7288,7 @@ function aiBestPlayQualification(
     return {
       qualifies: failures.length === 0,
       label: `Moneyline edge ${modelEdge.toFixed(1)}% / Bayesian form ${bayesianForm.toFixed(1)}%`,
-      status: `Moneyline EZPZ gate: model edge ${modelEdge.toFixed(1)}% (min ${minimumModelEdge}%) • Bayesian last-20 ${bayesianForm.toFixed(1)}% over ${historyDecisions} decisions (min ${minimumBayesianForm}%, ${minimumHistoryDecisions} decisions) • odds no worse than ${policy.maxFavoritePrice}`,
+      status: `${formStatus} • Moneyline EZPZ gate: model edge ${modelEdge.toFixed(1)}% (min ${minimumModelEdge}%) • Bayesian last-20 ${bayesianForm.toFixed(1)}% over ${historyDecisions} decisions (min ${minimumBayesianForm}%, ${minimumHistoryDecisions} decisions) • odds no worse than ${policy.maxFavoritePrice}`,
       failure: failures.join(" • "),
     };
   }
@@ -7284,7 +7300,7 @@ function aiBestPlayQualification(
       candidate.bestPlay?.selectedProbability || "",
     );
     const projectionEdge = toNumber(candidate.bestPlay?.projectionEdge || 0);
-    const failures: string[] = [];
+    const failures: string[] = formFailure ? [formFailure] : [];
 
     if (selectedProbability < minimumSelectedProbability) {
       failures.push(
@@ -7300,7 +7316,7 @@ function aiBestPlayQualification(
     return {
       qualifies: failures.length === 0,
       label: `Total probability ${selectedProbability.toFixed(1)}% / run edge ${projectionEdge.toFixed(2)}`,
-      status: `Total EZPZ gate: selected probability ${selectedProbability.toFixed(1)}% (min ${minimumSelectedProbability}%) • projected run edge ${projectionEdge.toFixed(2)} (min ${minimumProjectionEdge.toFixed(1)}) • odds no worse than ${policy.maxFavoritePrice}`,
+      status: `${formStatus} • Total EZPZ gate: selected probability ${selectedProbability.toFixed(1)}% (min ${minimumSelectedProbability}%) • projected run edge ${projectionEdge.toFixed(2)} (min ${minimumProjectionEdge.toFixed(1)}) • odds no worse than ${policy.maxFavoritePrice}`,
       failure: failures.join(" • "),
     };
   }
@@ -7314,7 +7330,7 @@ function aiBestPlayQualification(
     const selectedProbability = normalizePercentValue(
       candidate.bestPlay?.selectedProbability || "",
     );
-    const failures: string[] = [];
+    const failures: string[] = formFailure ? [formFailure] : [];
 
     if (policy.requireEliteGrade && !elite) {
       failures.push(
@@ -7330,7 +7346,7 @@ function aiBestPlayQualification(
     return {
       qualifies: failures.length === 0,
       label: `${grade || "First Inning"} / selected probability ${selectedProbability.toFixed(1)}%`,
-      status: `First Inning EZPZ gate: ELITE grade required • selected probability ${selectedProbability.toFixed(1)}% (min ${minimumSelectedProbability}%) • odds no worse than ${policy.maxFavoritePrice}`,
+      status: `${formStatus} • First Inning EZPZ gate: ELITE grade required • selected probability ${selectedProbability.toFixed(1)}% (min ${minimumSelectedProbability}%) • odds no worse than ${policy.maxFavoritePrice}`,
       failure: failures.join(" • "),
     };
   }
@@ -7342,7 +7358,7 @@ function aiBestPlayQualification(
     );
     const minimumReliability = policy.minimumReliability ?? 80;
     const minimumSelectedProbability = policy.minimumSelectedProbability ?? 65;
-    const failures: string[] = [];
+    const failures: string[] = formFailure ? [formFailure] : [];
     if (reliability < minimumReliability) {
       failures.push(
         `Pitcher K reliability ${reliability.toFixed(0)} did not reach ${minimumReliability}+`,
@@ -7356,7 +7372,7 @@ function aiBestPlayQualification(
     return {
       qualifies: failures.length === 0,
       label: `Pitcher K reliability ${reliability.toFixed(0)} / selected probability ${selectedProbability.toFixed(1)}%`,
-      status: `Pitcher K EZPZ gate: reliability ${reliability.toFixed(0)} (min ${minimumReliability}) • selected probability ${selectedProbability.toFixed(1)}% (min ${minimumSelectedProbability}%) • odds no worse than ${policy.maxFavoritePrice}`,
+      status: `${formStatus} • Pitcher K EZPZ gate: reliability ${reliability.toFixed(0)} (min ${minimumReliability}) • selected probability ${selectedProbability.toFixed(1)}% (min ${minimumSelectedProbability}%) • odds no worse than ${policy.maxFavoritePrice}`,
       failure: failures.join(" • "),
     };
   }
@@ -7413,8 +7429,8 @@ function aiRecordAdjustments(candidate: AiSelectorCandidate, completedTrackerRow
     return;
   }
 
-  // Last-7 remains visible as context, but HOT/COLD is no longer an
-  // EZPZ qualification gate for any Best Play market in v9.
+  // Last-7 is frozen from the seven completed wagers before the board date.
+  // HOT (5+ wins) is required for every Model Pick before market-specific gates.
   const lastSeven = aiLastSevenBetsSummaryForType(
     completedTrackerRows,
     recordType,
@@ -7422,6 +7438,10 @@ function aiRecordAdjustments(candidate: AiSelectorCandidate, completedTrackerRow
   );
   candidate.pitcherBetTypeForm = aiPitcherBetTypeForm(lastSeven);
   candidate.pitcherBetTypeRecord = lastSeven.record;
+
+  candidate.historicalNotes.push(
+    `${recordType} Last 7 Bets: ${lastSeven.record} • ${candidate.pitcherBetTypeForm} • HOT required for Model Pick qualification`,
+  );
 
   if (candidate.market === "Moneyline") {
     const lastTwenty = aiLastTwentyQualifiedMoneylineSummary(
@@ -7435,10 +7455,6 @@ function aiRecordAdjustments(candidate: AiSelectorCandidate, completedTrackerRow
       : 0;
     candidate.historicalNotes.push(
       `Moneyline last 20 qualified bets: ${lastTwenty.record} • Bayesian form ${candidate.bestPlayHistoricalBayesianPct.toFixed(1)}%`,
-    );
-  } else {
-    candidate.historicalNotes.push(
-      `${recordType} Last 7 Bets: ${lastSeven.record} • informational only for ${candidate.market} EZPZ qualification`,
     );
   }
 
@@ -9989,6 +10005,68 @@ function aiSortByGameTime(a: AiPick, b: AiPick) {
   return a.play.localeCompare(b.play);
 }
 
+
+function aiStoredBestPlayHotFormCorrection(
+  pick: AiPick,
+  completedTrackerRows: SheetRow[],
+): AiPick | null {
+  if (
+    !pick.selected ||
+    pick.snapshotStatus !== "FINAL_PREGAME" ||
+    !pick.bestPlayType ||
+    !pick.dataStatus.includes(AI_BEST_PLAY_FINAL_MARKER)
+  ) {
+    return null;
+  }
+
+  const recordType = aiCanonicalBestPlayType(pick.bestPlayType);
+  if (!recordType) return null;
+
+  const lastSeven = aiLastSevenBetsSummaryForType(
+    completedTrackerRows,
+    recordType,
+    pick.date,
+  );
+  const form = aiPitcherBetTypeForm(lastSeven);
+  if (form === "HOT") return null;
+
+  const formLabel =
+    form === "SAMPLE"
+      ? "Need 7 Bets"
+      : form.charAt(0) + form.slice(1).toLowerCase();
+  const correction =
+    `EZPZ Model Pick correction: Last 7 Bets ${lastSeven.record} is ${formLabel}; HOT requires 5+ wins in 7 completed bets`;
+
+  return {
+    ...pick,
+    selected: false,
+    protectionStatus: "BLOCKED",
+    rejectionReason: correction,
+    confidenceReason: [],
+    whySelected: [correction],
+    historicalNotes: [
+      `${recordType} Last 7 Bets: ${lastSeven.record} • ${formLabel} • HOT required`,
+      ...pick.historicalNotes.filter(
+        (item) => !textKey(item).includes("informational only"),
+      ),
+    ].slice(0, 5),
+    risks: [],
+    researchSummary: "",
+    verdict: `${pick.play} was removed because its Last 7 Bets Model Pick record was not HOT.`,
+    dataStatus: [
+      correction,
+      ...pick.dataStatus.filter(
+        (item) =>
+          item !== AI_BEST_PLAY_FINAL_MARKER &&
+          !textKey(item).includes("ezpz best play is final"),
+      ),
+    ].slice(0, 5),
+    externalReviewStatus: "NOT_REQUIRED",
+    updatedAt: nowET(),
+    selectorVersion: AI_PICK_SELECTOR_VERSION,
+  };
+}
+
 async function buildAiPickSelector(args: {
   today: string;
   bestPlays: Play[];
@@ -10024,6 +10102,35 @@ async function buildAiPickSelector(args: {
   let workingStoredRows = storedRows;
   let stored = workingStoredRows.map(parseAiPickRow).filter((pick): pick is AiPick => Boolean(pick));
   let storedToday = stored.filter((pick) => pick.date === isoPublicDate(today));
+
+  // POLICY_REPAIR_HOT_MODEL_PICK_V1: remove any same-day immediate Model Pick
+  // that was saved under the temporary v9 market-only rules without HOT form.
+  // Keep the row as a blocked audit record so it cannot be re-added later today.
+  const hotFormCorrections = storedToday
+    .map((pick) => aiStoredBestPlayHotFormCorrection(pick, completedTrackerRows))
+    .filter((pick): pick is AiPick => Boolean(pick));
+  if (hotFormCorrections.length) {
+    try {
+      await persistAiPickRows(hotFormCorrections);
+    } catch (error) {
+      console.error("AI HOT Model Pick correction persistence failed", error);
+    }
+    const correctedByKey = new Map(
+      hotFormCorrections.map(
+        (pick) => [pick.date + "|" + pick.candidateId, pick] as const,
+      ),
+    );
+    workingStoredRows = workingStoredRows.map((row) => {
+      const parsed = parseAiPickRow(row);
+      if (!parsed) return row;
+      const replacement = correctedByKey.get(parsed.date + "|" + parsed.candidateId);
+      return replacement ? aiPickRow(replacement) : row;
+    });
+    stored = workingStoredRows
+      .map(parseAiPickRow)
+      .filter((pick): pick is AiPick => Boolean(pick));
+    storedToday = stored.filter((pick) => pick.date === isoPublicDate(today));
+  }
 
   // A completed web review cannot make a reversed market definition valid.
   // Correct any already-published Total pick whose saved ELITE NRFI/YRFI signal
@@ -10088,8 +10195,8 @@ async function buildAiPickSelector(args: {
     storedToday = stored.filter((pick) => pick.date === isoPublicDate(today));
   }
 
-  // Market-specific Best Play gates are evaluated from the candidate and pre-date history.
-  // Legacy HOT rechecks are retired in v9 so they cannot override the new rules.
+  // Model Pick gates are evaluated from pre-date history. HOT Last-7 form is
+  // mandatory first, then the market-specific quality and price rules apply.
 
   // A market-qualified pitcher Best Play that was frozen with only the synthetic
   // "Playable odds are missing" rejection may be retried. The pregame slate
@@ -10109,11 +10216,11 @@ async function buildAiPickSelector(args: {
       .map((pick) => pick.candidateId),
   );
 
-  // MARKET_BEST_PLAY_IMMEDIATE_FINAL_V2: Best Plays do not wait for the
-  // 15-minute lifecycle. As soon as a Best Play clears its own market-specific
-  // EZPZ rule plus the price/safety gates, save it as FINAL_PREGAME and keep
-  // that decision locked for the rest of the day. Trend-only candidates still
-  // use the frozen pregame snapshot below.
+  // MARKET_BEST_PLAY_IMMEDIATE_FINAL_V3: Model Picks do not wait for the
+  // 15-minute lifecycle. As soon as a Model Pick is HOT and clears its own
+  // market-specific EZPZ rule plus the price/safety gates, save it as
+  // FINAL_PREGAME and keep that decision locked for the rest of the day.
+  // Trend-only candidates still use the frozen pregame snapshot below.
   const immediateBestPlayDecisions = finalizeImmediateBestPlays(
     candidates,
     storedFinalCandidateIds,
