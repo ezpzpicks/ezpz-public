@@ -42,6 +42,22 @@ const VOLATILE_WRITE_POLICIES: Record<string, VolatileWritePolicy> = {
     ignoredFields: ["Public Split Snapshot Time"],
     jsonFields: { "Trend Score Details": ["updatedAt"] },
   },
+  betmgm_posted_games: {
+    intervalMinutes: 30,
+    timestampField: "Last Seen",
+    ignoredFields: ["Last Seen"],
+  },
+  betmgm_weekly_market_trends: {
+    intervalMinutes: 10,
+    timestampField: "Updated At",
+    ignoredFields: ["Updated At"],
+    jsonFields: { "Details JSON": ["updatedAt"] },
+  },
+  betmgm_event_catalog: {
+    intervalMinutes: 60,
+    timestampField: "Last Seen",
+    ignoredFields: ["Last Seen"],
+  },
 };
 
 function assertTursoConfigured() {

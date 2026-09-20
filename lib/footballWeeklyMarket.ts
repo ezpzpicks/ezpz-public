@@ -59,6 +59,7 @@ type Split = {
   warning: string;
   warningTone: Tone;
   warningNegative: boolean;
+  sourceUrl?: string;
 };
 
 type TrendRecord = {
@@ -1663,4 +1664,545 @@ export async function readWeeklyFootballMarket(sport: FootballSport) {
     return !!probe.date && !!canonicalGameRow(probe, sport, canonicalRows);
   });
   return { ok: true, sport, games: validGames, trendPlays, splits, updatedAt: nowET() };
+}
+
+
+// ---- External sportsbook market tracker (shared DraftKings rules) ----
+
+export type ExternalFootballMarketSplit = Split;
+
+export type ExternalFootballMarketSourceConfig = {
+  source: string;
+  sourceUrl: string;
+  postedGamesTab: string;
+  weeklyTrendsTab: string;
+  marketHistoryTab: string;
+  resultHistoryTab: string;
+};
+
+export function footballPublicSplitWarning(betsPct: number, moneyPct: number) {
+  return warningFor(betsPct, moneyPct);
+}
+
+const EXTERNAL_TREND_RESULT_HEADERS = [
+  "Date", "Week", "Game Key", "Game Time", "Game", "Away Team", "Home Team",
+  "Market", "Selection", "Side", "Public Split Line", "Public Split Odds",
+  "Public Bets %", "Public Money %", "Public Gap %", "Public Warning",
+  "Line Movement Signal", "Trend Score", "Trend Tier", "Snapshot Status",
+  "Final Away Score", "Final Home Score", "Result", "Units", "Source",
+  "Source URL", "Graded At", "Trend Score Details",
+];
+
+function externalSourceUrl(config: ExternalFootballMarketSourceConfig, split?: Split) {
+  return String(split?.sourceUrl || config.sourceUrl || "").trim();
+}
+
+function externalMarketHistoryRowForSplit(
+  split: Split,
+  sport: FootballSport,
+  canonicalRows: SheetRow[],
+  snapshotTime: string,
+  config: ExternalFootballMarketSourceConfig,
+): SheetRow {
+  return {
+    ...marketHistoryRowForSplit(split, sport, canonicalRows, snapshotTime),
+    Source: config.source,
+    "Source URL": externalSourceUrl(config, split),
+  };
+}
+
+function externalMarketHistorySeedRow(
+  row: SheetRow,
+  snapshotTime: string,
+  config: ExternalFootballMarketSourceConfig,
+) {
+  const seed = marketHistorySeedRow(row, snapshotTime);
+  return seed ? { ...seed, Source: config.source, "Source URL": config.sourceUrl } : null;
+}
+
+function externalFinalScore(
+  play: WeeklyTrendPlay,
+  sport: FootballSport,
+  scheduleRows: SheetRow[],
+) {
+  const matched = canonicalGameRow(play, sport, scheduleRows);
+  if (!matched) return null;
+  const awayRaw = String(matched["Away Score"] ?? "").trim();
+  const homeRaw = String(matched["Home Score"] ?? "").trim();
+  if (!awayRaw || !homeRaw) return null;
+  const awayScore = Number(awayRaw);
+  const homeScore = Number(homeRaw);
+  if (!Number.isFinite(awayScore) || !Number.isFinite(homeScore)) return null;
+  const completed = ["TRUE", "YES", "Y", "1", "COMPLETED", "FINAL"].includes(
+    String(matched.Completed || matched.Status || "").trim().toUpperCase(),
+  );
+  if (!completed) return null;
+  return { awayScore, homeScore };
+}
+
+function externalSelectionIsAway(play: WeeklyTrendPlay, sport: FootballSport) {
+  if (sport === "NFL") {
+    const selected = nflMarketTeamCode(play.selectionTeam || play.selection);
+    return !!selected && selected === nflMarketTeamCode(play.awayTeam);
+  }
+  return collegeMarketTeamMatch(play.selectionTeam || play.selection, play.awayTeam);
+}
+
+function externalSelectionIsHome(play: WeeklyTrendPlay, sport: FootballSport) {
+  if (sport === "NFL") {
+    const selected = nflMarketTeamCode(play.selectionTeam || play.selection);
+    return !!selected && selected === nflMarketTeamCode(play.homeTeam);
+  }
+  return collegeMarketTeamMatch(play.selectionTeam || play.selection, play.homeTeam);
+}
+
+function gradeExternalTrendPlay(
+  play: WeeklyTrendPlay,
+  sport: FootballSport,
+  scheduleRows: SheetRow[],
+): { result: ResultCode; units: number; awayScore: number; homeScore: number } | null {
+  if (play.snapshotStatus !== "FINAL_PREGAME") return null;
+  const final = externalFinalScore(play, sport, scheduleRows);
+  if (!final || play.line == null) return null;
+
+  let result: ResultCode;
+  if (play.market === "Spread") {
+    const isAway = externalSelectionIsAway(play, sport);
+    const isHome = externalSelectionIsHome(play, sport);
+    if (!isAway && !isHome) return null;
+    const selectedScore = isAway ? final.awayScore : final.homeScore;
+    const opponentScore = isAway ? final.homeScore : final.awayScore;
+    const margin = selectedScore + play.line - opponentScore;
+    result = Math.abs(margin) < 1e-9 ? "P" : margin > 0 ? "W" : "L";
+  } else {
+    const difference = final.awayScore + final.homeScore - play.line;
+    const side = textKey(play.side || play.selection);
+    if (!side.startsWith("over") && !side.startsWith("under")) return null;
+    result = Math.abs(difference) < 1e-9
+      ? "P"
+      : side.startsWith("under")
+        ? difference < 0 ? "W" : "L"
+        : difference > 0 ? "W" : "L";
+  }
+
+  const odds = parseOdds(play.odds) || -110;
+  const units = result === "W" ? profitUnits(odds) : result === "L" ? -1 : 0;
+  return { result, units, ...final };
+}
+
+function externalTrendResultRow(
+  play: WeeklyTrendPlay,
+  grade: NonNullable<ReturnType<typeof gradeExternalTrendPlay>>,
+  config: ExternalFootballMarketSourceConfig,
+): SheetRow {
+  return {
+    Date: play.date,
+    Week: play.week,
+    "Game Key": play.gameKey,
+    "Game Time": play.gameTime,
+    Game: play.game,
+    "Away Team": play.awayTeam,
+    "Home Team": play.homeTeam,
+    Market: play.market,
+    Selection: play.selection,
+    Side: play.side,
+    "Public Split Line": play.line == null ? "" : String(play.line),
+    "Public Split Odds": play.odds,
+    "Public Bets %": String(play.betsPct),
+    "Public Money %": String(play.moneyPct),
+    "Public Gap %": String(play.gapPct),
+    "Public Warning": play.signals[0]?.signal || "",
+    "Line Movement Signal": play.lineMovementSignal || "",
+    "Trend Score": String(Math.round(play.score)),
+    "Trend Tier": play.tier,
+    "Snapshot Status": play.snapshotStatus,
+    "Final Away Score": String(grade.awayScore),
+    "Final Home Score": String(grade.homeScore),
+    Result: grade.result,
+    Units: String(Math.round(grade.units * 10_000) / 10_000),
+    Source: config.source,
+    "Source URL": config.sourceUrl,
+    "Graded At": nowET(),
+    "Trend Score Details": JSON.stringify(play),
+  };
+}
+
+async function settleExternalTrendResults(
+  sport: FootballSport,
+  config: ExternalFootballMarketSourceConfig,
+  trendRows: SheetRow[],
+  existingResults: SheetRow[],
+  scheduleRows: SheetRow[],
+) {
+  const existingKeys = new Set(existingResults.map(trendKey));
+  const additions: SheetRow[] = [];
+  for (const row of trendRows) {
+    const key = trendKey(row);
+    if (!key || existingKeys.has(key)) continue;
+    const raw = String(row["Details JSON"] || "").trim();
+    if (!raw) continue;
+    try {
+      const play = JSON.parse(raw) as WeeklyTrendPlay;
+      const grade = gradeExternalTrendPlay(play, sport, scheduleRows);
+      if (!grade) continue;
+      const result = externalTrendResultRow(play, grade, config);
+      additions.push(result);
+      existingKeys.add(key);
+    } catch { }
+  }
+  if (additions.length) {
+    await upsertSportRows(
+      sport,
+      config.resultHistoryTab,
+      EXTERNAL_TREND_RESULT_HEADERS,
+      additions,
+      trendKey,
+    );
+  }
+  return { rows: [...existingResults, ...additions], settled: additions.length };
+}
+
+export async function syncExternalFootballMarkets(
+  sport: FootballSport,
+  config: ExternalFootballMarketSourceConfig,
+  suppliedSplits: ExternalFootballMarketSplit[],
+  sourceErrors: string[] = [],
+) {
+  await Promise.all([
+    ensureSportWorksheet(sport, config.postedGamesTab, POSTED_GAME_HEADERS),
+    ensureSportWorksheet(sport, config.weeklyTrendsTab, WEEKLY_TREND_HEADERS),
+    ensureSportWorksheet(sport, config.marketHistoryTab, MARKET_HISTORY_HEADERS),
+    ensureSportWorksheet(sport, config.resultHistoryTab, EXTERNAL_TREND_RESULT_HEADERS),
+  ]);
+
+  const [existingGames, existingTrends, resultHistory, scheduleRows, slateRows] = await Promise.all([
+    readSportWorksheet(sport, config.postedGamesTab, POSTED_GAME_HEADERS),
+    readSportWorksheet(sport, config.weeklyTrendsTab, WEEKLY_TREND_HEADERS),
+    readSportWorksheet(sport, config.resultHistoryTab, EXTERNAL_TREND_RESULT_HEADERS),
+    readSportWorksheet(sport, "schedule"),
+    readSportWorksheet(sport, "daily_slate"),
+  ]);
+
+  const settlement = await settleExternalTrendResults(
+    sport,
+    config,
+    existingTrends,
+    resultHistory,
+    scheduleRows,
+  );
+  const effectiveResultHistory = settlement.rows;
+  const canonicalRows = [...scheduleRows, ...slateRows, ...effectiveResultHistory];
+  const errors = [...sourceErrors];
+  const splits = suppliedSplits.filter((split) => validFootballMarketSplit(split, sport, canonicalRows));
+  if (splits.length !== suppliedSplits.length) {
+    errors.push(
+      `Football validation rejected ${suppliedSplits.length - splits.length} non-${sport} or malformed ${config.source} market sides.`,
+    );
+  }
+
+  const activeMarketDates = [...new Set(splits.map((split) => split.date).filter(Boolean))];
+  const existingMarketHistory = activeMarketDates.length
+    ? await readSportWorksheetByDateKeys(
+        sport,
+        config.marketHistoryTab,
+        activeMarketDates,
+        MARKET_HISTORY_HEADERS,
+      )
+    : [];
+
+  const now = nowET();
+  const gameMap = new Map(existingGames.map((row) => [postedGameKey(row), row]));
+  const postedRows: SheetRow[] = [];
+  const uniqueGames = new Map<string, Split>();
+  for (const split of splits) if (!uniqueGames.has(gameKey(split))) uniqueGames.set(gameKey(split), split);
+
+  for (const split of uniqueGames.values()) {
+    const key = gameKey(split);
+    const existing = gameMap.get(key);
+    postedRows.push({
+      Date: split.date,
+      Week: storedFootballWeek(sport, split, canonicalRows),
+      "Game Key": key,
+      "Game Time": split.eventTime,
+      Game: split.game,
+      "Away Team": split.awayTeam,
+      "Home Team": split.homeTeam,
+      "First Seen": String(existing?.["First Seen"] || now),
+      "Last Seen": now,
+      Source: config.source,
+      "Source URL": externalSourceUrl(config, split),
+    });
+  }
+  if (postedRows.length) {
+    await upsertSportRows(
+      sport,
+      config.postedGamesTab,
+      POSTED_GAME_HEADERS,
+      postedRows,
+      postedGameKey,
+    );
+  }
+
+  const existingTrendMap = new Map(existingTrends.map((row) => [trendKey(row), row]));
+  const history = historyFromAllGameTrends(effectiveResultHistory);
+  const marketHistoryRows = [...existingMarketHistory];
+  const marketHistoryRowsToAppend: SheetRow[] = [];
+  const existingHistoryKeys = new Set(existingMarketHistory.map(marketHistoryLogicalKey).filter(Boolean));
+  const latestHistoryByKey = new Map<string, SheetRow>();
+  for (const row of existingMarketHistory) {
+    const key = marketHistoryLogicalKey(row);
+    if (key) latestHistoryByKey.set(key, row);
+  }
+  const postedStateRows = [...existingGames, ...postedRows];
+  const firstSeenByGame = new Map(
+    postedStateRows.map((row) => [
+      String(row["Game Key"] || ""),
+      String(row["First Seen"] || now),
+    ]),
+  );
+
+  for (const split of splits) {
+    const key = splitTrendKey(split);
+    if (!existingHistoryKeys.has(key)) {
+      const existing = existingTrendMap.get(key);
+      const seed = existing
+        ? externalMarketHistorySeedRow(
+            existing,
+            firstSeenByGame.get(gameKey(split)) || now,
+            config,
+          )
+        : null;
+      if (seed) {
+        marketHistoryRows.push(seed);
+        marketHistoryRowsToAppend.push(seed);
+        latestHistoryByKey.set(key, seed);
+        existingHistoryKeys.add(key);
+      }
+    }
+
+    const current = externalMarketHistoryRowForSplit(
+      split,
+      sport,
+      canonicalRows,
+      now,
+      config,
+    );
+    const previous = latestHistoryByKey.get(key);
+    if (!previous || marketHistoryStateSignature(previous) !== current["State Signature"]) {
+      marketHistoryRows.push(current);
+      marketHistoryRowsToAppend.push(current);
+      latestHistoryByKey.set(key, current);
+      existingHistoryKeys.add(key);
+    }
+  }
+
+  let marketHistoryRowsAppended = 0;
+  if (marketHistoryRowsToAppend.length) {
+    try {
+      await appendSportRows(
+        sport,
+        config.marketHistoryTab,
+        MARKET_HISTORY_HEADERS,
+        marketHistoryRowsToAppend,
+      );
+      marketHistoryRowsAppended = marketHistoryRowsToAppend.length;
+    } catch (error) {
+      errors.push(
+        `${config.source} market history append failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  const liveCandidates: WeeklyTrendPlay[] = [];
+  const handledLockKeys = new Set<string>();
+  for (const split of splits) {
+    const key = splitTrendKey(split);
+    const existing = existingTrendMap.get(key);
+    const minutes = minutesUntil(split);
+    if (minutes != null && minutes <= 15) {
+      handledLockKeys.add(key);
+      if (minutes < 0) {
+        if (existing && String(existing["Details JSON"] || "").trim()) {
+          try {
+            const saved = JSON.parse(String(existing["Details JSON"])) as WeeklyTrendPlay;
+            if (saved.snapshotStatus !== "FINAL_PREGAME") {
+              const ageMinutes = snapshotAgeMinutes(saved);
+              const missedLock = ageMinutes == null || ageMinutes > MAX_MISSED_LOCK_FRESHNESS_MINUTES;
+              liveCandidates.push({
+                ...saved,
+                week: footballWeekLabel(sport, saved.date),
+                snapshotStatus: missedLock ? "MISSED_LOCK" as const : "FINAL_PREGAME" as const,
+                frozenAt: missedLock ? undefined : saved.updatedAt,
+                lockWarning: missedLock
+                  ? `Lock capture missed — last verified ${saved.updatedAt}.`
+                  : `Finalized from the last verified pregame snapshot after ${config.source} stopped updating.`,
+              });
+            }
+          } catch { }
+        }
+        continue;
+      }
+
+      if (existing && String(existing["Details JSON"] || "").trim()) {
+        try {
+          const saved = JSON.parse(String(existing["Details JSON"])) as WeeklyTrendPlay;
+          if (saved.snapshotStatus === "FINAL_PREGAME") continue;
+        } catch { }
+      }
+      const freshLock = buildPlay(split, existing, history, marketHistoryRows);
+      liveCandidates.push({
+        ...freshLock,
+        week: footballWeekLabel(sport, split.date),
+        snapshotStatus: "FINAL_PREGAME" as const,
+        frozenAt: freshLock.updatedAt,
+        lockWarning: undefined,
+      });
+      continue;
+    }
+
+    liveCandidates.push({
+      ...buildPlay(split, existing, history, marketHistoryRows),
+      week: footballWeekLabel(sport, split.date),
+    });
+  }
+
+  for (const row of existingTrends) {
+    const key = trendKey(row);
+    if (handledLockKeys.has(key)) continue;
+    const raw = String(row["Details JSON"] || "").trim();
+    if (!raw) continue;
+    try {
+      const saved = JSON.parse(raw) as WeeklyTrendPlay;
+      if (saved.snapshotStatus !== "LIVE") continue;
+      const minutes = minutesUntilPlay(saved);
+      if (minutes == null || minutes > 15) continue;
+      const ageMinutes = snapshotAgeMinutes(saved);
+      const missedLock = ageMinutes == null || ageMinutes > MAX_MISSED_LOCK_FRESHNESS_MINUTES;
+      liveCandidates.push({
+        ...saved,
+        week: footballWeekLabel(sport, saved.date),
+        snapshotStatus: missedLock ? "MISSED_LOCK" as const : "FINAL_PREGAME" as const,
+        frozenAt: missedLock ? undefined : saved.updatedAt,
+        lockWarning: missedLock
+          ? `Lock capture missed — last verified ${saved.updatedAt}.`
+          : `${config.source} was unavailable at lock; finalized from the last verified pregame snapshot.`,
+      });
+    } catch { }
+  }
+
+  const scored = headToHead(liveCandidates);
+  const rows = scored.map(weeklyRow);
+  if (rows.length) {
+    await upsertSportRows(
+      sport,
+      config.weeklyTrendsTab,
+      WEEKLY_TREND_HEADERS,
+      rows,
+      trendKey,
+    );
+  }
+
+  return {
+    ok: true,
+    sport,
+    source: config.source,
+    postedGamesFound: uniqueGames.size,
+    marketSidesFound: splits.length,
+    trendRowsUpdated: rows.length,
+    resultsSettled: settlement.settled,
+    marketHistoryRowsAppended,
+    marketHistoryRowsStored: marketHistoryRows.length,
+    errors,
+    updatedAt: now,
+  };
+}
+
+export async function readExternalFootballMarket(
+  sport: FootballSport,
+  config: ExternalFootballMarketSourceConfig,
+) {
+  await Promise.all([
+    ensureSportWorksheet(sport, config.postedGamesTab, POSTED_GAME_HEADERS),
+    ensureSportWorksheet(sport, config.weeklyTrendsTab, WEEKLY_TREND_HEADERS),
+    ensureSportWorksheet(sport, config.resultHistoryTab, EXTERNAL_TREND_RESULT_HEADERS),
+  ]);
+  const [games, rows, scheduleRows, slateRows, resultRows] = await Promise.all([
+    readSportWorksheet(sport, config.postedGamesTab, POSTED_GAME_HEADERS),
+    readSportWorksheet(sport, config.weeklyTrendsTab, WEEKLY_TREND_HEADERS),
+    readSportWorksheet(sport, "schedule"),
+    readSportWorksheet(sport, "daily_slate"),
+    readSportWorksheet(sport, config.resultHistoryTab, EXTERNAL_TREND_RESULT_HEADERS),
+  ]);
+  const canonicalRows = [...scheduleRows, ...slateRows, ...resultRows];
+  const trendPlays: WeeklyTrendPlay[] = [];
+
+  for (const row of rows) {
+    const raw = String(row["Details JSON"] || "").trim();
+    if (!raw) continue;
+    try {
+      const play = JSON.parse(raw) as WeeklyTrendPlay;
+      const storedSplit = {
+        date: play.date,
+        eventTime: play.gameTime,
+        game: play.game,
+        awayTeam: play.awayTeam,
+        homeTeam: play.homeTeam,
+        market: play.market,
+        selection: play.selection,
+        selectionTeam: play.selectionTeam,
+        side: play.side,
+        sideGroup: play.sideGroup,
+        line: play.line,
+        odds: play.odds,
+        moneyPct: play.moneyPct,
+        betsPct: play.betsPct,
+        gapPct: play.gapPct,
+        warningKey: "",
+        warning: "",
+        warningTone: "neutral" as Tone,
+        warningNegative: false,
+      } as Split;
+      if (!validFootballMarketSplit(storedSplit, sport, canonicalRows)) continue;
+      trendPlays.push({
+        ...play,
+        week: String(row.Week || play.week || storedFootballWeek(sport, play, canonicalRows)),
+      });
+    } catch { }
+  }
+
+  const splits = trendPlays.map((play) => ({
+    game: play.game,
+    market: play.market,
+    selection: play.selection,
+    selectionTeam: play.selectionTeam,
+    side: play.side,
+    line: play.line,
+    odds: play.odds,
+    betsPct: play.betsPct,
+    moneyPct: play.moneyPct,
+    gapPct: play.gapPct,
+    warning: play.signals[0]?.signal || "",
+    lineMovementSignal: play.lineMovementSignal || "",
+    snapshotStatus: play.snapshotStatus,
+  }));
+
+  const validGames = games.filter((row) => {
+    const probe = {
+      date: canonicalScheduleDate(row),
+      awayTeam: String(row["Away Team"] || ""),
+      homeTeam: String(row["Home Team"] || ""),
+    };
+    return !!probe.date && !!canonicalGameRow(probe, sport, canonicalRows);
+  });
+
+  return {
+    ok: true,
+    sport,
+    source: config.source,
+    games: validGames,
+    trendPlays,
+    splits,
+    resultRows: resultRows.filter((row) => Boolean(resultCode(row.Result))),
+    updatedAt: nowET(),
+  };
 }
