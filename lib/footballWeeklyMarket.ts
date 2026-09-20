@@ -847,7 +847,9 @@ function signalBreakdown(signalKey: string, signal: string, tone: Tone, market: 
   };
 }
 
-const MAX_MISSED_LOCK_FRESHNESS_MINUTES = 20;
+const MAX_LOCK_FALLBACK_AGE_MINUTES = 18 * 60;
+// DraftKings can remove a game from the splits table hours before kickoff.
+// At lock, preserve the last real pregame snapshot instead of discarding it solely because DK stopped publishing it.
 
 function minutesUntilEvent(date: string, eventTime: string) {
   if (!date || !eventTime) return null;
@@ -1540,7 +1542,7 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
             const saved = JSON.parse(String(existing["Details JSON"])) as WeeklyTrendPlay;
             if (saved.snapshotStatus !== "FINAL_PREGAME") {
               const ageMinutes = snapshotAgeMinutes(saved);
-              const missedLock = ageMinutes == null || ageMinutes > MAX_MISSED_LOCK_FRESHNESS_MINUTES;
+              const missedLock = ageMinutes == null || ageMinutes > MAX_LOCK_FALLBACK_AGE_MINUTES;
               liveCandidates.push({
                 ...saved,
                 week: footballWeekLabel(sport, saved.date),
@@ -1581,11 +1583,13 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
     if (!raw) continue;
     try {
       const saved = JSON.parse(raw) as WeeklyTrendPlay;
-      if (saved.snapshotStatus !== "LIVE") continue;
+      if (saved.snapshotStatus === "FINAL_PREGAME") continue;
+      // Re-check today's MISSED_LOCK rows too so a source-dropout fallback can repair them.
+      if (saved.date !== todayET()) continue;
       const minutes = minutesUntilPlay(saved);
       if (minutes == null || minutes > 15) continue;
       const ageMinutes = snapshotAgeMinutes(saved);
-      const missedLock = ageMinutes == null || ageMinutes > MAX_MISSED_LOCK_FRESHNESS_MINUTES;
+      const missedLock = ageMinutes == null || ageMinutes > MAX_LOCK_FALLBACK_AGE_MINUTES;
       liveCandidates.push({
         ...saved,
         week: footballWeekLabel(sport, saved.date),
