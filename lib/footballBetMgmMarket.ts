@@ -5,7 +5,7 @@ import {
   type ExternalFootballMarketSourceConfig,
   type ExternalFootballMarketSplit,
 } from "./footballWeeklyMarket";
-import type { FootballSport } from "./sportSheets";
+import { readSportWorksheet, type FootballSport, type SheetRow } from "./sportSheets";
 
 const BETMGM_NFL_PUBLIC_URL =
   "https://sports.betmgm.com/en/blog/nfl/nfl-week-public-betting-odds-picks-expert-predictions-bm16/";
@@ -17,22 +17,6 @@ export const BETMGM_MARKET_CONFIG: ExternalFootballMarketSourceConfig = {
   weeklyTrendsTab: "betmgm_weekly_market_trends",
   marketHistoryTab: "betmgm_odds_snapshot",
   resultHistoryTab: "betmgm_all_game_trends",
-};
-
-type EspnEvent = {
-  id?: string;
-  date?: string;
-  competitions?: Array<{
-    competitors?: Array<{
-      homeAway?: string;
-      team?: {
-        abbreviation?: string;
-        displayName?: string;
-        shortDisplayName?: string;
-        name?: string;
-      };
-    }>;
-  }>;
 };
 
 type ParsedSpreadRow = {
@@ -257,86 +241,51 @@ async function fetchBetMgmPublicHtml() {
   return response.text();
 }
 
-function currentSeasonYear() {
-  const now = new Date();
-  const etMonth = Number(new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/New_York",
-    month: "numeric",
-  }).format(now));
-  const etYear = Number(new Intl.DateTimeFormat("en-US", {
+function normalizedDate(value: unknown) {
+  const raw = String(value || "").trim();
+  const iso = raw.match(/(20\\d{2})[-/](\\d{1,2})[-/](\\d{1,2})/);
+  if (iso) return `${iso[1]}-${iso[2].padStart(2, "0")}-${iso[3].padStart(2, "0")}`;
+  const us = raw.match(/(\\d{1,2})\\/(\\d{1,2})(?:\\/(20\\d{2}))?/);
+  if (!us) return "";
+  const year = us[3] || new Intl.DateTimeFormat("en-US", {
     timeZone: "America/New_York",
     year: "numeric",
-  }).format(now));
-  return etMonth < 3 ? etYear - 1 : etYear;
+  }).format(new Date());
+  return `${year}-${us[1].padStart(2, "0")}-${us[2].padStart(2, "0")}`;
 }
 
 function parsedWeek(rawHtml: string) {
   const text = plainText(rawHtml);
-  const match = text.match(/NFL\s+Week\s+(\d+)\s+Public\s+Betting/i)
-    || text.match(/Public\s+Betting[^.]{0,80}Week\s+(\d+)/i);
+  const match = text.match(/NFL\\s+Week\\s+(\\d+)\\s+Public\\s+Betting/i)
+    || text.match(/Public\\s+Betting[^.]{0,80}Week\\s+(\\d+)/i);
   const week = match ? Number(match[1]) : NaN;
   return Number.isFinite(week) && week > 0 && week <= 25 ? week : null;
 }
 
-function etEventParts(value: string) {
-  const date = new Date(value);
-  if (!Number.isFinite(date.getTime())) return { date: "", eventTime: "" };
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/New_York",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-  }).formatToParts(date);
-  const get = (type: string) => parts.find((part) => part.type === type)?.value || "";
-  return {
-    date: `${get("year")}-${get("month")}-${get("day")}`,
-    eventTime: `${Number(get("hour"))}:${get("minute")} ${get("dayPeriod").toUpperCase()}`,
-  };
+function storedScheduleGame(row: SheetRow): ScheduleGame | null {
+  const date = normalizedDate(row.Date || row["Game Date"]);
+  const eventTime = String(row["Game Time"] || row["Kickoff Time"] || row.Kickoff || "").trim();
+  const awayTeam = String(row["Away Team"] || "").trim();
+  const homeTeam = String(row["Home Team"] || "").trim();
+  const awayCode = nflTeamCode(awayTeam);
+  const homeCode = nflTeamCode(homeTeam);
+  if (!date || !eventTime || !awayCode || !homeCode) return null;
+  return { date, eventTime, awayTeam, homeTeam, awayCode, homeCode };
 }
 
-async function fetchEspnWeek(week: number | null) {
-  const url = new URL("https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard");
-  url.searchParams.set("limit", "100");
-  url.searchParams.set("seasontype", "2");
-  if (week) url.searchParams.set("week", String(week));
-  url.searchParams.set("dates", String(currentSeasonYear()));
-
-  const response = await fetch(url, {
-    cache: "no-store",
-    headers: {
-      "User-Agent": "Mozilla/5.0 (compatible; EZPZ-Picks/1.0; +https://ezpzpicks.com)",
-      Accept: "application/json",
-    },
-    signal: AbortSignal.timeout(15_000),
-  });
-  if (!response.ok) throw new Error(`ESPN NFL schedule request failed ${response.status}`);
-
-  const payload = await response.json() as { events?: EspnEvent[] };
-  const games: ScheduleGame[] = [];
-
-  for (const event of payload.events || []) {
-    const competitors = event.competitions?.[0]?.competitors || [];
-    const away = competitors.find((item) => String(item.homeAway || "").toLowerCase() === "away")?.team;
-    const home = competitors.find((item) => String(item.homeAway || "").toLowerCase() === "home")?.team;
-    const awayTeam = String(away?.displayName || away?.shortDisplayName || away?.name || away?.abbreviation || "").trim();
-    const homeTeam = String(home?.displayName || home?.shortDisplayName || home?.name || home?.abbreviation || "").trim();
-    const awayCode = nflTeamCode(away?.abbreviation || awayTeam);
-    const homeCode = nflTeamCode(home?.abbreviation || homeTeam);
-    const timing = etEventParts(String(event.date || ""));
-    if (!awayCode || !homeCode || !timing.date || !timing.eventTime) continue;
-    games.push({
-      ...timing,
-      awayTeam,
-      homeTeam,
-      awayCode,
-      homeCode,
-    });
+async function loadTrackedScheduleGames(sport: FootballSport) {
+  const [posted, weekly] = await Promise.all([
+    readSportWorksheet(sport, "posted_games"),
+    readSportWorksheet(sport, "weekly_market_trends"),
+  ]);
+  const map = new Map<string, ScheduleGame>();
+  for (const row of [...posted, ...weekly]) {
+    const game = storedScheduleGame(row);
+    if (!game) continue;
+    const key = `${game.date}|${game.awayCode}|${game.homeCode}`;
+    if (!map.has(key)) map.set(key, game);
   }
-
-  return games;
+  return [...map.values()];
 }
 
 function matchScheduleGame(teamOneLabel: string, teamTwoLabel: string, games: ScheduleGame[]) {
@@ -454,9 +403,10 @@ async function loadDirectBetMgmSplits(sport: FootballSport) {
   const rawHtml = await fetchBetMgmPublicHtml();
   const parsed = parseBetMgmPublicTables(rawHtml);
   const week = parsedWeek(rawHtml);
-  const schedule = await fetchEspnWeek(week);
+  const schedule = await loadTrackedScheduleGames(sport);
   const splits: ExternalFootballMarketSplit[] = [];
   const errors: string[] = [];
+  if (!schedule.length) errors.push("No stored DraftKings NFL game-time map is available yet; BetMGM rows will retry on the next five-minute cycle.");
 
   let spreadGames = 0;
   for (const row of parsed.spreads) {
