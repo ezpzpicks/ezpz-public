@@ -452,9 +452,9 @@ function FbTrendRecordExplorer({ rows, today }: { rows: SheetRow[]; today: strin
     fbSummary("Elite Trend", fbTotals(rows, today, days, (row) => qualified(row) && textKey(row["Trend Tier"]) === "elite")),
     fbSummary("Strong Trend", fbTotals(rows, today, days, (row) => qualified(row) && textKey(row["Trend Tier"]) === "strong")),
     fbSummary("Good Trend", fbTotals(rows, today, days, (row) => qualified(row) && textKey(row["Trend Tier"]) === "good")),
-  ].filter((row) => row.totalBets > 0);
+  ];
   return (
-    <details className="recordsDropdown fbMlbRecordsDropdown">
+    <details className="recordsDropdown fbMlbRecordsDropdown" open>
       <summary className="recordsSummary">
         <div><div className="recordsSummaryTitle">Trend Tier Records</div><div className="recordsSummarySub">Good / Strong / Elite football trend history</div></div>
         <span className="recordsCount">{summaries.find((row) => row.betType === "All Trend Plays")?.totalBets || 0} plays</span>
