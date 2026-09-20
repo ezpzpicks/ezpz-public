@@ -243,9 +243,9 @@ async function fetchBetMgmPublicHtml() {
 
 function normalizedDate(value: unknown) {
   const raw = String(value || "").trim();
-  const iso = raw.match(/(20\\d{2})[-/](\\d{1,2})[-/](\\d{1,2})/);
+  const iso = raw.match(/(20\d{2})[-/](\d{1,2})[-/](\d{1,2})/);
   if (iso) return `${iso[1]}-${iso[2].padStart(2, "0")}-${iso[3].padStart(2, "0")}`;
-  const us = raw.match(/(\\d{1,2})\\/(\\d{1,2})(?:\\/(20\\d{2}))?/);
+  const us = raw.match(/(\d{1,2})\/(\d{1,2})(?:\/(20\d{2}))?/);
   if (!us) return "";
   const year = us[3] || new Intl.DateTimeFormat("en-US", {
     timeZone: "America/New_York",
@@ -256,8 +256,8 @@ function normalizedDate(value: unknown) {
 
 function parsedWeek(rawHtml: string) {
   const text = plainText(rawHtml);
-  const match = text.match(/NFL\\s+Week\\s+(\\d+)\\s+Public\\s+Betting/i)
-    || text.match(/Public\\s+Betting[^.]{0,80}Week\\s+(\\d+)/i);
+  const match = text.match(/NFL\s+Week\s+(\d+)\s+Public\s+Betting/i)
+    || text.match(/Public\s+Betting[^.]{0,80}Week\s+(\d+)/i);
   const week = match ? Number(match[1]) : NaN;
   return Number.isFinite(week) && week > 0 && week <= 25 ? week : null;
 }
