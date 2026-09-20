@@ -80,16 +80,20 @@ function resultCode(value: unknown) {
 }
 
 function parseAmericanOdds(value: unknown) {
-  const raw = String(value || "").replace(/−/g, "-");
-  const signed = raw.match(/[+-]\d{3,4}/)?.[0];
-  if (signed) {
-    const parsed = Number(signed);
-    return Number.isFinite(parsed) ? parsed : null;
+  const raw = String(value ?? "").trim().replace(/−/g, "-");
+  if (!raw) return null;
+  if (/^(?:even|evens|even money)$/i.test(raw)) return 100;
+
+  // Turso can return numeric sportsbook prices as strings such as "130.0".
+  // Scan every numeric token so combined fields like "0.5 / 130.0" also work,
+  // while ignoring prop lines because valid American odds have magnitude >= 100.
+  const tokens = raw.match(/[+-]?\d+(?:\.\d+)?/g) || [];
+  for (const token of [...tokens].reverse()) {
+    const parsed = Number(token);
+    if (!Number.isFinite(parsed) || Math.abs(parsed) < 100 || Math.abs(parsed) > 10000) continue;
+    return Math.round(parsed);
   }
-  const plain = raw.match(/(?:^|\s)(\d{3})(?:\s|$)/)?.[1];
-  if (!plain) return null;
-  const parsed = Number(plain);
-  return Number.isFinite(parsed) ? parsed : null;
+  return null;
 }
 
 function formatAmericanOdds(value: unknown) {
