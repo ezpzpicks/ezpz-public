@@ -1,0 +1,42 @@
+import { NextRequest, NextResponse } from "next/server";
+import { discoverBetMgmFootballEvents } from "../../../../lib/footballBetMgmMarket";
+import type { FootballSport } from "../../../../lib/sportSheets";
+import { withTursoReadCache } from "../../../../lib/tursoStore";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+export const maxDuration = 60;
+
+async function runCron(request: NextRequest) {
+  const secret = process.env.CRON_SECRET;
+  if (!secret) {
+    return NextResponse.json({ ok: false, error: "CRON_SECRET is not configured." }, { status: 500 });
+  }
+  if (request.headers.get("authorization") !== `Bearer ${secret}`) {
+    return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+  }
+
+  const raw = String(request.nextUrl.searchParams.get("sport") || "NFL").toUpperCase();
+  if (raw !== "NFL") {
+    return NextResponse.json(
+      { ok: false, error: "BetMGM pilot collection is currently enabled for NFL only." },
+      { status: 400 },
+    );
+  }
+
+  try {
+    const result = await discoverBetMgmFootballEvents(raw as FootballSport);
+    return NextResponse.json(result, { headers: { "Cache-Control": "no-store, max-age=0" } });
+  } catch (error) {
+    console.error("BetMGM football discovery failed", error);
+    return NextResponse.json(
+      { ok: false, sport: raw, error: error instanceof Error ? error.message : String(error) },
+      { status: 500 },
+    );
+  }
+}
+
+export async function GET(request: NextRequest) {
+  return withTursoReadCache(() => runCron(request));
+}
