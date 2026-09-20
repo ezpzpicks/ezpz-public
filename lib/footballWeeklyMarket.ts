@@ -847,6 +847,7 @@ function signalBreakdown(signalKey: string, signal: string, tone: Tone, market: 
   };
 }
 
+const MAX_MISSED_LOCK_FRESHNESS_MINUTES = 20;
 const MAX_LOCK_FALLBACK_AGE_MINUTES = 18 * 60;
 // DraftKings can remove a game from the splits table hours before kickoff.
 // At lock, preserve the last real pregame snapshot instead of discarding it solely because DK stopped publishing it.
