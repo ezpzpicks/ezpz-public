@@ -369,6 +369,8 @@ function HistoryPickCard({ pick, sport, viewingToday, data }: { pick: EzpzPick; 
   const statusLabel = result.label !== "PENDING" ? result.label : viewingToday ? liveStatus : "PENDING";
   const statusTone = result.label !== "PENDING" ? result.tone : liveStatus === "FINAL" ? "final" : "pending";
   const propSelection = [String(pick.propSide || "").trim(), String(pick.propLine ?? "").trim()].filter(Boolean).join(" ") || String(pick.selection || "");
+  const propProjection = String(pick.propProjection ?? "").trim();
+  const propSelectionWithProjection = propProjection ? `${propSelection} • Proj. ${propProjection}` : propSelection;
   const form = sport === "NFL" ? pickFormMeta(pick.formStatus) : null;
   const formRecord = String(pick.record || "").trim();
   return (
@@ -384,7 +386,7 @@ function HistoryPickCard({ pick, sport, viewingToday, data }: { pick: EzpzPick; 
             <span className="footballHistoryEyebrow"><TeamLogoName sport="NFL" team={pick.playerTeam || ""} text={pick.playerTeam || "NFL"} compact /> • {pick.propMarket || "Player Prop"}</span>
             <h3>{pick.playerName || pick.selection}</h3>
             <p><MatchupWithLogos sport="NFL" game={pick.game || ""} compact /></p>
-            <div className="footballHistoryPropPick"><span>Pick</span><b>{propSelection}</b></div>
+            <div className="footballHistoryPropPick"><span>Pick</span><b>{propSelectionWithProjection}</b></div>
           </div>
         </div>
       ) : (
