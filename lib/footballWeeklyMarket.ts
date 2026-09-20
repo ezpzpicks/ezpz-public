@@ -1543,7 +1543,7 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
             const saved = JSON.parse(String(existing["Details JSON"])) as WeeklyTrendPlay;
             if (saved.snapshotStatus !== "FINAL_PREGAME") {
               const ageMinutes = snapshotAgeMinutes(saved);
-              const missedLock = ageMinutes == null || ageMinutes > MAX_LOCK_FALLBACK_AGE_MINUTES;
+              const missedLock = ageMinutes == null || ageMinutes > (sport === "NFL" ? MAX_LOCK_FALLBACK_AGE_MINUTES : MAX_MISSED_LOCK_FRESHNESS_MINUTES);
               liveCandidates.push({
                 ...saved,
                 week: footballWeekLabel(sport, saved.date),
@@ -1585,12 +1585,13 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
     try {
       const saved = JSON.parse(raw) as WeeklyTrendPlay;
       if (saved.snapshotStatus === "FINAL_PREGAME") continue;
-      // Re-check today's MISSED_LOCK rows too so a source-dropout fallback can repair them.
+      // Re-check today's NFL MISSED_LOCK rows too so a source-dropout fallback can repair them.
+      if (saved.snapshotStatus === "MISSED_LOCK" && sport !== "NFL") continue;
       if (saved.date !== todayET()) continue;
       const minutes = minutesUntilPlay(saved);
       if (minutes == null || minutes > 15) continue;
       const ageMinutes = snapshotAgeMinutes(saved);
-      const missedLock = ageMinutes == null || ageMinutes > MAX_LOCK_FALLBACK_AGE_MINUTES;
+      const missedLock = ageMinutes == null || ageMinutes > (sport === "NFL" ? MAX_LOCK_FALLBACK_AGE_MINUTES : MAX_MISSED_LOCK_FRESHNESS_MINUTES);
       liveCandidates.push({
         ...saved,
         week: footballWeekLabel(sport, saved.date),
