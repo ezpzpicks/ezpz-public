@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { readBetMgmFootballMarket } from "../../../lib/footballBetMgmMarket";
+import { discoverBetMgmFootballEvents, readBetMgmFootballMarket } from "../../../lib/footballBetMgmMarket";
 import type { FootballSport } from "../../../lib/sportSheets";
 
 export const runtime = "nodejs";
@@ -16,7 +16,9 @@ export async function GET(request: NextRequest) {
     );
   }
   try {
-    const result = await readBetMgmFootballMarket(raw as FootballSport);
+    const result = request.nextUrl.searchParams.get("probe") === "1"
+      ? await discoverBetMgmFootballEvents(raw as FootballSport)
+      : await readBetMgmFootballMarket(raw as FootballSport);
     return NextResponse.json(result, { headers: { "Cache-Control": "no-store, max-age=0" } });
   } catch (error) {
     console.error("BetMGM football market read failed", error);
