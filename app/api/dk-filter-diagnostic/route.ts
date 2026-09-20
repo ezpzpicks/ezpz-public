@@ -24,12 +24,9 @@ function tokens(raw: string) {
     .split(/\r?\n/).map((item) => item.replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim()).filter(Boolean);
 }
 
-async function probe(group: string, page: number) {
+async function probe(label: string, params: Record<string, string>, page: number) {
   const target = new URL(DK_URL);
-  target.searchParams.set("tb_eg", group);
-  target.searchParams.set("itm_content", group);
-  target.searchParams.set("tb_edate", "n7days");
-  target.searchParams.set("tb_emt", "Spread");
+  Object.entries(params).forEach(([key, value]) => target.searchParams.set(key, value));
   target.searchParams.set("tb_page", String(page));
   const response = await fetch(target, {
     cache: "no-store",
@@ -49,7 +46,8 @@ async function probe(group: string, page: number) {
   }
   const selectMatch = html.match(/<select[^>]+(?:name|id)=["'][^"']*(?:tb_eg|event)[^"']*["'][^>]*>[\s\S]*?<\/select>/i);
   return {
-    group,
+    label,
+    params,
     page,
     status: response.status,
     bytes: html.length,
@@ -61,15 +59,22 @@ async function probe(group: string, page: number) {
 }
 
 export async function GET(_request: NextRequest) {
-  const groups = ["84240", "88808", "NFL", "NCAA Football"];
-  const pages = [1, 2, 5, 10, 11, 15];
+  const variants = [
+    { label: "current-84240", params: { tb_eg: "84240", itm_content: "84240", tb_edate: "n7days", tb_emt: "Spread" } },
+    { label: "nfl-only-filter", params: { tb_eg: "NFL", tb_edate: "n7days", tb_emt: "Spread" } },
+    { label: "nfl-with-84240-content", params: { tb_eg: "NFL", itm_content: "84240", tb_edate: "n7days", tb_emt: "Spread" } },
+    { label: "nfl-with-88808-content", params: { tb_eg: "NFL", itm_content: "88808", tb_edate: "n7days", tb_emt: "Spread" } },
+    { label: "nfl-no-market-filter", params: { tb_eg: "NFL", tb_edate: "n7days" } },
+    { label: "ncaa-only-filter", params: { tb_eg: "NCAA Football", tb_edate: "n7days", tb_emt: "Spread" } },
+  ];
+  const pages = [1, 2, 5, 10];
   const results = [];
-  for (const group of groups) {
+  for (const variant of variants) {
     for (const page of pages) {
       try {
-        results.push(await probe(group, page));
+        results.push(await probe(variant.label, variant.params, page));
       } catch (error) {
-        results.push({ group, page, error: error instanceof Error ? error.message : String(error) });
+        results.push({ label: variant.label, params: variant.params, page, error: error instanceof Error ? error.message : String(error) });
       }
     }
   }
