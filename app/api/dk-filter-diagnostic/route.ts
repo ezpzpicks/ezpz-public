@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -58,7 +58,7 @@ async function probe(label: string, params: Record<string, string>, page: number
   };
 }
 
-export async function GET(_request: NextRequest) {
+export async function GET() {
   const variants = [
     { label: "current-84240", params: { tb_eg: "84240", itm_content: "84240", tb_edate: "n7days", tb_emt: "Spread" } },
     { label: "nfl-only-filter", params: { tb_eg: "NFL", tb_edate: "n7days", tb_emt: "Spread" } },
