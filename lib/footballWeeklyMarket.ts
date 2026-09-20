@@ -426,7 +426,10 @@ function storedFootballWeek(sport: FootballSport, split: Pick<Split, "date" | "a
 }
 
 async function loadPostedSplits(sport: FootballSport, canonicalRows: SheetRow[]) {
-  const groups = sport === "NFL" ? ["84240"] : ["NCAA Football"];
+  // DK Network's tb_eg selector expects the visible league label ("NFL" / "NCAA Football").
+  // Numeric sportsbook event-group IDs are not valid here; invalid values silently fall back
+  // to the mixed all-sports table.
+  const groups = sport === "NFL" ? ["NFL"] : ["NCAA Football"];
   const map = new Map<string, Split>();
   const errors: string[] = [];
   const horizons = sport === "NFL" ? ["n7days"] : ["n30days"];
@@ -435,15 +438,22 @@ async function loadPostedSplits(sport: FootballSport, canonicalRows: SheetRow[])
     for (const horizon of horizons) {
       for (const marketFilter of marketFilters) {
         try {
-          for (let page = 1; page <= 10; page += 1) {
+          let previousPageSignature = "";
+          for (let page = 1; page <= 25; page += 1) {
             const parsed = parseBettingSplits(await fetchHtml({
-              itm_content: group,
               tb_eg: group,
               tb_page: String(page),
               ...(horizon ? { tb_edate: horizon } : {}),
               ...(marketFilter ? { tb_emt: marketFilter } : {}),
             }));
             if (!parsed.length) break;
+            const pageSignature = parsed
+              .map((split) => splitTrendKey(split))
+              .sort()
+              .join("|");
+            // DK clamps requests beyond the last page back to the final page.
+            if (pageSignature && pageSignature === previousPageSignature) break;
+            previousPageSignature = pageSignature;
             for (const split of parsed) {
               const key = splitTrendKey(split);
               map.set(key, split);
