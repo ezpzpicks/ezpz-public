@@ -148,15 +148,14 @@ function participantName(event: LumifyEvent, role: "away" | "home") {
 async function lumifyJson<T>(path: string, init: RequestInit = {}): Promise<T> {
   const key = apiKey();
   if (!key) throw new Error("LUMIFY_API_KEY is not configured.");
+  const headers = new Headers(init.headers);
+  headers.set("Authorization", `Bearer ${key}`);
+  headers.set("Accept", "application/json");
+  if (init.body) headers.set("Content-Type", "application/json");
   const response = await fetch(`${LUMIFY_BASE_URL}${path}`, {
     ...init,
     cache: "no-store",
-    headers: {
-      Authorization: `Bearer ${key}`,
-      Accept: "application/json",
-      ...(init.body ? { "Content-Type": "application/json" } : {}),
-      ...(init.headers || {}),
-    },
+    headers,
     signal: AbortSignal.timeout(20_000),
   });
   const body = await response.text();
@@ -303,7 +302,6 @@ async function fetchOddsBatch(eventIds: number[]) {
       event_ids: eventIds,
       include_odds: true,
       bookmaker: BETMGM_BOOKMAKER,
-      include_alts: false,
     }),
   });
   return new Map(
