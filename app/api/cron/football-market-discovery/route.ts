@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { syncPostedFootballMarkets } from "../../../../lib/footballWeeklyMarket";
+import {
+  inspectPostedFootballMarkets,
+  syncPostedFootballMarkets,
+} from "../../../../lib/footballWeeklyMarket";
 import type { FootballSport } from "../../../../lib/sportSheets";
 import { withTursoReadCache } from "../../../../lib/tursoStore";
 
@@ -9,9 +12,13 @@ export const revalidate = 0;
 export const maxDuration = 120;
 
 async function runCron(request: NextRequest) {
+  const dryRun = request.nextUrl.searchParams.get("dryRun") === "1";
+  const previewDryRun = dryRun && process.env.VERCEL_ENV !== "production";
   const secret = process.env.CRON_SECRET;
-  if (!secret) return NextResponse.json({ ok: false, error: "CRON_SECRET is not configured." }, { status: 500 });
-  if (request.headers.get("authorization") !== `Bearer ${secret}`) {
+  if (!previewDryRun && !secret) {
+    return NextResponse.json({ ok: false, error: "CRON_SECRET is not configured." }, { status: 500 });
+  }
+  if (!previewDryRun && request.headers.get("authorization") !== `Bearer ${secret}`) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
   const raw = String(request.nextUrl.searchParams.get("sport") || "").toUpperCase();
@@ -19,7 +26,9 @@ async function runCron(request: NextRequest) {
     return NextResponse.json({ ok: false, error: "sport must be NFL or NCAAF" }, { status: 400 });
   }
   try {
-    const result = await syncPostedFootballMarkets(raw as FootballSport);
+    const result = dryRun
+      ? await inspectPostedFootballMarkets(raw as FootballSport)
+      : await syncPostedFootballMarkets(raw as FootballSport);
     return NextResponse.json(result, { headers: { "Cache-Control": "no-store, max-age=0" } });
   } catch (error) {
     console.error("Football market discovery failed", error);
