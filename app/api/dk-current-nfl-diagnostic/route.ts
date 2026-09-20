@@ -14,7 +14,8 @@ async function page(market:string,p:number){
  const res=await fetch(u,{cache:"no-store",headers:{"User-Agent":"Mozilla/5.0 (compatible; EZPZ-Picks/1.0; +https://ezpzpicks.com)",Accept:"text/html,application/xhtml+xml"},signal:AbortSignal.timeout(15000)});
  const html=await res.text(); const t=tokens(html); const games:any[]=[];
  for(let i=0;i+1<t.length;i++){if(t[i].includes(" @ ")&&/\d{1,2}\/\d{1,2}/.test(t[i+1]||"")) games.push({game:t[i],date:t[i+1]});}
- return {market,p,status:res.status,bytes:html.length,games};
+ const dateSelect=(html.match(/<select[^>]+name=["']tb_edate["'][^>]*>[\s\S]*?<\/select>/i)||[""])[0];
+ return {market,p,status:res.status,bytes:html.length,games,dateSelect:p===1?dateSelect:""};
 }
 export async function GET(){
  const out:any[]=[]; for(const m of ["Spread","Total"]){for(let p=1;p<=10;p++){const r=await page(m,p); out.push(r); if(!r.games.length)break;}}
