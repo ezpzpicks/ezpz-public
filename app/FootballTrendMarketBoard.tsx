@@ -591,6 +591,43 @@ function historicalGroupKey(row: SheetRow) {
   return `${String(row.Date || "")}|${String(row["Game Key"] || row["Game ID"] || row.Game || "")}|${textKey(row.Market)}`;
 }
 
+function sameHistoricalTrendSelection(row: SheetRow, play: TrendPlay) {
+  const rowKey = historicalSelectionKey(row);
+  const playKey = textKey(play.market === "Total"
+    ? play.side || play.selection
+    : play.selectionTeam || play.selection);
+  if (!rowKey || !playKey) return false;
+  if (rowKey === playKey || rowKey.includes(playKey) || playKey.includes(rowKey)) return true;
+  const rowParts = rowKey.split(" ").filter(Boolean);
+  const playParts = playKey.split(" ").filter(Boolean);
+  const rowLast = rowParts[rowParts.length - 1] || "";
+  const playLast = playParts[playParts.length - 1] || "";
+  return rowLast.length >= 3 && rowLast === playLast;
+}
+
+function settledHistoricalRowForTrendPlay(play: TrendPlay, rows: SheetRow[]) {
+  const dateKey = textKey(play.date);
+  const marketKey = textKey(play.market);
+  const candidates = rows.filter((row) =>
+    resultCode(row.Result || row.Status) &&
+    textKey(row.Date) === dateKey &&
+    textKey(row.Market) === marketKey &&
+    sameHistoricalTrendSelection(row, play)
+  );
+  if (!candidates.length) return null;
+  const playLine = Number(play.line);
+  return [...candidates].sort((a, b) => {
+    const aLine = Number(a["Public Split Line"] || a.Line);
+    const bLine = Number(b["Public Split Line"] || b.Line);
+    const aExact = Number.isFinite(playLine) && Number.isFinite(aLine) && Math.abs(aLine - playLine) < 0.001 ? 1 : 0;
+    const bExact = Number.isFinite(playLine) && Number.isFinite(bLine) && Math.abs(bLine - playLine) < 0.001 ? 1 : 0;
+    if (aExact !== bExact) return bExact - aExact;
+    const aUseful = Number.isFinite(aLine) && aLine !== 0 ? 1 : 0;
+    const bUseful = Number.isFinite(bLine) && bLine !== 0 ? 1 : 0;
+    return bUseful - aUseful;
+  })[0];
+}
+
 function historicalLabels(row: SheetRow, group: SheetRow[], sport: Sport) {
   const labels: string[] = [];
   const ownBets = Number(row["Public Bets %"] || row["Current Public %"]);
@@ -660,7 +697,7 @@ function tone(record: RecordTotals) {
   return "yellow";
 }
 
-export function DirectTrendRecords({ rows, sport }: { rows: SheetRow[]; today?: string; sport: Sport }) {
+export function DirectTrendRecords({ rows, trendPlays = [], sport }: { rows: SheetRow[]; trendPlays?: TrendPlay[]; today?: string; sport: Sport }) {
   const grouped = new Map<string, SheetRow[]>();
   rows.forEach((row) => {
     if (!resultCode(row.Result || row.Status)) return;
@@ -684,6 +721,36 @@ export function DirectTrendRecords({ rows, sport }: { rows: SheetRow[]; today?: 
       historicalLabels(row, uniqueGroup, sport).forEach((signal) => labeled.push({ row, signal, category: recordCategory(row) }));
     });
   });
+
+  // Older NFL result rows do not always contain the frozen line-movement fields
+  // even though the finalized trend snapshot does. Recover Strong RLM directly
+  // from that authoritative FINAL_PREGAME snapshot and attach the settled result.
+  // This keeps games such as DET-BUF from disappearing from the record table.
+  if (sport === "NFL" && trendPlays.length) {
+    trendPlays
+      .filter((play) =>
+        play.market === "Spread" &&
+        play.snapshotStatus === "FINAL_PREGAME" &&
+        /strong reverse line movement support/i.test(String(play.lineMovementSignal || ""))
+      )
+      .forEach((play) => {
+        const alreadyTracked = labeled.some((item) =>
+          item.signal === "Strong RLM" &&
+          textKey(item.row.Date) === textKey(play.date) &&
+          sameHistoricalTrendSelection(item.row, play)
+        );
+        if (alreadyTracked) return;
+
+        const settled = settledHistoricalRowForTrendPlay(play, rows);
+        if (!settled) return;
+        const recovered: SheetRow = {
+          ...settled,
+          "Public Split Line": Number.isFinite(Number(play.line)) ? String(play.line) : String(settled["Public Split Line"] || settled.Line || ""),
+          "Line Movement Signal": String(play.lineMovementSignal || ""),
+        };
+        labeled.push({ row: recovered, signal: "Strong RLM", category: recordCategory(recovered) });
+      });
+  }
 
   const summaries: Array<{ label: string; totals: RecordTotals }> = [];
   ["Public Fade", "Strong RLM", "Sharp"].forEach((signal) => {
