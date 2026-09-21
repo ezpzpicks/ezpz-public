@@ -1864,7 +1864,6 @@ function historicalTrendSplitFromRow(row: SheetRow, sport: FootballSport): Draft
     odds,
     moneyPct,
     betsPct,
-    gapPct: Math.round((moneyPct - betsPct) * 10) / 10,
     ...warning,
     openingLine: finiteSnapshotNumber(row["Opening Public Split Line"]),
     openingOdds: String(row["Opening Public Split Odds"] || odds),
