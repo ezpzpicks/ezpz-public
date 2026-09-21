@@ -5694,6 +5694,269 @@ function trendPlayForAllGameRow(
   );
 }
 
+
+const MLB_DIRECT_TREND_BADGE_SHARP_MIN = 20;
+const MLB_DIRECT_TREND_EZPZ_SHARP_MIN = 25;
+const MLB_DIRECT_TREND_PUBLIC_FADE_MIN = 80;
+const MLB_DIRECT_TREND_STRONG_RLM_PUBLIC_MOVE_MIN = 5;
+const MLB_DIRECT_TREND_STRONG_RLM_LINE_MOVE_MIN = 1.5;
+const MLB_DIRECT_TREND_MAX_FAVORITE_PRICE = -150;
+const MLB_DIRECT_TREND_VERSION = "mlb-direct-trends-nfl-rules-v1";
+
+function mlbDirectSelectionKey(play: TrendPlay) {
+  return play.market === "Total"
+    ? textKey(play.side || play.selection)
+    : normalizeTeam(play.selectionTeam || teamFromSelection(play.selection));
+}
+
+function mlbDirectOpposite(play: TrendPlay, plays: TrendPlay[]) {
+  const own = mlbDirectSelectionKey(play);
+  return plays.find((candidate) =>
+    candidate.market === play.market &&
+    mlbDirectSelectionKey(candidate) &&
+    mlbDirectSelectionKey(candidate) !== own
+  ) || null;
+}
+
+function mlbDirectTrendLabels(
+  play: TrendPlay,
+  plays: TrendPlay[],
+  sharpMinimum = MLB_DIRECT_TREND_BADGE_SHARP_MIN,
+) {
+  const labels: string[] = [];
+  const ownBets = Number(play.betsPct);
+  const ownMoney = Number(play.moneyPct);
+  if (
+    Number.isFinite(ownBets) &&
+    Number.isFinite(ownMoney) &&
+    ownMoney - ownBets >= sharpMinimum
+  ) labels.push("Sharp");
+
+  const publicSide = mlbDirectOpposite(play, plays);
+  if (!publicSide) return { labels, publicSide: null as TrendPlay | null };
+
+  const publicBets = Number(publicSide.betsPct);
+  const publicMoney = Number(publicSide.moneyPct);
+  const placeholder =
+    (publicBets === 100 && publicMoney === 100) ||
+    (publicBets === 0 && publicMoney === 0);
+  if (
+    !placeholder &&
+    Number.isFinite(publicBets) &&
+    publicBets >= MLB_DIRECT_TREND_PUBLIC_FADE_MIN
+  ) labels.push("Public Fade");
+
+  const openingBets = Number(publicSide.openingBetsPct);
+  const publicMove = Number(publicSide.publicMovementPct);
+  const lineMove = Number(publicSide.lineMovementValue);
+  if (
+    play.market === "Run Line" &&
+    Number.isFinite(openingBets) &&
+    openingBets > 0 &&
+    openingBets < 100 &&
+    String(publicSide.lineMovementBasis || "").includes("Run Line") &&
+    Number.isFinite(publicMove) &&
+    publicMove >= MLB_DIRECT_TREND_STRONG_RLM_PUBLIC_MOVE_MIN &&
+    Number.isFinite(lineMove) &&
+    lineMove <= -MLB_DIRECT_TREND_STRONG_RLM_LINE_MOVE_MIN
+  ) labels.push("Strong RLM");
+
+  return { labels, publicSide };
+}
+
+function mlbDirectSnapshotHistory(
+  split: DraftKingsSplit,
+  savedRows: SheetRow[],
+) {
+  const targetDate = isoPublicDate(split.date);
+  const targetGame = textKey(split.game);
+  const targetMarket = textKey(split.market);
+  const targetSelection = textKey(split.selection);
+  const targetTime = parseEventTimeKey(split.eventTime || "");
+  const points = savedRows.flatMap((row) => {
+    if (textKey(row["Data Type"] || "").includes("player prop")) return [];
+    if (isoPublicDate(row.Date || "") !== targetDate) return [];
+    if (textKey(row.Game || "") !== targetGame) return [];
+    if (textKey(row.Market || "") !== targetMarket) return [];
+    if (textKey(row.Selection || "") !== targetSelection) return [];
+    const rowTime = parseEventTimeKey(row["Game Time ET"] || "");
+    if (targetTime && rowTime && rowTime !== targetTime) return [];
+    const betsPct = publicPercentOrNull(row["Current Public %"] || row["Public Bets %"]);
+    const moneyPct = publicPercentOrNull(row["Current Sharp %"] || row["Public Money %"]);
+    if (betsPct == null || moneyPct == null) return [];
+    return [{
+      snapshotTime: String(row["Snapshot Time ET"] || row["Public Split Snapshot Time"] || ""),
+      line: split.market === "Moneyline" ? null : numericLine(row.Line || row.Selection || ""),
+      odds: String(row.Odds || ""),
+      betsPct,
+      moneyPct,
+    }];
+  });
+
+  points.push({
+    snapshotTime: String(split.snapshotTime || split.lastSeenAt || ""),
+    line: split.line,
+    odds: split.odds,
+    betsPct: split.betsPct,
+    moneyPct: split.moneyPct,
+  });
+
+  const deduped = new Map<string, (typeof points)[number]>();
+  for (const point of points) {
+    const key = [point.snapshotTime, point.line == null ? "" : String(point.line), point.odds, point.betsPct, point.moneyPct].join("|");
+    deduped.set(key, point);
+  }
+  return [...deduped.values()].sort((a, b) => {
+    const ae = Date.parse(a.snapshotTime);
+    const be = Date.parse(b.snapshotTime);
+    if (Number.isFinite(ae) && Number.isFinite(be)) return ae - be;
+    return String(a.snapshotTime).localeCompare(String(b.snapshotTime));
+  });
+}
+
+function buildMlbDirectTrendPlays(
+  splits: DraftKingsSplit[],
+  savedRows: SheetRow[],
+  slateRows: SheetRow[],
+  referenceDate: string,
+  updatedAt: string,
+): TrendPlay[] {
+  return splits
+    .filter((split) =>
+      isoPublicDate(split.date) === isoPublicDate(referenceDate) &&
+      (split.market === "Run Line" || split.market === "Total")
+    )
+    .flatMap((split) => {
+      const slateRow = trendSlateRowForSplit(split, slateRows);
+      if (!slateRow) return [];
+      const selectionTeam = split.market === "Total" ? "" : split.selectionTeam || teamFromSelection(split.selection);
+      const sideGroup: TrendPlay["sideGroup"] = split.market === "Total"
+        ? split.side
+        : Number(split.line) > 0 ? "Underdog" : "Favorite";
+      const gameKey = String(slateRow["Game Key"] || "").trim().replace(/\.0$/, "");
+      const gameTime = scheduledGameTimeKey(slateRow) || parseEventTimeKey(split.eventTime || "");
+      return [{
+        date: isoPublicDate(slateRow.Date || split.date), gameTime, gameKey,
+        game: split.game, awayTeam: split.awayTeam, homeTeam: split.homeTeam,
+        market: split.market,
+        selection: split.market === "Total" ? split.side : selectionTeam,
+        selectionTeam, side: split.side, sideGroup, line: split.line, odds: split.odds,
+        betsPct: Number(split.betsPct), moneyPct: Number(split.moneyPct),
+        gapPct: Math.round((Number(split.moneyPct) - Number(split.betsPct)) * 10) / 10,
+        openingBetsPct: split.openingBetsPct, openingMoneyPct: split.openingMoneyPct,
+        publicMovementPct: split.publicMovementPct, sharpMovementPct: split.sharpMovementPct,
+        openingLine: split.openingLine, openingOdds: split.openingOdds,
+        openingImpliedPct: split.openingImpliedPct, currentImpliedPct: split.currentImpliedPct,
+        lineMovementBasis: split.lineMovementBasis, lineMovementValue: split.lineMovementValue,
+        score: 0, tier: "Pass" as const, signals: [],
+        updatedAt: String(split.snapshotTime || split.lastSeenAt || updatedAt),
+        snapshotStatus: split.snapshotStatus || "LIVE",
+        recordDate: isoPublicDate(slateRow.Date || split.date), recordGameKey: gameKey, recordGameTime: gameTime,
+        movementHistory: mlbDirectSnapshotHistory(split, savedRows),
+      }];
+    });
+}
+
+function buildMlbDirectTrendEzpzPicks(trendPlays: TrendPlay[], today: string): AiPick[] {
+  const groups = new Map<string, TrendPlay[]>();
+  for (const play of trendPlays) {
+    const key = `${play.recordDate || play.date || isoPublicDate(today)}|${play.gameKey || play.recordGameKey || textKey(play.game)}|${play.market}`;
+    const group = groups.get(key) || [];
+    group.push(play);
+    groups.set(key, group);
+  }
+  const picks: AiPick[] = [];
+  for (const group of groups.values()) {
+    for (const play of group) {
+      const direct = mlbDirectTrendLabels(play, group, MLB_DIRECT_TREND_EZPZ_SHARP_MIN);
+      if (!direct.labels.length) continue;
+      const oddsNumber = parseAmericanOdds(play.odds);
+      if (!oddsNumber || oddsNumber < MLB_DIRECT_TREND_MAX_FAVORITE_PRICE) continue;
+      const selection = play.market === "Total" ? String(play.side || "") : String(play.selectionTeam || play.selection || "");
+      const line = play.line == null ? "" : String(play.line);
+      const gameKey = String(play.gameKey || play.recordGameKey || textKey(play.game));
+      const publicSide = direct.publicSide;
+      const strengthScore = direct.labels.includes("Strong RLM")
+        ? Math.min(100, 85 + Math.max(0, Math.abs(Number(publicSide?.lineMovementValue || 0)) - MLB_DIRECT_TREND_STRONG_RLM_LINE_MOVE_MIN) * 5)
+        : 85;
+      const implied = aiImpliedProbability(play.odds);
+      const snapshotStatus: AiPickSnapshotStatus = play.snapshotStatus === "FINAL_PREGAME" ? "FINAL_PREGAME" : "LIVE";
+      const qualification = direct.labels.join(" • ");
+      const displayPlay = play.market === "Total"
+        ? `${selection} ${line}`.trim()
+        : `${selection} ${line && Number(line) > 0 ? "+" : ""}${line}`.trim();
+      picks.push({
+        candidateId: ["direct", isoPublicDate(today), gameKey, textKey(play.market), textKey(selection), line].join("|"),
+        date: isoPublicDate(today), gameKey, gameTime: String(play.gameTime || play.recordGameTime || ""),
+        game: play.game, awayTeam: play.awayTeam, homeTeam: play.homeTeam,
+        market: play.market as AiPickMarket, play: displayPlay, selection, line, odds: String(play.odds || ""),
+        source: "Trend Play", bestPlayType: "", trendTier: direct.labels.join(" + "), modelScore: 0,
+        trendScore: Math.round(strengthScore * 10) / 10, aiScore: Math.round(strengthScore * 10) / 10,
+        estimatedProbability: implied, marketImpliedProbability: implied,
+        estimatedAdvantage: Math.round((Number(play.moneyPct) - Number(play.betsPct)) * 10) / 10,
+        selected: true, protectionStatus: "PASSED", rejectionReason: "", confidenceReason: [qualification],
+        whySelected: [
+          `Qualified by MLB direct DraftKings trend rules: ${qualification}`,
+          direct.labels.includes("Sharp") ? `Sharp EZPZ gate: Money % exceeds Bets % by at least ${MLB_DIRECT_TREND_EZPZ_SHARP_MIN} points` : "",
+          direct.labels.includes("Public Fade") ? `Public Fade EZPZ gate: fade the opposite side when it has ${MLB_DIRECT_TREND_PUBLIC_FADE_MIN}%+ of bets` : "",
+          direct.labels.includes("Strong RLM") ? `Strong RLM EZPZ gate: public bets rose ${MLB_DIRECT_TREND_STRONG_RLM_PUBLIC_MOVE_MIN}+ points while the Run Line moved ${MLB_DIRECT_TREND_STRONG_RLM_LINE_MOVE_MIN}+ runs against that side` : "",
+        ].filter(Boolean),
+        historicalNotes: [], risks: [], researchSummary: "",
+        verdict: `${snapshotStatus === "FINAL_PREGAME" ? "FINAL" : "LIVE"} MLB direct trend EZPZ Pick — ${displayPlay}`,
+        dataStatus: [
+          `Direct trend system ${MLB_DIRECT_TREND_VERSION}`,
+          `Badge Sharp threshold ${MLB_DIRECT_TREND_BADGE_SHARP_MIN} points; EZPZ Sharp threshold ${MLB_DIRECT_TREND_EZPZ_SHARP_MIN} points`,
+          `Odds cap ${MLB_DIRECT_TREND_MAX_FAVORITE_PRICE}`,
+        ],
+        externalReviewStatus: "NOT_REQUIRED", snapshotStatus,
+        lockedAt: snapshotStatus === "FINAL_PREGAME" ? String(play.updatedAt || nowET()) : "",
+        updatedAt: nowET(), result: "", units: 0, resultUpdated: "", selectorVersion: MLB_DIRECT_TREND_VERSION,
+      });
+    }
+  }
+  const deduped = new Map<string, AiPick>();
+  for (const pick of picks) {
+    const key = `${pick.gameKey}|${pick.market}|${textKey(pick.selection)}|${pick.line}`;
+    const existing = deduped.get(key);
+    if (!existing) { deduped.set(key, pick); continue; }
+    deduped.set(key, {
+      ...existing,
+      trendTier: [...new Set(`${existing.trendTier} + ${pick.trendTier}`.split(" + "))].join(" + "),
+      whySelected: [...new Set([...existing.whySelected, ...pick.whySelected])],
+    });
+  }
+  return [...deduped.values()].sort(aiSortByGameTime);
+}
+
+function sameMlbEzpzWager(left: AiPick, right: AiPick) {
+  return left.gameKey === right.gameKey && left.market === right.market && textKey(left.selection) === textKey(right.selection) && String(left.line || "") === String(right.line || "");
+}
+
+function mergeMlbModelAndDirectPicks(modelPicks: AiPick[], directPicks: AiPick[]) {
+  const merged = [...modelPicks];
+  const persistence: AiPick[] = [];
+  for (const direct of directPicks) {
+    const modelIndex = merged.findIndex((pick) => sameMlbEzpzWager(pick, direct));
+    if (modelIndex < 0) {
+      merged.push(direct);
+      if (direct.snapshotStatus === "FINAL_PREGAME") persistence.push(direct);
+      continue;
+    }
+    const model = merged[modelIndex];
+    const combined: AiPick = {
+      ...model, source: "Best + Trend", trendTier: direct.trendTier, trendScore: direct.trendScore,
+      aiScore: Math.max(model.aiScore, direct.aiScore),
+      whySelected: [...new Set([...model.whySelected, ...direct.whySelected])].slice(0, 14),
+      confidenceReason: [...new Set([...model.confidenceReason, ...direct.confidenceReason])].slice(0, 6),
+      dataStatus: [...new Set([...model.dataStatus, ...direct.dataStatus])].slice(0, 5),
+      selectorVersion: direct.snapshotStatus === "FINAL_PREGAME" ? `${model.selectorVersion}+${MLB_DIRECT_TREND_VERSION}` : model.selectorVersion,
+    };
+    merged[modelIndex] = combined;
+    if (direct.snapshotStatus === "FINAL_PREGAME") persistence.push(combined);
+  }
+  return { picks: merged.sort(aiSortByGameTime), persistence };
+}
+
 function buildTrendPlays(
   splits: DraftKingsSplit[],
   history: DraftKingsSignalResult[],
