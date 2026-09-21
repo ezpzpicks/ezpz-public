@@ -68,12 +68,21 @@ function textKey(value: unknown) {
 function teamKey(value: unknown) {
   const raw = String(value || "").trim();
   const upper = raw.toUpperCase();
+  // Some NFL feeds still use the legacy bare "LA" abbreviation for the Rams.
+  // Resolve it explicitly before alias matching so it can never be mistaken for Atlanta.
+  if (upper === "LA") return "LAR";
   if (NFL_ABBRS.has(upper)) return upper;
+
   const key = textKey(raw);
   for (const [abbr, aliases] of Object.entries(NFL_ALIASES)) {
-    if (textKey(abbr) === key || aliases.some((alias) => {
+    if (textKey(abbr) === key || aliases.some((alias) => textKey(alias) === key)) return abbr;
+  }
+  // Allow descriptive names to contain a known alias, but never fuzzy-match
+  // very short fragments such as "la" against "atlanta".
+  for (const [abbr, aliases] of Object.entries(NFL_ALIASES)) {
+    if (aliases.some((alias) => {
       const aliasKey = textKey(alias);
-      return key === aliasKey || key.includes(aliasKey) || aliasKey.includes(key);
+      return aliasKey.length >= 4 && key.includes(aliasKey);
     })) return abbr;
   }
   return upper || key;
