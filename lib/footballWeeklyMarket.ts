@@ -2007,6 +2007,85 @@ export async function readWeeklyFootballMarket(sport: FootballSport) {
       });
     } catch { }
   }
+
+  if (sport === "NFL") {
+    const fallbackByIdentity = new Map<string, WeeklyTrendPlay>();
+
+    function fallbackIdentity(play: WeeklyTrendPlay) {
+      const away = nflMarketTeamCode(play.awayTeam);
+      const home = nflMarketTeamCode(play.homeTeam);
+      const selected = play.market === "Total"
+        ? textKey(play.side || play.selection)
+        : nflMarketTeamCode(play.selectionTeam || play.selection);
+      if (!play.date || !away || !home || !selected) return "";
+      return [play.date, away, home, play.market, selected].join("|");
+    }
+
+    function fallbackPriority(play: WeeklyTrendPlay) {
+      const finalBonus = play.snapshotStatus === "FINAL_PREGAME" ? 1_000_000 : 0;
+      const historyBonus = (play.movementHistory?.length || 0) * 1_000;
+      const normalized = String(play.updatedAt || "")
+        .replace(/ EDT$/, " -0400")
+        .replace(/ EST$/, " -0500");
+      const stamp = Date.parse(normalized);
+      return finalBonus + historyBonus + (Number.isFinite(stamp) ? stamp / 1e9 : 0);
+    }
+
+    for (const row of allGameTrends) {
+      const date = canonicalScheduleDate(row) || String(row.Date || "").trim();
+      if (!date || date >= SCORES_AND_ODDS_CUTOVER_DATE) continue;
+      const raw = String(row["Trend Score Details"] || "").trim();
+      if (!raw) continue;
+      try {
+        const play = JSON.parse(raw) as WeeklyTrendPlay;
+        const storedSplit = {
+          date: play.date || date,
+          eventTime: play.gameTime,
+          game: play.game,
+          awayTeam: play.awayTeam,
+          homeTeam: play.homeTeam,
+          market: play.market,
+          selection: play.selection,
+          selectionTeam: play.selectionTeam,
+          side: play.side,
+          sideGroup: play.sideGroup,
+          line: play.line,
+          odds: play.odds,
+          moneyPct: play.moneyPct,
+          betsPct: play.betsPct,
+          gapPct: play.gapPct,
+          warningKey: "",
+          warning: "",
+          warningTone: "neutral" as Tone,
+          warningNegative: false,
+        } as Split;
+        if (!validFootballMarketSplit(storedSplit, sport, canonicalRows)) continue;
+
+        const away = nflMarketTeamCode(play.awayTeam);
+        const home = nflMarketTeamCode(play.homeTeam);
+        if (!away || !home) continue;
+        const candidate: WeeklyTrendPlay = {
+          ...play,
+          date,
+          week: footballWeekLabel(sport, date),
+          gameKey: `${date}|${textKey(away)}|${textKey(home)}`,
+          snapshotStatus: play.snapshotStatus || "FINAL_PREGAME",
+        };
+        const identity = fallbackIdentity(candidate);
+        if (!identity) continue;
+        const current = fallbackByIdentity.get(identity);
+        if (!current || fallbackPriority(candidate) > fallbackPriority(current)) {
+          fallbackByIdentity.set(identity, candidate);
+        }
+      } catch {}
+    }
+
+    const liveIdentities = new Set(trendPlays.map(fallbackIdentity).filter(Boolean));
+    for (const [identity, play] of fallbackByIdentity) {
+      if (!liveIdentities.has(identity)) trendPlays.push(play);
+    }
+  }
+
   const splits = trendPlays.map((play) => ({
     game: play.game,
     market: play.market,
