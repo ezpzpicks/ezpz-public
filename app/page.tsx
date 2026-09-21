@@ -2,6 +2,7 @@
 
 import FootballBoard from "./FootballBoard";
 import { DirectTrendRecords, FootballTrendMarketBoard } from "./FootballTrendMarketBoard";
+import { MatchupWithLogos, SelectionWithTeamLogo } from "./TeamLogoName";
 
 import {
   type ReactNode,
@@ -5111,6 +5112,16 @@ function AiPickSelectorCard({
   const isMlbTrendV2Pick =
     String(pick.selectorVersion || "").startsWith("mlb-trend-v2") ||
     String(pick.candidateId || "").startsWith("v2|");
+  const isDirectTrendPick =
+    String(pick.selectorVersion || "").includes("mlb-direct-trends-nfl-rules-v1") ||
+    (pick.source !== "Best Play" &&
+      /(?:Public Fade|Strong RLM|Sharp)/i.test(String(pick.trendTier || "")));
+  const directTrendLabels = isDirectTrendPick
+    ? String(pick.trendTier || "")
+        .split(" + ")
+        .map((label) => label.trim())
+        .filter(Boolean)
+    : [];
   const showGapOnly = isMlbTrendV2Pick;
   const displayedTrendGap = Number(pick.estimatedAdvantage);
   const historicalNotes = cleanAiDisplayList(pick.historicalNotes);
@@ -5136,7 +5147,7 @@ function AiPickSelectorCard({
         </div>
         <div className="aiPickSummaryMain">
           <div className="aiPickSummaryMeta">
-            <span>{pick.game}</span>
+            <span><MatchupWithLogos sport="MLB" game={pick.game} compact /></span>
             <span className={`aiStatusBadge ${isFinalReview ? "final" : "pending"}`}>
               {isFinalReview ? "FINAL" : "PENDING"}
             </span>
@@ -5144,7 +5155,14 @@ function AiPickSelectorCard({
               <span className="handpickedPill aiHandpickedPill">⭐ HANDPICKED</span>
             ) : null}
           </div>
-          <strong>{pick.play}</strong>
+          <strong><SelectionWithTeamLogo sport="MLB" selection={pick.play} game={pick.game} compact /></strong>
+          {directTrendLabels.length ? (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 2 }}>
+              {directTrendLabels.map((label) => (
+                <span className="formPill hot" key={label}>{label}</span>
+              ))}
+            </div>
+          ) : null}
         </div>
         <div className="aiPickSummaryOdds">{formatOdds(pick.odds) || "—"}</div>
         <span className="aiPickChevron" aria-hidden="true">⌄</span>
@@ -5153,8 +5171,8 @@ function AiPickSelectorCard({
       <div className="aiPickExpanded">
         <div className="aiPickExpandedHead">
           <span>EZPZ PICK</span>
-          <strong>{pick.play}</strong>
-          <small>{pick.game}</small>
+          <strong><SelectionWithTeamLogo sport="MLB" selection={pick.play} game={pick.game} /></strong>
+          <small><MatchupWithLogos sport="MLB" game={pick.game} compact /></small>
           {handpicked ? (
             <div className="handpickedPill aiHandpickedPill aiHandpickedPillExpanded">⭐ HANDPICKED</div>
           ) : null}
@@ -5197,7 +5215,21 @@ function AiPickSelectorCard({
           </section>
         ) : null}
 
-        {showGapOnly ? (
+        {isDirectTrendPick && directTrendLabels.length ? (
+          <section className="aiPickDetailSection historical aiTrendEvidence">
+            <div className="aiTrendEvidenceHead">
+              <div>
+                <h3>Trend Qualification</h3>
+                <p>Direct DraftKings market signals that qualified this MLB EZPZ Pick.</p>
+              </div>
+            </div>
+            <div className="directTrendRules">
+              {directTrendLabels.map((label) => (
+                <span key={label}><b>{label}</b></span>
+              ))}
+            </div>
+          </section>
+        ) : showGapOnly ? (
           <section className="aiPickDetailSection historical aiTrendEvidence">
             <div className="aiTrendNetRoiCard">
               <div className="aiTrendNetRoiMain">
