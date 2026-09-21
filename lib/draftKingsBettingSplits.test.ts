@@ -82,6 +82,7 @@ test("continues past an empty first page and de-duplicates a clamped final page"
     itm_content: "NFL",
     tb_eg: "NFL",
     tb_edate: "n30days",
+    tb_emt: "0",
     tb_page: "2",
   });
 });
@@ -109,6 +110,7 @@ test("uses the filtered URL without tb_page for a working first page", async () 
     itm_content: "NFL",
     tb_eg: "NFL",
     tb_edate: "n30days",
+    tb_emt: "0",
   }]);
 });
 
