@@ -2405,19 +2405,12 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
   const weeklyTrendPlays = Array.isArray(weeklyMarket.trendPlays)
     ? weeklyMarket.trendPlays as unknown as TrendPlay[]
     : [];
-  const displayTrendKey = (play: TrendPlay) => [
-    isoDate(play.date),
-    textKey(play.awayTeam),
-    textKey(play.homeTeam),
-    textKey(play.market),
-    textKey(play.market === "Total" ? play.side || play.selection : play.selectionTeam || play.selection),
-  ].join("|");
-  const displayTrendMap = new Map(weeklyTrendPlays.map((play) => [displayTrendKey(play), play]));
-  for (const play of trendPlays) {
-    if (isoDate(play.date) !== today) continue;
-    displayTrendMap.set(displayTrendKey(play), play);
-  }
-  const displayTrendPlays = [...displayTrendMap.values()];
+  const liveTodayTrendPlays = trendPlays.filter((play) => isoDate(play.date) === today);
+  const savedTodayTrendPlays = weeklyTrendPlays.filter((play) => isoDate(play.date) === today);
+  const displayTrendPlays: TrendPlay[] = [
+    ...weeklyTrendPlays.filter((play) => isoDate(play.date) !== today),
+    ...(liveTodayTrendPlays.length ? liveTodayTrendPlays : savedTodayTrendPlays),
+  ];
 
   // all_game_trends can contain an older 0%/100% opening snapshot even when the
   // append-only weekly market history has a later real first snapshot. Overlay
