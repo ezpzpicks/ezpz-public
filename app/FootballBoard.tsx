@@ -198,77 +198,6 @@ function modelHistoryRows(rows: SheetRow[], sport: Sport) {
   return picks;
 }
 
-function trendDetails(row: SheetRow): Record<string, any> | null {
-  const raw = String(row["Trend Score Details"] || "").trim();
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === "object" ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-
-function trendSignalRoi(signal: Record<string, any>) {
-  const records = signal?.records;
-  if (!records?.allTime || !records?.last30 || !records?.last7) return null;
-  const last7Decisions = Number(records.last7.wins || 0) + Number(records.last7.losses || 0);
-  const last7Weight = Math.min(0.5, Math.max(0, last7Decisions) * 0.1);
-  const carry = (0.5 - last7Weight) / 2;
-  const windows = [
-    { row: records.allTime, weight: 0.25 + carry },
-    { row: records.last30, weight: 0.25 + carry },
-    { row: records.last7, weight: last7Weight },
-  ].filter((item) => Number(item.row.totalBets || 0) > 0 && item.weight > 0);
-  if (!windows.length) return null;
-  const totalWeight = windows.reduce((sum, item) => sum + item.weight, 0);
-  return windows.reduce((sum, item) => sum + Number(item.row.roiPct || 0) * item.weight, 0) / totalWeight;
-}
-
-function trendRoi(details: Record<string, any> | null) {
-  const signals = Array.isArray(details?.signals) ? details.signals as Array<Record<string, any>> : [];
-  const values = signals.map(trendSignalRoi).filter((value): value is number => value != null && Number.isFinite(value));
-  return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
-}
-
-function cfbTrendHistoryRows(rows: SheetRow[]) {
-  const settled = rows
-    .map((row, index) => ({ row, index, details: trendDetails(row) }))
-    .filter((item) => Boolean(resultCode(item.row.Result || item.row.Status)) && textKey(item.row["Trend Play"]) !== "false")
-    .map((item) => ({
-      ...item,
-      date: isoDate(item.row.Date || item.row["Game Date"] || ""),
-      game: textKey(item.row.Game || item.row["Game Key"] || ""),
-      market: textKey(item.row.Market || item.details?.market || ""),
-      selection: textKey(item.row.Selection || item.row.Side || item.details?.selection || item.details?.side || ""),
-      tier: String(item.details?.tier || item.row["Trend Tier"] || ""),
-      score: Number(item.details?.score ?? item.row["Trend Score"] ?? 0),
-      sample: Number(item.details?.TrendSampleSize ?? item.row["Trend Sample Size"] ?? 0),
-      roi: trendRoi(item.details),
-    }))
-    .filter((item) => Boolean(item.date && item.game && item.market));
-  const qualified: typeof settled = [];
-  for (const item of settled) {
-    if (item.tier !== "Strong" && item.tier !== "Elite") continue;
-    if (item.sample < 8 || item.roi == null || item.roi <= 0 || rowAmericanOdds(item.row) < -150) continue;
-    const signals = Array.isArray(item.details?.signals) ? item.details.signals as Array<Record<string, any>> : [];
-    if (!signals.length || !signals.every((signal) => Number(signal?.records?.allTime?.wins || 0) > Number(signal?.records?.allTime?.losses || 0))) continue;
-    const peers = settled.filter((peer) => peer.date === item.date && peer.game === item.game && peer.market === item.market);
-    const maxScore = Math.max(...peers.map((peer) => Number(peer.score || 0)));
-    if (Number(item.score || 0) + 1e-9 < maxScore) continue;
-    const opponents = peers.filter((peer) => peer.selection !== item.selection && peer.roi != null).map((peer) => Number(peer.roi));
-    if (!opponents.length) continue;
-    if (item.roi - Math.max(...opponents) < 25) continue;
-    qualified.push(item);
-  }
-  const byGame = new Map<string, (typeof qualified)[number]>();
-  for (const item of qualified.sort((a, b) => b.score - a.score || a.index - b.index)) {
-    const key = `${item.date}|${item.game}`;
-    if (!byGame.has(key)) byGame.set(key, item);
-  }
-  return [...byGame.values()].map((item) => item.row);
-}
-
 function rowGame(row: SheetRow) {
   const direct = String(row.Game || "").trim();
   if (direct) return direct;
@@ -321,11 +250,8 @@ function pickIdentity(pick: EzpzPick) {
 
 function buildFallbackHistory(data: FootballData, sport: Sport) {
   const modelRows = modelHistoryRows(data.betTrackerRows || [], sport).map((row) => rowToHistoryPick(row, "Best Play"));
-  const trendRows = sport === "NCAAF"
-    ? cfbTrendHistoryRows(data.trendRecordRows || []).map((row) => rowToHistoryPick(row, "Trend Play"))
-    : [];
   const map = new Map<string, EzpzPick>();
-  for (const pick of [...modelRows, ...trendRows]) {
+  for (const pick of modelRows) {
     const key = pickIdentity(pick);
     const existing = map.get(key);
     if (!existing) map.set(key, pick);
