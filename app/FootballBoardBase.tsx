@@ -114,11 +114,28 @@ function footballEzpzRecord(
       const diff = Math.round((todayStamp - stamp) / 86_400_000);
       if (!Number.isFinite(diff) || diff < 0 || diff >= days) continue;
     }
-    if (row.result === "W") wins += 1;
-    else if (row.result === "L") losses += 1;
-    else pushes += 1;
-    const units = Number(row.units);
-    if (Number.isFinite(units)) unitsWon += units;
+    const storedUnits = Number(row.units);
+    const oddsMatch = String(row.odds || "").replace(/−/g, "-").match(/[+-]?\d{3,4}/);
+    const odds = oddsMatch ? Number(oddsMatch[0]) : 0;
+    const winProfit = odds > 0
+      ? odds / 100
+      : odds < 0
+        ? 100 / Math.abs(odds)
+        : 1;
+
+    if (row.result === "W") {
+      wins += 1;
+      unitsWon += Number.isFinite(storedUnits) && storedUnits !== 0
+        ? storedUnits
+        : winProfit;
+    } else if (row.result === "L") {
+      losses += 1;
+      unitsWon += Number.isFinite(storedUnits) && storedUnits !== 0
+        ? storedUnits
+        : -1;
+    } else {
+      pushes += 1;
+    }
   }
   const totalBets = wins + losses + pushes;
   const decisions = wins + losses;
