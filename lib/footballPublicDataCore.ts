@@ -1966,8 +1966,12 @@ function buildFootballEzpzRecordRows(
         lineMovementBasis: split.lineMovementBasis,
         lineMovementValue: split.lineMovementValue,
         score: 0,
+        TrendSampleSize: 0,
+        HistorySource: "historical EZPZ reconstruction",
+        FallbackReason: "",
         tier: "Pass",
         signals: [],
+        updatedAt: split.snapshotTime || "",
       };
       const direct = directTrendQualification(play, splits, sport);
       if (!direct.labels.length) continue;
