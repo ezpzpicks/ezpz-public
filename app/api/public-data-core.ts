@@ -5699,9 +5699,9 @@ const MLB_DIRECT_TREND_BADGE_SHARP_MIN = 20;
 const MLB_DIRECT_TREND_EZPZ_SHARP_MIN = 25;
 const MLB_DIRECT_TREND_PUBLIC_FADE_MIN = 80;
 const MLB_DIRECT_TREND_STRONG_RLM_PUBLIC_MOVE_MIN = 5;
-const MLB_DIRECT_TREND_STRONG_RLM_LINE_MOVE_MIN = 1.5;
+const MLB_DIRECT_TREND_STRONG_RLM_ML_IMPLIED_MOVE_MIN = 1.5;
 const MLB_DIRECT_TREND_MAX_FAVORITE_PRICE = -150;
-const MLB_DIRECT_TREND_VERSION = "mlb-direct-trends-nfl-rules-v1";
+const MLB_DIRECT_TREND_VERSION = "mlb-direct-trends-moneyline-v2";
 
 function mlbDirectSelectionKey(play: TrendPlay) {
   return play.market === "Total"
@@ -5750,15 +5750,15 @@ function mlbDirectTrendLabels(
   const publicMove = Number(publicSide.publicMovementPct);
   const lineMove = Number(publicSide.lineMovementValue);
   if (
-    play.market === "Run Line" &&
+    play.market === "Moneyline" &&
     Number.isFinite(openingBets) &&
     openingBets > 0 &&
     openingBets < 100 &&
-    String(publicSide.lineMovementBasis || "").includes("Run Line") &&
+    String(publicSide.lineMovementBasis || "").includes("Implied Probability") &&
     Number.isFinite(publicMove) &&
     publicMove >= MLB_DIRECT_TREND_STRONG_RLM_PUBLIC_MOVE_MIN &&
     Number.isFinite(lineMove) &&
-    lineMove <= -MLB_DIRECT_TREND_STRONG_RLM_LINE_MOVE_MIN
+    lineMove <= -MLB_DIRECT_TREND_STRONG_RLM_ML_IMPLIED_MOVE_MIN
   ) labels.push("Strong RLM");
 
   return { labels, publicSide };
@@ -5824,7 +5824,7 @@ function buildMlbDirectTrendPlays(
   return splits
     .filter((split) =>
       isoPublicDate(split.date) === isoPublicDate(referenceDate) &&
-      (split.market === "Run Line" || split.market === "Total")
+      (split.market === "Moneyline" || split.market === "Total")
     )
     .flatMap((split) => {
       const slateRow = trendSlateRowForSplit(split, slateRows);
@@ -5832,7 +5832,7 @@ function buildMlbDirectTrendPlays(
       const selectionTeam = split.market === "Total" ? "" : split.selectionTeam || teamFromSelection(split.selection);
       const sideGroup: TrendPlay["sideGroup"] = split.market === "Total"
         ? split.side
-        : Number(split.line) > 0 ? "Underdog" : "Favorite";
+        : parseAmericanOdds(split.odds) < 0 ? "Favorite" : "Underdog";
       const gameKey = String(slateRow["Game Key"] || "").trim().replace(/\.0$/, "");
       const gameTime = scheduledGameTimeKey(slateRow) || parseEventTimeKey(split.eventTime || "");
       return [{
@@ -5877,14 +5877,14 @@ function buildMlbDirectTrendEzpzPicks(trendPlays: TrendPlay[], today: string): A
       const gameKey = String(play.gameKey || play.recordGameKey || textKey(play.game));
       const publicSide = direct.publicSide;
       const strengthScore = direct.labels.includes("Strong RLM")
-        ? Math.min(100, 85 + Math.max(0, Math.abs(Number(publicSide?.lineMovementValue || 0)) - MLB_DIRECT_TREND_STRONG_RLM_LINE_MOVE_MIN) * 5)
+        ? Math.min(100, 85 + Math.max(0, Math.abs(Number(publicSide?.lineMovementValue || 0)) - MLB_DIRECT_TREND_STRONG_RLM_ML_IMPLIED_MOVE_MIN) * 5)
         : 85;
       const implied = aiImpliedProbability(play.odds);
       const snapshotStatus: AiPickSnapshotStatus = play.snapshotStatus === "FINAL_PREGAME" ? "FINAL_PREGAME" : "LIVE";
       const qualification = direct.labels.join(" • ");
       const displayPlay = play.market === "Total"
         ? `${selection} ${line}`.trim()
-        : `${selection} ${line && Number(line) > 0 ? "+" : ""}${line}`.trim();
+        : `${selection} Moneyline`;
       picks.push({
         candidateId: ["direct", isoPublicDate(today), gameKey, textKey(play.market), textKey(selection), line].join("|"),
         date: isoPublicDate(today), gameKey, gameTime: String(play.gameTime || play.recordGameTime || ""),
@@ -5899,7 +5899,7 @@ function buildMlbDirectTrendEzpzPicks(trendPlays: TrendPlay[], today: string): A
           `Qualified by MLB direct DraftKings trend rules: ${qualification}`,
           direct.labels.includes("Sharp") ? `Sharp EZPZ gate: Money % exceeds Bets % by at least ${MLB_DIRECT_TREND_EZPZ_SHARP_MIN} points` : "",
           direct.labels.includes("Public Fade") ? `Public Fade EZPZ gate: fade the opposite side when it has ${MLB_DIRECT_TREND_PUBLIC_FADE_MIN}%+ of bets` : "",
-          direct.labels.includes("Strong RLM") ? `Strong RLM EZPZ gate: public bets rose ${MLB_DIRECT_TREND_STRONG_RLM_PUBLIC_MOVE_MIN}+ points while the Run Line moved ${MLB_DIRECT_TREND_STRONG_RLM_LINE_MOVE_MIN}+ runs against that side` : "",
+          direct.labels.includes("Strong RLM") ? `Strong RLM EZPZ gate: public bets rose ${MLB_DIRECT_TREND_STRONG_RLM_PUBLIC_MOVE_MIN}+ points while Moneyline implied probability moved ${MLB_DIRECT_TREND_STRONG_RLM_ML_IMPLIED_MOVE_MIN}+ points against that side` : "",
         ].filter(Boolean),
         historicalNotes: [], risks: [], researchSummary: "",
         verdict: `${snapshotStatus === "FINAL_PREGAME" ? "FINAL" : "LIVE"} MLB direct trend EZPZ Pick — ${displayPlay}`,
@@ -11323,7 +11323,10 @@ async function buildUncachedPublicResponse(request: NextRequest) {
           !(
             pick.date === isoPublicDate(today) &&
             pick.source === "Trend Play" &&
-            String(pick.selectorVersion || "").startsWith("mlb-trend-v2")
+            (
+              String(pick.selectorVersion || "").startsWith("mlb-trend-v2") ||
+              String(pick.selectorVersion || "") === "mlb-direct-trends-nfl-rules-v1"
+            )
           ),
       ),
       ...mergedEzpz.persistence,
@@ -11375,12 +11378,12 @@ async function buildUncachedPublicResponse(request: NextRequest) {
       trendPlays,
       trendSystem: {
         version: MLB_DIRECT_TREND_VERSION,
-        markets: ["Run Line", "Total"],
+        markets: ["Moneyline", "Total"],
         badgeSharpMinimum: MLB_DIRECT_TREND_BADGE_SHARP_MIN,
         ezpzSharpMinimum: MLB_DIRECT_TREND_EZPZ_SHARP_MIN,
         publicFadeMinimumBets: MLB_DIRECT_TREND_PUBLIC_FADE_MIN,
         strongRlmMinimumPublicMove: MLB_DIRECT_TREND_STRONG_RLM_PUBLIC_MOVE_MIN,
-        strongRlmMinimumLineMove: MLB_DIRECT_TREND_STRONG_RLM_LINE_MOVE_MIN,
+        strongRlmMinimumMoneylineImpliedMove: MLB_DIRECT_TREND_STRONG_RLM_ML_IMPLIED_MOVE_MIN,
         maxFavoritePrice: MLB_DIRECT_TREND_MAX_FAVORITE_PRICE,
       },
       aiPicks: mergedEzpz.picks,
