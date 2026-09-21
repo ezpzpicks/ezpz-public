@@ -674,6 +674,7 @@ type LoadedDraftKingsSplits = {
   errors: string[];
   filter: DraftKingsFilterCandidate;
   coverage: DraftKingsMarketCoverage;
+  missingPages: number[];
   retainedFallback?: boolean;
 };
 
@@ -761,7 +762,16 @@ async function loadDraftKingsSplits(
         `Football slate validation rejected ${crawl.rows.length - matched.length} unrelated market sides.`,
       );
     }
-    const candidate: LoadedDraftKingsSplits = { splits, errors, filter, coverage };
+    if (crawl.missingPages.length) {
+      errors.push(`DraftKings crawl could not verify page(s): ${crawl.missingPages.join(", ")}.`);
+    }
+    const candidate: LoadedDraftKingsSplits = {
+      splits,
+      errors,
+      filter,
+      coverage,
+      missingPages: crawl.missingPages,
+    };
     if (
       !best ||
       candidate.coverage.missingGames.length + candidate.coverage.incompleteGames.length <
@@ -773,15 +783,18 @@ async function loadDraftKingsSplits(
       )
     ) best = candidate;
 
-    if (coverage.ok) return candidate;
+    if (coverage.ok && crawl.missingPages.length === 0) return candidate;
   }
 
   if (!best) {
     throw new Error(`DraftKings ${sport} discovery returned no usable filter candidates.`);
   }
-  if (!best.coverage.ok) {
+  if (!best.coverage.ok || best.missingPages.length) {
+    const pageFailure = best.missingPages.length
+      ? `; missing crawl page(s) ${best.missingPages.join(", ")}`
+      : "";
     throw new Error(
-      `DraftKings ${sport} partial slate rejected: ${trackingCoverageFailure(best.coverage)}. ` +
+      `DraftKings ${sport} partial slate rejected: ${trackingCoverageFailure(best.coverage)}${pageFailure}. ` +
       `Filter ${best.filter.eventGroup}/${best.filter.dateRange}; ` +
       `received ${best.coverage.receivedGames} games and ${best.splits.length} market sides.`,
     );
@@ -2197,6 +2210,7 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
         source:"option",
       },
       coverage:assessTrackingSlateCoverage(sport,splits,trackingSlate),
+      missingPages:[],
       retainedFallback:true,
     };
     console.warn("Using retained NFL DraftKings snapshots after live partial-slate failure.",error);
