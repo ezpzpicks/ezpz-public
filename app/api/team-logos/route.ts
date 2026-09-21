@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 export const runtime = "nodejs";
 export const revalidate = 86400;
 
-type SupportedSport = "NFL" | "NCAAF" | "NCAAM";
+type SupportedSport = "NFL" | "NCAAF" | "NCAAM" | "MLB";
 
 type DirectoryEntry = {
   team?: {
@@ -24,6 +24,7 @@ const SPORT_PATHS: Record<SupportedSport, string> = {
   NFL: "football/nfl",
   NCAAF: "football/college-football",
   NCAAM: "basketball/mens-college-basketball",
+  MLB: "baseball/mlb",
 };
 
 function normalizeTeam(value: unknown) {
@@ -43,7 +44,7 @@ export async function GET(request: NextRequest) {
   const sport = String(request.nextUrl.searchParams.get("sport") || "").toUpperCase() as SupportedSport;
   const path = SPORT_PATHS[sport];
   if (!path) {
-    return NextResponse.json({ ok: false, error: "sport must be NFL, NCAAF, or NCAAM", logos: {} }, { status: 400 });
+    return NextResponse.json({ ok: false, error: "sport must be NFL, NCAAF, NCAAM, or MLB", logos: {} }, { status: 400 });
   }
 
   try {
