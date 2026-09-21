@@ -134,16 +134,20 @@ function opposite(play: TrendPlay, plays: TrendPlay[]) {
   }) || null;
 }
 
-function labelsFor(play: TrendPlay, plays: TrendPlay[]) {
+function labelsFor(play: TrendPlay, plays: TrendPlay[], sport: Sport) {
   const publicSide = opposite(play, plays);
   if (!publicSide) return [] as string[];
   const labels: string[] = [];
 
   const publicBets = Number(publicSide.betsPct);
-  if (
-    Number.isFinite(publicBets) &&
-    publicBets >= 80
-  ) labels.push("Public Fade");
+  const publicMoney = Number(publicSide.moneyPct);
+  const publicFade = sport === "NFL"
+    ? Number.isFinite(publicBets) && publicBets >= 80
+    : Number.isFinite(publicBets) &&
+      Number.isFinite(publicMoney) &&
+      publicBets > 75 &&
+      publicBets - publicMoney >= 55;
+  if (publicFade) labels.push("Public Fade");
 
   const publicMove = Number(publicSide.publicMovementPct);
   const lineMove = Number(publicSide.lineMovementValue);
@@ -374,7 +378,7 @@ function MovementChart({ play }: { play: TrendPlay }) {
 }
 
 function MarketRow({ play, plays, sport }: { play: TrendPlay; plays: TrendPlay[]; sport: Sport }) {
-  const labels = labelsFor(play, plays);
+  const labels = labelsFor(play, plays, sport);
   const rlmSummary = labels.includes("Strong RLM") ? rlmBadgeSummary(play) : null;
   return (
     <div className={`dkTrendMarketRow ${labels.length ? "qualified" : ""}`}>
@@ -463,7 +467,7 @@ function GameCard({ group, sport }: { group: Group; sport: Sport }) {
     if (a.market === "Total" && a.side !== b.side) return a.side === "Over" ? -1 : 1;
     return pickLabel(a).localeCompare(pickLabel(b));
   });
-  const qualifying = ordered.filter((play) => labelsFor(play, ordered).length > 0);
+  const qualifying = ordered.filter((play) => labelsFor(play, ordered, sport).length > 0);
   const gameTime = ordered.find((play) => play.gameTime)?.gameTime || "";
   const gameDate = ordered.find((play) => play.date)?.date || "";
   const spreadRef = ordered.find((play) => play.market === "Spread");
@@ -567,17 +571,21 @@ function historicalGroupKey(row: SheetRow) {
   return `${String(row.Date || "")}|${String(row["Game Key"] || row["Game ID"] || row.Game || "")}|${textKey(row.Market)}`;
 }
 
-function historicalLabels(row: SheetRow, group: SheetRow[]) {
+function historicalLabels(row: SheetRow, group: SheetRow[], sport: Sport) {
   const ownKey = historicalSelectionKey(row);
   const publicSide = group.find((candidate) => historicalSelectionKey(candidate) !== ownKey);
   if (!publicSide) return [] as string[];
   const labels: string[] = [];
 
   const publicBets = Number(publicSide["Public Bets %"] || publicSide["Current Public %"]);
-  if (
-    Number.isFinite(publicBets) &&
-    publicBets >= 80
-  ) labels.push("Public Fade");
+  const publicMoney = Number(publicSide["Public Money %"] || publicSide["Current Sharp %"]);
+  const publicFade = sport === "NFL"
+    ? Number.isFinite(publicBets) && publicBets >= 80
+    : Number.isFinite(publicBets) &&
+      Number.isFinite(publicMoney) &&
+      publicBets > 75 &&
+      publicBets - publicMoney >= 55;
+  if (publicFade) labels.push("Public Fade");
 
   const publicMove = Number(publicSide["Public Change %"]);
   const lineMove = Number(publicSide["Line Movement Value"]);
@@ -605,7 +613,7 @@ function tone(record: RecordTotals) {
   return "yellow";
 }
 
-export function DirectTrendRecords({ rows }: { rows: SheetRow[]; today?: string }) {
+export function DirectTrendRecords({ rows, sport }: { rows: SheetRow[]; today?: string; sport: Sport }) {
   const grouped = new Map<string, SheetRow[]>();
   rows.forEach((row) => {
     if (!resultCode(row.Result || row.Status)) return;
@@ -617,7 +625,7 @@ export function DirectTrendRecords({ rows }: { rows: SheetRow[]; today?: string 
   const labeled: Array<{ row: SheetRow; signal: string; category: string }> = [];
   grouped.forEach((group) => {
     group.forEach((row) => {
-      historicalLabels(row, group).forEach((signal) => labeled.push({ row, signal, category: recordCategory(row) }));
+      historicalLabels(row, group, sport).forEach((signal) => labeled.push({ row, signal, category: recordCategory(row) }));
     });
   });
 
