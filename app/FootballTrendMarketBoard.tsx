@@ -618,20 +618,32 @@ function historicalLabels(row: SheetRow, group: SheetRow[], sport: Sport) {
       publicBets - publicMoney >= 55;
   if (publicFade) labels.push("Public Fade");
 
-  const openingPublicBets = Number(publicSide["Opening Public %"] || publicSide["Opening Bets %"]);
-  const publicMove = Number(publicSide["Public Change %"]);
-  const lineMove = Number(publicSide["Line Movement Value"]);
-  if (
+  const savedStrongRlm =
+    sport === "NFL" &&
     textKey(row.Market) === "spread" &&
-    Number.isFinite(openingPublicBets) &&
-    openingPublicBets > 0 &&
-    openingPublicBets < 100 &&
-    String(publicSide["Line Movement Basis"] || "").includes("Spread") &&
-    Number.isFinite(publicMove) &&
-    publicMove >= 5 &&
-    Number.isFinite(lineMove) &&
-    lineMove <= -1.5
-  ) labels.push("Strong RLM");
+    /strong reverse line movement support/i.test(String(row["Line Movement Signal"] || ""));
+  if (savedStrongRlm) {
+    // NFL completed rows already persist the authoritative selected-side RLM
+    // signal from the pregame lock. Use that frozen signal for records so a
+    // corrected weekly opening baseline (Bills-Lions, for example) is not lost
+    // when the opposite side lives under a different historical game ID.
+    labels.push("Strong RLM");
+  } else {
+    const openingPublicBets = Number(publicSide["Opening Public %"] || publicSide["Opening Bets %"]);
+    const publicMove = Number(publicSide["Public Change %"]);
+    const lineMove = Number(publicSide["Line Movement Value"]);
+    if (
+      textKey(row.Market) === "spread" &&
+      Number.isFinite(openingPublicBets) &&
+      openingPublicBets > 0 &&
+      openingPublicBets < 100 &&
+      String(publicSide["Line Movement Basis"] || "").includes("Spread") &&
+      Number.isFinite(publicMove) &&
+      publicMove >= 5 &&
+      Number.isFinite(lineMove) &&
+      lineMove <= -1.5
+    ) labels.push("Strong RLM");
+  }
 
   return labels;
 }
@@ -675,7 +687,17 @@ export function DirectTrendRecords({ rows, sport }: { rows: SheetRow[]; today?: 
 
   const summaries: Array<{ label: string; totals: RecordTotals }> = [];
   ["Public Fade", "Strong RLM", "Sharp"].forEach((signal) => {
-    const signalRows = labeled.filter((item) => item.signal === signal);
+    let signalRows = labeled.filter((item) => item.signal === signal);
+    if (signal === "Strong RLM") {
+      // Strong RLM is spread-only. A team can appear twice in historical storage
+      // under different game IDs, so use one settled result per team/date.
+      const unique = new Map<string, (typeof signalRows)[number]>();
+      signalRows.forEach((item) => {
+        const key = `${String(item.row.Date || "")}|${historicalSelectionKey(item.row)}`;
+        if (!unique.has(key)) unique.set(key, item);
+      });
+      signalRows = [...unique.values()];
+    }
     const overall = recordTotals(signalRows.map((item) => item.row));
     if (overall.totalBets) summaries.push({ label: `${signal} - Overall`, totals: overall });
     ["Favorite Spread", "Underdog Spread", "Over", "Under"].forEach((category) => {
