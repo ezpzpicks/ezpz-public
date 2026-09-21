@@ -23,31 +23,14 @@ const POSTED_GAMES_TAB = "posted_games";
 const WEEKLY_TRENDS_TAB = "weekly_market_trends";
 const MARKET_HISTORY_TAB = "odds_snapshot";
 const SCORES_AND_ODDS_CUTOVER_DATE = "2026-09-21";
-const SCORES_AND_ODDS_CUTOVER_MINUTE_ET = 17 * 60 + 6;
-
-function refreshedAfterScoresAndOddsCutover(row: SheetRow) {
-  const raw = String(row["Updated At"] || "").trim();
-  const match = raw.match(/(\d{1,2})\/(\d{1,2})\/(20\d{2}),?\s+(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)/i);
-  if (!match) return false;
-  const [, month, day, year, rawHour, minute, meridiem] = match;
-  const date = `${year}-${String(Number(month)).padStart(2, "0")}-${String(Number(day)).padStart(2, "0")}`;
-  if (date > SCORES_AND_ODDS_CUTOVER_DATE) return true;
-  if (date < SCORES_AND_ODDS_CUTOVER_DATE) return false;
-  let hour = Number(rawHour) % 12;
-  if (meridiem.toUpperCase() === "PM") hour += 12;
-  return hour * 60 + Number(minute) >= SCORES_AND_ODDS_CUTOVER_MINUTE_ET;
-}
 
 function isScoresAndOddsCutoverRow(row: SheetRow) {
   const date = canonicalScheduleDate(row) || String(row.Date || "").trim();
   if (!date || date < SCORES_AND_ODDS_CUTOVER_DATE) return true;
-  const source = String(row.Source || "").trim();
-  if (source) return source === SCORES_AND_ODDS_SOURCE;
-  // Existing Turso rows were created before weekly_market_trends had a Source
-  // column. During migration, a row refreshed after the cutover can only have
-  // been rewritten by the ScoresAndOdds collector, so accept that legacy schema
-  // shape without re-admitting the older DraftKings state.
-  return refreshedAfterScoresAndOddsCutover(row);
+  // From the permanent source cutover forward, only explicitly tagged
+  // ScoresAndOdds rows are allowed into the weekly market. Source-less rows
+  // are legacy migration state and must not be re-admitted.
+  return String(row.Source || "").trim() === SCORES_AND_ODDS_SOURCE;
 }
 
 export const POSTED_GAME_HEADERS = [
@@ -1726,6 +1709,7 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
     readSportWorksheet(sport, "daily_slate"),
   ]);
   const sourceFilteredExistingTrends = existingTrends.filter(isScoresAndOddsCutoverRow);
+  const removedLegacyTrendRows = existingTrends.length - sourceFilteredExistingTrends.length;
   const allGameRepair = sport === "NFL"
     ? repairAllGameTrendMovementRows(allGameTrends)
     : { rows: allGameTrends, changed: 0 };
@@ -1741,7 +1725,7 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
     ? repairWeeklyTrendRows(sourceFilteredExistingTrends, repairedHistory)
     : { rows: sourceFilteredExistingTrends, changed: 0 };
   const effectiveExistingTrends = weeklyRepair.rows;
-  if (weeklyRepair.changed) {
+  if (weeklyRepair.changed || removedLegacyTrendRows > 0) {
     await writeSportWorksheet(sport, WEEKLY_TRENDS_TAB, WEEKLY_TREND_HEADERS, effectiveExistingTrends);
   }
 
