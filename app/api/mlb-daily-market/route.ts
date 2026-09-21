@@ -95,7 +95,63 @@ function v2HistoryFor(
     .sort((a, b) => snapshotEpoch(a.snapshotTime) - snapshotEpoch(b.snapshotTime));
 }
 
-function historicalPlay(row: Row, v2Rows: Row[]) {
+function marketHistoryFor(
+  rows: Row[],
+  row: Row,
+  market: string,
+  selection: string,
+) {
+  const normalized = (value: unknown) =>
+    String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const targetDate = isoDate(row.Date);
+  const targetAway = normalized(row["Away Team"]);
+  const targetHome = normalized(row["Home Team"]);
+  const targetGame = normalized(row.Game);
+  const targetSelection = normalized(selection);
+  const targetTime = String(row["Game Time"] || "").trim();
+
+  const points = rows
+    .filter((saved) => {
+      if (isoDate(saved.Date) !== targetDate) return false;
+      if (String(saved.Market || "") !== market) return false;
+      if (normalized(saved.Selection || saved.Side) !== targetSelection) return false;
+
+      const savedAway = normalized(saved["Away Team"]);
+      const savedHome = normalized(saved["Home Team"]);
+      const savedGame = normalized(saved.Game);
+      const teamsMatch =
+        targetAway && targetHome && savedAway === targetAway && savedHome === targetHome;
+      const gameMatch = targetGame && savedGame === targetGame;
+      if (!teamsMatch && !gameMatch) return false;
+
+      const savedTime = String(saved["Game Time ET"] || "").trim();
+      return !targetTime || !savedTime || targetTime.includes(savedTime) || savedTime.includes(targetTime);
+    })
+    .map((saved) => ({
+      snapshotTime: String(saved["Snapshot Time ET"] || ""),
+      line: market === "Moneyline" ? null : n(saved.Line),
+      odds: String(saved.Odds || ""),
+      betsPct: n(saved["Current Public %"] || saved["Public Bets %"]) ?? 0,
+      moneyPct: n(saved["Current Sharp %"] || saved["Public Money %"]) ?? 0,
+    }))
+    .filter((point) => point.snapshotTime)
+    .sort((a, b) => snapshotEpoch(a.snapshotTime) - snapshotEpoch(b.snapshotTime));
+
+  const deduped = new Map<string, (typeof points)[number]>();
+  for (const point of points) {
+    const key = [
+      point.snapshotTime,
+      point.line == null ? "" : String(point.line),
+      point.odds,
+      point.betsPct,
+      point.moneyPct,
+    ].join("|");
+    deduped.set(key, point);
+  }
+  return [...deduped.values()];
+}
+
+function historicalPlay(row: Row, v2Rows: Row[], marketHistoryRows: Row[]) {
   const market = String(row.Market || "");
   if (market !== "Moneyline" && market !== "Total") return null;
   const date = isoDate(row.Date);
@@ -113,16 +169,26 @@ function historicalPlay(row: Row, v2Rows: Row[]) {
   const openingMoney = n(row["Opening Sharp %"]);
   const openingLine = market === "Moneyline" ? null : n(row["Opening Public Split Line"]);
   const openingOdds = String(row["Opening Public Split Odds"] || currentOdds);
+  const retainedHistory = marketHistoryFor(
+    marketHistoryRows,
+    row,
+    market,
+    selection,
+  );
   const v2History = v2HistoryFor(v2Rows, gameKey, market, selection);
   const fallbackHistory = [pointFromRow(row, true), pointFromRow(row, false)]
     .filter((point, index, array) =>
       point.snapshotTime &&
       (index === 0 || point.snapshotTime !== array[index - 1]?.snapshotTime)
     );
-  const movementHistory = v2History.length >= 2 ? v2History : fallbackHistory;
+  const movementHistory = retainedHistory.length
+    ? retainedHistory
+    : v2History.length >= 2
+      ? v2History
+      : fallbackHistory;
   const updatedAt = String(
-    row["Public Split Snapshot Time"] ||
     movementHistory.at(-1)?.snapshotTime ||
+    row["Public Split Snapshot Time"] ||
     row["Result Updated"] ||
     "",
   );
@@ -205,14 +271,16 @@ export async function GET(request: NextRequest) {
       }, { headers: { "Cache-Control": "no-store, max-age=0" } });
     }
 
-    const [dailyTrendRaw, v2SnapshotRaw] = await Promise.all([
+    const [dailyTrendRaw, v2SnapshotRaw, marketHistoryRaw] = await Promise.all([
       readTursoDatasetByDateKeys("MLB", "all_game_trends", [selectedDate]),
       readTursoDatasetByDateKeys("MLB", "trend_v2_snapshots", [selectedDate]),
+      readTursoDatasetByDateKeys("MLB", "public_split_history", [selectedDate]),
     ]);
     const dailyTrendRows = asRows(dailyTrendRaw);
     const v2Rows = asRows(v2SnapshotRaw);
+    const marketHistoryRows = asRows(marketHistoryRaw);
     const trendPlays = dailyTrendRows
-      .map((row) => historicalPlay(row, v2Rows))
+      .map((row) => historicalPlay(row, v2Rows, marketHistoryRows))
       .filter(Boolean);
 
     const gamesMap = new Map<string, Row>();
@@ -235,7 +303,7 @@ export async function GET(request: NextRequest) {
       availableDates,
       games: [...gamesMap.values()],
       trendPlays,
-      source: "stored-all_game_trends",
+      source: "stored-all_game_trends+public_split_history",
     }, { headers: { "Cache-Control": "no-store, max-age=0" } });
   } catch (error) {
     console.error("MLB daily market history read failed", error);
