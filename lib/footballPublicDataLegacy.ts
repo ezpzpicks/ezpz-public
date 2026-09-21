@@ -874,6 +874,7 @@ export async function buildFootballPublicData(
       active: Boolean(nflTrendModel.model),
       threshold: nflTrendModel.threshold,
       reason: nflTrendModel.reason,
+      researchCandidateCount: scoredTrendPlays.length,
     },
     aiSelectorStatus: {
       ...(core.aiSelectorStatus || {}),
