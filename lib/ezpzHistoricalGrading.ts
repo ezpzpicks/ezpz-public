@@ -1,4 +1,5 @@
 import { readTursoDataset, replaceTursoDataset, type TursoRow } from "./tursoStore";
+import { V2_DAILY_PICK_HEADERS } from "./mlbTrendV2Store";
 
 type Row = TursoRow;
 type GradeCode = "W" | "L" | "P" | "";
@@ -13,6 +14,13 @@ type FinalGame = {
   homeRuns: number;
   totalRuns: number;
   gameTime: string;
+  firstInningRuns: number | null;
+  official: boolean;
+};
+
+type PitcherResult = {
+  names: string[];
+  strikeouts: number;
 };
 
 export type HistoricalEzpzGradeRepair = {
@@ -23,6 +31,13 @@ export type HistoricalEzpzGradeRepair = {
   corrected: number;
   stillPending: number;
   changedCandidateIds: string[];
+  v2Scanned: number;
+  v2Graded: number;
+  v2StillPending: number;
+  v2ChangedCandidateIds: string[];
+  officialDatesFetched: number;
+  officialGamesFound: number;
+  pitcherBoxscoresFetched: number;
 };
 
 function text(value: unknown) {
@@ -72,7 +87,7 @@ function number(value: unknown): number | null {
 }
 
 function americanOdds(value: unknown) {
-  const raw = text(value);
+  const raw = text(value).replace(/[−–—]/g, "-");
   const signed = raw.match(/[+-]\d{3,}/)?.[0];
   const parsed = Number(signed || raw.match(/-?\d{3,}/)?.[0] || 0);
   return Number.isFinite(parsed) ? parsed : 0;
@@ -175,6 +190,8 @@ function finalGameFromRow(row: Row): FinalGame | null {
     homeRuns,
     totalRuns: totalRuns == null ? awayRuns + homeRuns : totalRuns,
     gameTime: text(row["Game Time"] || row["Game Time ET"] || row.Time),
+    firstInningRuns: null,
+    official: false,
   };
 }
 
@@ -229,9 +246,6 @@ function matchFinalGame(pick: ReturnType<typeof pickData>, games: FinalGame[]) {
 
   if (candidates.length <= 1) return candidates[0] || null;
 
-  // Only use game number or scheduled time when a same-date matchup is genuinely
-  // ambiguous (normally a doubleheader). Time is never allowed to reject the one
-  // obvious team/date match.
   const pickNumber = gameNumber(pick.game);
   if (pickNumber) {
     const numbered = candidates.filter((game) => gameNumber(game.game) === pickNumber);
@@ -273,7 +287,7 @@ function gradeFromFinalGame(pick: ReturnType<typeof pickData>, game: FinalGame):
     const line = totalLine(pick);
     const side = totalSide(pick);
     if (line == null || !side) return "";
-    if (game.totalRuns === line) return "P";
+    if (Math.abs(game.totalRuns - line) < 0.001) return "P";
     if (side === "OVER") return game.totalRuns > line ? "W" : "L";
     return game.totalRuns < line ? "W" : "L";
   }
@@ -286,7 +300,186 @@ function gradeFromFinalGame(pick: ReturnType<typeof pickData>, game: FinalGame):
     return sameTeam(selectedTeam, winner) ? "W" : "L";
   }
 
+  if (market === "first inning") {
+    if (game.firstInningRuns == null) return "";
+    const source = `${pick.selection} ${pick.play}`.toUpperCase();
+    if (source.includes("YRFI")) return game.firstInningRuns > 0 ? "W" : "L";
+    if (source.includes("NRFI")) return game.firstInningRuns === 0 ? "W" : "L";
+  }
+
   return "";
+}
+
+function recognizedMarket(pick: ReturnType<typeof pickData>) {
+  const market = key(pick.market);
+  return (
+    market === "moneyline" ||
+    market === "total" ||
+    market === "first inning" ||
+    market === "pitcher strikeouts"
+  );
+}
+
+async function officialFinalGamesForDate(date: string): Promise<FinalGame[]> {
+  const url = new URL("https://statsapi.mlb.com/api/v1/schedule");
+  url.searchParams.set("sportId", "1");
+  url.searchParams.set("date", date);
+  url.searchParams.set("hydrate", "linescore");
+
+  try {
+    const response = await fetch(url, {
+      cache: "no-store",
+      headers: { Accept: "application/json" },
+    });
+    if (!response.ok) return [];
+    const payload = (await response.json()) as any;
+    const output: FinalGame[] = [];
+
+    for (const day of payload?.dates || []) {
+      for (const game of day?.games || []) {
+        const state = `${String(game?.status?.detailedState || "")} ${String(
+          game?.status?.abstractGameState || "",
+        )}`.toLowerCase();
+        if (!state.includes("final")) continue;
+
+        const gameKey = text(game?.gamePk).replace(/\.0$/, "");
+        const awayRuns = Number(game?.teams?.away?.score);
+        const homeRuns = Number(game?.teams?.home?.score);
+        if (!gameKey || !Number.isFinite(awayRuns) || !Number.isFinite(homeRuns)) continue;
+
+        const innings = Array.isArray(game?.linescore?.innings) ? game.linescore.innings : [];
+        const first = innings.find((inning: any) => Number(inning?.num) === 1) || innings[0];
+        const firstAway = Number(first?.away?.runs);
+        const firstHome = Number(first?.home?.runs);
+        const firstInningRuns =
+          Number.isFinite(firstAway) && Number.isFinite(firstHome)
+            ? firstAway + firstHome
+            : null;
+
+        const awayTeam = text(game?.teams?.away?.team?.name);
+        const homeTeam = text(game?.teams?.home?.team?.name);
+        output.push({
+          date,
+          gameKey,
+          game: `${awayTeam} at ${homeTeam}`,
+          awayTeam,
+          homeTeam,
+          awayRuns,
+          homeRuns,
+          totalRuns: awayRuns + homeRuns,
+          gameTime: text(game?.gameDate),
+          firstInningRuns,
+          official: true,
+        });
+      }
+    }
+    return output;
+  } catch (error) {
+    console.warn("Official MLB historical final lookup failed", { date, error });
+    return [];
+  }
+}
+
+async function officialFinalGamesForDates(dates: string[]) {
+  const uniqueDates = [...new Set(dates.filter(Boolean))];
+  const byDate = await Promise.all(
+    uniqueDates.map(async (date) => [date, await officialFinalGamesForDate(date)] as const),
+  );
+  return {
+    datesFetched: uniqueDates.length,
+    games: byDate.flatMap(([, games]) => games),
+  };
+}
+
+function pitcherNameFromPick(pick: ReturnType<typeof pickData>) {
+  const selection = text(pick.selection);
+  if (selection.includes("|")) return text(selection.split("|")[0]);
+  return text(pick.play)
+    .replace(/\b(?:over|under)\b.*$/i, "")
+    .replace(/\bstrikeouts?\b/gi, "")
+    .trim();
+}
+
+function samePersonName(left: unknown, right: unknown) {
+  const ignored = new Set(["jr", "sr", "ii", "iii", "iv"]);
+  const leftTokens = key(left).split(" ").filter((token) => token && !ignored.has(token));
+  const rightTokens = key(right).split(" ").filter((token) => token && !ignored.has(token));
+  if (!leftTokens.length || !rightTokens.length) return false;
+  const rightSet = new Set(rightTokens);
+  const overlap = leftTokens.filter((token) => rightSet.has(token)).length;
+  if (leftTokens.length === 1 || rightTokens.length === 1) return overlap === 1;
+  return overlap >= 2;
+}
+
+async function pitcherResultsForGame(gameKey: string): Promise<PitcherResult[]> {
+  if (!/^\d+$/.test(gameKey)) return [];
+  const url = new URL(`https://statsapi.mlb.com/api/v1/game/${gameKey}/boxscore`);
+  try {
+    const response = await fetch(url, {
+      cache: "no-store",
+      headers: { Accept: "application/json" },
+    });
+    if (!response.ok) return [];
+    const payload = (await response.json()) as any;
+    const output: PitcherResult[] = [];
+
+    for (const side of ["away", "home"] as const) {
+      const players = payload?.teams?.[side]?.players || {};
+      for (const player of Object.values(players) as any[]) {
+        const strikeouts = Number(player?.stats?.pitching?.strikeOuts);
+        if (!Number.isFinite(strikeouts)) continue;
+        const names = [
+          player?.person?.fullName,
+          player?.person?.boxscoreName,
+          player?.person?.lastFirstName,
+        ]
+          .map((value) => text(value))
+          .filter(Boolean);
+        if (names.length) output.push({ names: [...new Set(names)], strikeouts });
+      }
+    }
+    return output;
+  } catch (error) {
+    console.warn("Official MLB historical pitcher boxscore lookup failed", { gameKey, error });
+    return [];
+  }
+}
+
+async function gradePitcherPick(
+  pick: ReturnType<typeof pickData>,
+  game: FinalGame,
+  pitcherCache: Map<string, Promise<PitcherResult[]>>,
+) {
+  if (!game.official || !game.gameKey) return "" as GradeCode;
+  let request = pitcherCache.get(game.gameKey);
+  if (!request) {
+    request = pitcherResultsForGame(game.gameKey);
+    pitcherCache.set(game.gameKey, request);
+  }
+  const pitchers = await request;
+  const targetName = pitcherNameFromPick(pick);
+  const pitcher = pitchers.find((item) =>
+    item.names.some((name) => samePersonName(targetName, name)),
+  );
+  if (!pitcher) return "" as GradeCode;
+
+  const line = totalLine(pick);
+  const side = totalSide(pick);
+  if (line == null || !side) return "" as GradeCode;
+  if (Math.abs(pitcher.strikeouts - line) < 0.001) return "P" as GradeCode;
+  if (side === "OVER") return (pitcher.strikeouts > line ? "W" : "L") as GradeCode;
+  return (pitcher.strikeouts < line ? "W" : "L") as GradeCode;
+}
+
+async function gradePick(
+  pick: ReturnType<typeof pickData>,
+  game: FinalGame,
+  pitcherCache: Map<string, Promise<PitcherResult[]>>,
+) {
+  if (key(pick.market) === "pitcher strikeouts") {
+    return gradePitcherPick(pick, game, pitcherCache);
+  }
+  return gradeFromFinalGame(pick, game);
 }
 
 function updateDetailsJson(row: Row, result: GradeCode, units: number, updatedAt: string) {
@@ -304,61 +497,151 @@ function updateDetailsJson(row: Row, result: GradeCode, units: number, updatedAt
   }
 }
 
+function rowNeedsGrade(row: Row) {
+  return !gradeCode(row.Result);
+}
+
 export async function repairHistoricalEzpzGrades(): Promise<HistoricalEzpzGradeRepair> {
-  const [selectorRows, trendRows] = await Promise.all([
+  const [selectorRows, trendRows, v2Rows] = await Promise.all([
     readTursoDataset("MLB", "ai_pick_selector"),
     readTursoDataset("MLB", "all_game_trends"),
+    readTursoDataset("MLB", "trend_v2_daily_picks", V2_DAILY_PICK_HEADERS),
   ]);
 
-  const finalGames = uniqueFinalGames(trendRows);
+  const pendingDates = new Set<string>();
+  for (const row of selectorRows) {
+    const pick = pickData(row);
+    if (pick.selected && recognizedMarket(pick) && rowNeedsGrade(row) && pick.date) {
+      pendingDates.add(pick.date);
+    }
+  }
+  for (const row of v2Rows) {
+    const pick = pickData(row);
+    if (recognizedMarket(pick) && rowNeedsGrade(row) && pick.date) {
+      pendingDates.add(pick.date);
+    }
+  }
+
+  const official = await officialFinalGamesForDates([...pendingDates]);
+  const trendFinalGames = uniqueFinalGames(trendRows);
+  const pitcherCache = new Map<string, Promise<PitcherResult[]>>();
+  const updatedAt = new Date().toISOString();
+
   let selected = 0;
   let fullGameSelected = 0;
   let graded = 0;
   let corrected = 0;
   let stillPending = 0;
+  let selectorChanged = false;
   const changedCandidateIds: string[] = [];
-  const updatedAt = new Date().toISOString();
-  let changed = false;
+  const repairedSelector: Row[] = [];
 
-  const repaired = selectorRows.map((source) => {
+  for (const source of selectorRows) {
     const row: Row = { ...source };
     const pick = pickData(row);
-    if (!pick.selected) return row;
+    if (!pick.selected) {
+      repairedSelector.push(row);
+      continue;
+    }
     selected += 1;
 
     const market = key(pick.market);
-    if (market !== "moneyline" && market !== "total") return row;
-    fullGameSelected += 1;
+    if (market === "moneyline" || market === "total") fullGameSelected += 1;
+    if (!recognizedMarket(pick)) {
+      repairedSelector.push(row);
+      continue;
+    }
 
-    const game = matchFinalGame(pick, finalGames);
-    const result = game ? gradeFromFinalGame(pick, game) : "";
+    const prior = gradeCode(row.Result);
+    let result: GradeCode = "";
+    let game: FinalGame | null = null;
+
+    if (!prior) {
+      game = matchFinalGame(pick, official.games) || matchFinalGame(pick, trendFinalGames);
+      if (game) result = await gradePick(pick, game, pitcherCache);
+    } else if (market === "moneyline" || market === "total") {
+      // Preserve the previous historical-correction behavior for already graded
+      // full-game picks without adding any extra MLB API requests.
+      game = matchFinalGame(pick, trendFinalGames);
+      if (game) result = gradeFromFinalGame(pick, game);
+    }
+
     if (!result) {
-      if (!gradeCode(row.Result)) stillPending += 1;
-      return row;
+      if (!prior) stillPending += 1;
+      repairedSelector.push(row);
+      continue;
     }
 
     graded += 1;
-    const prior = gradeCode(row.Result);
     const units = unitsFor(result, pick.odds);
     const priorUnits = Number(text(row.Units));
     const needsUpdate =
       prior !== result ||
       !Number.isFinite(priorUnits) ||
       Math.abs(priorUnits - units) > 0.005;
-    if (!needsUpdate) return row;
+    if (!needsUpdate) {
+      repairedSelector.push(row);
+      continue;
+    }
 
     if (prior && prior !== result) corrected += 1;
     row.Result = result;
     row.Units = String(units);
     row["Result Updated"] = updatedAt;
     updateDetailsJson(row, result, units, updatedAt);
-    changedCandidateIds.push(pick.candidateId || `${pick.date}|${pick.game}|${pick.market}|${pick.selection}`);
-    changed = true;
-    return row;
-  });
+    changedCandidateIds.push(
+      pick.candidateId || `${pick.date}|${pick.game}|${pick.market}|${pick.selection}`,
+    );
+    selectorChanged = true;
+    repairedSelector.push(row);
+  }
 
-  if (changed) {
-    await replaceTursoDataset("MLB", "ai_pick_selector", repaired);
+  let v2Graded = 0;
+  let v2StillPending = 0;
+  let v2Changed = false;
+  const v2ChangedCandidateIds: string[] = [];
+  const repairedV2: Row[] = [];
+
+  for (const source of v2Rows) {
+    const row: Row = { ...source };
+    const pick = pickData(row);
+    const prior = gradeCode(row.Result);
+    if (prior || !recognizedMarket(pick)) {
+      repairedV2.push(row);
+      continue;
+    }
+
+    const game = matchFinalGame(pick, official.games) || matchFinalGame(pick, trendFinalGames);
+    const result = game ? await gradePick(pick, game, pitcherCache) : "";
+    if (!result) {
+      v2StillPending += 1;
+      repairedV2.push(row);
+      continue;
+    }
+
+    v2Graded += 1;
+    const units = unitsFor(result, pick.odds);
+    row.Result = result;
+    row.Units = String(units);
+    row["Result Updated"] = updatedAt;
+    updateDetailsJson(row, result, units, updatedAt);
+    v2ChangedCandidateIds.push(
+      pick.candidateId || `${pick.date}|${pick.game}|${pick.market}|${pick.selection}`,
+    );
+    v2Changed = true;
+    repairedV2.push(row);
+  }
+
+  if (selectorChanged) {
+    await replaceTursoDataset("MLB", "ai_pick_selector", repairedSelector);
+  }
+  if (v2Changed) {
+    await replaceTursoDataset(
+      "MLB",
+      "trend_v2_daily_picks",
+      repairedV2,
+      V2_DAILY_PICK_HEADERS,
+    );
   }
 
   return {
@@ -369,5 +652,12 @@ export async function repairHistoricalEzpzGrades(): Promise<HistoricalEzpzGradeR
     corrected,
     stillPending,
     changedCandidateIds,
+    v2Scanned: v2Rows.length,
+    v2Graded,
+    v2StillPending,
+    v2ChangedCandidateIds,
+    officialDatesFetched: official.datesFetched,
+    officialGamesFound: official.games.length,
+    pitcherBoxscoresFetched: pitcherCache.size,
   };
 }
