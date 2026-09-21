@@ -282,15 +282,26 @@ function directTrendSideKey(play: AnyPick) {
 }
 
 function directNflTrendLabels(play: AnyPick, plays: AnyPick[]) {
+  const labels: string[] = [];
+
+  const ownBets = Number(play.betsPct);
+  const ownMoney = Number(play.moneyPct);
+  if (
+    Number.isFinite(ownBets) &&
+    Number.isFinite(ownMoney) &&
+    ownMoney - ownBets >= 20
+  ) {
+    labels.push("Sharp");
+  }
+
   const ownKey = directTrendSideKey(play);
   const publicSide = plays.find((candidate) =>
     textKey(candidate.game) === textKey(play.game) &&
     textKey(candidate.market) === textKey(play.market) &&
     directTrendSideKey(candidate) !== ownKey
   );
-  if (!publicSide) return { labels: [] as string[], publicSide: null as AnyPick | null };
+  if (!publicSide) return { labels, publicSide: null as AnyPick | null };
 
-  const labels: string[] = [];
   const publicBets = Number(publicSide.betsPct);
   const publicMoney = Number(publicSide.moneyPct);
   const placeholderSplit =
@@ -301,10 +312,14 @@ function directNflTrendLabels(play: AnyPick, plays: AnyPick[]) {
     labels.push("Public Fade");
   }
 
+  const openingPublicBets = Number(publicSide.openingBetsPct);
   const publicMove = Number(publicSide.publicMovementPct);
   const lineMove = Number(publicSide.lineMovementValue);
   if (
     textKey(play.market) === "spread" &&
+    Number.isFinite(openingPublicBets) &&
+    openingPublicBets > 0 &&
+    openingPublicBets < 100 &&
     String(publicSide.lineMovementBasis || "").includes("Spread") &&
     Number.isFinite(publicMove) &&
     publicMove >= 5 &&
@@ -319,7 +334,7 @@ function directNflTrendLabels(play: AnyPick, plays: AnyPick[]) {
 
 function directNflTrendPick(play: AnyPick, plays: AnyPick[], today: string): AnyPick | null {
   const { labels, publicSide } = directNflTrendLabels(play, plays);
-  if (!labels.length || !publicSide) return null;
+  if (!labels.length) return null;
 
   const odds = parseAmericanOdds(play.odds);
   if (odds == null || odds < -150) return null;
@@ -331,10 +346,13 @@ function directNflTrendPick(play: AnyPick, plays: AnyPick[], today: string): Any
     : `${play.selection || play.selectionTeam} ${line}`.trim();
 
   const details: string[] = [];
-  if (labels.includes("Public Fade")) {
+  if (labels.includes("Sharp")) {
+    details.push(`money exceeds bets by ${Math.round(Number(play.moneyPct) - Number(play.betsPct))} pts`);
+  }
+  if (labels.includes("Public Fade") && publicSide) {
     details.push(`fade ${Math.round(Number(publicSide.betsPct))}% public side`);
   }
-  if (labels.includes("Strong RLM")) {
+  if (labels.includes("Strong RLM") && publicSide) {
     details.push(
       `public bets +${Math.round(Number(publicSide.publicMovementPct))} pts while spread moved ${Math.abs(Number(publicSide.lineMovementValue)).toFixed(1)} pts against that side`,
     );
@@ -468,8 +486,8 @@ export async function buildFootballPublicData(
     ? {
         ...(core.aiSelectorStatus || {}),
         message: enrichedCurrentPicks.length
-          ? "NFL EZPZ Picks live: Model Plays require HOT Last-7 and -150 or better. Trend Plays qualify directly as Public Fade (fade an 80%+ bet side) or Strong RLM; NFL Trend V2 remains research-only."
-          : "No NFL EZPZ Picks qualify right now. Trend Plays qualify directly as Public Fade (fade an 80%+ bet side) or Strong RLM; NFL Trend V2 remains research-only.",
+          ? "NFL EZPZ Picks live: Model Plays require HOT Last-7 and -150 or better. Trend Plays qualify directly as Public Fade (fade an 80%+ bet side), Strong RLM, or Sharp (money 20+ points over bets)."
+          : "No NFL EZPZ Picks qualify right now. Trend Plays qualify directly as Public Fade, Strong RLM, or Sharp.",
         selectedCount: enrichedCurrentPicks.length,
       }
     : core.aiSelectorStatus;
