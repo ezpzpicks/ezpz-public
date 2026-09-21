@@ -581,20 +581,28 @@ async function loadPostedSplits(
       )
     ) best = candidate;
 
-    // Football discovery must prove both slate coverage and crawl continuity.
-    // This prevents CFB from accepting a plausible-looking partial page set.
-    if (coverage.ok && crawl.missingPages.length === 0) return candidate;
+    // NFL can be checked against its compact canonical slate. CFB cannot:
+    // DraftKings does not publish betting splits for every scheduled college
+    // matchup at once. For CFB, require a non-empty validated DK result and
+    // uninterrupted crawl pages instead of demanding every scheduled game.
+    const coverageAccepted = sport === "NFL" ? coverage.ok : validated.length > 0;
+    if (coverageAccepted && crawl.missingPages.length === 0) return candidate;
   }
 
   if (!best) {
     throw new Error(`DraftKings ${sport} discovery returned no filter candidates.`);
   }
-  if (!best.coverage.ok || best.missingPages.length) {
+  const bestCoverageFailed = sport === "NFL" ? !best.coverage.ok : best.splits.length === 0;
+  if (bestCoverageFailed || best.missingPages.length) {
     const pageFailure = best.missingPages.length
       ? `; missing crawl page(s) ${best.missingPages.join(", ")}`
       : "";
+    const coverageFailure =
+      sport === "NFL"
+        ? coverageFailureMessage(best.coverage)
+        : "no CFB market sides matched the tracked slate";
     throw new Error(
-      `DraftKings ${sport} partial slate rejected: ${coverageFailureMessage(best.coverage)}${pageFailure}. ` +
+      `DraftKings ${sport} partial slate rejected: ${coverageFailure}${pageFailure}. ` +
       `Filter ${best.filter.eventGroup}/${best.filter.dateRange}; ` +
       `received ${best.coverage.receivedGames} games and ${best.splits.length} market sides.`,
     );
