@@ -68,6 +68,25 @@ function resultCode(value: unknown): ResultCode {
   return "";
 }
 
+function parseAmericanOdds(value: unknown) {
+  const raw = String(value ?? "").trim().replace(/−/g, "-");
+  if (!raw) return null;
+  if (/^(?:even|evens|even money)$/i.test(raw)) return 100;
+  const tokens = raw.match(/[+-]?\d+(?:\.\d+)?/g) || [];
+  for (const token of [...tokens].reverse()) {
+    const parsed = Number(token);
+    if (!Number.isFinite(parsed) || Math.abs(parsed) < 100 || Math.abs(parsed) > 10000) continue;
+    return Math.round(parsed);
+  }
+  return null;
+}
+
+function formatAmericanOdds(value: unknown) {
+  const odds = parseAmericanOdds(value);
+  if (odds == null) return "";
+  return odds > 0 ? `+${odds}` : String(odds);
+}
+
 function lineNumber(value: unknown) {
   const matches = String(value || "").replace(/[−–—]/g, "-").match(/[+-]?\d+(?:\.\d+)?/g) || [];
   for (const raw of [...matches].reverse()) {
@@ -256,6 +275,118 @@ function historyPickFromRow(row: SheetRow): AnyPick {
   };
 }
 
+function directTrendSideKey(play: AnyPick) {
+  return textKey(play.market) === "total"
+    ? textKey(play.side || play.selection)
+    : textKey(play.selection || play.selectionTeam);
+}
+
+function directNflTrendLabels(play: AnyPick, plays: AnyPick[]) {
+  const ownKey = directTrendSideKey(play);
+  const publicSide = plays.find((candidate) =>
+    textKey(candidate.game) === textKey(play.game) &&
+    textKey(candidate.market) === textKey(play.market) &&
+    directTrendSideKey(candidate) !== ownKey
+  );
+  if (!publicSide) return { labels: [] as string[], publicSide: null as AnyPick | null };
+
+  const labels: string[] = [];
+  const publicBets = Number(publicSide.betsPct);
+  const publicMoney = Number(publicSide.moneyPct);
+  const placeholderSplit =
+    (publicBets === 100 && publicMoney === 100) ||
+    (publicBets === 0 && publicMoney === 0);
+
+  if (!placeholderSplit && Number.isFinite(publicBets) && publicBets >= 80) {
+    labels.push("Public Fade");
+  }
+
+  const publicMove = Number(publicSide.publicMovementPct);
+  const lineMove = Number(publicSide.lineMovementValue);
+  if (
+    textKey(play.market) === "spread" &&
+    String(publicSide.lineMovementBasis || "").includes("Spread") &&
+    Number.isFinite(publicMove) &&
+    publicMove >= 5 &&
+    Number.isFinite(lineMove) &&
+    lineMove <= -1.5
+  ) {
+    labels.push("Strong RLM");
+  }
+
+  return { labels, publicSide };
+}
+
+function directNflTrendPick(play: AnyPick, plays: AnyPick[], today: string): AnyPick | null {
+  const { labels, publicSide } = directNflTrendLabels(play, plays);
+  if (!labels.length || !publicSide) return null;
+
+  const odds = parseAmericanOdds(play.odds);
+  if (odds == null || odds < -150) return null;
+
+  const lineValue = Number(play.line);
+  const line = Number.isFinite(lineValue) ? `${lineValue > 0 ? "+" : ""}${lineValue}` : "";
+  const selection = textKey(play.market) === "total"
+    ? `${play.side || play.selection} ${line}`.trim()
+    : `${play.selection || play.selectionTeam} ${line}`.trim();
+
+  const details: string[] = [];
+  if (labels.includes("Public Fade")) {
+    details.push(`fade ${Math.round(Number(publicSide.betsPct))}% public side`);
+  }
+  if (labels.includes("Strong RLM")) {
+    details.push(
+      `public bets +${Math.round(Number(publicSide.publicMovementPct))} pts while spread moved ${Math.abs(Number(publicSide.lineMovementValue)).toFixed(1)} pts against that side`,
+    );
+  }
+
+  return {
+    date: today,
+    source: "Trend Play",
+    game: String(play.game || ""),
+    market: textKey(play.market) === "total" ? "Total" : "Spread",
+    selection,
+    odds: formatAmericanOdds(odds),
+    score: labels.includes("Strong RLM") ? 85 : 80,
+    tier: labels.join(" + "),
+    qualification: `${labels.join(" + ")} • ${details.join(" • ")}`,
+    snapshotStatus: String(play.snapshotStatus || "LIVE"),
+  };
+}
+
+function directNflTrendPicks(core: AnyPick, today: string) {
+  const plays = (Array.isArray(core.trendPlays) ? core.trendPlays : [])
+    .filter((play: AnyPick) => isoDate(play.date || play.recordDate || play.Date || today) === today);
+  const picks = plays
+    .map((play: AnyPick) => directNflTrendPick(play, plays, today))
+    .filter((pick: AnyPick | null): pick is AnyPick => Boolean(pick));
+  const deduped = new Map<string, AnyPick>();
+  for (const pick of picks) deduped.set(pickKey(pick, today), pick);
+  return [...deduped.values()];
+}
+
+function mergeCurrentPicks(basePicks: AnyPick[], trendPicks: AnyPick[], today: string) {
+  const merged = new Map<string, AnyPick>();
+  for (const pick of basePicks) merged.set(pickKey(pick, today), pick);
+  for (const trend of trendPicks) {
+    const key = pickKey(trend, today);
+    const existing = merged.get(key);
+    if (!existing) {
+      merged.set(key, trend);
+      continue;
+    }
+    merged.set(key, {
+      ...existing,
+      source: "Best + Trend",
+      score: Math.max(Number(existing.score || 0), Number(trend.score || 0)),
+      tier: [existing.tier, trend.tier].filter(Boolean).join(" + "),
+      qualification: [existing.qualification, trend.qualification].filter(Boolean).join(" • "),
+      snapshotStatus: trend.snapshotStatus || existing.snapshotStatus,
+    });
+  }
+  return [...merged.values()];
+}
+
 async function readHistory(sport: FootballSport) {
   try {
     return await readSportWorksheet(sport, EZPZ_PICK_HISTORY_TAB, EZPZ_PICK_HISTORY_HEADERS);
@@ -272,7 +403,10 @@ export async function buildFootballPublicData(
   const today = isoDate(core.today) || new Date().toISOString().slice(0, 10);
   let history = await readHistory(sport);
 
-  const currentPicks = (Array.isArray(core.aiPicks) ? core.aiPicks : []).map((pick: AnyPick) => ({ ...pick, date: isoDate(pick.date) || today }));
+  const baseCurrentPicks = (Array.isArray(core.aiPicks) ? core.aiPicks : [])
+    .map((pick: AnyPick) => ({ ...pick, date: isoDate(pick.date) || today }));
+  const directTrendPicks = sport === "NFL" ? directNflTrendPicks(core, today) : [];
+  const currentPicks = mergeCurrentPicks(baseCurrentPicks, directTrendPicks, today);
   const existingByKey = new Map(history.map((row) => [String(row["Pick Key"] || pickKey(row, row.Date)), row]));
   const currentRows = currentPicks
     .map((pick: AnyPick) => historyRowFromPick(pick, today, existingByKey.get(pickKey(pick, today))))
@@ -330,9 +464,20 @@ export async function buildFootballPublicData(
     .map(historyPickFromRow)
     .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")) || String(a.game || "").localeCompare(String(b.game || "")));
 
+  const aiSelectorStatus = sport === "NFL"
+    ? {
+        ...(core.aiSelectorStatus || {}),
+        message: enrichedCurrentPicks.length
+          ? "NFL EZPZ Picks live: Model Plays require HOT Last-7 and -150 or better. Trend Plays qualify directly as Public Fade (fade an 80%+ bet side) or Strong RLM; NFL Trend V2 remains research-only."
+          : "No NFL EZPZ Picks qualify right now. Trend Plays qualify directly as Public Fade (fade an 80%+ bet side) or Strong RLM; NFL Trend V2 remains research-only.",
+        selectedCount: enrichedCurrentPicks.length,
+      }
+    : core.aiSelectorStatus;
+
   return {
     ...core,
     aiPicks: enrichedCurrentPicks,
     aiPickRecordRows,
+    aiSelectorStatus,
   };
 }
