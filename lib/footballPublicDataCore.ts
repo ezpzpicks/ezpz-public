@@ -1761,7 +1761,7 @@ function isStrongRlmSource(play: DraftKingsSplit) {
     && lineMove <= -STRONG_RLM_MIN_SPREAD_MOVE_POINTS;
 }
 
-function isSharpSource(play: DraftKingsSplit, sport: FootballSport) {
+function isSharpSource(play: Pick<TrendPlay, "betsPct" | "moneyPct">, sport: FootballSport) {
   const bets = Number(play.betsPct);
   const money = Number(play.moneyPct);
   return Number.isFinite(bets)
