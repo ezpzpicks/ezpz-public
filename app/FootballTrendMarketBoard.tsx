@@ -64,18 +64,30 @@ function pct(value: unknown) {
   return Number.isFinite(n) ? `${n.toFixed(1)}%` : "-";
 }
 
-function compactTime(value: unknown) {
+function snapshotEpoch(value: unknown) {
+  const raw = String(value || "").trim();
+  const match = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4}),?\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)/i);
+  if (match) {
+    const [, month, day, year, rawHour, minute, second = "0", meridiem] = match;
+    let hour = Number(rawHour) % 12;
+    if (meridiem.toUpperCase() === "PM") hour += 12;
+    return Date.UTC(Number(year), Number(month) - 1, Number(day), hour, Number(minute), Number(second));
+  }
+  const stamp = Date.parse(raw);
+  return Number.isFinite(stamp) ? stamp : Number.POSITIVE_INFINITY;
+}
+
+function compactDate(value: unknown) {
   const raw = String(value || "").trim();
   if (!raw) return "-";
-  const match = raw.match(/(\d{1,2}:\d{2})(?::\d{2})?\s*(AM|PM)/i);
-  if (match) return `${match[1]} ${match[2].toUpperCase()}`;
+  const match = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (match) return `${Number(match[1])}/${Number(match[2])}`;
   const stamp = Date.parse(raw);
   if (!Number.isFinite(stamp)) return raw;
   return new Intl.DateTimeFormat("en-US", {
     timeZone: "America/New_York",
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
+    month: "numeric",
+    day: "numeric",
   }).format(new Date(stamp));
 }
 
@@ -128,12 +140,9 @@ function labelsFor(play: TrendPlay, plays: TrendPlay[]) {
   const labels: string[] = [];
 
   const publicBets = Number(publicSide.betsPct);
-  const publicMoney = Number(publicSide.moneyPct);
   if (
     Number.isFinite(publicBets) &&
-    Number.isFinite(publicMoney) &&
-    publicBets > 75 &&
-    publicBets - publicMoney >= 55
+    publicBets >= 80
   ) labels.push("Public Fade");
 
   const publicMove = Number(publicSide.publicMovementPct);
@@ -154,8 +163,7 @@ function historyPoints(play: TrendPlay) {
   const saved = (play.movementHistory || []).filter((point) =>
     Number.isFinite(Number(point.betsPct)) && Number.isFinite(Number(point.moneyPct))
   );
-  if (saved.length >= 2) return saved;
-  return [
+  const fallback = [
     {
       snapshotTime: play.firstTrackedAt || "Open",
       line: play.openingLine ?? play.line,
@@ -171,6 +179,19 @@ function historyPoints(play: TrendPlay) {
       moneyPct: Number(play.moneyPct),
     },
   ];
+
+  const ordered = [...(saved.length >= 2 ? saved : fallback)].sort(
+    (a, b) => snapshotEpoch(a.snapshotTime) - snapshotEpoch(b.snapshotTime),
+  );
+  const firstRealIndex = ordered.findIndex((point) => {
+    const bets = Number(point.betsPct);
+    const money = Number(point.moneyPct);
+    const placeholder100 = bets === 100 && money === 100;
+    const placeholder0 = bets === 0 && money === 0;
+    return !placeholder100 && !placeholder0;
+  });
+
+  return firstRealIndex >= 0 ? ordered.slice(firstRealIndex) : ordered;
 }
 
 function polyline(values: number[], width: number, height: number, min: number, max: number) {
@@ -235,11 +256,11 @@ function movementMarkerIndexes(values: number[]) {
   return [...new Set(chosen)];
 }
 
-function timeAxis(points: ReturnType<typeof historyPoints>) {
+function dateAxis(points: ReturnType<typeof historyPoints>) {
   if (!points.length) return [] as string[];
   const indexes = [0, .25, .5, .75, 1]
     .map((ratio) => Math.round((points.length - 1) * ratio));
-  return [...new Set(indexes)].map((index) => compactTime(points[index]?.snapshotTime));
+  return [...new Set(indexes)].map((index) => compactDate(points[index]?.snapshotTime));
 }
 
 function MovementChart({ play }: { play: TrendPlay }) {
@@ -262,7 +283,7 @@ function MovementChart({ play }: { play: TrendPlay }) {
   const maxLine = rawMax + padding;
   const latest = points[points.length - 1];
   const markers = movementMarkerIndexes(lines);
-  const times = timeAxis(points);
+  const dates = dateAxis(points);
   const lineTicks = Array.from({ length: 5 }, (_, index) => maxLine - ((maxLine - minLine) / 4) * index);
 
   const latestBetsY = chartY(clampPct(latest?.betsPct), 0, 100, top, bottom);
@@ -305,7 +326,7 @@ function MovementChart({ play }: { play: TrendPlay }) {
               <text x="25" y="14" textAnchor="middle">{Math.round(clampPct(latest?.moneyPct))}%</text>
             </g>
           </svg>
-          <div className="dkChartTimeAxis">{times.map((time) => <span key={time}>{time}</span>)}</div>
+          <div className="dkChartTimeAxis">{dates.map((date, index) => <span key={`${date}-${index}`}>{date}</span>)}</div>
           <div className="dkChartLegend"><span className="bets">Bets %</span><span className="money">Money %</span></div>
         </div>
 
@@ -345,7 +366,7 @@ function MovementChart({ play }: { play: TrendPlay }) {
               );
             })}
           </svg>
-          <div className="dkChartTimeAxis">{times.map((time) => <span key={time}>{time}</span>)}</div>
+          <div className="dkChartTimeAxis">{dates.map((date, index) => <span key={`${date}-${index}`}>{date}</span>)}</div>
         </div>
       </div>
     </section>
@@ -553,12 +574,9 @@ function historicalLabels(row: SheetRow, group: SheetRow[]) {
   const labels: string[] = [];
 
   const publicBets = Number(publicSide["Public Bets %"] || publicSide["Current Public %"]);
-  const publicMoney = Number(publicSide["Public Money %"] || publicSide["Current Sharp %"]);
   if (
     Number.isFinite(publicBets) &&
-    Number.isFinite(publicMoney) &&
-    publicBets > 75 &&
-    publicBets - publicMoney >= 55
+    publicBets >= 80
   ) labels.push("Public Fade");
 
   const publicMove = Number(publicSide["Public Change %"]);
