@@ -1072,6 +1072,24 @@ body::after {
   color: #f8fafc;
 }
 
+.footballBoard {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: clip;
+}
+
+.footballBoard > *,
+.trendWeekControls,
+.directTrendRules,
+.dkTrendGameGrid,
+.dkTrendGame,
+.dkTrendMarketBoard {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
 .dkTrendGameGrid {
   display: grid;
   gap: 18px;
@@ -1385,16 +1403,25 @@ body::after {
   text-transform: uppercase;
 }
 
-.rlmMovementMini strong {
-  color: #e7f2ff;
+.rlmMoveTrail {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font-size: .64rem;
   font-weight: 950;
   font-variant-numeric: tabular-nums;
   letter-spacing: -.015em;
 }
 
-.rlmMovementMini strong::first-letter {
-  color: #7cc7ff;
+.rlmMoveValue {
+  color: #eef6ff;
+}
+
+.rlmMoveArrow {
+  color: #54b9ff;
+  font-size: .72rem;
+  line-height: 1;
+  text-shadow: 0 0 10px rgba(84,185,255,.28);
 }
 
 .dkMovementDropdown {
@@ -1652,7 +1679,29 @@ body::after {
 }
 
 @media (max-width: 760px) {
+  .footballBoard,
+  .footballBoard > *,
+  .trendWeekControls,
+  .directTrendRules,
+  .dkTrendGameGrid,
+  .dkTrendGame,
+  .dkTrendMarketBoard,
+  .dkTrendMarketRow,
+  .dkTrendGameHead,
+  .dkTrendGameMatchupWrap,
+  .dkTrendMatchupTitle,
+  .dkTrendFlow,
+  .dkTrendBadges {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .footballBoard {
+    overflow-x: clip;
+  }
+
   .dkTrendGame {
+    width: 100%;
     border-radius: 22px;
   }
 
@@ -1808,8 +1857,12 @@ body::after {
     font-size: .5rem;
   }
 
-  .rlmMovementMini strong {
+  .rlmMoveTrail {
     font-size: .6rem;
+  }
+
+  .rlmMoveArrow {
+    font-size: .67rem;
   }
 
   .dkMovementHead {

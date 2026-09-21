@@ -106,8 +106,10 @@ function rlmBadgeSummary(play: TrendPlay) {
   const endLine = Number(play.line);
   if (![startBets, endBets, startLine, endLine].every((value) => Number.isFinite(value))) return null;
   return {
-    bets: `${Math.round(startBets)}% → ${Math.round(endBets)}%`,
-    line: `${compactMovementLine(play, startLine)} → ${compactMovementLine(play, endLine)}`,
+    startBets: `${Math.round(startBets)}%`,
+    endBets: `${Math.round(endBets)}%`,
+    startLine: compactMovementLine(play, startLine),
+    endLine: compactMovementLine(play, endLine),
   };
 }
 
@@ -377,9 +379,26 @@ function MarketRow({ play, plays, sport }: { play: TrendPlay; plays: TrendPlay[]
           <div className="dkTrendBadgeGroup" key={label}>
             <span className={`directTrendBadge ${label === "Public Fade" ? "fade" : "rlm"}`}>{label}</span>
             {label === "Strong RLM" && rlmSummary ? (
-              <div className="rlmMovementMini" aria-label={`Strong RLM movement: bets ${rlmSummary.bets}, line ${rlmSummary.line}`}>
-                <span><b>Bets</b><strong>{rlmSummary.bets}</strong></span>
-                <span><b>Line</b><strong>{rlmSummary.line}</strong></span>
+              <div
+                className="rlmMovementMini"
+                aria-label={`Strong RLM movement: bets ${rlmSummary.startBets} to ${rlmSummary.endBets}, line ${rlmSummary.startLine} to ${rlmSummary.endLine}`}
+              >
+                <span>
+                  <b>Bets</b>
+                  <span className="rlmMoveTrail">
+                    <span className="rlmMoveValue">{rlmSummary.startBets}</span>
+                    <span className="rlmMoveArrow">→</span>
+                    <span className="rlmMoveValue">{rlmSummary.endBets}</span>
+                  </span>
+                </span>
+                <span>
+                  <b>Line</b>
+                  <span className="rlmMoveTrail">
+                    <span className="rlmMoveValue">{rlmSummary.startLine}</span>
+                    <span className="rlmMoveArrow">→</span>
+                    <span className="rlmMoveValue">{rlmSummary.endLine}</span>
+                  </span>
+                </span>
               </div>
             ) : null}
           </div>
