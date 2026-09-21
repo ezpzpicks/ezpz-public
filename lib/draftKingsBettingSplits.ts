@@ -58,7 +58,11 @@ export function assessDraftKingsMarketCoverage<T>(
       missingGames.push(label);
       continue;
     }
-    if (state.spread.size < 2 || state.total.size < 2) {
+    const spreadPublished = state.spread.size > 0;
+    const totalPublished = state.total.size > 0;
+    const spreadIncomplete = spreadPublished && state.spread.size < 2;
+    const totalIncomplete = totalPublished && state.total.size < 2;
+    if ((!spreadPublished && !totalPublished) || spreadIncomplete || totalIncomplete) {
       incompleteGames.push(
         `${label} (${state.spread.size}/2 spread sides, ${state.total.size}/2 total sides)`,
       );
