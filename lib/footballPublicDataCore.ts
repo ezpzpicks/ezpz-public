@@ -1719,7 +1719,7 @@ const PUBLIC_FADE_MIN_BETS_PCT = 75;
 const PUBLIC_FADE_MIN_TICKET_MONEY_GAP_PCT = 55;
 const STRONG_RLM_MIN_PUBLIC_MOVE_PCT = 5;
 const STRONG_RLM_MIN_SPREAD_MOVE_POINTS = 1.5;
-const SHARP_MIN_MONEY_OVER_BETS_PCT: Record<FootballSport, number> = { NFL: 20, NCAAF: 25 };
+const SHARP_MIN_MONEY_OVER_BETS_PCT: Record<FootballSport, number> = { NFL: 20, NCAAF: 40 };
 
 function sameTrendSplitGame(play: TrendPlay, split: DraftKingsSplit, sport: FootballSport) {
   return sameTeam(play.awayTeam, split.awayTeam, sport)
@@ -1737,12 +1737,15 @@ function oppositeDraftKingsSplit(play: TrendPlay, splits: DraftKingsSplit[], spo
   });
 }
 
-function isPublicFadeSource(play: DraftKingsSplit) {
+function isPublicFadeSource(play: DraftKingsSplit, sport: FootballSport) {
   const bets = Number(play.betsPct);
   const money = Number(play.moneyPct);
-  return Number.isFinite(bets)
-    && Number.isFinite(money)
-    && bets > PUBLIC_FADE_MIN_BETS_PCT
+  if (!Number.isFinite(bets) || !Number.isFinite(money)) return false;
+
+  // NFL Public Fade is intentionally simple: fade any side/total drawing 80%+
+  // of tickets. CFB keeps the stricter 75%+ / 55-point ticket-vs-money rule.
+  if (sport === "NFL") return bets >= 80;
+  return bets > PUBLIC_FADE_MIN_BETS_PCT
     && bets - money >= PUBLIC_FADE_MIN_TICKET_MONEY_GAP_PCT;
 }
 
@@ -1779,7 +1782,7 @@ function directTrendQualification(
 
   const publicSide = oppositeDraftKingsSplit(play, splits, sport);
   if (publicSide) {
-    if (isPublicFadeSource(publicSide)) labels.push("Public Fade");
+    if (isPublicFadeSource(publicSide, sport)) labels.push("Public Fade");
     if (isStrongRlmSource(publicSide)) labels.push("Strong RLM");
   }
   return { labels, publicSide };
@@ -2080,7 +2083,7 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
   });
   const recordSummary = buildRecordSummary();
   const last7RecordSummary = buildRecordSummary(7);
-  return {ok:true,sport,database:sportDatabaseLabel(sport),today,lastUpdated:nowET(),tiles:{last7Days:last7,overallGreen:overall,handpickedLast7:last7,handpickedOverall:overall,pendingGreen:pending,bestPlaysToday:best.length},bestPlays:best,slateToday:todaySlate,betTrackerRows:effectiveTracker,draftKings:{ok:enriched.length>0,status:enriched.length?"LIVE":"UNAVAILABLE",updatedAt:nowET(),stale:usingStoredDraftKingsFallback,splits:enriched,props:[],errors:dk.errors,filter:dk.filter,coverage:dk.coverage,displayMode:usingStoredDraftKingsFallback?"STALE_FALLBACK":"LIVE",trackingMode:"WEEKLY",trackingWeekStart:trackingWeek.start,trackingWeekEnd:trackingWeek.end,trackedGames:trackingSlate.length},draftKingsSignalRows:history,trendRecordRows:publicTrendRows.filter(r=>resultCode(r.Result)),trendPlays:displayTrendPlays,aiPicks,aiPickRecordRows:[],aiSelectorStatus:{mode:"LIVE",externalResearchConfigured:false,message:aiPicks.length?`${sport} EZPZ Picks are live for ${today}: HOT Best Plays remain FINAL immediately; Trend Plays qualify only through Public Fade, Strong RLM, or Sharp. NFL Public Fade uses 80%+ bets; CFB Public Fade uses >75% bets with a 55+ point Bets%-Money% gap. Strong RLM requires public bet share to rise at least 5 points while the spread moves 1.5+ points against that side. Sharp requires money share over bet share by ${sport === "NFL" ? 20 : 25}+ points. Qualifying Trend Plays remain tied to the saved pregame market snapshot.`:`No ${sport} EZPZ Picks for ${today} currently qualify under the HOT Best Play / Public Fade / Strong RLM / Sharp rules.`,updatedAt:nowET(),candidateCount:modelBest.length+todayTrendPlays.length,selectedCount:aiPicks.length},recordSummary,last7RecordSummary,handpickedRecordSummary:recordSummary,handpickedLast7RecordSummary:last7RecordSummary};
+  return {ok:true,sport,database:sportDatabaseLabel(sport),today,lastUpdated:nowET(),tiles:{last7Days:last7,overallGreen:overall,handpickedLast7:last7,handpickedOverall:overall,pendingGreen:pending,bestPlaysToday:best.length},bestPlays:best,slateToday:todaySlate,betTrackerRows:effectiveTracker,draftKings:{ok:enriched.length>0,status:enriched.length?"LIVE":"UNAVAILABLE",updatedAt:nowET(),stale:usingStoredDraftKingsFallback,splits:enriched,props:[],errors:dk.errors,filter:dk.filter,coverage:dk.coverage,displayMode:usingStoredDraftKingsFallback?"STALE_FALLBACK":"LIVE",trackingMode:"WEEKLY",trackingWeekStart:trackingWeek.start,trackingWeekEnd:trackingWeek.end,trackedGames:trackingSlate.length},draftKingsSignalRows:history,trendRecordRows:publicTrendRows.filter(r=>resultCode(r.Result)),trendPlays:displayTrendPlays,aiPicks,aiPickRecordRows:[],aiSelectorStatus:{mode:"LIVE",externalResearchConfigured:false,message:aiPicks.length?`${sport} EZPZ Picks are live for ${today}: HOT Best Plays remain FINAL immediately; Trend Plays qualify only through Public Fade, Strong RLM, or Sharp. NFL Public Fade uses 80%+ bets; CFB Public Fade uses >75% bets with a 55+ point Bets%-Money% gap. Strong RLM requires public bet share to rise at least 5 points while the spread moves 1.5+ points against that side. Sharp requires money share over bet share by ${sport === "NFL" ? 20 : 40}+ points. Qualifying Trend Plays remain tied to the saved pregame market snapshot.`:`No ${sport} EZPZ Picks for ${today} currently qualify under the HOT Best Play / Public Fade / Strong RLM / Sharp rules.`,updatedAt:nowET(),candidateCount:modelBest.length+todayTrendPlays.length,selectedCount:aiPicks.length},recordSummary,last7RecordSummary,handpickedRecordSummary:recordSummary,handpickedLast7RecordSummary:last7RecordSummary};
 }
 
 const FOOTBALL_PUBLIC_DATA_CACHE_TTL_MS = 60_000;
