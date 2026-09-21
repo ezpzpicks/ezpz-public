@@ -510,6 +510,7 @@ type DraftKingsSplit = {
   lastSeenAt?: string;
   snapshotStatus?: "LIVE" | "FINAL_PREGAME";
   snapshotTime?: string;
+  sourceUrl?: string;
 };
 
 type DraftKingsProp = {
@@ -1104,7 +1105,7 @@ function enrichDraftKingsSplit(
   previous?: DraftKingsSplit | null,
   updatedAt = "",
 ): DraftKingsSplit {
-  // DraftKings reports Bets % and Handle % independently. Each metric is a
+  // ScoresAndOdds reports Bets % and Money % independently. Each metric is a
   // two-sided market distribution (side A + side B = 100%), so never derive
   // Bets % from Handle % or vice versa.
   const reportedBetsPct =
@@ -2041,7 +2042,7 @@ function splitSlateFields(prefix: string, item: DraftKingsSplit | null, updatedA
     [`${prefix} Public Split Selection`]: item.selection,
     [`${prefix} Public Split Line`]: item.line == null ? "" : String(item.line),
     [`${prefix} Public Split Odds`]: item.odds,
-    [`${prefix} Public Split Source`]: "DraftKings",
+    [`${prefix} Public Split Source`]: SCORES_AND_ODDS_SOURCE,
     [`${prefix} Public Match Confidence`]: item.retained
       ? "Last-known retained selected-side match"
       : "Final-pregame selected-side match",
@@ -2085,7 +2086,7 @@ function trackerSplitFields(item: DraftKingsSplit, updatedAt: string) {
     "Public Gap %": String(item.gapPct),
     "Public Warning": item.warning,
     "Public Warning Negative": item.warningNegative ? "TRUE" : "FALSE",
-    "Public Split Source": "DraftKings",
+    "Public Split Source": SCORES_AND_ODDS_SOURCE,
     "Public Split Market": item.market,
     "Public Split Selection": item.selection,
     "Public Split Line": item.line == null ? "" : String(item.line),
@@ -2236,7 +2237,7 @@ function trackerSplitFieldsFromSnapshot(row: SheetRow) {
     "Public Gap %": String(row["Public Gap %"] || ""),
     "Public Warning": String(row.Warning || ""),
     "Public Warning Negative": truthyValue(row["Warning Negative"]) ? "TRUE" : "FALSE",
-    "Public Split Source": String(row.Source || "DraftKings"),
+    "Public Split Source": String(row.Source || SCORES_AND_ODDS_SOURCE),
     "Public Split Market": String(row.Market || ""),
     "Public Split Selection": String(row.Selection || ""),
     "Public Split Line": String(row.Line || ""),
@@ -2637,7 +2638,7 @@ async function persistFinalPregameDraftKings(
   };
 
   // Persist every usable current or retained pregame value. This is deliberate:
-  // when DraftKings temporarily removes a market, the last value still visible on
+  // when ScoresAndOdds temporarily removes a market, the last value still visible on
   // the public site must remain available for the tracker and historical records.
   const availableSplits = livePayload.splits.filter(
     (item) => isoPublicDate(item.date) === todayIso,
