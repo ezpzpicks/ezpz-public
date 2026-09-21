@@ -63,9 +63,11 @@ async function probe(name: string, params: Record<string, string>) {
 
 export async function GET(request: NextRequest) {
   const sport = request.nextUrl.searchParams.get("sport") === "NCAAF" ? "NCAA Football" : "NFL";
-  const common = { itm_content: sport, tb_eg: sport, tb_edate: "n30days" };
+  const dateRange = request.nextUrl.searchParams.get("range") === "n30days" ? "n30days" : "n7days";
+  const common = { itm_content: sport, tb_eg: sport, tb_edate: dateRange };
   const results = [];
-  results.push(await probe("root", {}));
+  results.push(await probe("direct-first", { ...common, tb_page: "1" }));
+  results.push(await probe("league-only", { tb_eg: sport, tb_edate: dateRange }));
   results.push(await probe("all-first", { ...common, tb_emt: "0" }));
   results.push(await probe("spread-first", { ...common, tb_emt: "Spread" }));
   results.push(await probe("total-first", { ...common, tb_emt: "Total" }));
