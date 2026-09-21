@@ -5300,7 +5300,7 @@ function buildTrendPlayForSplit(
   referenceDate: string,
   updatedAt = "",
 ): TrendPlay | null {
-  if (split.market !== "Moneyline" && split.market !== "Run Line" && split.market !== "Total") return null;
+  if (split.market !== "Moneyline" && split.market !== "Total") return null;
   const sideGroup: TrendPlay["sideGroup"] = split.market === "Total"
     ? split.side
     : parseAmericanOdds(split.odds) < 0
