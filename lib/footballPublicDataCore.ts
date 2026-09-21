@@ -2061,7 +2061,18 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
   });
   // EZPZ is a daily card, even though the football trend board tracks the full market week.
   // Keep the weekly trend payload for the Trend Plays tab, but only today's games may enter EZPZ.
-  const rawTodaySlate=slate.filter((row)=>isoDate(row.Date||row["Game Date"]||"")===today);
+  const liveTodaySchedule=liveSchedule.filter((row)=>isoDate(row.Date||row["Game Date"]||"")===today);
+  const rawTodaySlate=slate
+    .filter((row)=>isoDate(row.Date||row["Game Date"]||"")===today)
+    .filter((row)=>{
+      if(sport!=="NFL"||!liveTodaySchedule.length)return true;
+      const recoveredShell=textKey(row.Notes||"").includes("schedule only shell recovered from");
+      if(!recoveredShell)return true;
+      return liveTodaySchedule.some((official)=>
+        sameTeam(row["Away Team"],official["Away Team"],sport)&&
+        sameTeam(row["Home Team"],official["Home Team"],sport)
+      );
+    });
   const todaySlate=sport==="NCAAF"
     ? rawTodaySlate.map((row)=>cfbProjectionOnlySpread(row)?{...row,"Spread Grade":"No Play"}:row)
     : rawTodaySlate;
