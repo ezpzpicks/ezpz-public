@@ -3,13 +3,13 @@
 import { SelectionWithTeamLogo, TeamLogoName } from "./TeamLogoName";
 
 type SheetRow = Record<string, string>;
-type Sport = "NFL" | "NCAAF";
+type Sport = "NFL" | "NCAAF" | "MLB";
 type TrendPlay = {
   date?: string;
   game: string;
   gameKey: string;
   gameTime?: string;
-  market: "Spread" | "Total";
+  market: "Spread" | "Run Line" | "Total";
   selection: string;
   selectionTeam: string;
   side: "Over" | "Under" | "";
@@ -61,6 +61,14 @@ function textKey(value: unknown) {
     .trim();
 }
 
+function isSpreadMarket(market: TrendPlay["market"]) {
+  return market === "Spread" || market === "Run Line";
+}
+
+function usesNflTrendRules(sport: Sport) {
+  return sport === "NFL" || sport === "MLB";
+}
+
 function pct(value: unknown) {
   const n = Number(value);
   return Number.isFinite(n) ? `${n.toFixed(1)}%` : "-";
@@ -96,7 +104,7 @@ function compactDate(value: unknown) {
 function lineLabel(play: TrendPlay, value: number | null | undefined) {
   const n = Number(value);
   if (!Number.isFinite(n)) return "-";
-  if (play.market === "Spread") return `${n > 0 ? "+" : ""}${n}`;
+  if (isSpreadMarket(play.market)) return `${n > 0 ? "+" : ""}${n}`;
   return String(n);
 }
 
@@ -108,7 +116,7 @@ function pickLabel(play: TrendPlay) {
 function compactMovementLine(play: TrendPlay, value: number | null | undefined) {
   const n = Number(value);
   if (!Number.isFinite(n)) return "-";
-  const display = play.market === "Spread" ? Math.abs(n) : n;
+  const display = isSpreadMarket(play.market) ? Math.abs(n) : n;
   return Number.isInteger(display) ? String(display) : display.toFixed(1);
 }
 
@@ -137,7 +145,7 @@ function opposite(play: TrendPlay, plays: TrendPlay[]) {
   }) || null;
 }
 
-const SHARP_MIN_MONEY_OVER_BETS = { NFL: 20, NCAAF: 25 } as const;
+const SHARP_MIN_MONEY_OVER_BETS = { NFL: 20, NCAAF: 25, MLB: 20 } as const;
 
 function labelsFor(play: TrendPlay, plays: TrendPlay[], sport: Sport) {
   const labels: string[] = [];
@@ -157,7 +165,7 @@ function labelsFor(play: TrendPlay, plays: TrendPlay[], sport: Sport) {
   const placeholderSplit =
     (publicBets === 100 && publicMoney === 100) ||
     (publicBets === 0 && publicMoney === 0);
-  const publicFade = sport === "NFL"
+  const publicFade = usesNflTrendRules(sport)
     ? !placeholderSplit && Number.isFinite(publicBets) && publicBets >= 80
     : Number.isFinite(publicBets) &&
       Number.isFinite(publicMoney) &&
@@ -169,11 +177,12 @@ function labelsFor(play: TrendPlay, plays: TrendPlay[], sport: Sport) {
   const publicMove = Number(publicSide.publicMovementPct);
   const lineMove = Number(publicSide.lineMovementValue);
   if (
-    play.market === "Spread" &&
+    isSpreadMarket(play.market) &&
     Number.isFinite(openingPublicBets) &&
     openingPublicBets > 0 &&
     openingPublicBets < 100 &&
-    String(publicSide.lineMovementBasis || "").includes("Spread") &&
+    (String(publicSide.lineMovementBasis || "").includes("Spread") ||
+      String(publicSide.lineMovementBasis || "").includes("Run Line")) &&
     Number.isFinite(publicMove) &&
     publicMove >= 5 &&
     Number.isFinite(lineMove) &&
@@ -483,14 +492,14 @@ function matchupTeams(game: string, sport: Sport) {
 
 function GameCard({ group, sport }: { group: Group; sport: Sport }) {
   const ordered = [...group.plays].sort((a, b) => {
-    if (a.market !== b.market) return a.market === "Spread" ? -1 : 1;
+    if (a.market !== b.market) return isSpreadMarket(a.market) ? -1 : 1;
     if (a.market === "Total" && a.side !== b.side) return a.side === "Over" ? -1 : 1;
     return pickLabel(a).localeCompare(pickLabel(b));
   });
   const qualifying = ordered.filter((play) => labelsFor(play, ordered, sport).length > 0);
   const gameTime = ordered.find((play) => play.gameTime)?.gameTime || "";
   const gameDate = ordered.find((play) => play.date)?.date || "";
-  const spreadRef = ordered.find((play) => play.market === "Spread");
+  const spreadRef = ordered.find((play) => isSpreadMarket(play.market));
   const totalRef = ordered.find((play) => play.market === "Total" && play.side === "Over")
     || ordered.find((play) => play.market === "Total");
   const matchup = matchupTeams(group.game, sport);
@@ -649,7 +658,7 @@ function historicalLabels(row: SheetRow, group: SheetRow[], sport: Sport) {
   const placeholderSplit =
     (publicBets === 100 && publicMoney === 100) ||
     (publicBets === 0 && publicMoney === 0);
-  const publicFade = sport === "NFL"
+  const publicFade = usesNflTrendRules(sport)
     ? !placeholderSplit && Number.isFinite(publicBets) && publicBets >= 80
     : Number.isFinite(publicBets) &&
       Number.isFinite(publicMoney) &&
@@ -661,11 +670,12 @@ function historicalLabels(row: SheetRow, group: SheetRow[], sport: Sport) {
   const publicMove = Number(publicSide["Public Change %"]);
   const lineMove = Number(publicSide["Line Movement Value"]);
   if (
-    textKey(row.Market) === "spread" &&
+    (textKey(row.Market) === "spread" || textKey(row.Market) === "run line") &&
     Number.isFinite(openingPublicBets) &&
     openingPublicBets > 0 &&
     openingPublicBets < 100 &&
-    String(publicSide["Line Movement Basis"] || "").includes("Spread") &&
+    (String(publicSide["Line Movement Basis"] || "").includes("Spread") ||
+      String(publicSide["Line Movement Basis"] || "").includes("Run Line")) &&
     Number.isFinite(publicMove) &&
     publicMove >= 5 &&
     Number.isFinite(lineMove) &&
