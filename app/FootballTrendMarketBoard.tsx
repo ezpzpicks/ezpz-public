@@ -25,6 +25,8 @@ type TrendPlay = {
   openingOdds?: string;
   lineMovementBasis?: string;
   lineMovementValue?: number | null;
+  lineMovementSignal?: string;
+  snapshotStatus?: "LIVE" | "FINAL_PREGAME" | "MISSED_LOCK";
   firstTrackedAt?: string;
   updatedAt?: string;
   movementHistory?: Array<{
