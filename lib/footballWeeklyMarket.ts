@@ -833,7 +833,7 @@ function marketHistorySeedRow(row: SheetRow, snapshotTime: string): SheetRow | n
     "Public Gap %": Number.isFinite(gap) ? String(gap) : "",
     Warning: String(row.Warning || ""),
     Source: SCORES_AND_ODDS_SOURCE,
-    "Source URL": split.sourceUrl || "https://www.scoresandodds.com",
+    "Source URL": "https://www.scoresandodds.com",
     "State Signature": marketHistoryStateSignatureValues(line, odds, betsPct, handlePct),
   };
 }
@@ -848,8 +848,8 @@ function marketHistorySummary(split: Split, rows: SheetRow[]) {
   const trackedStates = rows.filter((row) => marketHistoryLogicalKey(row) === key);
   if (!trackedStates.length) return null;
 
-  // DraftKings often emits an immature 0%/100% ticket split on the first CFB
-  // scrape. That is not a usable RLM baseline. Start both bet-share and line
+  // An immature 0%/100% ticket split is not a usable RLM baseline.
+  // Start both bet-share and line
   // movement from the first real ticket-share snapshot so the two movements
   // are measured over the exact same window.
   const firstRealIndex = trackedStates.findIndex((row) => {
