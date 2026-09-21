@@ -1455,7 +1455,7 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
     </>;
   } else if (tab === "EZPZ Picks") {
     content = <>
-      <div className="sectionHead"><div><h2>{sport} EZPZ Picks</h2><p>{data.aiSelectorStatus?.message || "HOT Model Plays and qualifying Strong/Elite Trend Plays only."}</p></div></div>
+      <div className="sectionHead"><div><h2>{sport} EZPZ Picks</h2><p>{data.aiSelectorStatus?.message || "HOT Model Plays plus qualifying Public Fade and Strong RLM trend plays."}</p></div></div>
       {todayEzpzPicks.length ? <div className="aiPickStack">{todayEzpzPicks.map((pick, index) => <EzpzPickCard key={`${pick.game}-${pick.market}-${pick.selection}-${index}`} pick={pick} splits={splits} trendPlays={ezpzTrendSource} slateRows={slateRows} todayByType={todayByType} recentByType={last7Map} lastSevenBetsByType={lastSevenBetsByType} overallByType={summaryMap} sport={sport} />)}</div> : <div className="empty footballEmpty">No {sport} EZPZ Picks qualify for {data.today} right now.</div>}
     </>;
   } else if (tab === "Full Slate") {
@@ -1505,13 +1505,9 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
           <RecordTile key={row.betType} label={`${row.betType} - Running Total`} value={row} />
         )}
       </div>
-      <div className="sectionHead"><div><h2>Trend Records</h2><p>Same MLB-style record system, using sport-specific football trend history</p></div></div>
+      <div className="sectionHead"><div><h2>DraftKings Trend Records</h2><p>Only the two active market signals: Public Fade and Strong RLM</p></div></div>
       <div className="advancedRecordsStack">
-        <FbTrendRecordExplorer rows={trendRows} today={data.today} />
-        <FbCombinationRecords tracker={recordTrackerRows} trends={trendRows} today={data.today} />
-      </div>
-      <div className="advancedRecordsStack">
-        <FbDraftKingsSignalRecords rows={data.draftKingsSignalRows || []} today={data.today} />
+        <DirectTrendRecords rows={trendRows} today={data.today} />
       </div>
       <div className="sectionHead"><div><h2>Bet Type Records</h2><p>Exact A/B grade + market + direction subsets used by HOT / COLD / SMALL SAMPLE</p></div></div>
       <div className="advancedRecordsStack">
