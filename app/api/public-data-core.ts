@@ -999,7 +999,7 @@ function movementForSplit(
   const publicMovementPct = Math.round((current.betsPct - openingPublicPct) * 10) / 10;
   let signal = "";
   let tone: PublicSignalTone | "" = "";
-  let basis: "Implied Probability" | "Total Line" | "" = "";
+  let basis: "Implied Probability" | "Run Line" | "Total Line" | "" = "";
   let value: number | null = null;
   let standardPriceThreshold = RLM_IMPLIED_MOVE_MIN;
   let strongPriceThreshold = RLM_IMPLIED_MOVE_STRONG;
