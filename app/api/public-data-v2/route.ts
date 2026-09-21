@@ -405,12 +405,12 @@ export async function GET(request:NextRequest){
   }
   payload.historicalGradeRepair=historicalGradeRepair;
   payload.historicalGradeRepairError=historicalGradeRepairError;
-  try{
-    payload=await postProcessMlbPayload(request,payload);
-  }catch(error){
-    console.error("MLB Trend v2 wrapper failed; returning legacy response",error);
-    payload.trendV2Error=error instanceof Error?error.message:String(error);
-  }
+  // MLB_DIRECT_TRENDS_V1: the core now owns MLB Run Line/Total trend
+  // classification and EZPZ selection using the same direct rules as NFL.
+  // Do not run the retired Trend v2 wrapper, which would rescore and overwrite
+  // those direct plays with the old Market Gap/RLM-only system.
+  payload.trendV2=undefined;
+  payload.trendV2Error="";
   if(isV2ScheduledCapture(request)){
     try{await persistEzpzCurrentPicks("MLB",payload)}catch(error){
       console.error("MLB current EZPZ picks snapshot failed",error);
