@@ -11270,20 +11270,12 @@ async function buildUncachedPublicResponse(request: NextRequest) {
       primaryTrendRecordRows,
       buildAiHistoricalTrendRecordRows(storedAiPickRows),
     );
-    const liveTrendPlays = buildTrendPlays(
+    const trendPlays = buildMlbDirectTrendPlays(
       publicDraftKings.splits,
-      draftKingsSignalRows,
+      savedPublicSplits,
       slateToday,
       today,
       publicDraftKings.updatedAt,
-    );
-    const frozenTrendPlays = authoritativeFrozenTrendPlays.filter(
-      (play) => isoPublicDate(play.recordDate || "") === isoPublicDate(today),
-    );
-    const trendPlays = overlayFrozenTrendPlays(
-      liveTrendPlays,
-      frozenTrendPlays,
-      slateToday,
     );
     const pendingGreen = trackerRows.filter((row) => {
       const result = String(row["Result"] || "").trim();
@@ -11301,7 +11293,7 @@ async function buildUncachedPublicResponse(request: NextRequest) {
     const aiSelector = await buildAiPickSelector({
       today,
       bestPlays,
-      trendPlays,
+      trendPlays: [],
       slateRows: aiSlateToday,
       completedTrackerRows,
       trackerRows,
@@ -11309,6 +11301,43 @@ async function buildUncachedPublicResponse(request: NextRequest) {
       draftKings: publicDraftKings,
       storedRows: storedAiPickRows,
     });
+    const directTrendPicks = buildMlbDirectTrendEzpzPicks(trendPlays, today);
+    const modelOnlyPicks = aiSelector.picks.filter(
+      (pick) => pick.source !== "Trend Play" || Boolean(pick.bestPlayType),
+    );
+    const mergedEzpz = mergeMlbModelAndDirectPicks(modelOnlyPicks, directTrendPicks);
+    if (mergedEzpz.persistence.length) {
+      try {
+        await persistAiPickRows(mergedEzpz.persistence);
+      } catch (error) {
+        console.error("MLB direct trend EZPZ persistence failed", error);
+      }
+    }
+    const persistedKeys = new Set(
+      mergedEzpz.persistence.map((pick) => `${pick.date}|${pick.candidateId}`),
+    );
+    const currentAiPickRecordRows = [
+      ...aiSelector.recordRows.filter(
+        (pick) =>
+          !persistedKeys.has(`${pick.date}|${pick.candidateId}`) &&
+          !(
+            pick.date === isoPublicDate(today) &&
+            pick.source === "Trend Play" &&
+            String(pick.selectorVersion || "").startsWith("mlb-trend-v2")
+          ),
+      ),
+      ...mergedEzpz.persistence,
+    ];
+    const directTrendCount = directTrendPicks.length;
+    const aiSelectorStatus: AiSelectorStatus = {
+      ...aiSelector.status,
+      message:
+        directTrendCount > 0
+          ? `${directTrendCount} MLB direct trend EZPZ pick${directTrendCount === 1 ? "" : "s"} qualify now using NFL rules: Public Fade 80%+, Strong RLM, or Sharp 25%+ Money-over-Bets; odds no worse than -150.`
+          : "MLB direct trends use NFL EZPZ rules: Public Fade 80%+, Strong RLM, or Sharp 25%+ Money-over-Bets; odds no worse than -150.",
+      candidateCount: aiSelector.status.candidateCount + trendPlays.length,
+      selectedCount: mergedEzpz.picks.length,
+    };
     const ufc = await buildUfcData(today);
 
     return NextResponse.json({
@@ -11344,9 +11373,19 @@ async function buildUncachedPublicResponse(request: NextRequest) {
       draftKingsSignalRows,
       trendRecordRows,
       trendPlays,
-      aiPicks: aiSelector.picks,
-      aiPickRecordRows: aiSelector.recordRows,
-      aiSelectorStatus: aiSelector.status,
+      trendSystem: {
+        version: MLB_DIRECT_TREND_VERSION,
+        markets: ["Run Line", "Total"],
+        badgeSharpMinimum: MLB_DIRECT_TREND_BADGE_SHARP_MIN,
+        ezpzSharpMinimum: MLB_DIRECT_TREND_EZPZ_SHARP_MIN,
+        publicFadeMinimumBets: MLB_DIRECT_TREND_PUBLIC_FADE_MIN,
+        strongRlmMinimumPublicMove: MLB_DIRECT_TREND_STRONG_RLM_PUBLIC_MOVE_MIN,
+        strongRlmMinimumLineMove: MLB_DIRECT_TREND_STRONG_RLM_LINE_MOVE_MIN,
+        maxFavoritePrice: MLB_DIRECT_TREND_MAX_FAVORITE_PRICE,
+      },
+      aiPicks: mergedEzpz.picks,
+      aiPickRecordRows: currentAiPickRecordRows,
+      aiSelectorStatus,
       recordSummary: buildSummary(qualifiedTrackerRows),
       last7RecordSummary: buildSummary(last7QualifiedRows),
       handpickedRecordSummary: buildSummary(handpickedCompletedRows),
