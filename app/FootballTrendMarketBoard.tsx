@@ -391,7 +391,7 @@ function MarketRow({ play, plays, sport }: { play: TrendPlay; plays: TrendPlay[]
 
 const NFL_TEAM_PREFIXES = new Set([
   "ARI","ATL","BAL","BUF","CAR","CHI","CIN","CLE","DAL","DEN","DET","GB","HOU","IND","JAX","JAC",
-  "KC","LV","LAC","LAR","MIA","MIN","NE","NO","NYG","NYJ","PHI","PIT","SEA","SF","TB","TEN","WAS"
+  "KC","LV","LAC","LAR","LA","MIA","MIN","NE","NO","NY","NYG","NYJ","PHI","PIT","SEA","SF","TB","TEN","WAS"
 ]);
 
 function cleanMatchupTeam(team: string, sport: Sport) {
