@@ -4,7 +4,7 @@ import { readSportWorksheet } from "../../../lib/sportSheets";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-type Row = Record<string,string>;
+type Row = Record<string, any>;
 
 function isoDate(value: unknown) {
   const raw=String(value||"").trim();
