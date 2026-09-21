@@ -610,29 +610,79 @@ function scoreNflTrendBoard(plays: any[], state: NflTrendModelState) {
   }
   return winners;
 }
-function trendEzpzPick(play: any, threshold: number): NflEzpzPick | null {
-  const modelGapPct = Number(play.modelGapPct);
-  if (!Number.isFinite(modelGapPct) || modelGapPct < threshold) return null;
-  const predictedWinPct = Number(play.predictedWinPct);
-  const impliedPct = Number(play.impliedProbabilityPct);
+function directTrendSideKey(play: any) {
+  return textKey(play?.market) === "total"
+    ? textKey(play?.side || play?.selection)
+    : textKey(play?.selection || play?.selectionTeam);
+}
+
+function directNflTrendLabels(play: any, plays: any[]) {
+  const ownKey = directTrendSideKey(play);
+  const publicSide = plays.find((candidate) =>
+    textKey(candidate?.game) === textKey(play?.game) &&
+    textKey(candidate?.market) === textKey(play?.market) &&
+    directTrendSideKey(candidate) !== ownKey
+  );
+  if (!publicSide) return { labels: [] as string[], publicSide: null as any };
+
+  const labels: string[] = [];
+  const publicBets = Number(publicSide?.betsPct);
+  const publicMoney = Number(publicSide?.moneyPct);
+  const placeholderSplit =
+    (publicBets === 100 && publicMoney === 100) ||
+    (publicBets === 0 && publicMoney === 0);
+
+  if (!placeholderSplit && Number.isFinite(publicBets) && publicBets >= 80) {
+    labels.push("Public Fade");
+  }
+
+  const publicMove = Number(publicSide?.publicMovementPct);
+  const lineMove = Number(publicSide?.lineMovementValue);
+  if (
+    textKey(play?.market) === "spread" &&
+    String(publicSide?.lineMovementBasis || "").includes("Spread") &&
+    Number.isFinite(publicMove) &&
+    publicMove >= 5 &&
+    Number.isFinite(lineMove) &&
+    lineMove <= -1.5
+  ) {
+    labels.push("Strong RLM");
+  }
+
+  return { labels, publicSide };
+}
+
+function trendEzpzPick(play: any, plays: any[]): NflEzpzPick | null {
+  const { labels, publicSide } = directNflTrendLabels(play, plays);
+  if (!labels.length || !publicSide) return null;
+
+  const oddsValue = parseAmericanOdds(play?.odds);
+  if (oddsValue != null && oddsValue < -150) return null;
+
   const line = play.line == null ? "" : `${Number(play.line) > 0 ? "+" : ""}${play.line}`;
   const selection = textKey(play.market) === "total"
     ? `${play.side || play.selection} ${line}`.trim()
     : `${play.selection || play.selectionTeam} ${line}`.trim();
+
+  const details: string[] = [];
+  if (labels.includes("Public Fade")) {
+    details.push(`opposing side has ${Math.round(Number(publicSide.betsPct))}% of bets`);
+  }
+  if (labels.includes("Strong RLM")) {
+    details.push(
+      `public bets rose ${Math.round(Number(publicSide.publicMovementPct))} pts while spread moved ${Math.abs(Number(publicSide.lineMovementValue)).toFixed(1)} pts against that side`,
+    );
+  }
+
   return {
     source: "Trend Play",
     game: play.game,
     market: textKey(play.market) === "total" ? "Total" : "Spread",
     selection,
     odds: formatAmericanOdds(play.odds) || String(play.odds || ""),
-    score: Math.round(modelGapPct * 10) / 10,
-    tier: `${threshold}%+ NFL V2 Model Gap`,
-    qualification: `NFL V2 model gap +${modelGapPct.toFixed(1)}% • ${predictedWinPct.toFixed(1)}% predicted vs ${impliedPct.toFixed(1)}% implied • ${threshold}%+ Trend gate`,
-    gapPct: modelGapPct,
-    modelGapPct,
-    predictedWinPct,
-    impliedProbabilityPct: impliedPct,
-    trendModelVersion: String(play.trendModelVersion || ""),
+    score: labels.includes("Strong RLM") ? 85 : 80,
+    tier: labels.join(" + "),
+    qualification: `${labels.join(" + ")} • ${details.join(" • ")}`,
     snapshotStatus: String(play.snapshotStatus || "LIVE"),
   };
 }
@@ -790,17 +840,15 @@ export async function buildFootballPublicData(
     .filter((play: any) => isoDate(play.date || today) === today);
   const modelPicks = bestPlays.map(modelPlayEzpzPick).filter(Boolean) as NflEzpzPick[];
   const scoredTrendPlays = scoreNflTrendBoard(todayTrendPlays, nflTrendModel);
-  const trendPicks = scoredTrendPlays
-    .map((play) => trendEzpzPick(play, nflTrendModel.threshold))
+  const trendPicks = todayTrendPlays
+    .map((play) => trendEzpzPick(play, todayTrendPlays))
     .filter(Boolean) as NflEzpzPick[];
   const aiPicks = dedupeEzpzPicks([...modelPicks, ...trendPicks]);
 
-  const trendRule = nflTrendModel.model
-    ? `Trend gate = NFL V2 predicted win probability − market-implied probability ≥ +${nflTrendModel.threshold.toFixed(1)}%.`
-    : `NFL Trend V2 is ${nflTrendModel.status || "COLLECTING"}; no Trend EZPZ pick can qualify until an active NFL regression is promoted.${nflTrendModel.reason ? ` ${nflTrendModel.reason}` : ""}`;
+  const trendRule = "Trend Play = Public Fade when the opposing side has 80%+ of bets, or Strong RLM under the active movement rule.";
   const ruleMessage = aiPicks.length
-    ? `NFL EZPZ Picks live: Model Play = HOT Last-7 + -150 or better. ${trendRule} Net ROI is not used.`
-    : `No NFL EZPZ Picks qualify right now. Model Play = HOT Last-7 + -150 or better. ${trendRule} Net ROI is not used.`;
+    ? `NFL EZPZ Picks live: Model Play = HOT Last-7 + -150 or better. ${trendRule} Trend V2 remains research-only and is not a qualification gate.`
+    : `No NFL EZPZ Picks qualify right now. Model Play = HOT Last-7 + -150 or better. ${trendRule} Trend V2 remains research-only and is not a qualification gate.`;
 
   return {
     ...core,
@@ -830,7 +878,7 @@ export async function buildFootballPublicData(
     aiSelectorStatus: {
       ...(core.aiSelectorStatus || {}),
       message: ruleMessage,
-      candidateCount: bestPlays.length + scoredTrendPlays.length,
+      candidateCount: bestPlays.length + trendPicks.length,
       selectedCount: aiPicks.length,
       updatedAt: core.lastUpdated,
     },
