@@ -135,10 +135,20 @@ function opposite(play: TrendPlay, plays: TrendPlay[]) {
   }) || null;
 }
 
+const SHARP_MIN_MONEY_OVER_BETS = { NFL: 20, NCAAF: 25 } as const;
+
 function labelsFor(play: TrendPlay, plays: TrendPlay[], sport: Sport) {
-  const publicSide = opposite(play, plays);
-  if (!publicSide) return [] as string[];
   const labels: string[] = [];
+  const ownBets = Number(play.betsPct);
+  const ownMoney = Number(play.moneyPct);
+  if (
+    Number.isFinite(ownBets) &&
+    Number.isFinite(ownMoney) &&
+    ownMoney - ownBets >= SHARP_MIN_MONEY_OVER_BETS[sport]
+  ) labels.push("Sharp");
+
+  const publicSide = opposite(play, plays);
+  if (!publicSide) return labels;
 
   const publicBets = Number(publicSide.betsPct);
   const publicMoney = Number(publicSide.moneyPct);
@@ -410,7 +420,7 @@ function MarketRow({ play, plays, sport }: { play: TrendPlay; plays: TrendPlay[]
       <div className="dkTrendBadges">
         {labels.map((label) => (
           <div className="dkTrendBadgeGroup" key={label}>
-            <span className={`directTrendBadge ${label === "Public Fade" ? "fade" : "rlm"}`}>{label}</span>
+            <span className={`directTrendBadge ${label === "Public Fade" ? "fade" : label === "Strong RLM" ? "rlm" : "sharp"}`}>{label}</span>
             {label === "Strong RLM" && rlmSummary ? (
               <div
                 className="rlmMovementMini"
@@ -580,10 +590,18 @@ function historicalGroupKey(row: SheetRow) {
 }
 
 function historicalLabels(row: SheetRow, group: SheetRow[], sport: Sport) {
+  const labels: string[] = [];
+  const ownBets = Number(row["Public Bets %"] || row["Current Public %"]);
+  const ownMoney = Number(row["Public Money %"] || row["Current Sharp %"]);
+  if (
+    Number.isFinite(ownBets) &&
+    Number.isFinite(ownMoney) &&
+    ownMoney - ownBets >= SHARP_MIN_MONEY_OVER_BETS[sport]
+  ) labels.push("Sharp");
+
   const ownKey = historicalSelectionKey(row);
   const publicSide = group.find((candidate) => historicalSelectionKey(candidate) !== ownKey);
-  if (!publicSide) return [] as string[];
-  const labels: string[] = [];
+  if (!publicSide) return labels;
 
   const publicBets = Number(publicSide["Public Bets %"] || publicSide["Current Public %"]);
   const publicMoney = Number(publicSide["Public Money %"] || publicSide["Current Sharp %"]);
@@ -645,7 +663,7 @@ export function DirectTrendRecords({ rows, sport }: { rows: SheetRow[]; today?: 
   });
 
   const summaries: Array<{ label: string; totals: RecordTotals }> = [];
-  ["Public Fade", "Strong RLM"].forEach((signal) => {
+  ["Public Fade", "Strong RLM", "Sharp"].forEach((signal) => {
     const signalRows = labeled.filter((item) => item.signal === signal);
     const overall = recordTotals(signalRows.map((item) => item.row));
     if (overall.totalBets) summaries.push({ label: `${signal} - Overall`, totals: overall });
@@ -659,8 +677,8 @@ export function DirectTrendRecords({ rows, sport }: { rows: SheetRow[]; today?: 
     <details className="recordsDropdown directTrendRecords" open>
       <summary className="recordsSummary">
         <div>
-          <div className="recordsSummaryTitle">Public Fade + Strong RLM Records</div>
-          <div className="recordsSummarySub">Only the two active DraftKings rules, separated by market side</div>
+          <div className="recordsSummaryTitle">Public Fade + Strong RLM + Sharp Records</div>
+          <div className="recordsSummarySub">Active DraftKings trend rules, separated by market side</div>
         </div>
         <span className="recordsCount">{labeled.length} graded</span>
       </summary>
@@ -685,7 +703,7 @@ export function DirectTrendRecords({ rows, sport }: { rows: SheetRow[]; today?: 
             </tbody>
           </table>
         </div>
-      ) : <div className="empty insideDropdown">No completed Public Fade or Strong RLM results are available yet.</div>}
+      ) : <div className="empty insideDropdown">No completed Public Fade, Strong RLM, or Sharp results are available yet.</div>}
     </details>
   );
 }
