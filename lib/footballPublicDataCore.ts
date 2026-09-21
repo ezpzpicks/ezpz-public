@@ -8,11 +8,9 @@ import {
 } from "./sportSheets";
 import { readWeeklyFootballMarket } from "./footballWeeklyMarket";
 import {
-  assessDraftKingsMarketCoverage,
-  type DraftKingsMarketCoverage,
-} from "./draftKingsBettingSplits";
-import {
   SCORES_AND_ODDS_SOURCE,
+  assessScoresAndOddsMarketCoverage,
+  type ScoresAndOddsMarketCoverage,
   loadScoresAndOddsConsensus,
 } from "./scoresAndOddsBettingSplits";
 
@@ -770,7 +768,7 @@ type LoadedDraftKingsSplits = {
     label: string;
     source: string;
   };
-  coverage: DraftKingsMarketCoverage;
+  coverage: ScoresAndOddsMarketCoverage;
   missingPages: number[];
   retainedFallback?: boolean;
 };
@@ -791,7 +789,7 @@ function assessTrackingSlateCoverage(
   sport: FootballSport,
   splits: DraftKingsSplit[],
   slate: SheetRow[],
-): DraftKingsMarketCoverage {
+): ScoresAndOddsMarketCoverage {
   const today = todayET();
   const expected = new Map<string, string>();
   for (const row of slate) {
@@ -805,7 +803,7 @@ function assessTrackingSlateCoverage(
     expected.set(key, `${String(row["Away Team"] || "")} @ ${String(row["Home Team"] || "")}`);
   }
 
-  return assessDraftKingsMarketCoverage(
+  return assessScoresAndOddsMarketCoverage(
     expected,
     splits,
     (split) => splitCoverageGameKey(split.date, split.awayTeam, split.homeTeam, sport),
@@ -816,7 +814,7 @@ function assessTrackingSlateCoverage(
   );
 }
 
-function trackingCoverageFailure(report: DraftKingsMarketCoverage) {
+function trackingCoverageFailure(report: ScoresAndOddsMarketCoverage) {
   return [
     report.missingGames.length ? `missing ${report.missingGames.join(", ")}` : "",
     report.incompleteGames.length ? `incomplete ${report.incompleteGames.join(", ")}` : "",
