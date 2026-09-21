@@ -1,6 +1,7 @@
 "use client";
 
 import FootballBoard from "./FootballBoard";
+import { DirectTrendRecords, FootballTrendMarketBoard } from "./FootballTrendMarketBoard";
 
 import {
   type ReactNode,
@@ -40,7 +41,7 @@ type PublicSignalTone = "negative" | "caution" | "positive" | "neutral";
 type DraftKingsSignalResult = {
   date: string;
   game: string;
-  market: "Moneyline" | "Spread" | "Total";
+  market: "Moneyline" | "Spread" | "Run Line" | "Total";
   selection: string;
   sideGroup: "Favorite" | "Underdog" | "Over" | "Under" | "";
   betType: string;
@@ -60,7 +61,7 @@ type TrendRecordResult = {
   game: string;
   gameKey: string;
   gameTime: string;
-  market: "Moneyline" | "Spread" | "Total";
+  market: "Moneyline" | "Spread" | "Run Line" | "Total";
   selection: string;
   result: "W" | "L" | "P";
   odds: number;
@@ -114,7 +115,7 @@ type TrendPlay = {
   game: string;
   awayTeam: string;
   homeTeam: string;
-  market: "Moneyline" | "Spread" | "Total";
+  market: "Moneyline" | "Spread" | "Run Line" | "Total";
   selection: string;
   selectionTeam: string;
   side: "Over" | "Under" | "";
@@ -132,8 +133,18 @@ type TrendPlay = {
   openingOdds?: string;
   openingImpliedPct?: number | null;
   currentImpliedPct?: number | null;
-  lineMovementBasis?: "Implied Probability" | "Total Line" | "";
+  lineMovementBasis?: "Implied Probability" | "Run Line" | "Total Line" | "";
   lineMovementValue?: number | null;
+  movementHistory?: Array<{
+    snapshotTime: string;
+    line: number | null;
+    odds: string;
+    betsPct: number;
+    moneyPct: number;
+  }>;
+  gameKey?: string;
+  snapshotStatus?: "LIVE" | "FINAL_PREGAME" | "MISSED_LOCK";
+  firstTrackedAt?: string;
   score: number;
   tier:
     | "Strong Trend"
@@ -174,7 +185,7 @@ type TrendPlay = {
 type ModelTrendMatch = "MATCH" | "AGREE" | "";
 
 type AiPickSource = "Best Play" | "Trend Play" | "Best + Trend";
-type AiPickMarket = "Moneyline" | "Total" | "Pitcher Strikeouts" | "First Inning";
+type AiPickMarket = "Moneyline" | "Run Line" | "Total" | "Pitcher Strikeouts" | "First Inning";
 type AiPickExternalStatus =
   | "PENDING_FINAL_REVIEW"
   | "WEB_REVIEWED"
@@ -3500,7 +3511,7 @@ function LiveMarketSplits({
   draftKings,
 }: {
   row: SheetRow;
-  market: "Moneyline" | "Spread" | "Total";
+  market: "Moneyline" | "Spread" | "Run Line" | "Total";
   draftKings?: DraftKingsData | null;
 }) {
   const rows = liveSplitsForRow(row, market, draftKings);
@@ -6899,10 +6910,15 @@ export default function Home() {
     const qualifiedTrendPlays = rankedTrendGames.flatMap((group) =>
       group.plays.filter((play) => play.tier !== "Pass"),
     );
-    const displayedTrendSides = rankedTrendGames.reduce(
-      (sum, group) => sum + group.plays.length,
-      0,
-    );
+    const directTrendGroupMap = new Map<string, { game: string; plays: TrendPlay[] }>();
+    for (const play of trendPlays) {
+      const key = `${play.gameKey || play.recordGameKey || play.game}|${play.game}`;
+      const existing = directTrendGroupMap.get(key) || { game: play.game, plays: [] };
+      existing.plays.push(play);
+      directTrendGroupMap.set(key, existing);
+    }
+    const directTrendGroups = [...directTrendGroupMap.values()];
+    const displayedTrendSides = trendPlays.length;
     // Pending candidates remain visible until final review. A finalized
     // rejection is returned with selected=false or BLOCKED and disappears;
     // an approved candidate remains and changes from PENDING to FINAL.
@@ -7014,29 +7030,35 @@ export default function Home() {
       return (
         <section>
           <div className="sectionHead">
-            <h2>Today’s Trend Plays</h2>
+            <div>
+              <h2>Today’s Trend Plays</h2>
+              <div className="directTrendRules">
+                <span><b>Public Fade</b> Fade the opposite side when 80%+ of bets are on one side.</span>
+                <span><b>Strong RLM</b> Bets rise 5+ points while the Run Line moves 1.5+ runs against that increasingly public side.</span>
+                <span><b>Sharp</b> Money share is 20+ points higher than bet share.</span>
+              </div>
+            </div>
             <span className="countPill">
-              {rankedTrendGames.length} games • {displayedTrendSides} tracked sides • {qualifiedTrendPlays.length} graded
+              {directTrendGroups.length} games • {displayedTrendSides} DraftKings Run Line / Total sides
             </span>
           </div>
 
-          {rankedTrendGames.length ? (
-            <div className="trendGameGrid">
-              {rankedTrendGames.map((group) => (
-                <TrendGameCard
-                  key={group.key}
-                  group={group}
-                  bestPlays={orderedPlays}
-                  slateRows={data.slateToday}
-                  boardDate={data.today}
-                />
-              ))}
-            </div>
+          {directTrendGroups.length ? (
+            <FootballTrendMarketBoard groups={directTrendGroups as any} sport="MLB" />
           ) : (
             <div className="empty">
-              No moneyline or total has reached the 60+ Trend Play threshold for today’s saved slate.
+              No MLB Run Line or Total DraftKings splits are available for today’s slate yet.
             </div>
           )}
+
+          <div className="directTrendRecordWrap">
+            <DirectTrendRecords
+              rows={(data.trendRecordRows || []) as any}
+              trendPlays={trendPlays as any}
+              today={data.today}
+              sport="MLB"
+            />
+          </div>
         </section>
       );
     }
