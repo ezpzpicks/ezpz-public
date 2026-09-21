@@ -20,6 +20,22 @@ async function probe(name: string, params: Record<string, string>) {
     });
     const html = await response.text();
     const normalized = html.replace(/&amp;/g, "&").replace(/\s+/g, " ");
+    const snippets = (needle: string) => {
+      const lower = html.toLowerCase();
+      const target = needle.toLowerCase();
+      const found: string[] = [];
+      let from = 0;
+      while (found.length < 4) {
+        const index = lower.indexOf(target, from);
+        if (index < 0) break;
+        found.push(
+          html.slice(Math.max(0, index - 140), Math.min(html.length, index + target.length + 220))
+            .replace(/\s+/g, " "),
+        );
+        from = index + target.length;
+      }
+      return found;
+    };
     return {
       name,
       url: url.toString(),
@@ -29,6 +45,9 @@ async function probe(name: string, params: Record<string, string>) {
       hasUnable: /Unable to fetch data from server/i.test(html),
       hasColtsChiefs: /IND Colts @ KC Chiefs/i.test(html),
       hasGiantsRams: /NY Giants @ LA Rams/i.test(html),
+      chiefsSnippets: snippets("Chiefs"),
+      ramsSnippets: snippets("Rams"),
+      filterSnippets: snippets("tb_eg"),
       title: (html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || "").trim(),
     };
   } catch (error) {
