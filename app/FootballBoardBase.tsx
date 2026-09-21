@@ -1451,7 +1451,7 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
         <span><b>Strong RLM</b> public bets rise 5+ points while spread moves 1.5+ points against that side</span>
       </div>
       {displayedTrendGroups.length ? <FootballTrendMarketBoard groups={displayedTrendGroups} sport={sport} /> : <div className="empty footballEmpty">No {sport} DraftKings Spread/Total markets are stored for {activeWeek || "this week"} yet.</div>}
-      <div className="directTrendRecordWrap"><DirectTrendRecords rows={data.trendRecordRows || []} today={data.today} sport={sport} /></div>
+      <div className="directTrendRecordWrap"><DirectTrendRecords rows={data.trendRecordRows || []} trendPlays={data.trendPlays || []} today={data.today} sport={sport} /></div>
     </>;
   } else if (tab === "EZPZ Picks") {
     content = <>
@@ -1507,7 +1507,7 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
       </div>
       <div className="sectionHead"><div><h2>DraftKings Trend Records</h2><p>Only the two active market signals: Public Fade and Strong RLM</p></div></div>
       <div className="advancedRecordsStack">
-        <DirectTrendRecords rows={trendRows} today={data.today} sport={sport} />
+        <DirectTrendRecords rows={trendRows} trendPlays={data.trendPlays || []} today={data.today} sport={sport} />
       </div>
       <div className="sectionHead"><div><h2>Bet Type Records</h2><p>Exact A/B grade + market + direction subsets used by HOT / COLD / SMALL SAMPLE</p></div></div>
       <div className="advancedRecordsStack">
