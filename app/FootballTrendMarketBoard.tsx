@@ -117,6 +117,7 @@ function rlmBadgeSummary(play: TrendPlay) {
   const startLine = Number(play.openingLine);
   const endLine = Number(play.line);
   if (![startBets, endBets, startLine, endLine].every((value) => Number.isFinite(value))) return null;
+  if (startBets <= 0 || startBets >= 100) return null;
   return {
     startBets: `${Math.round(startBets)}%`,
     endBets: `${Math.round(endBets)}%`,
@@ -152,10 +153,14 @@ function labelsFor(play: TrendPlay, plays: TrendPlay[], sport: Sport) {
       publicBets - publicMoney >= 55;
   if (publicFade) labels.push("Public Fade");
 
+  const openingPublicBets = Number(publicSide.openingBetsPct);
   const publicMove = Number(publicSide.publicMovementPct);
   const lineMove = Number(publicSide.lineMovementValue);
   if (
     play.market === "Spread" &&
+    Number.isFinite(openingPublicBets) &&
+    openingPublicBets > 0 &&
+    openingPublicBets < 100 &&
     String(publicSide.lineMovementBasis || "").includes("Spread") &&
     Number.isFinite(publicMove) &&
     publicMove >= 5 &&
@@ -593,10 +598,14 @@ function historicalLabels(row: SheetRow, group: SheetRow[], sport: Sport) {
       publicBets - publicMoney >= 55;
   if (publicFade) labels.push("Public Fade");
 
+  const openingPublicBets = Number(publicSide["Opening Public %"] || publicSide["Opening Bets %"]);
   const publicMove = Number(publicSide["Public Change %"]);
   const lineMove = Number(publicSide["Line Movement Value"]);
   if (
     textKey(row.Market) === "spread" &&
+    Number.isFinite(openingPublicBets) &&
+    openingPublicBets > 0 &&
+    openingPublicBets < 100 &&
     String(publicSide["Line Movement Basis"] || "").includes("Spread") &&
     Number.isFinite(publicMove) &&
     publicMove >= 5 &&
