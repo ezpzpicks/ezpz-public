@@ -2026,15 +2026,50 @@ export async function readWeeklyFootballMarket(sport: FootballSport) {
     }
 
     const completedRecordHistory = historyFromAllGameTrends(allGameTrends);
+    const legacyHistoryGroups = new Map<string, SheetRow[]>();
+
+    // Group the retained legacy snapshots once by canonical physical market side.
+    // Building one play per group avoids repeatedly scanning the entire odds
+    // history (thousands of rows) for every single snapshot.
     for (const row of marketHistoryRows) {
       const date = canonicalScheduleDate(row) || String(row.Date || "").trim();
       if (!date || date >= SCORES_AND_ODDS_CUTOVER_DATE) continue;
       const marketText = String(row.Market || "").trim();
       if (marketText !== "Spread" && marketText !== "Total") continue;
+
+      const away = nflMarketTeamCode(row["Away Team"]);
+      const home = nflMarketTeamCode(row["Home Team"]);
+      const selected = marketText === "Total"
+        ? textKey(row.Side || row.Selection)
+        : nflMarketTeamCode(row.Selection);
+      if (!away || !home || !selected) continue;
+
+      const identity = [date, away, home, marketText, selected].join("|");
+      const group = legacyHistoryGroups.get(identity) || [];
+      group.push(row);
+      legacyHistoryGroups.set(identity, group);
+    }
+
+    for (const groupRows of legacyHistoryGroups.values()) {
+      groupRows.sort((a, b) => {
+        const aStamp = Date.parse(
+          String(a["Snapshot Time ET"] || "").replace(/ EDT$/, " -0400").replace(/ EST$/, " -0500"),
+        );
+        const bStamp = Date.parse(
+          String(b["Snapshot Time ET"] || "").replace(/ EDT$/, " -0400").replace(/ EST$/, " -0500"),
+        );
+        if (Number.isFinite(aStamp) && Number.isFinite(bStamp)) return aStamp - bStamp;
+        return String(a["Snapshot Time ET"] || "").localeCompare(String(b["Snapshot Time ET"] || ""));
+      });
+      const row = groupRows.at(-1);
+      if (!row) continue;
+
+      const date = canonicalScheduleDate(row) || String(row.Date || "").trim();
+      const marketText = String(row.Market || "").trim();
       const market = marketText as WeeklyFootballMarket;
       const awayTeam = String(row["Away Team"] || "").trim();
       const homeTeam = String(row["Home Team"] || "").trim();
-      if (!awayTeam || !homeTeam) continue;
+      if (!date || !awayTeam || !homeTeam) continue;
 
       const betsPct = percent(row["Bets %"]);
       const moneyPct = percent(row["Handle %"]);
@@ -2083,7 +2118,10 @@ export async function readWeeklyFootballMarket(sport: FootballSport) {
       };
       if (!validFootballMarketSplit(split, sport, canonicalRows)) continue;
 
-      const built = buildPlay(split, undefined, completedRecordHistory, marketHistoryRows);
+      // Pass only this market side's retained snapshots into buildPlay. This
+      // preserves the original opening/current movement calculations without
+      // the O(history²) route cost that caused NFL reads to time out.
+      const built = buildPlay(split, undefined, completedRecordHistory, groupRows);
       const gameKeyFromHistory = String(row["Game Key"] || built.gameKey).trim();
       const updatedAt = String(row["Snapshot Time ET"] || built.updatedAt).trim();
       const candidate: WeeklyTrendPlay = {
@@ -2094,7 +2132,7 @@ export async function readWeeklyFootballMarket(sport: FootballSport) {
         snapshotStatus: "FINAL_PREGAME",
         frozenAt: updatedAt,
       };
-      candidate.movementHistory = movementHistoryForPlay(candidate, marketHistoryRows);
+      candidate.movementHistory = movementHistoryForPlay(candidate, groupRows);
 
       const identity = fallbackIdentity(candidate);
       if (!identity) continue;
