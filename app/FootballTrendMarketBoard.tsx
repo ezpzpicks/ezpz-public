@@ -408,9 +408,9 @@ function GameCard({ group, sport }: { group: Group; sport: Sport }) {
         <div className="dkTrendGameMatchupWrap">
           {matchup ? (
             <div className="dkTrendGameTitle dkTrendMatchupTitle">
-              <TeamLogoName sport={sport} team={matchup.awayRaw} text={matchup.away} className="dkMatchupTeam" />
+              <TeamLogoName sport={sport} team={matchup.away} text={matchup.away} className="dkMatchupTeam" />
               <span className="dkTrendAt">at</span>
-              <TeamLogoName sport={sport} team={matchup.homeRaw} text={matchup.home} className="dkMatchupTeam" />
+              <TeamLogoName sport={sport} team={matchup.home} text={matchup.home} className="dkMatchupTeam" />
             </div>
           ) : <div className="dkTrendGameTitle">{group.game}</div>}
           <small>{gameDate}{gameDate && gameTime ? " - " : ""}{gameTime}</small>
