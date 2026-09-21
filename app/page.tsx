@@ -7430,30 +7430,21 @@ export default function Home() {
     return (
       <>
         <div className="sectionHead">
-          <h2>All Qualified Plays</h2>
+          <div>
+            <h2>Model Play Records</h2>
+            <p>Official graded MLB model plays</p>
+          </div>
         </div>
 
         <div className="qualifiedGrid">
           <Tile
-            label="Handpicked Plays - Last 7 Days"
-            value={handpickedLast7.record}
-            meta={`${handpickedLast7.winPct}% • ${handpickedLast7.unitsWon}u • ROI ${handpickedLast7.roiPct}%`}
-            green={handpickedLast7.totalBets > 0}
-          />
-          <Tile
-            label="Handpicked Plays - Running Total"
-            value={handpickedOverall.record}
-            meta={`${handpickedOverall.winPct}% • ${handpickedOverall.unitsWon}u • ROI ${handpickedOverall.roiPct}%`}
-            green={handpickedOverall.totalBets > 0}
-          />
-          <Tile
-            label="Qualified Plays - Last 7 Days"
+            label="Model Plays - Last 7 Days"
             value={visibleLast7Totals.record}
             meta={`${visibleLast7Totals.winPct}% • ${visibleLast7Totals.unitsWon}u • ROI ${visibleLast7Totals.roiPct}%`}
             green
           />
           <Tile
-            label="Qualified Plays - Running Total"
+            label="Model Plays - Running Total"
             value={visibleOverallTotals.record}
             meta={`${visibleOverallTotals.winPct}% • ${visibleOverallTotals.unitsWon}u • ROI ${visibleOverallTotals.roiPct}%`}
             green
@@ -7461,53 +7452,26 @@ export default function Home() {
         </div>
 
         <div className="sectionHead trendRecordsHead">
-          <h2>EZPZ Picks</h2>
+          <div>
+            <h2>DraftKings Trend Records</h2>
+            <p>Only the three active MLB market signals: Public Fade, Strong RLM, and Sharp</p>
+          </div>
         </div>
 
-        <div className="qualifiedGrid aiRecordGrid">
-          {(() => {
-            const last7 = calculateAiPickRecord(data.aiPickRecordRows, "last7", data.today);
-            const overall = calculateAiPickRecord(data.aiPickRecordRows, "all", data.today);
-            return (
-              <>
-                <Tile
-                  label="EZPZ Picks - Last 7 Days"
-                  value={last7.record}
-                  meta={`${last7.winPct}% • ${last7.unitsWon}u • ROI ${last7.roiPct}%`}
-                  green={last7.totalBets > 0 && last7.wins >= last7.losses}
-                />
-                <Tile
-                  label="EZPZ Picks - Running Total"
-                  value={overall.record}
-                  meta={`${overall.winPct}% • ${overall.unitsWon}u • ROI ${overall.roiPct}%`}
-                  green={overall.totalBets > 0 && overall.wins >= overall.losses}
-                />
-              </>
-            );
-          })()}
-        </div>
-
-        <div className="recordsDropdownStack advancedRecordsStack">
-          <TrendTierRecords
-            rows={data.trendRecordRows || []}
+        <div className="advancedRecordsStack">
+          <DirectTrendRecords
+            rows={(data.trendRecordRows || []) as any}
+            trendPlays={(data.trendPlays || []) as any}
             today={data.today}
-          />
-          <CombinationRecords
-            trackerRows={data.betTrackerRows || []}
-            trendRows={data.trendRecordRows || []}
-            today={data.today}
-          />
-        </div>
-
-        <div className="recordsDropdownStack advancedRecordsStack">
-          <DraftKingsSignalRecords
-            rows={data.draftKingsSignalRows || []}
-            today={data.today}
+            sport="MLB"
           />
         </div>
 
         <div className="sectionHead">
-          <h2>Bet Type Records</h2>
+          <div>
+            <h2>Bet Type Records</h2>
+            <p>MLB model-play records by graded bet type</p>
+          </div>
         </div>
 
         <div className="recordsDropdownStack">
@@ -7519,14 +7483,6 @@ export default function Home() {
           <RecordsDropdown
             title="Overall Model Plays"
             rows={visibleOverallRecordSummary}
-          />
-          <RecordsDropdown
-            title="Last 7 Days Handpicked"
-            rows={visibleHandpickedLast7RecordSummary}
-          />
-          <RecordsDropdown
-            title="Overall Handpicked"
-            rows={visibleHandpickedOverallRecordSummary}
           />
         </div>
       </>
