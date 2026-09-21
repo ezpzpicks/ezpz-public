@@ -15,6 +15,7 @@ async function probe(name: string, params: Record<string, string>) {
       headers: {
         "User-Agent": "Mozilla/5.0 (compatible; EZPZ-Picks/1.0; +https://ezpzpicks.com)",
         Accept: "text/html,application/xhtml+xml",
+        "Accept-Language": "en-US,en;q=0.9",
       },
       signal: AbortSignal.timeout(12000),
     });
@@ -52,7 +53,8 @@ async function probe(name: string, params: Record<string, string>) {
       responseDate: response.headers.get("date"),
       filterSelects: html.match(/<select\b[\s\S]*?<\/select>/gi),
       tableMarkup: html.match(/<table\b[\s\S]*?<\/table>/gi),
-      tableSection: html.slice(html.indexOf('tb-tfilter'), html.indexOf('tb-tfilter') + 18000),
+      tableSection: html.slice(html.indexOf('tb-tfilter'), html.indexOf('</main>', html.indexOf('tb-tfilter'))),
+      pageLinks: [...html.matchAll(/href=["']([^"']*tb_page[^"']*)["']/gi)].map(match => match[1]),
       scriptUrls: [...html.matchAll(/<script\b[^>]*src=["']([^"']+)["']/gi)].map(match => match[1]),
       title: (html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || "").trim(),
     };
@@ -66,12 +68,8 @@ export async function GET(request: NextRequest) {
   const dateRange = request.nextUrl.searchParams.get("range") === "n30days" ? "n30days" : "n7days";
   const common = { itm_content: sport, tb_eg: sport, tb_edate: dateRange };
   const results = [];
-  results.push(await probe("direct-first", { ...common, tb_page: "1" }));
-  results.push(await probe("league-only", { tb_eg: sport, tb_edate: dateRange }));
-  results.push(await probe("all-first", { ...common, tb_emt: "0" }));
-  results.push(await probe("spread-first", { ...common, tb_emt: "Spread" }));
-  results.push(await probe("total-first", { ...common, tb_emt: "Total" }));
-  results.push(await probe("all-page2", { ...common, tb_emt: "0", tb_page: "2" }));
-  results.push(await probe("spread-page2", { ...common, tb_emt: "Spread", tb_page: "2" }));
+  results.push(await probe("source-link", { tb_eg: sport, itm_content: sport, tb_edate: dateRange, tb_emt: "0" }));
+  results.push(await probe("previous-working", { tb_eg: sport, tb_page: "1", tb_edate: dateRange }));
+  results.push(await probe("uncached-source-link", { tb_eg: sport, itm_content: sport, tb_edate: dateRange, tb_emt: "0", _ezpz_refresh: String(Date.now()) }));
   return NextResponse.json({ ok: true, results }, { headers: { "Cache-Control": "no-store" } });
 }
