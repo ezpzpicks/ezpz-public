@@ -409,7 +409,7 @@ function MovementChart({ play }: { play: TrendPlay }) {
         </div>
         <div className="dkMovementHeadMeta">
           <span className="dkMovementCurrentPrice">{play.market === "Moneyline" ? (latest?.odds || play.odds) : `${lineLabel(play, latest?.line)} ${latest?.odds || play.odds}`}</span>
-          <span className="dkSnapshotHeartbeat" title="Most recent successful DraftKings snapshot for this market">
+          <span className="dkSnapshotHeartbeat" title="Most recent successful ScoresAndOdds snapshot for this market">
             <i aria-hidden="true" />
             Last snapshot {lastSnapshotDisplay}
           </span>
@@ -902,7 +902,7 @@ export function DirectTrendRecords({ rows, trendPlays = [], sport }: { rows: She
       <summary className="recordsSummary">
         <div>
           <div className="recordsSummaryTitle">Public Fade + Strong RLM + Sharp Records</div>
-          <div className="recordsSummarySub">Active DraftKings trend rules, separated by market side</div>
+          <div className="recordsSummarySub">Active ScoresAndOdds trend rules, separated by market side</div>
         </div>
         <span className="recordsCount">{labeled.length} graded</span>
       </summary>
