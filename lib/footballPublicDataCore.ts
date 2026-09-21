@@ -8,13 +8,13 @@ import {
 } from "./sportSheets";
 import { readWeeklyFootballMarket } from "./footballWeeklyMarket";
 import {
-  DK_BETTING_SPLITS_URL,
   assessDraftKingsMarketCoverage,
-  crawlDraftKingsFootballFilter,
-  loadDraftKingsFootballFilterCandidates,
-  type DraftKingsFilterCandidate,
   type DraftKingsMarketCoverage,
 } from "./draftKingsBettingSplits";
+import {
+  SCORES_AND_ODDS_SOURCE,
+  loadScoresAndOddsConsensus,
+} from "./scoresAndOddsBettingSplits";
 
 export type FootballMarket = "Spread" | "Total";
 type Tone = "negative" | "caution" | "positive" | "neutral";
@@ -85,6 +85,7 @@ type DraftKingsSplit = {
   lineMovementValue?: number | null;
   snapshotTime?: string;
   retained?: boolean;
+  sourceUrl?: string;
 };
 
 type TrendRecord = {
@@ -672,7 +673,13 @@ function splitMatchesSlate(split: DraftKingsSplit, slate: SheetRow[], sport: Foo
 type LoadedDraftKingsSplits = {
   splits: DraftKingsSplit[];
   errors: string[];
-  filter: DraftKingsFilterCandidate;
+  filter: {
+    eventGroup: string;
+    content: string;
+    dateRange: string;
+    label: string;
+    source: string;
+  };
   coverage: DraftKingsMarketCoverage;
   missingPages: number[];
   retainedFallback?: boolean;
@@ -730,82 +737,113 @@ async function loadDraftKingsSplits(
   sport: FootballSport,
   slate: SheetRow[],
 ): Promise<LoadedDraftKingsSplits> {
-  const discovery = await loadDraftKingsFootballFilterCandidates(sport);
-  let best: LoadedDraftKingsSplits | null = null;
+  const sourceSport = sport === "NCAAF" ? "NCAAF" : "NFL";
+  const loaded = await loadScoresAndOddsConsensus(sourceSport);
+  const errors: string[] = [];
+  const mapped: DraftKingsSplit[] = [];
 
-  // Both football cron paths intentionally use the shared dynamic DK collector.
-  // Never fall back to a restored/stale hard-coded event-group value: the
-  // active DK filter is discovered from the live page on every fresh run.
-  for (const filter of discovery.candidates.slice(0, 6)) {
-    const crawl = await crawlDraftKingsFootballFilter(
-      filter,
-      parseBettingSplits,
-      (item) =>
-        `${item.date}|${normalizeTeam(item.awayTeam, sport)}|${normalizeTeam(item.homeTeam, sport)}|` +
-        `${item.market}|${normalizeTeam(item.market === "Total" ? item.side : item.selectionTeam, sport)}`,
-    );
-    const matched = crawl.rows.filter((item) => splitMatchesSlate(item, slate, sport));
-    const map = new Map<string, DraftKingsSplit>();
-    for (const split of matched) {
-      const key =
-        `${split.date}|${normalizeTeam(split.awayTeam, sport)}|${normalizeTeam(split.homeTeam, sport)}|` +
-        `${split.market}|${normalizeTeam(split.market === "Total" ? split.side : split.selectionTeam, sport)}`;
-      map.set(key, split);
-    }
-    const splits = [...map.values()];
-    const coverage = assessTrackingSlateCoverage(sport, splits, slate);
-    const errors = crawl.errors.map((error) =>
-      `${filter.label}/${filter.eventGroup}/${filter.dateRange}: ${error}`,
-    );
-    if (matched.length !== crawl.rows.length) {
-      errors.push(
-        `Football slate validation rejected ${crawl.rows.length - matched.length} unrelated market sides.`,
-      );
-    }
-    if (crawl.missingPages.length) {
-      errors.push(`DraftKings crawl could not verify page(s): ${crawl.missingPages.join(", ")}.`);
-    }
-    const candidate: LoadedDraftKingsSplits = {
-      splits,
-      errors,
-      filter,
-      coverage,
-      missingPages: crawl.missingPages,
+  for (const source of loaded.splits) {
+    if (source.market !== "Spread" && source.market !== "Total") continue;
+
+    const probe: DraftKingsSplit = {
+      date: "",
+      eventTime: "",
+      game: source.game,
+      awayTeam: source.awayTeam,
+      homeTeam: source.homeTeam,
+      market: source.market,
+      selection: source.selection,
+      selectionTeam: source.selectionTeam,
+      side: source.side,
+      sideGroup: source.market === "Total"
+        ? source.side
+        : source.line != null && source.line < 0
+          ? "Favorite"
+          : source.line != null && source.line > 0
+            ? "Underdog"
+            : "",
+      line: source.line,
+      odds: source.odds,
+      moneyPct: source.moneyPct,
+      betsPct: source.betsPct,
+      ...warningFor(source.betsPct, source.moneyPct),
+      sourceUrl: source.sourceUrl,
     };
-    if (
-      !best ||
-      candidate.coverage.missingGames.length + candidate.coverage.incompleteGames.length <
-        best.coverage.missingGames.length + best.coverage.incompleteGames.length ||
-      (
-        candidate.coverage.missingGames.length + candidate.coverage.incompleteGames.length ===
-          best.coverage.missingGames.length + best.coverage.incompleteGames.length &&
-        candidate.splits.length > best.splits.length
-      )
-    ) best = candidate;
+    const matched = slate.find((row) => sameMatchup(row, probe, sport));
+    if (!matched) continue;
 
-    const coverageAccepted = sport === "NFL" ? coverage.ok : splits.length > 0;
-    if (coverageAccepted && crawl.missingPages.length === 0) return candidate;
-  }
-
-  if (!best) {
-    throw new Error(`DraftKings ${sport} discovery returned no usable filter candidates.`);
-  }
-  const bestCoverageFailed = sport === "NFL" ? !best.coverage.ok : best.splits.length === 0;
-  if (bestCoverageFailed || best.missingPages.length) {
-    const pageFailure = best.missingPages.length
-      ? `; missing crawl page(s) ${best.missingPages.join(", ")}`
+    const awayTeam = String(matched["Away Team"] || source.awayTeam).trim();
+    const homeTeam = String(matched["Home Team"] || source.homeTeam).trim();
+    const selectionTeam = source.market === "Spread"
+      ? sameTeam(source.selectionTeam, source.awayTeam, sport)
+        ? awayTeam
+        : sameTeam(source.selectionTeam, source.homeTeam, sport)
+          ? homeTeam
+          : source.selectionTeam
       : "";
-    const coverageFailure =
-      sport === "NFL"
-        ? trackingCoverageFailure(best.coverage)
-        : "no CFB market sides matched the tracked slate";
-    throw new Error(
-      `DraftKings ${sport} partial slate rejected: ${coverageFailure}${pageFailure}. ` +
-      `Filter ${best.filter.eventGroup}/${best.filter.dateRange}; ` +
-      `received ${best.coverage.receivedGames} games and ${best.splits.length} market sides.`,
+    const line = source.line;
+    const selection = source.market === "Total"
+      ? source.side
+      : `${selectionTeam}${line == null ? "" : ` ${line > 0 ? "+" : ""}${line}`}`.trim();
+
+    mapped.push({
+      ...probe,
+      date: isoDate(matched.Date || matched["Game Date"] || "") || source.date,
+      eventTime: gameTime(matched),
+      game: `${awayTeam} at ${homeTeam}`,
+      awayTeam,
+      homeTeam,
+      selection,
+      selectionTeam,
+      sideGroup: source.market === "Total"
+        ? source.side
+        : line != null && line < 0
+          ? "Favorite"
+          : line != null && line > 0
+            ? "Underdog"
+            : "",
+    });
+  }
+
+  const deduped = new Map<string, DraftKingsSplit>();
+  for (const split of mapped) {
+    const key =
+      `${split.date}|${normalizeTeam(split.awayTeam, sport)}|${normalizeTeam(split.homeTeam, sport)}|` +
+      `${split.market}|${normalizeTeam(split.market === "Total" ? split.side : split.selectionTeam, sport)}`;
+    deduped.set(key, split);
+  }
+  const splits = [...deduped.values()];
+  const coverage = assessTrackingSlateCoverage(sport, splits, slate);
+
+  if (loaded.splits.length !== mapped.length) {
+    errors.push(
+      `ScoresAndOdds returned ${loaded.splits.length} parsed market sides; ${mapped.length} matched the tracked ${sport} slate before deduplication.`,
     );
   }
-  return best;
+
+  const coverageAccepted = sport === "NFL" ? coverage.ok : splits.length > 0;
+  if (!coverageAccepted) {
+    const coverageFailure = sport === "NFL"
+      ? trackingCoverageFailure(coverage)
+      : "no NCAAF ScoresAndOdds market sides matched the tracked slate";
+    throw new Error(
+      `ScoresAndOdds ${sport} slate rejected: ${coverageFailure}. Received ${coverage.receivedGames} games and ${splits.length} usable market sides.`,
+    );
+  }
+
+  return {
+    splits,
+    errors,
+    filter: {
+      eventGroup: sourceSport,
+      content: "scoresandodds-consensus",
+      dateRange: "current",
+      label: `ScoresAndOdds ${sourceSport} Consensus`,
+      source: "scoresandodds",
+    },
+    coverage,
+    missingPages: [],
+  };
 }
 
 function snapshotKey(row: SheetRow) {
@@ -922,7 +960,7 @@ function snapshotRow(split: DraftKingsSplit): SheetRow {
     "Warning Negative": split.warningNegative ? "TRUE" : "FALSE", "Line Movement Signal": split.lineMovementSignal || "",
     "Line Movement Tone": split.lineMovementTone || "", "Line Movement Basis": split.lineMovementBasis || "",
     "Line Movement Value": split.lineMovementValue == null ? "" : String(split.lineMovementValue),
-    "Popularity Rank": "", Source: "DraftKings", "Match Confidence": "Weekly football market tracking", "Source URL": DK_BETTING_SPLITS_URL,
+    "Popularity Rank": "", Source: SCORES_AND_ODDS_SOURCE, "Match Confidence": "Weekly football market tracking", "Source URL": split.sourceUrl || "https://www.scoresandodds.com",
   };
 }
 
@@ -933,6 +971,8 @@ function finiteSnapshotNumber(value: unknown) {
 }
 
 function draftKingsSplitFromStoredSnapshot(row: SheetRow, sport: FootballSport): DraftKingsSplit | null {
+  const storedSource = String(row.Source || "").trim();
+  if (storedSource && storedSource !== SCORES_AND_ODDS_SOURCE) return null;
   const date = isoDate(row.Date || row["Game Date"] || "");
   const awayTeam = String(row["Away Team"] || "").trim();
   const homeTeam = String(row["Home Team"] || "").trim();
@@ -990,6 +1030,7 @@ function draftKingsSplitFromStoredSnapshot(row: SheetRow, sport: FootballSport):
     lineMovementValue: finiteSnapshotNumber(row["Line Movement Value"]),
     snapshotTime: String(row["Snapshot Time ET"] || "").trim(),
     retained: true,
+    sourceUrl: String(row["Source URL"] || "").trim() || "https://www.scoresandodds.com",
   };
 }
 
@@ -2205,24 +2246,28 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
     dk={
       splits,
       errors:[
-        `Live DraftKings refresh failed: ${errorMessage}`,
-        `Serving ${splits.length} retained DraftKings market sides from the last successful snapshots instead of failing the public NFL payload.`,
+        `Live ScoresAndOdds refresh failed: ${errorMessage}`,
+        `Serving ${splits.length} retained ScoresAndOdds market sides from the last successful snapshots instead of failing the public NFL payload.`,
       ],
       filter:{
         eventGroup:"stored-snapshots",
         content:"stored-snapshots",
         dateRange:"current-week",
-        label:"Stored DraftKings snapshots",
+        label:"Stored ScoresAndOdds snapshots",
         source:"option",
       },
       coverage:assessTrackingSlateCoverage(sport,splits,trackingSlate),
       missingPages:[],
       retainedFallback:true,
     };
-    console.warn("Using retained NFL DraftKings snapshots after live partial-slate failure.",error);
+    console.warn("Using retained NFL ScoresAndOdds snapshots after live partial-slate failure.",error);
   }
   const usingStoredDraftKingsFallback=dk.retainedFallback===true;
-  const snapshotMap=new Map(snapshotExisting.map((row)=>[snapshotKey(row),row]));
+  const snapshotMap=new Map(
+    snapshotExisting
+      .filter((row)=>String(row.Source||"").trim()===SCORES_AND_ODDS_SOURCE)
+      .map((row)=>[snapshotKey(row),row]),
+  );
   const enrichedTrackingLive=dk.splits.map((split)=>movementForSplit(split,snapshotMap.get(splitSnapshotKey(split))));
   // A scheduled run can drift a few minutes. Once it is past T-15, do not
   // use the new scrape: reconstruct the market from the last stored snapshot.
@@ -2254,14 +2299,14 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
     if(!inFootballTrackingWeek(row,sport,today))return row;
     if(authoritativeFinalTrend(row)) return row;
     const split=findSplitForSide(row,enriched,sport,row.Market as FootballMarket,String(row.Market==="Total"?row.Side||row.Selection:row.Selection));if(!split)return row;
-    // DraftKings event time is the best available lock clock. Fall back to
+    // The canonical schedule time is the lock clock for ScoresAndOdds. Fall back to
     // the saved slate time only when the feed does not provide one.
     const minutesToKickoff=minutesUntilDraftKingsKickoff(split) ?? minutesUntilKickoff(row);
     const play=playMap.get(`${String(row["Game Key"]||"")}|${row.Market}|${textKey(row.Market==="Total"?row.Side||row.Selection:row.Selection)}`);const primary=play?.signals[0];
     const locked=minutesToKickoff!=null&&minutesToKickoff<=15;
     const stamp=nowET();
     const marketStamp=(usingStoredDraftKingsFallback||locked)&&split.snapshotTime?split.snapshotTime:stamp;
-    return{...row,"Public Bets %":String(split.betsPct),"Public Money %":String(split.moneyPct),"Public Gap %":String(split.gapPct),"Public Warning":split.warning,"Public Warning Negative":split.warningNegative?"TRUE":"FALSE","Public Split Source":"DraftKings","Public Split Market":split.market,"Public Split Selection":split.market==="Total"?split.side:split.selectionTeam,"Public Split Line":split.line==null?"":String(split.line),"Public Split Odds":split.odds,"Public Split Match Confidence":locked?"Final 15-minute football market lock":"Live weekly football market","Public Split Snapshot Time":marketStamp,"Opening Public %":String(split.openingBetsPct??split.betsPct),"Current Public %":String(split.betsPct),"Public Change %":String(split.publicMovementPct??0),"Opening Sharp %":String(split.openingMoneyPct??split.moneyPct),"Current Sharp %":String(split.moneyPct),"Sharp Change %":String(split.sharpMovementPct??0),"Opening Public Split Line":split.openingLine==null?"":String(split.openingLine),"Opening Public Split Odds":split.openingOdds||split.odds,"Opening Public Split Snapshot Time":split.openingSnapshotTime||String(snapshotMap.get(splitSnapshotKey(split))?.["Opening Snapshot Time ET"]||marketStamp),"Opening Implied %":split.openingImpliedPct==null?"":String(split.openingImpliedPct),"Current Implied %":split.currentImpliedPct==null?"":String(split.currentImpliedPct),"Line Movement Signal":split.lineMovementSignal||"","Line Movement Tone":split.lineMovementTone||"","Line Movement Basis":split.lineMovementBasis||"","Line Movement Value":split.lineMovementValue==null?"":String(split.lineMovementValue),"Trend Play":play?"TRUE":"FALSE","Trend Score":play?String(Math.round(play.score)):"","Trend Tier":play?.tier||"","Trend Signals":play?.signals.map(s=>s.signal).join(" | ")||"","Trend All Time Record":primary?.records.allTime.record||"","Trend Last 30 Record":primary?.records.last30.record||"","Trend Last 7 Record":primary?.records.last7.record||"","Trend Exact Sample":play?.signals.map(s=>s.exactSample).join(" | ")||"","Trend Sample Size":play?String(play.TrendSampleSize):"","History Source":play?.HistorySource||"","Fallback Reason":play?.FallbackReason||"","Trend Score Details":play?JSON.stringify({...play,frozenAt:locked?marketStamp:undefined,snapshotStatus:locked?"FINAL_PREGAME":"LIVE",gradingVersion:locked?FROZEN_TREND_GRADING_VERSION:undefined}):""};
+    return{...row,"Public Bets %":String(split.betsPct),"Public Money %":String(split.moneyPct),"Public Gap %":String(split.gapPct),"Public Warning":split.warning,"Public Warning Negative":split.warningNegative?"TRUE":"FALSE","Public Split Source":SCORES_AND_ODDS_SOURCE,"Public Split Market":split.market,"Public Split Selection":split.market==="Total"?split.side:split.selectionTeam,"Public Split Line":split.line==null?"":String(split.line),"Public Split Odds":split.odds,"Public Split Match Confidence":locked?"Final 15-minute football market lock":"Live weekly football market","Public Split Snapshot Time":marketStamp,"Opening Public %":String(split.openingBetsPct??split.betsPct),"Current Public %":String(split.betsPct),"Public Change %":String(split.publicMovementPct??0),"Opening Sharp %":String(split.openingMoneyPct??split.moneyPct),"Current Sharp %":String(split.moneyPct),"Sharp Change %":String(split.sharpMovementPct??0),"Opening Public Split Line":split.openingLine==null?"":String(split.openingLine),"Opening Public Split Odds":split.openingOdds||split.odds,"Opening Public Split Snapshot Time":split.openingSnapshotTime||String(snapshotMap.get(splitSnapshotKey(split))?.["Opening Snapshot Time ET"]||marketStamp),"Opening Implied %":split.openingImpliedPct==null?"":String(split.openingImpliedPct),"Current Implied %":split.currentImpliedPct==null?"":String(split.currentImpliedPct),"Line Movement Signal":split.lineMovementSignal||"","Line Movement Tone":split.lineMovementTone||"","Line Movement Basis":split.lineMovementBasis||"","Line Movement Value":split.lineMovementValue==null?"":String(split.lineMovementValue),"Trend Play":play?"TRUE":"FALSE","Trend Score":play?String(Math.round(play.score)):"","Trend Tier":play?.tier||"","Trend Signals":play?.signals.map(s=>s.signal).join(" | ")||"","Trend All Time Record":primary?.records.allTime.record||"","Trend Last 30 Record":primary?.records.last30.record||"","Trend Last 7 Record":primary?.records.last7.record||"","Trend Exact Sample":play?.signals.map(s=>s.exactSample).join(" | ")||"","Trend Sample Size":play?String(play.TrendSampleSize):"","History Source":play?.HistorySource||"","Fallback Reason":play?.FallbackReason||"","Trend Score Details":play?JSON.stringify({...play,frozenAt:locked?marketStamp:undefined,snapshotStatus:locked?"FINAL_PREGAME":"LIVE",gradingVersion:locked?FROZEN_TREND_GRADING_VERSION:undefined}):""};
   });
   if(persist) await upsertSportRows(sport,"all_game_trends",ALL_GAME_TRENDS_HEADERS,trendRows,trendRowKey);
   // The weekly market worksheet is the sole public trend source. It stores
@@ -2382,7 +2427,7 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
   const recordSummary = buildRecordSummary();
   const last7RecordSummary = buildRecordSummary(7);
   const aiPickRecordRows = buildFootballEzpzRecordRows(effectiveTracker, publicTrendRows, sport);
-  return {ok:true,sport,database:sportDatabaseLabel(sport),today,lastUpdated:nowET(),tiles:{last7Days:last7,overallGreen:overall,handpickedLast7:last7,handpickedOverall:overall,pendingGreen:pending,bestPlaysToday:best.length},bestPlays:best,slateToday:todaySlate,betTrackerRows:effectiveTracker,draftKings:{ok:enriched.length>0,status:enriched.length?"LIVE":"UNAVAILABLE",updatedAt:nowET(),stale:usingStoredDraftKingsFallback,splits:enriched,props:[],errors:dk.errors,filter:dk.filter,coverage:dk.coverage,displayMode:usingStoredDraftKingsFallback?"STALE_FALLBACK":"LIVE",trackingMode:"WEEKLY",trackingWeekStart:trackingWeek.start,trackingWeekEnd:trackingWeek.end,trackedGames:trackingSlate.length},draftKingsSignalRows:history,trendRecordRows:publicTrendRows.filter(r=>resultCode(r.Result)),trendPlays:displayTrendPlays,aiPicks,aiPickRecordRows,aiSelectorStatus:{mode:"LIVE",externalResearchConfigured:false,message:aiPicks.length?`${sport} EZPZ Picks are live for ${today}: HOT Best Plays remain FINAL immediately; Trend Plays qualify only through Public Fade, Strong RLM, or Sharp. NFL Public Fade uses 80%+ bets; CFB Public Fade uses >75% bets with a 55+ point Bets%-Money% gap. Strong RLM requires public bet share to rise at least 5 points while the spread moves 1.5+ points against that side. EZPZ Sharp requires money share over bet share by ${sport === "NFL" ? 25 : 40}+ points. Qualifying Trend Plays remain tied to the saved pregame market snapshot.`:`No ${sport} EZPZ Picks for ${today} currently qualify under the HOT Best Play / Public Fade / Strong RLM / Sharp rules.`,updatedAt:nowET(),candidateCount:modelBest.length+todayTrendPlays.length,selectedCount:aiPicks.length},recordSummary,last7RecordSummary,handpickedRecordSummary:recordSummary,handpickedLast7RecordSummary:last7RecordSummary};
+  return {ok:true,sport,database:sportDatabaseLabel(sport),today,lastUpdated:nowET(),tiles:{last7Days:last7,overallGreen:overall,handpickedLast7:last7,handpickedOverall:overall,pendingGreen:pending,bestPlaysToday:best.length},bestPlays:best,slateToday:todaySlate,betTrackerRows:effectiveTracker,draftKings:{ok:enriched.length>0,status:enriched.length?"LIVE":"UNAVAILABLE",updatedAt:nowET(),stale:usingStoredDraftKingsFallback,splits:enriched,props:[],errors:dk.errors,source:SCORES_AND_ODDS_SOURCE,filter:dk.filter,coverage:dk.coverage,displayMode:usingStoredDraftKingsFallback?"STALE_FALLBACK":"LIVE",trackingMode:"WEEKLY",trackingWeekStart:trackingWeek.start,trackingWeekEnd:trackingWeek.end,trackedGames:trackingSlate.length},draftKingsSignalRows:history,trendRecordRows:publicTrendRows.filter(r=>resultCode(r.Result)),trendPlays:displayTrendPlays,aiPicks,aiPickRecordRows,aiSelectorStatus:{mode:"LIVE",externalResearchConfigured:false,message:aiPicks.length?`${sport} EZPZ Picks are live for ${today}: HOT Best Plays remain FINAL immediately; Trend Plays qualify only through Public Fade, Strong RLM, or Sharp. NFL Public Fade uses 80%+ bets; CFB Public Fade uses >75% bets with a 55+ point Bets%-Money% gap. Strong RLM requires public bet share to rise at least 5 points while the spread moves 1.5+ points against that side. EZPZ Sharp requires money share over bet share by ${sport === "NFL" ? 25 : 40}+ points. Qualifying Trend Plays remain tied to the saved pregame market snapshot.`:`No ${sport} EZPZ Picks for ${today} currently qualify under the HOT Best Play / Public Fade / Strong RLM / Sharp rules.`,updatedAt:nowET(),candidateCount:modelBest.length+todayTrendPlays.length,selectedCount:aiPicks.length},recordSummary,last7RecordSummary,handpickedRecordSummary:recordSummary,handpickedLast7RecordSummary:last7RecordSummary};
 }
 
 const FOOTBALL_PUBLIC_DATA_CACHE_TTL_MS = 60_000;

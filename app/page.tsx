@@ -3509,7 +3509,7 @@ function PublicBettingPanel({ info }: { info: PublicBettingInfo | null }) {
         Selected-side split rule: Bets + Handle = 100%.
       </div>
       <div className="publicSplitMeta">
-        {info.matchConfidence || "DraftKings selected-side split"}
+        {info.matchConfidence || "ScoresAndOdds selected-side split"}
         {info.updatedAt ? ` • ${info.updatedAt}` : ""}
       </div>
     </div>
@@ -3541,7 +3541,7 @@ function LiveMarketSplits({
     <div className="publicSplitPanel liveMarketPanel">
       <div className="publicSplitTitle">
         <span>
-          DraftKings {finalSnapshot ? "Final Pregame" : "Live"} {market} Splits
+          ScoresAndOdds {finalSnapshot ? "Final Pregame" : "Live"} {market} Splits
         </span>
         <strong>{statusLabel}</strong>
       </div>
@@ -4544,7 +4544,7 @@ function TrendSelectionRow({
                 : ""}
           </span>
           <span>Exact sample: {trendExactSample(play)} bets</span>
-          <span>{play.updatedAt ? `Updated ${play.updatedAt}` : "DraftKings trend history"}</span>
+          <span>{play.updatedAt ? `Updated ${play.updatedAt}` : "ScoresAndOdds trend history"}</span>
         </div>
       </div>
     </details>
@@ -6379,7 +6379,7 @@ function DraftKingsSignalRecords({
     <details className="recordsDropdown dkSignalRecordsDropdown">
       <summary className="recordsSummary">
         <div>
-          <div className="recordsSummaryTitle">DraftKings Market Signals</div>
+          <div className="recordsSummaryTitle">ScoresAndOdds Market Signals</div>
           <div className="recordsSummarySub">
             Historical Bets / Handle and line-movement signal records
           </div>
@@ -6747,12 +6747,12 @@ export default function Home() {
           setDraftKings(json.draftKings);
           setDraftKingsError(
             json.draftKings.status === "UNAVAILABLE"
-              ? json.draftKings.errors?.join(" • ") || "DraftKings feed unavailable"
+              ? json.draftKings.errors?.join(" • ") || "ScoresAndOdds feed unavailable"
               : "",
           );
         } else {
           setDraftKings(null);
-          setDraftKingsError("DraftKings feed unavailable");
+          setDraftKingsError("ScoresAndOdds feed unavailable");
         }
       } catch (err) {
         if (err instanceof Error && err.name === "AbortError") return;
@@ -7155,7 +7155,7 @@ export default function Home() {
               </div>
             </div>
             <span className="countPill">
-              {directTrendGroups.length} games • {displayedTrendSides} DraftKings Moneyline / Total sides
+              {directTrendGroups.length} games • {displayedTrendSides} ScoresAndOdds Moneyline / Total sides
             </span>
           </div>
 
@@ -7192,7 +7192,7 @@ export default function Home() {
               <strong>{activeMlbTrendDateLabel}</strong>
               <small>
                 {viewingCurrentMlbTrends
-                  ? "Live DraftKings board"
+                  ? "Live ScoresAndOdds board"
                   : `${trendSlateRows.length} games restored from stored MLB market data`}
               </small>
             </div>
@@ -7203,12 +7203,12 @@ export default function Home() {
           ) : null}
 
           {loadingHistorical ? (
-            <div className="empty">Loading stored MLB DraftKings trends for {activeMlbTrendDateLabel}…</div>
+            <div className="empty">Loading stored MLB ScoresAndOdds trends for {activeMlbTrendDateLabel}…</div>
           ) : directTrendGroups.length ? (
             <FootballTrendMarketBoard groups={directTrendGroups as any} sport="MLB" />
           ) : (
             <div className="empty">
-              No stored MLB Moneyline or Total DraftKings splits are available for {activeMlbTrendDateLabel}.
+              No stored MLB Moneyline or Total ScoresAndOdds splits are available for {activeMlbTrendDateLabel}.
             </div>
           )}
 
@@ -7371,16 +7371,16 @@ export default function Home() {
               <h2>Full Slate</h2>
               <div className={`dkFeedStatus ${draftKings?.status === "LIVE" ? "live" : "partial"}`}>
                 {draftKings?.displayMode === "FINAL_PREGAME"
-                  ? `DraftKings final pregame snapshots • ${draftKings.finalSnapshotGames || 0} games locked`
+                  ? `ScoresAndOdds final pregame snapshots • ${draftKings.finalSnapshotGames || 0} games locked`
                   : draftKings?.displayMode === "MIXED"
-                    ? `DraftKings live + final snapshots • ${draftKings.finalSnapshotGames || 0} games locked`
+                    ? `ScoresAndOdds live + final snapshots • ${draftKings.finalSnapshotGames || 0} games locked`
                     : draftKings?.status === "LIVE"
-                      ? `DraftKings live splits • updated ${draftKings.updatedAt}`
+                      ? `ScoresAndOdds live splits • updated ${draftKings.updatedAt}`
                       : draftKings?.status === "PARTIAL"
-                        ? `DraftKings partial feed • updated ${draftKings.updatedAt}`
+                        ? `ScoresAndOdds partial feed • updated ${draftKings.updatedAt}`
                         : draftKingsError
-                          ? "DraftKings live feed temporarily unavailable"
-                          : "Loading DraftKings live splits…"}
+                          ? "ScoresAndOdds live feed temporarily unavailable"
+                          : "Loading ScoresAndOdds live splits…"}
               </div>
             </div>
           </div>
@@ -7483,7 +7483,7 @@ export default function Home() {
 
         <div className="sectionHead trendRecordsHead">
           <div>
-            <h2>DraftKings Trend Records</h2>
+            <h2>ScoresAndOdds Trend Records</h2>
             <p>Only the three active MLB market signals: Public Fade, Strong RLM, and Sharp</p>
           </div>
         </div>
@@ -7671,7 +7671,7 @@ export default function Home() {
                 green={data.tiles.overallGreen.totalBets > 0}
               />
               <Tile label="Today’s Model Plays" value={String(data.bestPlays.length)} meta="Spread + Total" green={data.bestPlays.length > 0} />
-              <Tile label="Today’s Trend Plays" value={String((data.trendPlays || []).filter((play) => play.tier !== "Pass").length)} meta="Sport-specific DraftKings records" />
+              <Tile label="Today’s Trend Plays" value={String((data.trendPlays || []).filter((play) => play.tier !== "Pass").length)} meta="Sport-specific ScoresAndOdds records" />
               <Tile label="Model Stage" value="LIVE" meta={activeSportMeta.status} green />
               <Tile label="Published Matchups" value={String(data.slateToday.length)} meta="Separate sport database" green={data.slateToday.length > 0} />
             </>
