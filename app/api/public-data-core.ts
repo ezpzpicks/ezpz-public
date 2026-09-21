@@ -168,7 +168,7 @@ type PublicSignalTone = "negative" | "caution" | "positive" | "neutral";
 type DraftKingsSignalResult = {
   date: string;
   game: string;
-  market: "Moneyline" | "Total";
+  market: "Moneyline" | "Run Line" | "Total";
   selection: string;
   sideGroup: "Favorite" | "Underdog" | "Over" | "Under" | "";
   betType: string;
@@ -261,7 +261,7 @@ type TrendPlay = {
   openingOdds?: string;
   openingImpliedPct?: number | null;
   currentImpliedPct?: number | null;
-  lineMovementBasis?: "Implied Probability" | "Total Line" | "";
+  lineMovementBasis?: "Implied Probability" | "Run Line" | "Total Line" | "";
   lineMovementValue?: number | null;
   score: number;
   tier: "Pass" | "Good" | "Strong" | "Elite";
@@ -278,10 +278,20 @@ type TrendPlay = {
   recordDate?: string;
   recordGameKey?: string;
   recordGameTime?: string;
+  gameKey?: string;
+  gameTime?: string;
+  date?: string;
+  movementHistory?: Array<{
+    snapshotTime: string;
+    line: number | null;
+    odds: string;
+    betsPct: number;
+    moneyPct: number;
+  }>;
 };
 
 type AiPickSource = "Best Play" | "Trend Play" | "Best + Trend";
-type AiPickMarket = "Moneyline" | "Total" | "Pitcher Strikeouts" | "First Inning";
+type AiPickMarket = "Moneyline" | "Run Line" | "Total" | "Pitcher Strikeouts" | "First Inning";
 
 type EzpzBestPlayPolicy = {
   // Optional because pitcher strikeouts intentionally use model quality instead of HOT form.
@@ -308,6 +318,9 @@ const EZPZ_BEST_PLAY_POLICIES: Record<AiPickMarket, EzpzBestPlayPolicy> = {
     minimumModelEdge: 8,
     minimumBayesianForm: 55,
     minimumHistoryDecisions: 7,
+  },
+  "Run Line": {
+    maxFavoritePrice: -150,
   },
   Total: {
     requiredForm: "HOT",
@@ -489,7 +502,7 @@ type DraftKingsSplit = {
   openingSnapshotTime?: string;
   lineMovementSignal?: string;
   lineMovementTone?: PublicSignalTone | "";
-  lineMovementBasis?: "Implied Probability" | "Total Line" | "";
+  lineMovementBasis?: "Implied Probability" | "Run Line" | "Total Line" | "";
   lineMovementValue?: number | null;
   retained?: boolean;
   lastSeenAt?: string;
@@ -998,6 +1011,17 @@ function movementForSplit(
   // If the total is unchanged (or moves less than our meaningful threshold),
   // then selected-side juice/implied-probability movement becomes the signal.
   if (
+    current.market === "Run Line" &&
+    openingLine != null &&
+    current.line != null &&
+    Math.abs(current.line - openingLine) >= 0.5
+  ) {
+    const rawMove = current.line - openingLine;
+    basis = "Run Line";
+    value = Math.round(-rawMove * 10) / 10;
+    standardPriceThreshold = 0.5;
+    strongPriceThreshold = 1;
+  } else if (
     current.market === "Total" &&
     openingLine != null &&
     current.line != null &&
@@ -2454,7 +2478,7 @@ function publicDisplayDraftKingsPayload(
   const finalMarketSplits = finalSnapshots.splits.flatMap((split) => {
     if (
       split.snapshotStatus !== "FINAL_PREGAME" ||
-      (split.market !== "Moneyline" && split.market !== "Total")
+      (split.market !== "Moneyline" && split.market !== "Run Line" && split.market !== "Total")
     ) return [];
     if (parseEventTimeKey(split.eventTime || "")) return [split];
     const matchingSlateRows = slateRows.filter(
@@ -2478,7 +2502,7 @@ function publicDisplayDraftKingsPayload(
     const gameKey = draftKingsMarketInstanceKey(split);
     if (
       lockedGameKeys.has(gameKey) &&
-      (split.market === "Moneyline" || split.market === "Total")
+      (split.market === "Moneyline" || split.market === "Run Line" || split.market === "Total")
     ) {
       continue;
     }
@@ -5276,7 +5300,7 @@ function buildTrendPlayForSplit(
   referenceDate: string,
   updatedAt = "",
 ): TrendPlay | null {
-  if (split.market !== "Moneyline" && split.market !== "Total") return null;
+  if (split.market !== "Moneyline" && split.market !== "Run Line" && split.market !== "Total") return null;
   const sideGroup: TrendPlay["sideGroup"] = split.market === "Total"
     ? split.side
     : parseAmericanOdds(split.odds) < 0
@@ -5684,7 +5708,7 @@ function buildTrendPlays(
     .filter(
       (split) =>
         isoPublicDate(split.date) === isoPublicDate(referenceDate) &&
-        (split.market === "Moneyline" || split.market === "Total"),
+        (split.market === "Moneyline" || split.market === "Run Line" || split.market === "Total"),
     )
     .map((split) => {
       const slateRow = trendSlateRowForSplit(split, slateRows);
@@ -10523,7 +10547,7 @@ async function buildAiPickSelector(args: {
       .filter(
         (split) =>
           split.snapshotStatus === "FINAL_PREGAME" &&
-          (split.market === "Moneyline" || split.market === "Total"),
+          (split.market === "Moneyline" || split.market === "Run Line" || split.market === "Total"),
       )
       // Use the exact same date/team/time identity as draftKingsGameKey(row).
       // The old date/team-only key could never equal a slate key that included
