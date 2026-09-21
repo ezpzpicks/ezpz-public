@@ -1927,7 +1927,6 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
       "Opening Public Split Odds": play.openingOdds || play.odds,
       "Opening Implied %": play.openingImpliedPct == null ? "" : String(play.openingImpliedPct),
       "Current Implied %": play.currentImpliedPct == null ? "" : String(play.currentImpliedPct),
-      "Line Movement Signal": play.lineMovementSignal || "",
       "Line Movement Basis": play.lineMovementBasis || "",
       "Line Movement Value": play.lineMovementValue == null ? "" : String(play.lineMovementValue),
     };
