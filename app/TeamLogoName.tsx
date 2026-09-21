@@ -50,7 +50,15 @@ function findLogo(directory: LogoDirectory | undefined, team: string) {
   if (directory[key]) return directory[key];
 
   const matches = Object.entries(directory)
-    .filter(([alias]) => alias.length >= 4 && (key.startsWith(`${alias} `) || alias.startsWith(`${key} `)))
+    .filter(([alias]) => {
+      if (alias.length < 3) return false;
+      return (
+        key.startsWith(`${alias} `) ||
+        key.endsWith(` ${alias}`) ||
+        alias.startsWith(`${key} `) ||
+        alias.endsWith(` ${key}`)
+      );
+    })
     .map(([, logo]) => logo);
   return [...new Set(matches)].length === 1 ? matches[0] : "";
 }
