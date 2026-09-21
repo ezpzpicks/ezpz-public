@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -48,6 +48,12 @@ async function probe(name: string, params: Record<string, string>) {
       chiefsSnippets: snippets("Chiefs"),
       ramsSnippets: snippets("Rams"),
       filterSnippets: snippets("tb_eg"),
+      upstreamUrl: response.url,
+      responseDate: response.headers.get("date"),
+      filterSelects: html.match(/<select\b[\s\S]*?<\/select>/gi),
+      tableMarkup: html.match(/<table\b[\s\S]*?<\/table>/gi),
+      tableSection: html.slice(html.indexOf('tb-tfilter'), html.indexOf('tb-tfilter') + 18000),
+      scriptUrls: [...html.matchAll(/<script\b[^>]*src=["']([^"']+)["']/gi)].map(match => match[1]),
       title: (html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || "").trim(),
     };
   } catch (error) {
@@ -55,8 +61,9 @@ async function probe(name: string, params: Record<string, string>) {
   }
 }
 
-export async function GET() {
-  const common = { itm_content: "NFL", tb_eg: "NFL", tb_edate: "n30days" };
+export async function GET(request: NextRequest) {
+  const sport = request.nextUrl.searchParams.get("sport") === "NCAAF" ? "NCAA Football" : "NFL";
+  const common = { itm_content: sport, tb_eg: sport, tb_edate: "n30days" };
   const results = [];
   results.push(await probe("root", {}));
   results.push(await probe("all-first", { ...common, tb_emt: "0" }));
