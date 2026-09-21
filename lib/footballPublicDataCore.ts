@@ -506,11 +506,26 @@ function mergeFootballSchedules(saved: SheetRow[], live: SheetRow[], sport: Foot
 
 function mergeFootballTrackingSlate(projected: SheetRow[], schedule: SheetRow[], sport: FootballSport, referenceDate: string) {
   const merged = new Map<string, SheetRow>();
-  for (const row of schedule.filter((entry) => inFootballTrackingWeek(entry, sport, referenceDate))) {
+  const authoritativeSchedule = schedule.filter((entry) => inFootballTrackingWeek(entry, sport, referenceDate));
+  const authoritativeKeys = new Set(authoritativeSchedule.map((row) => footballScheduleKey(row, sport)));
+  const authoritativeDates = new Set(
+    authoritativeSchedule.map((row) => isoDate(row.Date || row["Game Date"] || "")).filter(Boolean),
+  );
+
+  for (const row of authoritativeSchedule) {
     merged.set(footballScheduleKey(row, sport), row);
   }
   for (const row of projected.filter((entry) => inFootballTrackingWeek(entry, sport, referenceDate))) {
     const key = footballScheduleKey(row, sport);
+    const date = isoDate(row.Date || row["Game Date"] || "");
+    const recoveredScheduleShell =
+      sport === "NFL" &&
+      textKey(row.Notes || "").includes("schedule only shell recovered from");
+
+    // If the live/saved authoritative NFL schedule already covers this date,
+    // never let an unmatched recovery shell create a second phantom matchup.
+    if (recoveredScheduleShell && date && authoritativeDates.has(date) && !authoritativeKeys.has(key)) continue;
+
     merged.set(key, nonEmptyMerge(merged.get(key) || {}, row));
   }
   return [...merged.values()].sort((a, b) => {
