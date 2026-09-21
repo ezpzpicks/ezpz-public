@@ -80,6 +80,7 @@ type FootballData = {
   aiSelectorStatus?: { message?: string };
   betTrackerRows?: SheetRow[];
   trendRecordRows?: SheetRow[];
+  trendPlays?: any[];
   recordSummary?: Summary[];
   last7RecordSummary?: Summary[];
   database?: string;
