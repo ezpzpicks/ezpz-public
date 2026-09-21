@@ -1765,7 +1765,10 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
   const canonicalRows = [...scheduleRows, ...slateRows, ...effectiveAllGameTrends];
   // A partial ScoresAndOdds response must fail before any market/snapshot writes occur.
   const dk = await loadPostedSplits(sport, canonicalRows, sourceFilteredExistingGames);
-  const activeMarketDates = [...new Set(dk.splits.map((split) => split.date).filter(Boolean))];
+  const activeSourceSplits = dk.splits.filter(
+    (split) => split.date >= SCORES_AND_ODDS_CUTOVER_DATE,
+  );
+  const activeMarketDates = [...new Set(activeSourceSplits.map((split) => split.date).filter(Boolean))];
   const existingMarketHistory = activeMarketDates.length
     ? (await readSportWorksheetByDateKeys(sport, MARKET_HISTORY_TAB, activeMarketDates, MARKET_HISTORY_HEADERS))
         .filter((row) => String(row.Source || "").trim() === SCORES_AND_ODDS_SOURCE)
@@ -1774,7 +1777,7 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
   const gameMap = new Map(sourceFilteredExistingGames.map((row) => [postedGameKey(row), row]));
   const postedRows: SheetRow[] = [];
   const uniqueGames = new Map<string, Split>();
-  for (const split of dk.splits) if (!uniqueGames.has(gameKey(split))) uniqueGames.set(gameKey(split), split);
+  for (const split of activeSourceSplits) if (!uniqueGames.has(gameKey(split))) uniqueGames.set(gameKey(split), split);
   for (const split of uniqueGames.values()) {
     const key = gameKey(split);
     const existing = gameMap.get(key);
@@ -1799,25 +1802,13 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
 
   const marketHistoryRows = [...existingMarketHistory];
   const marketHistoryRowsToAppend: SheetRow[] = [];
-  const existingHistoryKeys = new Set(existingMarketHistory.map(marketHistoryLogicalKey).filter(Boolean));
-  const latestHistoryByKey = new Map<string, SheetRow>();
-  for (const row of existingMarketHistory) {
-    const key = marketHistoryLogicalKey(row);
-    if (key) latestHistoryByKey.set(key, row);
-  }
   const postedStateRows = [...sourceFilteredExistingGames, ...postedRows];
   const firstSeenByGame = new Map(postedStateRows.map((row) => [String(row["Game Key"] || ""), String(row["First Seen"] || now)]));
 
-  for (const split of dk.splits) {
-    const key = splitTrendKey(split);
+  for (const split of activeSourceSplits) {
     const current = marketHistoryRowForSplit(split, sport, canonicalRows, now);
-    const previous = latestHistoryByKey.get(key);
-    if (!previous || marketHistoryStateSignature(previous) !== current["State Signature"]) {
-      marketHistoryRows.push(current);
-      marketHistoryRowsToAppend.push(current);
-      latestHistoryByKey.set(key, current);
-      existingHistoryKeys.add(key);
-    }
+    marketHistoryRows.push(current);
+    marketHistoryRowsToAppend.push(current);
   }
 
   let marketHistoryRowsAppended = 0;
@@ -1832,7 +1823,7 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
 
   const liveCandidates: WeeklyTrendPlay[] = [];
   const handledLockKeys = new Set<string>();
-  for (const split of dk.splits) {
+  for (const split of activeSourceSplits) {
     const key = splitTrendKey(split);
     const existing = existingTrendMap.get(key);
     const minutes = minutesUntil(split);
@@ -1962,7 +1953,10 @@ export async function readWeeklyFootballMarket(sport: FootballSport) {
   ]);
   const sourceGames = games.filter(isScoresAndOddsCutoverRow);
   const sourceRows = rows.filter((row) => isWeeklyTrendSourceRow(row, sport));
-  const marketDates = [...new Set(sourceRows.map((row) => String(row.Date || "")).filter(Boolean))];
+  const marketDates = [...new Set([
+    ...sourceRows.map((row) => String(row.Date || "")),
+    ...sourceGames.map((row) => canonicalScheduleDate(row) || String(row.Date || "")),
+  ].filter(Boolean))];
   const marketHistoryRows = marketDates.length
     ? (await readSportWorksheetByDateKeys(sport, MARKET_HISTORY_TAB, marketDates, MARKET_HISTORY_HEADERS))
         .filter(isScoresAndOddsCutoverRow)
@@ -2029,6 +2023,85 @@ export async function readWeeklyFootballMarket(sport: FootballSport) {
         .replace(/ EST$/, " -0500");
       const stamp = Date.parse(normalized);
       return finalBonus + historyBonus + (Number.isFinite(stamp) ? stamp / 1e9 : 0);
+    }
+
+    const completedRecordHistory = historyFromAllGameTrends(allGameTrends);
+    for (const row of marketHistoryRows) {
+      const date = canonicalScheduleDate(row) || String(row.Date || "").trim();
+      if (!date || date >= SCORES_AND_ODDS_CUTOVER_DATE) continue;
+      const marketText = String(row.Market || "").trim();
+      if (marketText !== "Spread" && marketText !== "Total") continue;
+      const market = marketText as WeeklyFootballMarket;
+      const awayTeam = String(row["Away Team"] || "").trim();
+      const homeTeam = String(row["Home Team"] || "").trim();
+      if (!awayTeam || !homeTeam) continue;
+
+      const betsPct = percent(row["Bets %"]);
+      const moneyPct = percent(row["Handle %"]);
+      if (!Number.isFinite(betsPct) || !Number.isFinite(moneyPct)) continue;
+
+      const rawSelection = String(row.Selection || row.Side || "").trim();
+      const sideKey = textKey(row.Side || row.Selection);
+      const side: "Over" | "Under" | "" = market === "Total"
+        ? sideKey.startsWith("over")
+          ? "Over"
+          : sideKey.startsWith("under")
+            ? "Under"
+            : ""
+        : "";
+      if (market === "Total" && !side) continue;
+
+      const line = numericLine(row.Line);
+      const warning = warningFor(betsPct, moneyPct);
+      const split: Split = {
+        date,
+        eventTime: String(row["Game Time"] || "").trim(),
+        game: String(row.Game || `${awayTeam} at ${homeTeam}`).trim(),
+        awayTeam,
+        homeTeam,
+        market,
+        selection: market === "Total" ? side : rawSelection,
+        selectionTeam: market === "Spread" ? rawSelection : "",
+        side,
+        sideGroup: market === "Total"
+          ? side
+          : line == null || Math.abs(line) < 1e-9
+            ? ""
+            : line < 0
+              ? "Favorite"
+              : "Underdog",
+        line,
+        odds: String(row.Odds || "").replace(/−/g, "-").trim(),
+        betsPct,
+        moneyPct,
+        gapPct: warning.gapPct,
+        warningKey: warning.warningKey,
+        warning: warning.warning,
+        warningTone: warning.warningTone,
+        warningNegative: warning.warningNegative,
+        sourceUrl: String(row["Source URL"] || "").trim(),
+      };
+      if (!validFootballMarketSplit(split, sport, canonicalRows)) continue;
+
+      const built = buildPlay(split, undefined, completedRecordHistory, marketHistoryRows);
+      const gameKeyFromHistory = String(row["Game Key"] || built.gameKey).trim();
+      const updatedAt = String(row["Snapshot Time ET"] || built.updatedAt).trim();
+      const candidate: WeeklyTrendPlay = {
+        ...built,
+        gameKey: gameKeyFromHistory,
+        week: footballWeekLabel(sport, date),
+        updatedAt,
+        snapshotStatus: "FINAL_PREGAME",
+        frozenAt: updatedAt,
+      };
+      candidate.movementHistory = movementHistoryForPlay(candidate, marketHistoryRows);
+
+      const identity = fallbackIdentity(candidate);
+      if (!identity) continue;
+      const current = fallbackByIdentity.get(identity);
+      if (!current || fallbackPriority(candidate) > fallbackPriority(current)) {
+        fallbackByIdentity.set(identity, candidate);
+      }
     }
 
     for (const row of allGameTrends) {
