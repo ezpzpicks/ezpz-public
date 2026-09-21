@@ -352,7 +352,7 @@ type DraftKingsSplit = {
   openingSnapshotTime?: string;
   lineMovementSignal?: string;
   lineMovementTone?: PublicSignalTone | "";
-  lineMovementBasis?: "Implied Probability" | "Total Line" | "";
+  lineMovementBasis?: "Implied Probability" | "Run Line" | "Total Line" | "";
   lineMovementValue?: number | null;
   retained?: boolean;
   lastSeenAt?: string;
