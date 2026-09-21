@@ -38,6 +38,25 @@ function isScoresAndOddsCutoverRow(row: SheetRow) {
   return source === SCORES_AND_ODDS_SOURCE;
 }
 
+function isWeeklyTrendSourceRow(row: SheetRow, sport: FootballSport) {
+  const date = canonicalScheduleDate(row) || String(row.Date || "").trim();
+  const source = String(row.Source || "").trim();
+  if (!date) return source !== SCORES_AND_ODDS_SOURCE;
+  if (date >= SCORES_AND_ODDS_CUTOVER_DATE) return source === SCORES_AND_ODDS_SOURCE;
+  if (source !== SCORES_AND_ODDS_SOURCE) return true;
+
+  // Older NFL weekly rows were repaired before the source migration was fully
+  // isolated, which could re-tag their Source while leaving the original
+  // legacy game identity and full pregame history intact. Preserve those rows
+  // and reject the retroactive ScoresAndOdds copy of the completed matchup.
+  if (sport !== "NFL") return false;
+  const away = nflMarketTeamCode(row["Away Team"]);
+  const home = nflMarketTeamCode(row["Home Team"]);
+  if (!away || !home) return false;
+  const scoresAndOddsGameKey = `${date}|${textKey(away)}|${textKey(home)}`;
+  return String(row["Game Key"] || "").trim() !== scoresAndOddsGameKey;
+}
+
 export const POSTED_GAME_HEADERS = [
   "Date", "Week", "Game Key", "Game Time", "Game", "Away Team", "Home Team",
   "First Seen", "Last Seen", "Source", "Source URL",
@@ -1637,6 +1656,10 @@ function repairWeeklyTrendRows(rows: SheetRow[], history: HistoryRow[]) {
     const play = scoredByKey.get(trendKey(row));
     if (!play) return row;
     const next = { ...row, ...weeklyRow(play) };
+    // Repair scoring/movement fields without rewriting the historical source
+    // identity of pre-cutover rows.
+    if (String(row.Source || "").trim()) next.Source = row.Source;
+    if (String(row["Source URL"] || "").trim()) next["Source URL"] = row["Source URL"];
     if (
       String(next["Details JSON"] || "") !== String(row["Details JSON"] || "") ||
       String(next["Line Movement Signal"] || "") !== String(row["Line Movement Signal"] || "") ||
@@ -1715,7 +1738,7 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
   ]);
   const sourceFilteredExistingGames = existingGames.filter(isScoresAndOddsCutoverRow);
   const removedLegacyGameRows = existingGames.length - sourceFilteredExistingGames.length;
-  const sourceFilteredExistingTrends = existingTrends.filter(isScoresAndOddsCutoverRow);
+  const sourceFilteredExistingTrends = existingTrends.filter((row) => isWeeklyTrendSourceRow(row, sport));
   const removedLegacyTrendRows = existingTrends.length - sourceFilteredExistingTrends.length;
   const allGameRepair = sport === "NFL"
     ? repairAllGameTrendMovementRows(allGameTrends)
@@ -1938,7 +1961,7 @@ export async function readWeeklyFootballMarket(sport: FootballSport) {
     readSportWorksheet(sport, "all_game_trends"),
   ]);
   const sourceGames = games.filter(isScoresAndOddsCutoverRow);
-  const sourceRows = rows.filter(isScoresAndOddsCutoverRow);
+  const sourceRows = rows.filter((row) => isWeeklyTrendSourceRow(row, sport));
   const marketDates = [...new Set(sourceRows.map((row) => String(row.Date || "")).filter(Boolean))];
   const marketHistoryRows = marketDates.length
     ? (await readSportWorksheetByDateKeys(sport, MARKET_HISTORY_TAB, marketDates, MARKET_HISTORY_HEADERS))
