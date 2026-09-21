@@ -289,7 +289,7 @@ function directNflTrendLabels(play: AnyPick, plays: AnyPick[]) {
   if (
     Number.isFinite(ownBets) &&
     Number.isFinite(ownMoney) &&
-    ownMoney - ownBets >= 20
+    ownMoney - ownBets >= 25
   ) {
     labels.push("Sharp");
   }
@@ -368,6 +368,13 @@ function directNflTrendPick(play: AnyPick, plays: AnyPick[], today: string): Any
     score: labels.includes("Strong RLM") ? 85 : 80,
     tier: labels.join(" + "),
     qualification: `${labels.join(" + ")} • ${details.join(" • ")}`,
+    betsPct: Number(play.betsPct),
+    moneyPct: Number(play.moneyPct),
+    gapPct: Math.round((Number(play.moneyPct) - Number(play.betsPct)) * 10) / 10,
+    publicSideBetsPct: publicSide ? Number(publicSide.betsPct) : undefined,
+    publicSideMoneyPct: publicSide ? Number(publicSide.moneyPct) : undefined,
+    publicMovePct: publicSide ? Number(publicSide.publicMovementPct) : undefined,
+    lineMoveValue: publicSide ? Number(publicSide.lineMovementValue) : undefined,
     snapshotStatus: String(play.snapshotStatus || "LIVE"),
   };
 }
@@ -486,7 +493,7 @@ export async function buildFootballPublicData(
     ? {
         ...(core.aiSelectorStatus || {}),
         message: enrichedCurrentPicks.length
-          ? "NFL EZPZ Picks live: Model Plays require HOT Last-7 and -150 or better. Trend Plays qualify directly as Public Fade (fade an 80%+ bet side), Strong RLM, or Sharp (money 20+ points over bets)."
+          ? "NFL EZPZ Picks live: Model Plays require HOT Last-7 and -150 or better. Trend Plays qualify directly as Public Fade (fade an 80%+ bet side), Strong RLM, or Sharp (money 25+ points over bets)."
           : "No NFL EZPZ Picks qualify right now. Trend Plays qualify directly as Public Fade, Strong RLM, or Sharp.",
         selectedCount: enrichedCurrentPicks.length,
       }
