@@ -51,6 +51,7 @@ async function probe(name: string, params: Record<string, string>) {
       filterSnippets: snippets("tb_eg"),
       upstreamUrl: response.url,
       responseDate: response.headers.get("date"),
+      cacheHeaders: Object.fromEntries(["age", "cache-control", "x-cache", "x-cache-hits", "last-modified", "x-ac", "server"].map(key => [key, response.headers.get(key)])),
       filterSelects: html.match(/<select\b[\s\S]*?<\/select>/gi),
       tableMarkup: html.match(/<table\b[\s\S]*?<\/table>/gi),
       tableSection: html.slice(html.indexOf('tb-tfilter'), html.indexOf('</main>', html.indexOf('tb-tfilter'))),
@@ -68,8 +69,9 @@ export async function GET(request: NextRequest) {
   const dateRange = request.nextUrl.searchParams.get("range") === "n30days" ? "n30days" : "n7days";
   const common = { itm_content: sport, tb_eg: sport, tb_edate: dateRange };
   const results = [];
-  results.push(await probe("source-link", { tb_eg: sport, itm_content: sport, tb_edate: dateRange, tb_emt: "0" }));
-  results.push(await probe("previous-working", { tb_eg: sport, tb_page: "1", tb_edate: dateRange }));
-  results.push(await probe("uncached-source-link", { tb_eg: sport, itm_content: sport, tb_edate: dateRange, tb_emt: "0", _ezpz_refresh: String(Date.now()) }));
+  results.push(await probe("collector-order-all", { itm_content: sport, tb_eg: sport, tb_edate: dateRange, tb_emt: "0" }));
+  results.push(await probe("original-order-all", { itm_content: sport, tb_edate: dateRange, tb_eg: sport, tb_emt: "0" }));
+  results.push(await probe("original-order-direct", { itm_content: sport, tb_edate: dateRange, tb_eg: sport, tb_page: "1" }));
+  results.push(await probe("original-order-base", { itm_content: sport, tb_edate: dateRange, tb_eg: sport }));
   return NextResponse.json({ ok: true, results }, { headers: { "Cache-Control": "no-store" } });
 }
