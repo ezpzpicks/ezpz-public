@@ -783,18 +783,24 @@ async function loadDraftKingsSplits(
       )
     ) best = candidate;
 
-    if (coverage.ok && crawl.missingPages.length === 0) return candidate;
+    const coverageAccepted = sport === "NFL" ? coverage.ok : splits.length > 0;
+    if (coverageAccepted && crawl.missingPages.length === 0) return candidate;
   }
 
   if (!best) {
     throw new Error(`DraftKings ${sport} discovery returned no usable filter candidates.`);
   }
-  if (!best.coverage.ok || best.missingPages.length) {
+  const bestCoverageFailed = sport === "NFL" ? !best.coverage.ok : best.splits.length === 0;
+  if (bestCoverageFailed || best.missingPages.length) {
     const pageFailure = best.missingPages.length
       ? `; missing crawl page(s) ${best.missingPages.join(", ")}`
       : "";
+    const coverageFailure =
+      sport === "NFL"
+        ? trackingCoverageFailure(best.coverage)
+        : "no CFB market sides matched the tracked slate";
     throw new Error(
-      `DraftKings ${sport} partial slate rejected: ${trackingCoverageFailure(best.coverage)}${pageFailure}. ` +
+      `DraftKings ${sport} partial slate rejected: ${coverageFailure}${pageFailure}. ` +
       `Filter ${best.filter.eventGroup}/${best.filter.dateRange}; ` +
       `received ${best.coverage.receivedGames} games and ${best.splits.length} market sides.`,
     );
