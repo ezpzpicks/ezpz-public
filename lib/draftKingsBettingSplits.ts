@@ -302,8 +302,16 @@ export async function fetchDraftKingsBettingSplitsHtml(
   const response = await fetch(target, {
     cache: "no-store",
     headers: {
-      "User-Agent": "Mozilla/5.0 (compatible; EZPZ-Picks/1.0; +https://ezpzpicks.com)",
-      Accept: "text/html,application/xhtml+xml",
+      // DK's football table has started returning a 200 page shell with no rows
+      // to the old bot-style UA from Vercel. Use normal browser navigation
+      // headers for this public HTML endpoint. This helper is football-only;
+      // MLB uses its existing collector and is intentionally untouched.
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+      "Accept-Language": "en-US,en;q=0.9",
+      "Cache-Control": "no-cache",
+      Pragma: "no-cache",
+      Referer: DK_BETTING_SPLITS_URL,
     },
     signal: AbortSignal.timeout(12_000),
   });
