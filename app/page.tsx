@@ -7453,6 +7453,36 @@ export default function Home() {
 
         <div className="sectionHead trendRecordsHead">
           <div>
+            <h2>EZPZ Picks Records</h2>
+            <p>Results of the actual MLB EZPZ Picks stream</p>
+          </div>
+        </div>
+
+        <div className="qualifiedGrid aiRecordGrid">
+          {(() => {
+            const last7 = calculateAiPickRecord(data.aiPickRecordRows, "last7", data.today);
+            const overall = calculateAiPickRecord(data.aiPickRecordRows, "all", data.today);
+            return (
+              <>
+                <Tile
+                  label="EZPZ Picks - Last 7 Days"
+                  value={last7.record}
+                  meta={`${last7.winPct}% • ${last7.unitsWon}u • ROI ${last7.roiPct}%`}
+                  green={last7.totalBets > 0 && last7.unitsWon >= 0}
+                />
+                <Tile
+                  label="EZPZ Picks - Running Total"
+                  value={overall.record}
+                  meta={`${overall.winPct}% • ${overall.unitsWon}u • ROI ${overall.roiPct}%`}
+                  green={overall.totalBets > 0 && overall.unitsWon >= 0}
+                />
+              </>
+            );
+          })()}
+        </div>
+
+        <div className="sectionHead trendRecordsHead">
+          <div>
             <h2>DraftKings Trend Records</h2>
             <p>Only the three active MLB market signals: Public Fade, Strong RLM, and Sharp</p>
           </div>
