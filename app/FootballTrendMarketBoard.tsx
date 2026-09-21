@@ -586,6 +586,8 @@ function historicalSelectionKey(row: SheetRow) {
 }
 
 function historicalGroupKey(row: SheetRow) {
+  const directKey = String(row["Direct Trend Group Key"] || "").trim();
+  if (directKey) return directKey;
   return `${String(row.Date || "")}|${String(row["Game Key"] || row["Game ID"] || row.Game || "")}|${textKey(row.Market)}`;
 }
 
@@ -657,8 +659,17 @@ export function DirectTrendRecords({ rows, sport }: { rows: SheetRow[]; today?: 
 
   const labeled: Array<{ row: SheetRow; signal: string; category: string }> = [];
   grouped.forEach((group) => {
+    // Multiple storage identities can represent the same completed game (for example,
+    // model game IDs and ESPN IDs). Collapse those duplicates to one row per market
+    // side before grading direct trends so one result is never counted twice.
+    const uniqueBySelection = new Map<string, SheetRow>();
     group.forEach((row) => {
-      historicalLabels(row, group, sport).forEach((signal) => labeled.push({ row, signal, category: recordCategory(row) }));
+      const sideKey = historicalSelectionKey(row);
+      if (sideKey && !uniqueBySelection.has(sideKey)) uniqueBySelection.set(sideKey, row);
+    });
+    const uniqueGroup = [...uniqueBySelection.values()];
+    uniqueGroup.forEach((row) => {
+      historicalLabels(row, uniqueGroup, sport).forEach((signal) => labeled.push({ row, signal, category: recordCategory(row) }));
     });
   });
 
