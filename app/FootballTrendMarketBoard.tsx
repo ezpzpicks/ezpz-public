@@ -9,7 +9,7 @@ type TrendPlay = {
   game: string;
   gameKey: string;
   gameTime?: string;
-  market: "Spread" | "Run Line" | "Total";
+  market: "Moneyline" | "Spread" | "Run Line" | "Total";
   selection: string;
   selectionTeam: string;
   side: "Over" | "Under" | "";
@@ -69,6 +69,17 @@ function usesNflTrendRules(sport: Sport) {
   return sport === "NFL" || sport === "MLB";
 }
 
+function americanImpliedProbabilityPct(value: unknown) {
+  const match = String(value ?? "").replace(/−/g, "-").match(/[+-]?\d+/);
+  if (!match) return null;
+  const odds = Number(match[0]);
+  if (!Number.isFinite(odds) || Math.abs(odds) < 100) return null;
+  const probability = odds < 0
+    ? Math.abs(odds) / (Math.abs(odds) + 100)
+    : 100 / (odds + 100);
+  return Math.round(probability * 1000) / 10;
+}
+
 function pct(value: unknown) {
   const n = Number(value);
   return Number.isFinite(n) ? `${n.toFixed(1)}%` : "-";
@@ -102,6 +113,7 @@ function compactDate(value: unknown) {
 }
 
 function lineLabel(play: TrendPlay, value: number | null | undefined) {
+  if (play.market === "Moneyline") return play.odds || "-";
   const n = Number(value);
   if (!Number.isFinite(n)) return "-";
   if (isSpreadMarket(play.market)) return `${n > 0 ? "+" : ""}${n}`;
@@ -110,6 +122,7 @@ function lineLabel(play: TrendPlay, value: number | null | undefined) {
 
 function pickLabel(play: TrendPlay) {
   if (play.market === "Total") return `${play.side} ${lineLabel(play, play.line)}`.trim();
+  if (play.market === "Moneyline") return `${play.selection} Moneyline`.trim();
   return `${play.selection} ${lineLabel(play, play.line)}`.trim();
 }
 
@@ -121,18 +134,33 @@ function compactMovementLine(play: TrendPlay, value: number | null | undefined) 
 }
 
 function rlmBadgeSummary(play: TrendPlay) {
-  if (play.openingBetsPct == null || play.openingLine == null || play.line == null) return null;
+  if (play.openingBetsPct == null) return null;
   const startBets = Number(play.openingBetsPct);
   const endBets = Number(play.betsPct);
+  if (![startBets, endBets].every((value) => Number.isFinite(value))) return null;
+  if (startBets <= 0 || startBets >= 100) return null;
+
+  if (play.market === "Moneyline") {
+    if (!play.openingOdds || !play.odds) return null;
+    return {
+      startBets: `${Math.round(startBets)}%`,
+      endBets: `${Math.round(endBets)}%`,
+      startLine: play.openingOdds,
+      endLine: play.odds,
+      movementLabel: "ML",
+    };
+  }
+
+  if (play.openingLine == null || play.line == null) return null;
   const startLine = Number(play.openingLine);
   const endLine = Number(play.line);
-  if (![startBets, endBets, startLine, endLine].every((value) => Number.isFinite(value))) return null;
-  if (startBets <= 0 || startBets >= 100) return null;
+  if (![startLine, endLine].every((value) => Number.isFinite(value))) return null;
   return {
     startBets: `${Math.round(startBets)}%`,
     endBets: `${Math.round(endBets)}%`,
     startLine: compactMovementLine(play, startLine),
     endLine: compactMovementLine(play, endLine),
+    movementLabel: "Line",
   };
 }
 
@@ -176,13 +204,20 @@ function labelsFor(play: TrendPlay, plays: TrendPlay[], sport: Sport) {
   const openingPublicBets = Number(publicSide.openingBetsPct);
   const publicMove = Number(publicSide.publicMovementPct);
   const lineMove = Number(publicSide.lineMovementValue);
-  if (
+  const footballSpreadRlm =
+    sport !== "MLB" &&
     isSpreadMarket(play.market) &&
+    (String(publicSide.lineMovementBasis || "").includes("Spread") ||
+      String(publicSide.lineMovementBasis || "").includes("Run Line"));
+  const mlbMoneylineRlm =
+    sport === "MLB" &&
+    play.market === "Moneyline" &&
+    String(publicSide.lineMovementBasis || "").includes("Implied Probability");
+  if (
+    (footballSpreadRlm || mlbMoneylineRlm) &&
     Number.isFinite(openingPublicBets) &&
     openingPublicBets > 0 &&
     openingPublicBets < 100 &&
-    (String(publicSide.lineMovementBasis || "").includes("Spread") ||
-      String(publicSide.lineMovementBasis || "").includes("Run Line")) &&
     Number.isFinite(publicMove) &&
     publicMove >= 5 &&
     Number.isFinite(lineMove) &&
@@ -306,12 +341,18 @@ function MovementChart({ play }: { play: TrendPlay }) {
   const bottom = 132;
   const bets = points.map((point) => clampPct(point.betsPct));
   const money = points.map((point) => clampPct(point.moneyPct));
-  const finiteLines = points.map((point) => Number(point.line)).filter(Number.isFinite);
+  const moneylineSeries = play.market === "Moneyline";
+  const finiteLines = moneylineSeries
+    ? points.map((point) => americanImpliedProbabilityPct(point.odds)).filter((value): value is number => value != null)
+    : points.map((point) => Number(point.line)).filter(Number.isFinite);
   const firstLine = finiteLines[0] ?? 0;
-  const lines = points.map((point) => Number.isFinite(Number(point.line)) ? Number(point.line) : firstLine);
+  const lines = points.map((point) => {
+    if (moneylineSeries) return americanImpliedProbabilityPct(point.odds) ?? firstLine;
+    return Number.isFinite(Number(point.line)) ? Number(point.line) : firstLine;
+  });
   const rawMin = finiteLines.length ? Math.min(...finiteLines) : 0;
   const rawMax = finiteLines.length ? Math.max(...finiteLines) : 1;
-  const padding = rawMax === rawMin ? 1 : Math.max(.5, (rawMax - rawMin) * .35);
+  const padding = rawMax === rawMin ? (moneylineSeries ? 1 : 1) : Math.max(moneylineSeries ? .75 : .5, (rawMax - rawMin) * .35);
   const minLine = rawMin - padding;
   const maxLine = rawMax + padding;
   const latest = points[points.length - 1];
@@ -329,7 +370,7 @@ function MovementChart({ play }: { play: TrendPlay }) {
           <strong>{play.market === "Total" ? play.side : play.selection}</strong>
           <small>{play.market}</small>
         </div>
-        <span>{lineLabel(play, latest?.line)} {latest?.odds || play.odds}</span>
+        <span>{play.market === "Moneyline" ? (latest?.odds || play.odds) : `${lineLabel(play, latest?.line)} ${latest?.odds || play.odds}`}</span>
       </div>
 
       <div className="dkMovementCharts">
@@ -365,7 +406,7 @@ function MovementChart({ play }: { play: TrendPlay }) {
 
         <div className="dkChartBlock dkLineMovementBlock">
           <div className="dkChartLabel">
-            <span>Line movement</span>
+            <span>{play.market === "Moneyline" ? "Moneyline movement" : "Line movement"}</span>
           </div>
           <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Line movement">
             {lineTicks.map((tick, index) => {
@@ -373,7 +414,7 @@ function MovementChart({ play }: { play: TrendPlay }) {
               return (
                 <g key={index}>
                   <line x1={left} y1={y} x2={right} y2={y} className="dkChartGrid" />
-                  <text x="2" y={y + 3} className="dkChartTick">{lineLabel(play, Math.round(tick * 2) / 2)}</text>
+                  <text x="2" y={y + 3} className="dkChartTick">{play.market === "Moneyline" ? `${tick.toFixed(1)}%` : lineLabel(play, Math.round(tick * 2) / 2)}</text>
                 </g>
               );
             })}
@@ -384,7 +425,9 @@ function MovementChart({ play }: { play: TrendPlay }) {
             {markers.map((index) => {
               const x = chartX(index, lines.length, left, right);
               const y = chartY(lines[index], minLine, maxLine, top, bottom);
-              const label = lineLabel(play, lines[index]);
+              const label = play.market === "Moneyline"
+                ? (points[index]?.odds || "-")
+                : lineLabel(play, lines[index]);
               const ticketWidth = Math.max(38, label.length * 8 + 14);
               const ticketX = Math.max(left, Math.min(right - ticketWidth, x - ticketWidth / 2));
               const ticketY = Math.max(2, y - 31);
@@ -408,14 +451,18 @@ function MovementChart({ play }: { play: TrendPlay }) {
 
 function MarketRow({ play, plays, sport }: { play: TrendPlay; plays: TrendPlay[]; sport: Sport }) {
   const labels = labelsFor(play, plays, sport);
-  const rlmSummary = labels.includes("Strong RLM") ? rlmBadgeSummary(play) : null;
+  const rlmPublicSide = labels.includes("Strong RLM") ? opposite(play, plays) : null;
+  const rlmSummary = rlmPublicSide ? rlmBadgeSummary(rlmPublicSide) : null;
   return (
     <div className={`dkTrendMarketRow ${labels.length ? "qualified" : ""}`}>
       <div className="dkTrendMarketName">
         <small>{play.market}{play.sideGroup ? ` - ${play.sideGroup}` : ""}</small>
         <strong><SelectionWithTeamLogo sport={sport} selection={pickLabel(play)} game={play.game} compact /></strong>
       </div>
-      <div className="dkTrendPrice"><strong>{lineLabel(play, play.line)}</strong><small>{play.odds || "-"}</small></div>
+      <div className="dkTrendPrice">
+        <strong>{play.market === "Moneyline" ? (play.odds || "-") : lineLabel(play, play.line)}</strong>
+        <small>{play.market === "Moneyline" ? "ML" : (play.odds || "-")}</small>
+      </div>
       <div className="dkTrendFlow">
         <div className="dkTrendBarRow bets">
           <span>Bets</span>
@@ -446,7 +493,7 @@ function MarketRow({ play, plays, sport }: { play: TrendPlay; plays: TrendPlay[]
                   </span>
                 </span>
                 <span>
-                  <b>Line</b>
+                  <b>{rlmSummary.movementLabel || "Line"}</b>
                   <span className="rlmMoveTrail">
                     <span className="rlmMoveValue">{rlmSummary.startLine}</span>
                     <span className="rlmMoveArrow">→</span>
@@ -669,13 +716,21 @@ function historicalLabels(row: SheetRow, group: SheetRow[], sport: Sport) {
   const openingPublicBets = Number(publicSide["Opening Public %"] || publicSide["Opening Bets %"]);
   const publicMove = Number(publicSide["Public Change %"]);
   const lineMove = Number(publicSide["Line Movement Value"]);
+  const marketKey = textKey(row.Market);
+  const footballSpreadRlm =
+    sport !== "MLB" &&
+    (marketKey === "spread" || marketKey === "run line") &&
+    (String(publicSide["Line Movement Basis"] || "").includes("Spread") ||
+      String(publicSide["Line Movement Basis"] || "").includes("Run Line"));
+  const mlbMoneylineRlm =
+    sport === "MLB" &&
+    marketKey === "moneyline" &&
+    String(publicSide["Line Movement Basis"] || "").includes("Implied Probability");
   if (
-    (textKey(row.Market) === "spread" || textKey(row.Market) === "run line") &&
+    (footballSpreadRlm || mlbMoneylineRlm) &&
     Number.isFinite(openingPublicBets) &&
     openingPublicBets > 0 &&
     openingPublicBets < 100 &&
-    (String(publicSide["Line Movement Basis"] || "").includes("Spread") ||
-      String(publicSide["Line Movement Basis"] || "").includes("Run Line")) &&
     Number.isFinite(publicMove) &&
     publicMove >= 5 &&
     Number.isFinite(lineMove) &&
@@ -686,7 +741,12 @@ function historicalLabels(row: SheetRow, group: SheetRow[], sport: Sport) {
 }
 
 function recordCategory(row: SheetRow) {
-  if (textKey(row.Market) === "total") return textKey(row.Side || row.Selection).startsWith("under") ? "Under" : "Over";
+  const market = textKey(row.Market);
+  if (market === "total") return textKey(row.Side || row.Selection).startsWith("under") ? "Under" : "Over";
+  if (market === "moneyline") {
+    const odds = Number(String(row.Odds || "").replace(/[^0-9+-]/g, ""));
+    return Number.isFinite(odds) && odds < 0 ? "Favorite Moneyline" : "Underdog Moneyline";
+  }
   const line = Number(row["Public Split Line"] || row.Line);
   return Number.isFinite(line) && line > 0 ? "Underdog Spread" : "Favorite Spread";
 }
@@ -768,7 +828,7 @@ export function DirectTrendRecords({ rows, trendPlays = [], sport }: { rows: She
   ["Public Fade", "Strong RLM", "Sharp"].forEach((signal) => {
     let signalRows = labeled.filter((item) => item.signal === signal);
     if (signal === "Strong RLM") {
-      // Strong RLM is spread-only. A team can appear twice in historical storage
+      // Strong RLM is side-specific. A team can appear twice in historical storage
       // under different game IDs, so use one settled result per team/date.
       const unique = new Map<string, (typeof signalRows)[number]>();
       signalRows.forEach((item) => {
