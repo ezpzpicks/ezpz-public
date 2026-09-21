@@ -339,34 +339,50 @@ export async function crawlDraftKingsFootballFilter<T>(
 
   for (let page = 1; page <= maxPages; page += 1) {
     pagesScanned = page;
-    let parsed: T[] = [];
     const baseParams = {
-        itm_content: filter.content,
-        tb_eg: filter.eventGroup,
-        tb_edate: filter.dateRange,
-        // DK's "All" tab is an explicit market filter. Omitting tb_emt can
-        // produce a successful HTML response with no betting-split rows.
-        tb_emt: "0",
+      itm_content: filter.content,
+      tb_eg: filter.eventGroup,
+      tb_edate: filter.dateRange,
     };
-    // DK intermittently returns an embedded 403 for explicit tb_page=1 while
-    // serving the same first filtered page when the page parameter is omitted.
-    // Try the canonical no-page URL first, then the explicit form as a fallback.
-    const requests = page === 1
-      ? [baseParams, { ...baseParams, tb_page: "1" }]
-      : [{ ...baseParams, tb_page: String(page) }];
-    for (const params of requests) {
-      let rawHtml = "";
-      try {
-        rawHtml = await fetchPage(params);
-      } catch (error) {
-        errors.push(`page ${page}: ${error instanceof Error ? error.message : String(error)}`);
-        continue;
-      }
 
-      const upstreamError = embeddedPageError(rawHtml);
-      if (upstreamError) errors.push(`page ${page}: ${upstreamError}`);
-      parsed = parsePage(rawHtml);
-      if (parsed.length) break;
+    const fetchParsedMarketPage = async (marketFilter: string) => {
+      const scopedParams = { ...baseParams, tb_emt: marketFilter };
+      // DK intermittently returns an embedded 403 for explicit tb_page=1 while
+      // serving the same first filtered page when the page parameter is omitted.
+      const requests = page === 1
+        ? [scopedParams, { ...scopedParams, tb_page: "1" }]
+        : [{ ...scopedParams, tb_page: String(page) }];
+      for (const params of requests) {
+        let rawHtml = "";
+        try {
+          rawHtml = await fetchPage(params);
+        } catch (error) {
+          errors.push(
+            `${marketFilter} page ${page}: ${error instanceof Error ? error.message : String(error)}`,
+          );
+          continue;
+        }
+        const upstreamError = embeddedPageError(rawHtml);
+        if (upstreamError) errors.push(`${marketFilter} page ${page}: ${upstreamError}`);
+        const rows = parsePage(rawHtml);
+        if (rows.length) return rows;
+      }
+      return [] as T[];
+    };
+
+    // Prefer DK's All tab. Some server-side requests return a successful page
+    // shell with zero rows for All, while the explicit Spread/Total tabs still
+    // contain the live data. Fall back to those two tabs and merge their rows.
+    let parsed = await fetchParsedMarketPage("0");
+    if (!parsed.length) {
+      const spreadRows = await fetchParsedMarketPage("Spread");
+      const totalRows = await fetchParsedMarketPage("Total");
+      const pageRows = new Map<string, T>();
+      for (const row of [...spreadRows, ...totalRows]) {
+        const key = rowKey(row);
+        if (key) pageRows.set(key, row);
+      }
+      parsed = [...pageRows.values()];
     }
     if (!parsed.length) {
       // DK can serve an empty/403-backed page between valid pages. In particular,
