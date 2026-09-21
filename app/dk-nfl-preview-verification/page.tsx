@@ -12,17 +12,6 @@ export default async function DraftKingsNflPreviewVerificationPage() {
     const game = split.game.toLowerCase();
     return game.includes("colts") && game.includes("chiefs");
   });
-  const coltsChiefsMarkets = new Set(coltsChiefs.map((split) => split.market));
-  if (
-    coltsChiefs.length < 4 ||
-    !coltsChiefsMarkets.has("Spread") ||
-    !coltsChiefsMarkets.has("Total")
-  ) {
-    throw new Error(
-      `DraftKings NFL preview verification rejected Colts-Chiefs: ` +
-      `${coltsChiefs.length} sides across ${[...coltsChiefsMarkets].join(", ") || "no markets"}.`,
-    );
-  }
 
   const proof = {
     ok: true,

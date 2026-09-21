@@ -67,7 +67,8 @@ test("continues past an empty first page and de-duplicates a clamped final page"
     10,
     async (params) => {
       requested.push(params);
-      if (params.tb_page === "1") return "Unable to fetch data from server. 403";
+      if (!params.tb_page) return "Unable to fetch data from server. 403";
+      if (params.tb_page === "1") return "";
       if (params.tb_page === "2") return "COLTS";
       return "RAMS";
     },
@@ -77,12 +78,38 @@ test("continues past an empty first page and de-duplicates a clamped final page"
   assert.deepEqual(result.pagesWithRows, [2, 3]);
   assert.equal(result.pagesScanned, 4);
   assert.match(result.errors[0], /page 1.*403/);
-  assert.deepEqual(requested[1], {
+  assert.deepEqual(requested[2], {
     itm_content: "NFL",
     tb_eg: "NFL",
     tb_edate: "n30days",
     tb_page: "2",
   });
+});
+
+test("uses the filtered URL without tb_page for a working first page", async () => {
+  const filter: DraftKingsFilterCandidate = {
+    eventGroup: "NFL",
+    content: "NFL",
+    dateRange: "n30days",
+    label: "NFL",
+    source: "link",
+  };
+  const requested: Array<Record<string, string>> = [];
+  await crawlDraftKingsFootballFilter(
+    filter,
+    (html) => html === "FIRST" ? [{ id: "first-page" }] : [],
+    (row) => row.id,
+    1,
+    async (params) => {
+      requested.push(params);
+      return "FIRST";
+    },
+  );
+  assert.deepEqual(requested, [{
+    itm_content: "NFL",
+    tb_eg: "NFL",
+    tb_edate: "n30days",
+  }]);
 });
 
 test("rejects a plausible-looking but partial NFL slate", () => {

@@ -463,17 +463,38 @@ function expectedActiveGames(
   const expected = new Map<string, string>();
   const today = todayET();
   const currentWeek = footballWeekLabel(sport, today);
+  const candidates: Array<{
+    key: string;
+    label: string;
+    date: string;
+    week: string;
+  }> = [];
   for (const row of rows) {
     const date = canonicalScheduleDate(row);
     const awayTeam = String(row["Away Team"] || "").trim();
     const homeTeam = String(row["Home Team"] || "").trim();
     const key = coverageGameKey(sport, date, awayTeam, homeTeam);
-    if (!key || !date || date < today || footballWeekLabel(sport, date) !== currentWeek) continue;
+    if (!key || !date || date < today) continue;
     const minutes = minutesUntilEvent(date, rowEventTime(row));
     // Missing same-day kickoff times cannot safely prove that a game is still pregame.
     if (date === today && (minutes == null || minutes <= 15)) continue;
     if (minutes != null && minutes <= 15) continue;
-    expected.set(key, `${awayTeam} @ ${homeTeam}`);
+    candidates.push({
+      key,
+      label: `${awayTeam} @ ${homeTeam}`,
+      date,
+      week: footballWeekLabel(sport, date),
+    });
+  }
+
+  // Stay on the current market week while any pregame matchup remains. After
+  // the final kickoff, DK rolls forward immediately, so validate the nearest
+  // upcoming week instead of accepting an empty expected slate until Tuesday.
+  const activeWeek = candidates.some((game) => game.week === currentWeek)
+    ? currentWeek
+    : candidates.sort((left, right) => left.date.localeCompare(right.date))[0]?.week;
+  for (const game of candidates) {
+    if (game.week === activeWeek) expected.set(game.key, game.label);
   }
   return expected;
 }

@@ -335,24 +335,32 @@ export async function crawlDraftKingsFootballFilter<T>(
 
   for (let page = 1; page <= maxPages; page += 1) {
     pagesScanned = page;
-    let rawHtml = "";
-    try {
-      rawHtml = await fetchPage({
+    let parsed: T[] = [];
+    const baseParams = {
         itm_content: filter.content,
         tb_eg: filter.eventGroup,
         tb_edate: filter.dateRange,
-        tb_page: String(page),
-      });
-    } catch (error) {
-      errors.push(`page ${page}: ${error instanceof Error ? error.message : String(error)}`);
-      consecutiveEmptyPages += 1;
-      if (page >= 5 && consecutiveEmptyPages >= 3) break;
-      continue;
-    }
+    };
+    // DK intermittently returns an embedded 403 for explicit tb_page=1 while
+    // serving the same first filtered page when the page parameter is omitted.
+    // Try the canonical no-page URL first, then the explicit form as a fallback.
+    const requests = page === 1
+      ? [baseParams, { ...baseParams, tb_page: "1" }]
+      : [{ ...baseParams, tb_page: String(page) }];
+    for (const params of requests) {
+      let rawHtml = "";
+      try {
+        rawHtml = await fetchPage(params);
+      } catch (error) {
+        errors.push(`page ${page}: ${error instanceof Error ? error.message : String(error)}`);
+        continue;
+      }
 
-    const upstreamError = embeddedPageError(rawHtml);
-    if (upstreamError) errors.push(`page ${page}: ${upstreamError}`);
-    const parsed = parsePage(rawHtml);
+      const upstreamError = embeddedPageError(rawHtml);
+      if (upstreamError) errors.push(`page ${page}: ${upstreamError}`);
+      parsed = parsePage(rawHtml);
+      if (parsed.length) break;
+    }
     if (!parsed.length) {
       // DK can serve an empty/403-backed page between valid pages. In particular,
       // page 1 may be empty while the still-live Sunday/Monday games are on page 2.
