@@ -781,14 +781,15 @@ function splitSnapshotKey(split: DraftKingsSplit) {
 
 function rlmUsableBetsPct(value: unknown) {
   const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed >= 0 && parsed < 100 ? parsed : null;
+  // 0% and 100% are immature first-scrape states, not usable RLM baselines.
+  return Number.isFinite(parsed) && parsed > 0 && parsed < 100 ? parsed : null;
 }
 
 function movementForSplit(current: DraftKingsSplit, opening: SheetRow | undefined) {
   const savedOpeningPublicRaw = Number(opening?.["Opening Public %"]);
   const savedCurrentPublic = rlmUsableBetsPct(opening?.["Public Bets %"] ?? opening?.["Current Public %"]);
   const currentPublic = rlmUsableBetsPct(current.betsPct);
-  const openingWasUnusable = savedOpeningPublicRaw === 100 || !Number.isFinite(savedOpeningPublicRaw);
+  const openingWasUnusable = !Number.isFinite(savedOpeningPublicRaw) || savedOpeningPublicRaw <= 0 || savedOpeningPublicRaw >= 100;
 
   // A 100% opening split is usually an immature first scrape, not a usable market baseline.
   // Advance the baseline to the earliest later non-100% snapshot and keep the line/price
@@ -1657,18 +1658,23 @@ const PUBLIC_FADE_MIN_TICKET_MONEY_GAP_PCT = 55;
 const STRONG_RLM_MIN_PUBLIC_MOVE_PCT = 5;
 const STRONG_RLM_MIN_SPREAD_MOVE_POINTS = 1.5;
 
-function oppositeTrendPlay(play: TrendPlay, trends: TrendPlay[]) {
+function sameTrendSplitGame(play: TrendPlay, split: DraftKingsSplit, sport: FootballSport) {
+  return sameTeam(play.awayTeam, split.awayTeam, sport)
+    && sameTeam(play.homeTeam, split.homeTeam, sport);
+}
+
+function oppositeDraftKingsSplit(play: TrendPlay, splits: DraftKingsSplit[], sport: FootballSport) {
   const sideKey = play.market === "Total" ? textKey(play.side) : textKey(play.selection);
-  return trends.find((candidate) => {
-    if (candidate.gameKey !== play.gameKey || candidate.market !== play.market) return false;
+  return splits.find((candidate) => {
+    if (!sameTrendSplitGame(play, candidate, sport) || candidate.market !== play.market) return false;
     const candidateSide = candidate.market === "Total"
       ? textKey(candidate.side)
-      : textKey(candidate.selection);
+      : textKey(candidate.selectionTeam);
     return candidateSide !== sideKey;
   });
 }
 
-function isPublicFadeSource(play: TrendPlay) {
+function isPublicFadeSource(play: DraftKingsSplit) {
   const bets = Number(play.betsPct);
   const money = Number(play.moneyPct);
   return Number.isFinite(bets)
@@ -1677,11 +1683,14 @@ function isPublicFadeSource(play: TrendPlay) {
     && bets - money >= PUBLIC_FADE_MIN_TICKET_MONEY_GAP_PCT;
 }
 
-function isStrongRlmSource(play: TrendPlay) {
+function isStrongRlmSource(play: DraftKingsSplit) {
+  const openingBets = Number(play.openingBetsPct);
   const publicMove = Number(play.publicMovementPct);
   const lineMove = Number(play.lineMovementValue);
-  const basis = String((play as TrendPlay & { lineMovementBasis?: string }).lineMovementBasis || "");
+  const basis = String(play.lineMovementBasis || "");
   return play.market === "Spread"
+    && openingBets > 0
+    && openingBets < 100
     && basis.includes("Spread")
     && Number.isFinite(publicMove)
     && publicMove >= STRONG_RLM_MIN_PUBLIC_MOVE_PCT
@@ -1689,9 +1698,13 @@ function isStrongRlmSource(play: TrendPlay) {
     && lineMove <= -STRONG_RLM_MIN_SPREAD_MOVE_POINTS;
 }
 
-function directTrendQualification(play: TrendPlay, trends: TrendPlay[]) {
-  const publicSide = oppositeTrendPlay(play, trends);
-  if (!publicSide) return { labels: [] as string[], publicSide: null as TrendPlay | null };
+function directTrendQualification(
+  play: TrendPlay,
+  splits: DraftKingsSplit[],
+  sport: FootballSport,
+) {
+  const publicSide = oppositeDraftKingsSplit(play, splits, sport);
+  if (!publicSide) return { labels: [] as string[], publicSide: null as DraftKingsSplit | null };
   const labels: string[] = [];
   if (isPublicFadeSource(publicSide)) labels.push("Public Fade");
   if (isStrongRlmSource(publicSide)) labels.push("Strong RLM");
@@ -1733,7 +1746,7 @@ function buildFootballEzpzPicks(
   }
 
   for (const play of trends) {
-    const direct = directTrendQualification(play, trends);
+    const direct = directTrendQualification(play, splits, sport);
     if (!direct.labels.length) continue;
     const odds = americanOddsText(play.odds);
     if (!odds || Number(odds) < -150) continue;
