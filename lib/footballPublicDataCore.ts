@@ -2478,9 +2478,62 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
         sameTeam(row["Home Team"],official["Home Team"],sport)
       );
     });
-  const todaySlate=sport==="NCAAF"
-    ? rawTodaySlate.map((row)=>cfbProjectionOnlySpread(row)?{...row,"Spread Grade":"No Play"}:row)
+  // A completed NFL model run can write its official projection/grade to the
+  // tracker even when daily_slate still contains only the schedule shell.
+  // Recover those model fields by matchup so Full Slate (and model best plays)
+  // never go blank after a successful run.
+  const trackerEnrichedTodaySlate=sport==="NFL"
+    ? rawTodaySlate.map((row)=>{
+      const matchingTracker=tracker.filter((trackerRow)=>{
+        if(isoDate(trackerRow.Date||trackerRow["Game Date"]||"")!==today)return false;
+        const teams=playerPropTeams(trackerRow);
+        return sameTeam(teams.away,row["Away Team"],sport)&&sameTeam(teams.home,row["Home Team"],sport);
+      });
+      const projectionRow=matchingTracker.find((trackerRow)=>
+        String(trackerRow["Projected Away"]||"").trim()!==""&&
+        String(trackerRow["Projected Home"]||"").trim()!==""
+      );
+      if(!projectionRow)return row;
+
+      const recovered:SheetRow={
+        "Projected Away":String(projectionRow["Projected Away"]||""),
+        "Projected Home":String(projectionRow["Projected Home"]||""),
+        Reliability:String(projectionRow.Reliability||""),
+        "Data Confidence":String(projectionRow["Data Confidence"]||""),
+        "Personnel Confidence":String(projectionRow["Personnel Confidence"]||""),
+        "Model Version":String(projectionRow["Model Version"]||""),
+      };
+      const projectedAwayRaw=String(projectionRow["Projected Away"]||"").trim();
+      const projectedHomeRaw=String(projectionRow["Projected Home"]||"").trim();
+      const projectedAway=projectedAwayRaw?Number(projectedAwayRaw):NaN;
+      const projectedHome=projectedHomeRaw?Number(projectedHomeRaw):NaN;
+      if(Number.isFinite(projectedAway)&&Number.isFinite(projectedHome)){
+        recovered["Projected Margin"]=(projectedHome-projectedAway).toFixed(1);
+        recovered["Projected Total"]=(projectedAway+projectedHome).toFixed(1);
+      }
+
+      const spreadRow=matchingTracker.find((trackerRow)=>textKey(trackerRow["Bet Type"]||trackerRow.Market).includes("spread"));
+      if(spreadRow){
+        recovered["Spread Grade"]=String(spreadRow.Grade||spreadRow["Model Grade"]||"");
+        recovered["Spread Pick"]=String(spreadRow.Selection||"");
+        recovered["Spread Probability"]=String(spreadRow["Model Probability"]||"");
+        recovered["Spread Odds"]=String(spreadRow["Odds/Line"]||spreadRow.Odds||"");
+      }
+      const totalRow=matchingTracker.find((trackerRow)=>textKey(trackerRow["Bet Type"]||trackerRow.Market).includes("total"));
+      if(totalRow){
+        recovered["Total Grade"]=String(totalRow.Grade||totalRow["Model Grade"]||"");
+        recovered["Total Pick"]=String(totalRow.Selection||"");
+        recovered["Total Probability"]=String(totalRow["Model Probability"]||"");
+        recovered["Total Odds"]=String(totalRow["Odds/Line"]||totalRow.Odds||"");
+      }
+
+      // Preserve any richer values already present in daily_slate.
+      return nonEmptyMerge(recovered,row);
+    })
     : rawTodaySlate;
+  const todaySlate=sport==="NCAAF"
+    ? trackerEnrichedTodaySlate.map((row)=>cfbProjectionOnlySpread(row)?{...row,"Spread Grade":"No Play"}:row)
+    : trackerEnrichedTodaySlate;
   const effectiveTracker=sport==="NCAAF"
     ? tracker.map((row)=>cfbProjectionOnlySpread(row)?{...row,Grade:"No Play"}:row)
     : tracker;
