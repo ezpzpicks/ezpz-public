@@ -12,6 +12,7 @@ import {
 import { appendV2Rows, readV2Tab, replaceV2DailyRows } from "../../../lib/mlbTrendV2Store";
 import { applyMlbTrendV2Adaptive } from "../../../lib/mlbTrendV2Lifecycle";
 import { persistEzpzCurrentPicks } from "../../../lib/ezpzCurrentPicks";
+import { repairHistoricalEzpzGrades } from "../../../lib/ezpzHistoricalGrading";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -373,6 +374,8 @@ function compactScheduledPayload(payload:AnyRow){
     aiPickCount:Array.isArray(payload?.aiPicks)?payload.aiPicks.length:0,
     trendPlayCount:Array.isArray(payload?.trendPlays)?payload.trendPlays.length:0,
     trendV2Error:payload?.trendV2Error||"",
+    historicalGradeRepair:payload?.historicalGradeRepair||null,
+    historicalGradeRepairError:String(payload?.historicalGradeRepairError||""),
   };
 }
 
@@ -381,6 +384,16 @@ export async function GET(request:NextRequest){
   if(sport==="NFL"||sport==="NCAAF")return buildPublicDataResponse(request);
 
   const compact=truthy(request.nextUrl.searchParams.get("compact"));
+  let historicalGradeRepair:Awaited<ReturnType<typeof repairHistoricalEzpzGrades>>|null=null;
+  let historicalGradeRepairError="";
+  if(isV2ScheduledCapture(request)){
+    try{
+      historicalGradeRepair=await repairHistoricalEzpzGrades();
+    }catch(error){
+      historicalGradeRepairError=error instanceof Error?error.message:String(error);
+      console.warn("Historical MLB EZPZ result repair failed",historicalGradeRepairError);
+    }
+  }
   const legacyResponse=await buildPublicDataResponse(request);
   const contentType=legacyResponse.headers.get("content-type")||"";
   if(!contentType.includes("application/json"))return legacyResponse;
@@ -390,6 +403,8 @@ export async function GET(request:NextRequest){
   if(!payload?.ok){
     return NextResponse.json(payload,{status:legacyResponse.status,headers:{"Cache-Control":"no-store, max-age=0"}});
   }
+  payload.historicalGradeRepair=historicalGradeRepair;
+  payload.historicalGradeRepairError=historicalGradeRepairError;
   try{
     payload=await postProcessMlbPayload(request,payload);
   }catch(error){
