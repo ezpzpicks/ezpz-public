@@ -418,16 +418,18 @@ export async function fetchScoresAndOddsConsensusHtml(sport: ScoresAndOddsSport)
     throw new Error(`ScoresAndOdds ${sport} consensus request failed: ${response.status} ${response.statusText}`);
   }
   const html = await response.text();
-  if (!/%\s*of\s*Bets/i.test(decodeHtmlEntities(html)) && !/no games scheduled/i.test(decodeHtmlEntities(html))) {
-    throw new Error(`ScoresAndOdds ${sport} consensus page returned no recognizable consensus content.`);
+  if (!String(html || "").trim()) {
+    throw new Error(`ScoresAndOdds ${sport} consensus page returned an empty response.`);
   }
   return { url, html };
 }
 
 export async function loadScoresAndOddsConsensus(sport: ScoresAndOddsSport) {
   const fetched = await fetchScoresAndOddsConsensusHtml(sport);
-  return {
-    ...fetched,
-    splits: parseScoresAndOddsConsensus(fetched.html, sport),
-  };
+  const splits = parseScoresAndOddsConsensus(fetched.html, sport);
+  const plain = decodeHtmlEntities(fetched.html).replace(/<[^>]+>/g, " ").replace(/\\s+/g, " ");
+  if (!splits.length && !/no games scheduled|no games|no consensus/i.test(plain)) {
+    throw new Error(`ScoresAndOdds ${sport} consensus page was reachable but no betting-split rows could be parsed.`);
+  }
+  return { ...fetched, splits };
 }
