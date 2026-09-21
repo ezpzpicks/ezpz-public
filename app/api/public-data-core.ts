@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { readWorksheet as readWorksheetUncached } from "../../lib/mlbStore";
 import { buildFootballPublicData } from "../../lib/footballPublicData";
 import { appendTursoDataset, isTursoConfigured, patchTursoDatasetRows, readTursoDataset, replaceTursoDataset } from "../../lib/tursoStore";
+import {
+  SCORES_AND_ODDS_SOURCE,
+  loadScoresAndOddsConsensus,
+} from "../../lib/scoresAndOddsBettingSplits";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -89,8 +93,6 @@ type UfcData = {
   };
 };
 
-const DK_BETTING_SPLITS_URL =
-  "https://dknetwork.draftkings.com/draftkings-sportsbook-betting-splits/";
 const DK_PLAYER_PROPS_URL =
   "https://dknetwork.draftkings.com/draftkings-sportsbook-player-props/";
 const CACHE_TTL_MS = 45_000;
@@ -550,6 +552,7 @@ type DraftKingsPayload = {
   persistence?: DraftKingsPersistence;
   displayMode?: "LIVE" | "MIXED" | "FINAL_PREGAME";
   finalSnapshotGames?: number;
+  splitSource?: string;
 };
 
 type CacheEntry = {
@@ -1436,47 +1439,61 @@ async function buildDraftKingsPayload(): Promise<DraftKingsPayload> {
   let splits: DraftKingsSplit[] = [];
   let props: DraftKingsProp[] = [];
 
-  const seenSplitKeys = new Set<string>();
-  const maxBettingSplitPages = 10;
+  try {
+    const loaded = await loadScoresAndOddsConsensus("MLB");
+    splits = loaded.splits.flatMap((source): DraftKingsSplit[] => {
+      if (
+        source.market !== "Moneyline" &&
+        source.market !== "Run Line" &&
+        source.market !== "Total"
+      ) return [];
 
-  for (let page = 1; page <= maxBettingSplitPages; page += 1) {
-    try {
-      const html = await fetchHtml(DK_BETTING_SPLITS_URL, {
-        itm_content: "MLB",
-        tb_edate: "n7days",
-        tb_eg: "MLB",
-        tb_page: String(page),
-      });
-      const pageSplits = parseBettingSplits(html);
-      let newRows = 0;
+      const awayTeam = normalizeTeam(source.awayTeam);
+      const homeTeam = normalizeTeam(source.homeTeam);
+      if (!(awayTeam in MLB_TEAM_ALIASES) || !(homeTeam in MLB_TEAM_ALIASES)) return [];
 
-      for (const row of pageSplits) {
-        const key = `${row.date}|${row.game}|${parseEventTimeKey(row.eventTime || "")}|${row.market}|${textKey(row.selection)}`;
-        if (seenSplitKeys.has(key)) continue;
-        seenSplitKeys.add(key);
-        splits.push(row);
-        newRows += 1;
-      }
+      const selectionTeam = source.market === "Total"
+        ? ""
+        : normalizeTeam(source.selectionTeam);
+      if (source.market !== "Total" && !(selectionTeam in MLB_TEAM_ALIASES)) return [];
 
-      // DraftKings can repeat the final page when a page number is out of range.
-      // Stop when the page is empty or contributes no new markets.
-      if (!pageSplits.length || newRows === 0) break;
-    } catch (error) {
+      const date = source.date || draftKingsDateET();
+      const warning = warningFor(source.betsPct, source.moneyPct);
+      const line = source.market === "Moneyline" ? null : source.line;
+      const selection = source.market === "Total"
+        ? `${source.side} ${line ?? ""}`.trim()
+        : line == null
+          ? selectionTeam
+          : `${selectionTeam} ${line > 0 ? "+" : ""}${line}`;
+
+      return [{
+        date,
+        eventTime: source.eventTime || "",
+        game: `${awayTeam} at ${homeTeam}`,
+        awayTeam,
+        homeTeam,
+        market: source.market,
+        selection,
+        selectionTeam,
+        side: source.side,
+        line,
+        odds: source.odds,
+        moneyPct: source.moneyPct,
+        betsPct: source.betsPct,
+        ...warning,
+        sourceUrl: source.sourceUrl,
+      }];
+    });
+
+    if (!splits.length && loaded.splits.length) {
       errors.push(
-        `Betting splits page ${page}: ${error instanceof Error ? error.message : String(error)}`,
-      );
-      break;
-    }
-  }
-
-  if (!splits.length) {
-    try {
-      splits = parseBettingSplits(await fetchHtml(DK_BETTING_SPLITS_URL, {}));
-    } catch (fallbackError) {
-      errors.push(
-        `Betting splits fallback: ${fallbackError instanceof Error ? fallbackError.message : String(fallbackError)}`,
+        `ScoresAndOdds parsed ${loaded.splits.length} MLB market sides, but none matched the MLB team/market validator.`,
       );
     }
+  } catch (error) {
+    errors.push(
+      `ScoresAndOdds betting splits: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
 
   let rankOffset = 0;
@@ -1519,6 +1536,7 @@ async function buildDraftKingsPayload(): Promise<DraftKingsPayload> {
     splits,
     props,
     errors,
+    splitSource: SCORES_AND_ODDS_SOURCE,
   };
 }
 
@@ -2139,7 +2157,7 @@ function snapshotRecordFromSplit(
     "Line Movement Basis": item.lineMovementBasis || "",
     "Line Movement Value": item.lineMovementValue == null ? "" : String(item.lineMovementValue),
     "Popularity Rank": "",
-    Source: "DraftKings",
+    Source: SCORES_AND_ODDS_SOURCE,
     "Match Confidence": captureMode === "tracking"
       ? item.retained
         ? "15-minute tracking snapshot (last-known retained market)"
@@ -2151,7 +2169,7 @@ function snapshotRecordFromSplit(
         : item.retained
           ? "Last-known retained pregame market snapshot"
           : "Live-site pregame market snapshot",
-    "Source URL": DK_BETTING_SPLITS_URL,
+    "Source URL": item.sourceUrl || "https://www.scoresandodds.com/mlb/consensus-picks",
   };
 }
 
@@ -2383,6 +2401,9 @@ function snapshotPayloadFromRows(rows: SheetRow[], today: string): DraftKingsPay
       continue;
     }
 
+    const storedSource = String(row.Source || "").trim();
+    if (storedSource && storedSource !== SCORES_AND_ODDS_SOURCE) continue;
+
     const marketText = textKey(row.Market || "");
     const market: DraftKingsSplit["market"] = marketText.includes("run line")
       ? "Run Line"
@@ -2440,6 +2461,7 @@ function snapshotPayloadFromRows(rows: SheetRow[], today: string): DraftKingsPay
       snapshotStatus: isFifteenMinuteTrackingSnapshot(row)
         ? "FINAL_PREGAME"
         : "LIVE",
+      sourceUrl: String(row["Source URL"] || "").trim() || "https://www.scoresandodds.com/mlb/consensus-picks",
       snapshotTime,
     };
     const openingReference: DraftKingsSplit = {
