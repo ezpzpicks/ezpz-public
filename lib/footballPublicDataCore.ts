@@ -497,6 +497,53 @@ async function loadFootballWeekSchedule(sport: FootballSport, start: string, end
 
 function mergeFootballSchedules(saved: SheetRow[], live: SheetRow[], sport: FootballSport) {
   const merged = new Map<string, SheetRow>();
+
+  if (sport === "NFL" && live.length) {
+    const liveDates = new Set(
+      live.map((row) => isoDate(row.Date || row["Game Date"] || "")).filter(Boolean),
+    );
+
+    // Live ESPN schedule rows are authoritative for NFL matchup identity.
+    for (const row of live) {
+      merged.set(footballScheduleKey(row, sport), row);
+    }
+
+    for (const row of saved) {
+      const date = isoDate(row.Date || row["Game Date"] || "");
+      if (date && liveDates.has(date)) {
+        const liveMatch = live.find((candidate) => {
+          const candidateDate = isoDate(candidate.Date || candidate["Game Date"] || "");
+          return (
+            candidateDate === date &&
+            sameTeam(candidate["Away Team"], row["Away Team"], sport) &&
+            sameTeam(candidate["Home Team"], row["Home Team"], sport)
+          );
+        });
+
+        if (liveMatch) {
+          const key = footballScheduleKey(liveMatch, sport);
+          const enriched = nonEmptyMerge(row, liveMatch);
+          merged.set(key, {
+            ...enriched,
+            Date: liveMatch.Date || enriched.Date || "",
+            "Game Date": liveMatch["Game Date"] || liveMatch.Date || enriched["Game Date"] || "",
+            "Game Time": liveMatch["Game Time"] || enriched["Game Time"] || "",
+            "Game ID": liveMatch["Game ID"] || enriched["Game ID"] || "",
+            Game: liveMatch.Game || enriched.Game || "",
+            "Away Team": liveMatch["Away Team"] || enriched["Away Team"] || "",
+            "Home Team": liveMatch["Home Team"] || enriched["Home Team"] || "",
+          });
+        }
+        // When ESPN covers the date, unmatched saved rows are stale/phantom.
+        continue;
+      }
+
+      merged.set(footballScheduleKey(row, sport), row);
+    }
+
+    return [...merged.values()];
+  }
+
   for (const row of saved) merged.set(footballScheduleKey(row, sport), row);
   for (const row of live) {
     const key = footballScheduleKey(row, sport);
