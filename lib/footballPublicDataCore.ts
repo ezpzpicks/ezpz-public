@@ -192,7 +192,9 @@ const NFL_ALIASES: Record<string, string[]> = {
   HOU: ["Houston Texans", "Texans", "Houston"], IND: ["Indianapolis Colts", "Colts", "Indianapolis"],
   JAX: ["Jacksonville Jaguars", "Jaguars", "Jacksonville"], KC: ["Kansas City Chiefs", "Chiefs", "Kansas City"],
   LV: ["Las Vegas Raiders", "Raiders", "Las Vegas"], LAC: ["Los Angeles Chargers", "LA Chargers", "Chargers"],
-  LAR: ["Los Angeles Rams", "LA Rams", "Rams"], MIA: ["Miami Dolphins", "Dolphins", "Miami"],
+  // Legacy schedule rows use bare "LA" for the Rams. Keep this aligned with
+  // footballWeeklyMarket's NFL aliases so coverage doesn't invent a second game.
+  LAR: ["Los Angeles Rams", "LA Rams", "Rams", "LA"], MIA: ["Miami Dolphins", "Dolphins", "Miami"],
   MIN: ["Minnesota Vikings", "Vikings", "Minnesota"], NE: ["New England Patriots", "Patriots", "New England"],
   NO: ["New Orleans Saints", "Saints", "New Orleans"], NYG: ["New York Giants", "NY Giants", "Giants"],
   NYJ: ["New York Jets", "NY Jets", "Jets"], PHI: ["Philadelphia Eagles", "Eagles", "Philadelphia"],
