@@ -811,34 +811,9 @@ function fbTrendNetRoiSummary(play: TrendPlay, trendPlays: TrendPlay[]) {
 
 function fbTrendPickPassesEzpzRules(pick: EzpzPick, trendPlays: TrendPlay[], sport: Sport) {
   if (pick.source !== "Trend Play") return true;
-  const play = fbTrendPlayForPick(pick, trendPlays);
-  if (!play || (play.tier !== "Strong" && play.tier !== "Elite")) return false;
-  const minTrendSampleSize = sport === "NCAAF" ? 8 : 5;
-  if (Number(play.TrendSampleSize || 0) < minTrendSampleSize) return false;
-  if (!play.signals?.length) return false;
-
-  // Backend signal.tone is positive exactly when the all-time historical record is winning.
-  // Recreate that test from the record payload so the public card cannot show "all-green"
-  // while its currently displayed signal evidence is actually losing.
-  const allSignalsGreen = play.signals.every(
-    (signal) => signal.records.allTime.wins > signal.records.allTime.losses,
-  );
-  if (!allSignalsGreen) return false;
-
-  const roi = fbTrendNetRoiSummary(play, trendPlays);
-  const minNetRoiAdvantage = sport === "NCAAF" ? 25 : 15;
-  if (!roi || roi.candidateRoiPct <= 0 || roi.netRoiPct < minNetRoiAdvantage) return false;
-
-  const sideKey = play.market === "Total" ? textKey(play.side) : textKey(play.selectionTeam || play.selection);
-  const opposingSides = trendPlays
-    .filter((candidate) => fbSameGame(candidate.game, play.game) && candidate.market === play.market)
-    .filter((candidate) => (candidate.market === "Total" ? textKey(candidate.side) : textKey(candidate.selectionTeam || candidate.selection)) !== sideKey);
-  const opponentLast7Green = opposingSides.some((candidate) =>
-    (candidate.signals || []).some(
-      (signal) => signal.records.last7.wins > signal.records.last7.losses,
-    ),
-  );
-  return !opponentLast7Green;
+  // Trend EZPZ qualification is now intentionally deterministic on the backend:
+  // Public Fade or Strong RLM. Do not re-apply the retired tier/sample/ROI gates here.
+  return /(?:^|\b)(Public Fade|Strong RLM)(?:\b|$)/i.test(String(pick.qualification || pick.tier || ""));
 }
 
 function BestPlayCard({ play, splits, index, sport, recentByType, lastSevenBetsByType }: { play: Play; splits: DraftKingsSplit[]; index: number; sport: Sport; recentByType: Map<string, Summary>; lastSevenBetsByType: Map<string, Summary> }) {
