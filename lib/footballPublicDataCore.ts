@@ -527,6 +527,25 @@ function mergeFootballTrackingSlate(projected: SheetRow[], schedule: SheetRow[],
     // never let an unmatched recovery shell create a second phantom matchup.
     if (recoveredScheduleShell && date && authoritativeDates.has(date) && !authoritativeKeys.has(key)) continue;
 
+    const authoritative = merged.get(key);
+    if (sport === "NFL" && authoritative && authoritativeKeys.has(key)) {
+      // Keep model/projection fields, but never allow a saved/projected row to
+      // rewrite the real NFL schedule identity. The authoritative schedule owns
+      // the matchup, date, kickoff and event id for coverage validation.
+      const enriched = nonEmptyMerge(authoritative, row);
+      merged.set(key, {
+        ...enriched,
+        Date: authoritative.Date || enriched.Date || "",
+        "Game Date": authoritative["Game Date"] || authoritative.Date || enriched["Game Date"] || "",
+        "Game Time": authoritative["Game Time"] || enriched["Game Time"] || "",
+        "Game ID": authoritative["Game ID"] || enriched["Game ID"] || "",
+        Game: authoritative.Game || enriched.Game || "",
+        "Away Team": authoritative["Away Team"] || enriched["Away Team"] || "",
+        "Home Team": authoritative["Home Team"] || enriched["Home Team"] || "",
+      });
+      continue;
+    }
+
     merged.set(key, nonEmptyMerge(merged.get(key) || {}, row));
   }
   return [...merged.values()].sort((a, b) => {
