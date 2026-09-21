@@ -32,6 +32,12 @@ type EzpzPick = {
   propLine?: string | number;
   propProjection?: string | number;
   gapPct?: number;
+  betsPct?: number;
+  moneyPct?: number;
+  publicSideBetsPct?: number;
+  publicSideMoneyPct?: number;
+  publicMovePct?: number;
+  lineMoveValue?: number;
   modelGapPct?: number;
   predictedWinPct?: number;
   impliedProbabilityPct?: number;
@@ -277,6 +283,160 @@ function pickFormMeta(value: unknown) {
   return null;
 }
 
+
+type DirectTrendSignal = "Strong RLM" | "Public Fade" | "Sharp";
+
+function matchupTeams(game: unknown) {
+  const raw = String(game || "").trim();
+  const at = raw.split(/\s*@\s*/).map((part) => part.trim()).filter(Boolean);
+  if (at.length === 2) return { away: at[0], home: at[1] };
+  const words = raw.split(/\s+(?:at|vs\.?|versus)\s+/i).map((part) => part.trim()).filter(Boolean);
+  return words.length === 2 ? { away: words[0], home: words[1] } : null;
+}
+
+function directTrendTypes(pick: EzpzPick): DirectTrendSignal[] {
+  if (pick.source !== "Trend Play" && pick.source !== "Best + Trend") return [];
+  const key = textKey(`${pick.tier || ""} ${pick.qualification || ""}`);
+  const types: DirectTrendSignal[] = [];
+  if (key.includes("strong rlm")) types.push("Strong RLM");
+  if (key.includes("public fade")) types.push("Public Fade");
+  if (key.includes("sharp")) types.push("Sharp");
+  return types;
+}
+
+function historicalTrendSelectionKey(row: SheetRow) {
+  if (textKey(row.Market) === "total") {
+    const key = textKey(row.Side || row.Selection || row["Public Split Selection"]);
+    return key.startsWith("under") ? "under" : key.startsWith("over") ? "over" : key;
+  }
+  const key = textKey(row["Public Split Selection"] || row.Selection || "");
+  const parts = key.split(" ").filter(Boolean);
+  return parts[parts.length - 1] || key;
+}
+
+function directTrendGroupKey(row: SheetRow) {
+  return `${String(row.Date || "")}|${String(row["Game Key"] || row["Game ID"] || row.Game || "")}|${textKey(row.Market)}`;
+}
+
+function directTrendLabels(row: SheetRow, group: SheetRow[], sport: Sport): DirectTrendSignal[] {
+  const labels: DirectTrendSignal[] = [];
+  const ownBets = Number(row["Public Bets %"] || row["Current Public %"]);
+  const ownMoney = Number(row["Public Money %"] || row["Current Sharp %"]);
+  const sharpMin = sport === "NFL" ? 25 : 40;
+  if (Number.isFinite(ownBets) && Number.isFinite(ownMoney) && ownMoney - ownBets >= sharpMin) {
+    labels.push("Sharp");
+  }
+
+  const ownKey = historicalTrendSelectionKey(row);
+  const publicSide = group.find((candidate) => historicalTrendSelectionKey(candidate) !== ownKey);
+  if (!publicSide) return labels;
+
+  const publicBets = Number(publicSide["Public Bets %"] || publicSide["Current Public %"]);
+  const publicMoney = Number(publicSide["Public Money %"] || publicSide["Current Sharp %"]);
+  const placeholder = (publicBets === 100 && publicMoney === 100) || (publicBets === 0 && publicMoney === 0);
+  const publicFade = sport === "NFL"
+    ? !placeholder && Number.isFinite(publicBets) && publicBets >= 80
+    : Number.isFinite(publicBets) && Number.isFinite(publicMoney) && publicBets > 75 && publicBets - publicMoney >= 55;
+  if (publicFade) labels.push("Public Fade");
+
+  const openingBets = Number(publicSide["Opening Public %"] || publicSide["Opening Bets %"]);
+  const publicMove = Number(publicSide["Public Change %"]);
+  const lineMove = Number(publicSide["Line Movement Value"]);
+  if (
+    textKey(row.Market) === "spread" &&
+    Number.isFinite(openingBets) && openingBets > 0 && openingBets < 100 &&
+    String(publicSide["Line Movement Basis"] || "").includes("Spread") &&
+    Number.isFinite(publicMove) && publicMove >= 5 &&
+    Number.isFinite(lineMove) && lineMove <= -1.5
+  ) labels.push("Strong RLM");
+
+  return labels;
+}
+
+function directTrendRecord(rows: SheetRow[], sport: Sport, signal: DirectTrendSignal) {
+  const grouped = new Map<string, SheetRow[]>();
+  for (const row of rows || []) {
+    if (!resultCode(row.Result || row.Status)) continue;
+    const key = directTrendGroupKey(row);
+    const current = grouped.get(key);
+    if (current) current.push(row); else grouped.set(key, [row]);
+  }
+
+  const qualified: SheetRow[] = [];
+  grouped.forEach((group) => {
+    const unique = new Map<string, SheetRow>();
+    group.forEach((row) => {
+      const key = historicalTrendSelectionKey(row);
+      if (key && !unique.has(key)) unique.set(key, row);
+    });
+    const sides = [...unique.values()];
+    sides.forEach((row) => {
+      if (directTrendLabels(row, sides, sport).includes(signal)) qualified.push(row);
+    });
+  });
+
+  // Historical storage can contain the same settled market under two game IDs.
+  // Deduplicate by the actual market state/result so the tile record never double-counts it.
+  const deduped = new Map<string, SheetRow>();
+  for (const row of qualified) {
+    const key = [
+      String(row.Date || ""),
+      textKey(row.Market),
+      historicalTrendSelectionKey(row),
+      String(row["Public Bets %"] || row["Current Public %"] || ""),
+      String(row["Public Money %"] || row["Current Sharp %"] || ""),
+      String(row["Public Split Line"] || row.Line || ""),
+      String(row["Public Split Odds"] || row.Odds || ""),
+      resultCode(row.Result || row.Status),
+    ].join("|");
+    if (!deduped.has(key)) deduped.set(key, row);
+  }
+
+  let wins = 0, losses = 0, pushes = 0, units = 0;
+  deduped.forEach((row) => {
+    const result = resultCode(row.Result || row.Status);
+    const odds = americanOdds(row["Public Split Odds"] || row.Odds) ?? -110;
+    if (result === "W") {
+      wins += 1;
+      units += odds > 0 ? odds / 100 : 100 / Math.abs(odds);
+    } else if (result === "L") {
+      losses += 1;
+      units -= 1;
+    } else if (result === "P") pushes += 1;
+  });
+  const totalBets = wins + losses + pushes;
+  return {
+    record: `${wins}-${losses}-${pushes}`,
+    totalBets,
+    units: Math.round(units * 100) / 100,
+    roi: totalBets ? Math.round((units / totalBets) * 1000) / 10 : 0,
+  };
+}
+
+function trendRecordTitle(signal: DirectTrendSignal, sport: Sport) {
+  if (signal === "Sharp") return `${sport} Sharp ${sport === "NFL" ? "25%+" : "40%+"} Record`;
+  if (signal === "Public Fade") return sport === "NFL" ? "NFL Public Fade 80%+ Record" : "CFB Public Fade 75% / 55-gap Record";
+  return `${sport} Strong RLM Record`;
+}
+
+function trendSignalDetail(pick: EzpzPick, signal: DirectTrendSignal) {
+  if (signal === "Sharp" && Number.isFinite(Number(pick.gapPct))) {
+    const gap = Number(pick.gapPct);
+    return `${gap >= 0 ? "+" : ""}${Math.round(gap * 10) / 10} pt money edge`;
+  }
+  if (signal === "Public Fade" && Number.isFinite(Number(pick.publicSideBetsPct))) {
+    return `Fade ${Math.round(Number(pick.publicSideBetsPct))}% of bets`;
+  }
+  if (signal === "Strong RLM") {
+    const publicMove = Number(pick.publicMovePct);
+    const lineMove = Number(pick.lineMoveValue);
+    if (Number.isFinite(publicMove) && Number.isFinite(lineMove)) {
+      return `Bets +${Math.round(publicMove * 10) / 10} pts • line ${lineMove > 0 ? "+" : ""}${Math.round(lineMove * 10) / 10}`;
+    }
+  }
+  return String(pick.qualification || signal);
+}
+
 function PlayerAvatar({ pick }: { pick: EzpzPick }) {
   const name = String(pick.playerName || "").trim();
   const initials = name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase() || "NFL";
@@ -299,6 +459,49 @@ function HistoryPickCard({ pick, sport, viewingToday, data }: { pick: EzpzPick; 
   const propSelectionWithProjection = propProjection ? `${propSelection} • Proj. ${propProjection}` : propSelection;
   const form = sport === "NFL" ? pickFormMeta(pick.formStatus) : null;
   const formRecord = String(pick.record || "").trim();
+  const trendTypes = directTrendTypes(pick);
+  const primaryTrend = trendTypes[0];
+  const matchup = matchupTeams(pick.game);
+
+  if (!isProp && primaryTrend) {
+    const trendRecord = directTrendRecord(data.trendRecordRows || [], sport, primaryTrend);
+    return (
+      <article className="footballHistoryPickCard footballHistoryTrendCard">
+        <div className="footballHistoryTrendTop">
+          <span className={`footballHistoryResult ${statusTone}`}><span className="footballHistoryStatusDot">●</span>{statusLabel}</span>
+          <div className="footballHistoryTrendBadges">
+            {trendTypes.map((signal) => <span className={`footballTrendTypeBadge ${textKey(signal).replace(/\s+/g, "-")}`} key={signal}>{signal}</span>)}
+          </div>
+        </div>
+
+        {matchup ? (
+          <div className="footballHistoryTrendMatchup">
+            <TeamLogoName sport={sport} team={matchup.away} text={matchup.away} className="footballHistoryTrendTeam" />
+            <span className="footballHistoryTrendAt">AT</span>
+            <TeamLogoName sport={sport} team={matchup.home} text={matchup.home} className="footballHistoryTrendTeam home" />
+          </div>
+        ) : <div className="footballHistoryTrendMatchupText"><MatchupWithLogos sport={sport} game={pick.game || ""} /></div>}
+
+        <div className="footballHistoryTrendPickRow">
+          <div>
+            <h3>{pick.selection}</h3>
+            <p>{pick.market || "Trend Play"} <span>•</span> DraftKings trend</p>
+          </div>
+          <strong className="footballHistoryTrendOdds">{displayOdds(pick.odds)}</strong>
+        </div>
+
+        <div className="footballHistoryTrendBottom">
+          <span className="footballHistoryTrendSignal">{trendSignalDetail(pick, primaryTrend)}</span>
+          <div className="footballHistoryTrendRecord">
+            <span>{trendRecordTitle(primaryTrend, sport)}</span>
+            <b>{trendRecord.totalBets ? trendRecord.record : "No graded sample yet"}</b>
+            {trendRecord.totalBets ? <small>{trendRecord.units >= 0 ? "+" : ""}{trendRecord.units.toFixed(2)}u • ROI {trendRecord.roi >= 0 ? "+" : ""}{trendRecord.roi.toFixed(1)}%</small> : null}
+          </div>
+        </div>
+      </article>
+    );
+  }
+
   return (
     <article className="footballHistoryPickCard">
       <div className="footballHistoryCardTop">
@@ -393,7 +596,7 @@ function FootballEzpzHistory({ sport, data }: { sport: Sport; data: FootballData
         {picks.length ? <div className="footballHistoryStack">{picks.map((pick, index) => <HistoryPickCard key={`${pickIdentity(pick)}-${index}`} pick={pick} sport={sport} viewingToday={viewingToday} data={data} />)}</div> : <div className="footballHistoryEmpty">{viewingToday ? `No ${sport} EZPZ Picks right now.` : `No ${sport} EZPZ Picks were saved for ${dateLabel}. Choose another date from Pick history.`}</div>}
       </section>
       <style jsx global>{`
-        .footballEzpzHistorySection{display:grid;gap:18px}.footballHistoryHead{display:flex;align-items:flex-end;justify-content:space-between;gap:18px}.footballHistoryHead h2{margin:0 0 5px;font-size:clamp(1.4rem,4vw,2.2rem);letter-spacing:-.04em}.footballHistoryHead p{margin:0;color:var(--ez-muted);font-size:.86rem;line-height:1.45}.footballHistoryHead>span{flex:0 0 auto;border:1px solid var(--ez-border);border-radius:999px;padding:7px 11px;color:var(--ez-muted);font-size:.8rem;font-weight:850}.footballHistoryDropdown{overflow:hidden;border:1px solid rgba(80,132,197,.24);border-radius:22px;background:linear-gradient(145deg,var(--ez-panel),var(--ez-panel-2))}.footballHistoryDropdown>summary{display:flex;align-items:center;justify-content:space-between;gap:14px;list-style:none;cursor:pointer;padding:17px 18px}.footballHistoryDropdown>summary::-webkit-details-marker{display:none}.footballHistoryDropdown>summary>div{display:grid;gap:3px}.footballHistoryDropdown>summary strong{font-size:1rem}.footballHistoryDropdown>summary span{color:var(--ez-muted);font-size:.78rem}.footballHistoryDropdown>summary>b{color:#83c8ff;font-size:.8rem}.footballHistoryControls{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;padding:0 18px 18px}.footballHistoryControls label{display:grid;gap:6px}.footballHistoryControls label>span{color:var(--ez-muted);font-size:.7rem;font-weight:850;text-transform:uppercase;letter-spacing:.045em}.footballHistoryControls input,.footballHistoryControls select{width:100%;min-height:44px;border:1px solid rgba(93,137,191,.24);border-radius:13px;padding:10px 12px;background:rgba(5,14,27,.7);color:#eef6ff;font:inherit}.footballHistoryStack{display:grid;gap:12px}.footballHistoryPickCard{position:relative;overflow:hidden;border:1px solid rgba(43,216,117,.35);border-radius:24px;padding:18px;background:linear-gradient(145deg,var(--ez-panel),var(--ez-panel-2));box-shadow:0 24px 65px rgba(0,0,0,.24)}.footballHistoryCardTop{display:flex;align-items:center;justify-content:space-between;gap:12px}.footballHistoryCardTop>strong{font-size:1.05rem}.footballHistoryResult{display:inline-flex;align-items:center;border-radius:999px;padding:6px 9px;border:1px solid rgba(112,145,186,.2);font-size:.68rem;font-weight:950;letter-spacing:.04em}.footballHistoryResult.win,.footballHistoryResult.final{color:#aef2c6;border-color:rgba(43,216,117,.34);background:rgba(28,130,78,.15)}.footballHistoryResult.loss{color:#ffc0c8;border-color:rgba(255,105,120,.3);background:rgba(145,34,52,.15)}.footballHistoryResult.push,.footballHistoryResult.pending{color:#f4d482;border-color:rgba(247,200,92,.25);background:rgba(155,115,30,.13)}.footballHistoryGameHero{margin-top:15px}.footballHistoryGameHero h3{margin:4px 0 3px;color:#f5f9ff;font-size:clamp(1.35rem,4vw,2rem);line-height:1.06;letter-spacing:-.035em}.footballHistoryGameHero p{margin:0;color:var(--ez-muted);font-size:.8rem}.footballHistoryPropHero{display:grid;grid-template-columns:72px minmax(0,1fr);align-items:center;gap:14px;margin-top:15px}.footballHistoryHeadshot{position:relative;display:grid;place-items:center;width:72px;height:72px;overflow:hidden;border:1px solid rgba(94,159,247,.24);border-radius:17px;background:radial-gradient(circle at 50% 30%,rgba(64,146,255,.22),rgba(8,18,34,.88));color:rgba(181,211,246,.7);font-weight:950}.footballHistoryHeadshot img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;object-position:center bottom}.footballHistoryEyebrow{display:block;color:#78b9ff;font-size:.7rem;font-weight:900;letter-spacing:.06em;text-transform:uppercase}.footballHistoryPropHero h3{margin:4px 0 3px;color:#f5f9ff;font-size:clamp(1.25rem,4vw,1.8rem);line-height:1.06;letter-spacing:-.035em}.footballHistoryPropHero p{margin:0;color:var(--ez-muted);font-size:.8rem}.footballHistoryPropPick{display:flex;align-items:baseline;gap:9px;margin-top:10px}.footballHistoryPropPick span{color:#9ccaff;font-size:.72rem;font-weight:950;text-transform:uppercase}.footballHistoryPropPick b{font-size:1.25rem}.footballHistoryFormLine{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:13px}.footballHistoryFormBadge,.footballHistoryFormRecord{display:inline-flex;align-items:center;border:1px solid rgba(112,145,186,.2);border-radius:999px;padding:7px 10px;font-size:.7rem;font-weight:900;line-height:1}.footballHistoryFormBadge.hot{color:#fed7aa;border-color:rgba(249,115,22,.3);background:rgba(249,115,22,.12)}.footballHistoryFormBadge.cold{color:#bae6fd;border-color:rgba(56,189,248,.3);background:rgba(56,189,248,.12)}.footballHistoryFormBadge.neutral{color:#d4dbe5;border-color:rgba(148,163,184,.22);background:rgba(148,163,184,.09)}.footballHistoryFormBadge.sample{color:#fde3a7;border-color:rgba(245,158,11,.3);background:rgba(245,158,11,.1)}.footballHistoryFormRecord{color:var(--ez-muted);background:rgba(100,120,146,.08)}.footballHistoryFormRecord b{margin-left:4px;color:#eef6ff}.footballHistoryEmpty{border:1px solid var(--ez-border);border-radius:22px;padding:30px;text-align:center;color:var(--ez-muted);background:linear-gradient(145deg,var(--ez-panel),var(--ez-panel-2))}@media(max-width:620px){.footballHistoryHead{align-items:flex-start;flex-direction:column}.footballHistoryControls{grid-template-columns:1fr}.footballHistoryPickCard{padding:15px;border-radius:21px}.footballHistoryDropdown>summary{align-items:flex-start}.footballHistoryDropdown>summary>b{white-space:nowrap}}
+        .footballEzpzHistorySection{display:grid;gap:18px}.footballHistoryHead{display:flex;align-items:flex-end;justify-content:space-between;gap:18px}.footballHistoryHead h2{margin:0 0 5px;font-size:clamp(1.4rem,4vw,2.2rem);letter-spacing:-.04em}.footballHistoryHead p{margin:0;color:var(--ez-muted);font-size:.86rem;line-height:1.45}.footballHistoryHead>span{flex:0 0 auto;border:1px solid var(--ez-border);border-radius:999px;padding:7px 11px;color:var(--ez-muted);font-size:.8rem;font-weight:850}.footballHistoryDropdown{overflow:hidden;border:1px solid rgba(80,132,197,.24);border-radius:22px;background:linear-gradient(145deg,var(--ez-panel),var(--ez-panel-2))}.footballHistoryDropdown>summary{display:flex;align-items:center;justify-content:space-between;gap:14px;list-style:none;cursor:pointer;padding:17px 18px}.footballHistoryDropdown>summary::-webkit-details-marker{display:none}.footballHistoryDropdown>summary>div{display:grid;gap:3px}.footballHistoryDropdown>summary strong{font-size:1rem}.footballHistoryDropdown>summary span{color:var(--ez-muted);font-size:.78rem}.footballHistoryDropdown>summary>b{color:#83c8ff;font-size:.8rem}.footballHistoryControls{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;padding:0 18px 18px}.footballHistoryControls label{display:grid;gap:6px}.footballHistoryControls label>span{color:var(--ez-muted);font-size:.7rem;font-weight:850;text-transform:uppercase;letter-spacing:.045em}.footballHistoryControls input,.footballHistoryControls select{width:100%;min-height:44px;border:1px solid rgba(93,137,191,.24);border-radius:13px;padding:10px 12px;background:rgba(5,14,27,.7);color:#eef6ff;font:inherit}.footballHistoryStack{display:grid;gap:12px}.footballHistoryPickCard{position:relative;overflow:hidden;border:1px solid rgba(43,216,117,.35);border-radius:24px;padding:18px;background:linear-gradient(145deg,var(--ez-panel),var(--ez-panel-2));box-shadow:0 24px 65px rgba(0,0,0,.24)}.footballHistoryCardTop{display:flex;align-items:center;justify-content:space-between;gap:12px}.footballHistoryCardTop>strong{font-size:1.05rem}.footballHistoryResult{display:inline-flex;align-items:center;border-radius:999px;padding:6px 9px;border:1px solid rgba(112,145,186,.2);font-size:.68rem;font-weight:950;letter-spacing:.04em}.footballHistoryResult.win,.footballHistoryResult.final{color:#aef2c6;border-color:rgba(43,216,117,.34);background:rgba(28,130,78,.15)}.footballHistoryResult.loss{color:#ffc0c8;border-color:rgba(255,105,120,.3);background:rgba(145,34,52,.15)}.footballHistoryResult.push,.footballHistoryResult.pending{color:#f4d482;border-color:rgba(247,200,92,.25);background:rgba(155,115,30,.13)}.footballHistoryGameHero{margin-top:15px}.footballHistoryGameHero h3{margin:4px 0 3px;color:#f5f9ff;font-size:clamp(1.35rem,4vw,2rem);line-height:1.06;letter-spacing:-.035em}.footballHistoryGameHero p{margin:0;color:var(--ez-muted);font-size:.8rem}.footballHistoryPropHero{display:grid;grid-template-columns:72px minmax(0,1fr);align-items:center;gap:14px;margin-top:15px}.footballHistoryHeadshot{position:relative;display:grid;place-items:center;width:72px;height:72px;overflow:hidden;border:1px solid rgba(94,159,247,.24);border-radius:17px;background:radial-gradient(circle at 50% 30%,rgba(64,146,255,.22),rgba(8,18,34,.88));color:rgba(181,211,246,.7);font-weight:950}.footballHistoryHeadshot img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;object-position:center bottom}.footballHistoryEyebrow{display:block;color:#78b9ff;font-size:.7rem;font-weight:900;letter-spacing:.06em;text-transform:uppercase}.footballHistoryPropHero h3{margin:4px 0 3px;color:#f5f9ff;font-size:clamp(1.25rem,4vw,1.8rem);line-height:1.06;letter-spacing:-.035em}.footballHistoryPropHero p{margin:0;color:var(--ez-muted);font-size:.8rem}.footballHistoryPropPick{display:flex;align-items:baseline;gap:9px;margin-top:10px}.footballHistoryPropPick span{color:#9ccaff;font-size:.72rem;font-weight:950;text-transform:uppercase}.footballHistoryPropPick b{font-size:1.25rem}.footballHistoryFormLine{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:13px}.footballHistoryFormBadge,.footballHistoryFormRecord{display:inline-flex;align-items:center;border:1px solid rgba(112,145,186,.2);border-radius:999px;padding:7px 10px;font-size:.7rem;font-weight:900;line-height:1}.footballHistoryFormBadge.hot{color:#fed7aa;border-color:rgba(249,115,22,.3);background:rgba(249,115,22,.12)}.footballHistoryFormBadge.cold{color:#bae6fd;border-color:rgba(56,189,248,.3);background:rgba(56,189,248,.12)}.footballHistoryFormBadge.neutral{color:#d4dbe5;border-color:rgba(148,163,184,.22);background:rgba(148,163,184,.09)}.footballHistoryFormBadge.sample{color:#fde3a7;border-color:rgba(245,158,11,.3);background:rgba(245,158,11,.1)}.footballHistoryFormRecord{color:var(--ez-muted);background:rgba(100,120,146,.08)}.footballHistoryFormRecord b{margin-left:4px;color:#eef6ff}.footballHistoryTrendCard{border-color:rgba(38,153,255,.62);background:radial-gradient(circle at 85% 0%,rgba(21,116,221,.13),transparent 34%),linear-gradient(145deg,rgba(5,18,36,.98),rgba(4,12,25,.98));box-shadow:0 18px 55px rgba(0,106,255,.12),inset 0 0 0 1px rgba(65,167,255,.04)}.footballHistoryTrendTop{display:flex;align-items:center;justify-content:space-between;gap:10px}.footballHistoryStatusDot{font-size:.55em;margin-right:5px;opacity:.9}.footballHistoryTrendBadges{display:flex;justify-content:flex-end;gap:6px;flex-wrap:wrap}.footballTrendTypeBadge{display:inline-flex;align-items:center;border:1px solid rgba(60,169,255,.45);border-radius:999px;padding:6px 10px;color:#79c8ff;background:rgba(19,112,198,.13);font-size:.67rem;font-weight:950;letter-spacing:.045em;text-transform:uppercase}.footballTrendTypeBadge.strong-rlm{color:#c4b5fd;border-color:rgba(139,92,246,.42);background:rgba(109,40,217,.13)}.footballTrendTypeBadge.public-fade{color:#ffd89b;border-color:rgba(245,158,11,.38);background:rgba(180,105,8,.12)}.footballHistoryTrendMatchup{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:10px;margin-top:18px;padding:14px 0 12px;border-bottom:1px solid rgba(101,151,211,.13)}.footballHistoryTrendTeam{font-size:.86rem!important;font-weight:900;color:#f1f7ff;letter-spacing:.01em}.footballHistoryTrendTeam.home{justify-self:end}.footballHistoryTrendTeam img{width:38px!important;height:38px!important}.footballHistoryTrendAt{color:#788ba5;font-size:.68rem;font-weight:950;letter-spacing:.08em}.footballHistoryTrendMatchupText{margin-top:16px;color:#f1f7ff;font-weight:850}.footballHistoryTrendPickRow{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:14px;margin-top:15px}.footballHistoryTrendPickRow h3{margin:0;color:#f7fbff;font-size:clamp(1.45rem,5vw,2.15rem);line-height:1;letter-spacing:-.045em}.footballHistoryTrendPickRow p{margin:7px 0 0;color:#8fa3bd;font-size:.75rem;font-weight:750}.footballHistoryTrendPickRow p span{padding:0 3px;opacity:.65}.footballHistoryTrendOdds{display:grid;place-items:center;min-width:78px;min-height:58px;padding:9px 12px;border:1px solid rgba(58,157,247,.34);border-radius:15px;background:linear-gradient(145deg,rgba(10,37,70,.76),rgba(4,20,39,.72));font-size:1.12rem}.footballHistoryTrendBottom{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:stretch;gap:10px;margin-top:15px}.footballHistoryTrendSignal{display:flex;align-items:center;border:1px solid rgba(42,215,136,.42);border-radius:14px;padding:10px 12px;color:#5ff2ad;background:rgba(17,131,81,.11);font-size:.72rem;font-weight:950;white-space:nowrap}.footballHistoryTrendRecord{display:grid;align-content:center;justify-items:end;gap:1px;border:1px solid rgba(73,127,191,.22);border-radius:14px;padding:9px 12px;background:rgba(4,15,29,.54);text-align:right}.footballHistoryTrendRecord>span{color:#8da5c2;font-size:.62rem;font-weight:800}.footballHistoryTrendRecord>b{color:#f2f7ff;font-size:.83rem}.footballHistoryTrendRecord>small{color:#94a9c2;font-size:.62rem;font-weight:750}.footballHistoryEmpty{border:1px solid var(--ez-border);border-radius:22px;padding:30px;text-align:center;color:var(--ez-muted);background:linear-gradient(145deg,var(--ez-panel),var(--ez-panel-2))}@media(max-width:620px){.footballHistoryHead{align-items:flex-start;flex-direction:column}.footballHistoryControls{grid-template-columns:1fr}.footballHistoryPickCard{padding:15px;border-radius:21px}.footballHistoryDropdown>summary{align-items:flex-start}.footballHistoryDropdown>summary>b{white-space:nowrap}.footballHistoryTrendMatchup{gap:7px}.footballHistoryTrendTeam{font-size:.76rem!important}.footballHistoryTrendTeam img{width:34px!important;height:34px!important}.footballHistoryTrendBottom{grid-template-columns:1fr}.footballHistoryTrendSignal{justify-content:center;white-space:normal}.footballHistoryTrendRecord{justify-items:center;text-align:center}.footballHistoryTrendOdds{min-width:70px;min-height:54px}}
       `}</style>
     </>
   );
