@@ -657,32 +657,20 @@ function historicalLabels(row: SheetRow, group: SheetRow[], sport: Sport) {
       publicBets - publicMoney >= 55;
   if (publicFade) labels.push("Public Fade");
 
-  const savedStrongRlm =
-    sport === "NFL" &&
+  const openingPublicBets = Number(publicSide["Opening Public %"] || publicSide["Opening Bets %"]);
+  const publicMove = Number(publicSide["Public Change %"]);
+  const lineMove = Number(publicSide["Line Movement Value"]);
+  if (
     textKey(row.Market) === "spread" &&
-    /strong reverse line movement support/i.test(String(row["Line Movement Signal"] || ""));
-  if (savedStrongRlm) {
-    // NFL completed rows already persist the authoritative selected-side RLM
-    // signal from the pregame lock. Use that frozen signal for records so a
-    // corrected weekly opening baseline (Bills-Lions, for example) is not lost
-    // when the opposite side lives under a different historical game ID.
-    labels.push("Strong RLM");
-  } else {
-    const openingPublicBets = Number(publicSide["Opening Public %"] || publicSide["Opening Bets %"]);
-    const publicMove = Number(publicSide["Public Change %"]);
-    const lineMove = Number(publicSide["Line Movement Value"]);
-    if (
-      textKey(row.Market) === "spread" &&
-      Number.isFinite(openingPublicBets) &&
-      openingPublicBets > 0 &&
-      openingPublicBets < 100 &&
-      String(publicSide["Line Movement Basis"] || "").includes("Spread") &&
-      Number.isFinite(publicMove) &&
-      publicMove >= 5 &&
-      Number.isFinite(lineMove) &&
-      lineMove <= -1.5
-    ) labels.push("Strong RLM");
-  }
+    Number.isFinite(openingPublicBets) &&
+    openingPublicBets > 0 &&
+    openingPublicBets < 100 &&
+    String(publicSide["Line Movement Basis"] || "").includes("Spread") &&
+    Number.isFinite(publicMove) &&
+    publicMove >= 5 &&
+    Number.isFinite(lineMove) &&
+    lineMove <= -1.5
+  ) labels.push("Strong RLM");
 
   return labels;
 }
@@ -724,46 +712,8 @@ export function DirectTrendRecords({ rows, trendPlays = [], sport }: { rows: She
     });
   });
 
-  // Older NFL result rows do not always contain the frozen line-movement fields
-  // even though the finalized trend snapshot does. Recover Strong RLM directly
-  // from that authoritative FINAL_PREGAME snapshot and attach the settled result.
-  // This keeps games such as DET-BUF from disappearing from the record table.
-  if (sport === "NFL" && trendPlays.length) {
-    trendPlays
-      .filter((play) => {
-        const openingBets = Number(play.openingBetsPct);
-        const publicMove = Number(play.publicMovementPct);
-        const lineMove = Number(play.lineMovementValue);
-        return play.market === "Spread" &&
-          play.snapshotStatus === "FINAL_PREGAME" &&
-          /strong reverse line movement support/i.test(String(play.lineMovementSignal || "")) &&
-          Number.isFinite(openingBets) &&
-          openingBets > 0 &&
-          openingBets < 100 &&
-          String(play.lineMovementBasis || "").includes("Spread") &&
-          Number.isFinite(publicMove) &&
-          publicMove <= -5 &&
-          Number.isFinite(lineMove) &&
-          lineMove >= 1.5;
-      })
-      .forEach((play) => {
-        const alreadyTracked = labeled.some((item) =>
-          item.signal === "Strong RLM" &&
-          textKey(item.row.Date) === textKey(play.date) &&
-          sameHistoricalTrendSelection(item.row, play)
-        );
-        if (alreadyTracked) return;
-
-        const settled = settledHistoricalRowForTrendPlay(play, rows);
-        if (!settled) return;
-        const recovered: SheetRow = {
-          ...settled,
-          "Public Split Line": Number.isFinite(Number(play.line)) ? String(play.line) : String(settled["Public Split Line"] || settled.Line || ""),
-          "Line Movement Signal": String(play.lineMovementSignal || ""),
-        };
-        labeled.push({ row: recovered, signal: "Strong RLM", category: recordCategory(recovered) });
-      });
-  }
+  // Direct-trend records are derived only from the current three rules.
+  // Do not recover or infer historical Strong RLM from retired signal labels.
 
   const summaries: Array<{ label: string; totals: RecordTotals }> = [];
   ["Public Fade", "Strong RLM", "Sharp"].forEach((signal) => {
