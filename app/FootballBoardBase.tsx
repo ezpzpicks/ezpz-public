@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { MatchupWithLogos, SelectionWithTeamLogo, TeamLogoName } from "./TeamLogoName";
+import { DirectTrendRecords, FootballTrendMarketBoard } from "./FootballTrendMarketBoard";
 
 type SheetRow = Record<string, string>;
 type Tab = "Today’s Model Plays" | "Today’s Trend Plays" | "EZPZ Picks" | "Full Slate" | "Records";
@@ -40,6 +41,7 @@ type TrendPlay = {
   signals: TrendSignal[]; lineMovementSignal?: string; lineMovementBasis?: string; lineMovementValue?: number | null;
   firstTrackedAt?: string; lowLine?: number | null; highLine?: number | null; lineMoveCount?: number;
   lastLineMoveAt?: string; lineHistoryLabel?: string;
+  movementHistory?: Array<{ snapshotTime: string; line: number | null; odds: string; betsPct: number; moneyPct: number }>;
 };
 
 
@@ -1440,11 +1442,16 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
     content = data.bestPlays.length ? <div className="fbGrid">{data.bestPlays.map((play, index) => <BestPlayCard key={`${play.game}-${play.play}-${index}`} play={play} splits={splits} index={index} sport={sport} recentByType={last7Map} lastSevenBetsByType={lastSevenBetsByType} />)}</div> : <div className="empty footballEmpty">No graded {sport} Best Plays are saved for {data.today}.</div>;
   } else if (tab === "Today’s Trend Plays") {
     content = <>
-      <div className="trendWeekControls">
+      <div className="trendWeekControls simplifiedTrendControls">
         <label><span>View market week</span><select value={activeWeek} onChange={(event) => setSelectedWeek(event.target.value)} disabled={!trendWeeks.length}>{trendWeeks.length ? trendWeeks.map((week) => <option key={week} value={week}>{week}</option>) : <option value="">No weeks yet</option>}</select></label>
-        <div><strong>{activeWeek || "Waiting for DraftKings"}</strong><small>{storedGamesForWeek.length} games stored • all 4 Spread/Total sides show with their live tier</small></div>
+        <div><strong>{activeWeek || "Waiting for DraftKings"}</strong><small>{storedGamesForWeek.length} games stored • Public Fade and Strong RLM are the only qualifying trends</small></div>
       </div>
-      {displayedTrendGroups.length ? <div className="trendGameGrid">{displayedTrendGroups.map((group) => <TrendGameCard key={group.plays[0]?.gameKey || group.game} game={group.game} plays={group.plays} sport={sport} />)}</div> : <div className="empty footballEmpty">No {sport} DraftKings Spread/Total markets are stored for {activeWeek || "this week"} yet. Pass, Good, Strong, and Elite rows all display once the market is stored.</div>}
+      <div className="directTrendRules">
+        <span><b>Public Fade</b> &gt;75% bets + 55+ point Bets/Money gap</span>
+        <span><b>Strong RLM</b> public bets rise 5+ points while spread moves 1.5+ points against that side</span>
+      </div>
+      {displayedTrendGroups.length ? <FootballTrendMarketBoard groups={displayedTrendGroups} sport={sport} /> : <div className="empty footballEmpty">No {sport} DraftKings Spread/Total markets are stored for {activeWeek || "this week"} yet.</div>}
+      <div className="directTrendRecordWrap"><DirectTrendRecords rows={data.trendRecordRows || []} today={data.today} /></div>
     </>;
   } else if (tab === "EZPZ Picks") {
     content = <>
@@ -1522,7 +1529,7 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
       <div className="fbHead">
         <div>
           <h2>{sport === "NFL" ? "NFL" : "College Football"} {displayTab}</h2>
-          <p>Regression projections • Spread + Total • sport-specific DraftKings trends</p>
+          <p>Regression projections • DraftKings market tracking • Public Fade + Strong RLM</p>
         </div>
         <div className="fbHeadActions">
           {tab === "Today’s Model Plays" ? <span className="countPill">{data.bestPlays.length} plays</span> : null}
