@@ -9,11 +9,9 @@ import {
   writeSportWorksheet,
 } from "./sportSheets";
 import {
-  assessDraftKingsMarketCoverage,
-  type DraftKingsMarketCoverage,
-} from "./draftKingsBettingSplits";
-import {
   SCORES_AND_ODDS_SOURCE,
+  assessScoresAndOddsMarketCoverage,
+  type ScoresAndOddsMarketCoverage,
   loadScoresAndOddsConsensus,
 } from "./scoresAndOddsBettingSplits";
 
@@ -24,6 +22,13 @@ type ResultCode = "W" | "L" | "P";
 const POSTED_GAMES_TAB = "posted_games";
 const WEEKLY_TRENDS_TAB = "weekly_market_trends";
 const MARKET_HISTORY_TAB = "odds_snapshot";
+const SCORES_AND_ODDS_CUTOVER_DATE = "2026-09-21";
+
+function isScoresAndOddsCutoverRow(row: SheetRow) {
+  const date = canonicalScheduleDate(row) || String(row.Date || "").trim();
+  if (!date || date < SCORES_AND_ODDS_CUTOVER_DATE) return true;
+  return String(row.Source || "").trim() === SCORES_AND_ODDS_SOURCE;
+}
 
 export const POSTED_GAME_HEADERS = [
   "Date", "Week", "Game Key", "Game Time", "Game", "Away Team", "Home Team",
@@ -36,7 +41,7 @@ export const WEEKLY_TREND_HEADERS = [
   "Opening Bets %", "Current Bets %", "Bets Change %", "Opening Handle %",
   "Current Handle %", "Handle Change %", "Public Gap %", "Warning",
   "Line Movement Signal", "Trend Score", "Trend Tier", "Updated At", "Snapshot Status",
-  "Details JSON",
+  "Source", "Source URL", "Details JSON",
 ];
 
 export const MARKET_HISTORY_HEADERS = [
@@ -441,7 +446,7 @@ type LoadedPostedSplits = {
   pagesScanned: number;
   pagesWithRows: number[];
   missingPages: number[];
-  coverage: DraftKingsMarketCoverage;
+  coverage: ScoresAndOddsMarketCoverage;
 };
 
 function coverageGameKey(
@@ -503,8 +508,8 @@ function expectedActiveGames(
   }
 
   // Stay on the current market week while any pregame matchup remains. After
-  // the final kickoff, DK rolls forward immediately, so validate the nearest
-  // upcoming week instead of accepting an empty expected slate until Tuesday.
+  // the final kickoff, validate the nearest upcoming week instead of accepting
+  // an empty expected slate until Tuesday.
   const activeWeek = candidates.some((game) => game.week === currentWeek)
     ? currentWeek
     : candidates.sort((left, right) => left.date.localeCompare(right.date))[0]?.week;
@@ -514,13 +519,13 @@ function expectedActiveGames(
   return expected;
 }
 
-function assessDraftKingsCoverage(
+function assessScoresAndOddsCoverage(
   sport: FootballSport,
   splits: Split[],
   expectedRows: SheetRow[],
-): DraftKingsMarketCoverage {
+): ScoresAndOddsMarketCoverage {
   const expected = expectedActiveGames(sport, expectedRows);
-  return assessDraftKingsMarketCoverage(
+  return assessScoresAndOddsMarketCoverage(
     expected,
     splits,
     (split) => coverageGameKey(sport, split.date, split.awayTeam, split.homeTeam),
@@ -531,7 +536,7 @@ function assessDraftKingsCoverage(
   );
 }
 
-function coverageFailureMessage(report: DraftKingsMarketCoverage) {
+function coverageFailureMessage(report: ScoresAndOddsMarketCoverage) {
   const details = [
     report.expectedGames === 0 ? "no canonical pregame games were available for validation" : "",
     report.missingGames.length ? `missing ${report.missingGames.join(", ")}` : "",
@@ -646,7 +651,7 @@ async function loadPostedSplits(
   const deduped = new Map<string, Split>();
   for (const split of validated) deduped.set(splitTrendKey(split), split);
   const splits = [...deduped.values()];
-  const coverage = assessDraftKingsCoverage(sport, splits, expectedRows);
+  const coverage = assessScoresAndOddsCoverage(sport, splits, expectedRows);
   const coverageAccepted = sport === "NFL" ? coverage.ok : splits.length > 0;
   if (!coverageAccepted) {
     const coverageFailure = sport === "NFL"
@@ -1681,6 +1686,8 @@ function weeklyRow(play: WeeklyTrendPlay): SheetRow {
     "Trend Tier": play.tier,
     "Updated At": play.updatedAt,
     "Snapshot Status": play.snapshotStatus,
+    Source: SCORES_AND_ODDS_SOURCE,
+    "Source URL": "https://www.scoresandodds.com",
     "Details JSON": JSON.stringify(play),
   };
 }
@@ -1698,6 +1705,7 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
     readSportWorksheet(sport, "schedule"),
     readSportWorksheet(sport, "daily_slate"),
   ]);
+  const sourceFilteredExistingTrends = existingTrends.filter(isScoresAndOddsCutoverRow);
   const allGameRepair = sport === "NFL"
     ? repairAllGameTrendMovementRows(allGameTrends)
     : { rows: allGameTrends, changed: 0 };
@@ -1710,15 +1718,15 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
   }
   const repairedHistory = historyFromAllGameTrends(effectiveAllGameTrends);
   const weeklyRepair = sport === "NFL"
-    ? repairWeeklyTrendRows(existingTrends, repairedHistory)
-    : { rows: existingTrends, changed: 0 };
+    ? repairWeeklyTrendRows(sourceFilteredExistingTrends, repairedHistory)
+    : { rows: sourceFilteredExistingTrends, changed: 0 };
   const effectiveExistingTrends = weeklyRepair.rows;
   if (weeklyRepair.changed) {
     await writeSportWorksheet(sport, WEEKLY_TRENDS_TAB, WEEKLY_TREND_HEADERS, effectiveExistingTrends);
   }
 
   const canonicalRows = [...scheduleRows, ...slateRows, ...effectiveAllGameTrends];
-  // A partial DK response must fail before any market/snapshot writes occur.
+  // A partial ScoresAndOdds response must fail before any market/snapshot writes occur.
   const dk = await loadPostedSplits(sport, canonicalRows, existingGames);
   const activeMarketDates = [...new Set(dk.splits.map((split) => split.date).filter(Boolean))];
   const existingMarketHistory = activeMarketDates.length
@@ -1915,13 +1923,15 @@ export async function readWeeklyFootballMarket(sport: FootballSport) {
     readSportWorksheet(sport, "daily_slate"),
     readSportWorksheet(sport, "all_game_trends"),
   ]);
-  const marketDates = [...new Set(rows.map((row) => String(row.Date || "")).filter(Boolean))];
+  const sourceRows = rows.filter(isScoresAndOddsCutoverRow);
+  const marketDates = [...new Set(sourceRows.map((row) => String(row.Date || "")).filter(Boolean))];
   const marketHistoryRows = marketDates.length
-    ? await readSportWorksheetByDateKeys(sport, MARKET_HISTORY_TAB, marketDates, MARKET_HISTORY_HEADERS)
+    ? (await readSportWorksheetByDateKeys(sport, MARKET_HISTORY_TAB, marketDates, MARKET_HISTORY_HEADERS))
+        .filter(isScoresAndOddsCutoverRow)
     : [];
   const canonicalRows = [...scheduleRows, ...slateRows, ...allGameTrends];
   const trendPlays: WeeklyTrendPlay[] = [];
-  for (const row of rows) {
+  for (const row of sourceRows) {
     const raw = String(row["Details JSON"] || "").trim();
     if (!raw) continue;
     try {
