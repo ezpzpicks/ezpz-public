@@ -64,18 +64,30 @@ function pct(value: unknown) {
   return Number.isFinite(n) ? `${n.toFixed(1)}%` : "-";
 }
 
-function compactTime(value: unknown) {
+function snapshotEpoch(value: unknown) {
+  const raw = String(value || "").trim();
+  const match = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4}),?\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)/i);
+  if (match) {
+    const [, month, day, year, rawHour, minute, second = "0", meridiem] = match;
+    let hour = Number(rawHour) % 12;
+    if (meridiem.toUpperCase() === "PM") hour += 12;
+    return Date.UTC(Number(year), Number(month) - 1, Number(day), hour, Number(minute), Number(second));
+  }
+  const stamp = Date.parse(raw);
+  return Number.isFinite(stamp) ? stamp : Number.POSITIVE_INFINITY;
+}
+
+function compactDate(value: unknown) {
   const raw = String(value || "").trim();
   if (!raw) return "-";
-  const match = raw.match(/(\d{1,2}:\d{2})(?::\d{2})?\s*(AM|PM)/i);
-  if (match) return `${match[1]} ${match[2].toUpperCase()}`;
+  const match = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (match) return `${Number(match[1])}/${Number(match[2])}`;
   const stamp = Date.parse(raw);
   if (!Number.isFinite(stamp)) return raw;
   return new Intl.DateTimeFormat("en-US", {
     timeZone: "America/New_York",
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
+    month: "numeric",
+    day: "numeric",
   }).format(new Date(stamp));
 }
 
@@ -122,19 +134,20 @@ function opposite(play: TrendPlay, plays: TrendPlay[]) {
   }) || null;
 }
 
-function labelsFor(play: TrendPlay, plays: TrendPlay[]) {
+function labelsFor(play: TrendPlay, plays: TrendPlay[], sport: Sport) {
   const publicSide = opposite(play, plays);
   if (!publicSide) return [] as string[];
   const labels: string[] = [];
 
   const publicBets = Number(publicSide.betsPct);
   const publicMoney = Number(publicSide.moneyPct);
-  if (
-    Number.isFinite(publicBets) &&
-    Number.isFinite(publicMoney) &&
-    publicBets > 75 &&
-    publicBets - publicMoney >= 55
-  ) labels.push("Public Fade");
+  const publicFade = sport === "NFL"
+    ? Number.isFinite(publicBets) && publicBets >= 80
+    : Number.isFinite(publicBets) &&
+      Number.isFinite(publicMoney) &&
+      publicBets > 75 &&
+      publicBets - publicMoney >= 55;
+  if (publicFade) labels.push("Public Fade");
 
   const publicMove = Number(publicSide.publicMovementPct);
   const lineMove = Number(publicSide.lineMovementValue);
@@ -154,8 +167,7 @@ function historyPoints(play: TrendPlay) {
   const saved = (play.movementHistory || []).filter((point) =>
     Number.isFinite(Number(point.betsPct)) && Number.isFinite(Number(point.moneyPct))
   );
-  if (saved.length >= 2) return saved;
-  return [
+  const fallback = [
     {
       snapshotTime: play.firstTrackedAt || "Open",
       line: play.openingLine ?? play.line,
@@ -171,6 +183,19 @@ function historyPoints(play: TrendPlay) {
       moneyPct: Number(play.moneyPct),
     },
   ];
+
+  const ordered = [...(saved.length >= 2 ? saved : fallback)].sort(
+    (a, b) => snapshotEpoch(a.snapshotTime) - snapshotEpoch(b.snapshotTime),
+  );
+  const firstRealIndex = ordered.findIndex((point) => {
+    const bets = Number(point.betsPct);
+    const money = Number(point.moneyPct);
+    const placeholder100 = bets === 100 && money === 100;
+    const placeholder0 = bets === 0 && money === 0;
+    return !placeholder100 && !placeholder0;
+  });
+
+  return firstRealIndex >= 0 ? ordered.slice(firstRealIndex) : ordered;
 }
 
 function polyline(values: number[], width: number, height: number, min: number, max: number) {
@@ -235,11 +260,11 @@ function movementMarkerIndexes(values: number[]) {
   return [...new Set(chosen)];
 }
 
-function timeAxis(points: ReturnType<typeof historyPoints>) {
+function dateAxis(points: ReturnType<typeof historyPoints>) {
   if (!points.length) return [] as string[];
   const indexes = [0, .25, .5, .75, 1]
     .map((ratio) => Math.round((points.length - 1) * ratio));
-  return [...new Set(indexes)].map((index) => compactTime(points[index]?.snapshotTime));
+  return [...new Set(indexes)].map((index) => compactDate(points[index]?.snapshotTime));
 }
 
 function MovementChart({ play }: { play: TrendPlay }) {
@@ -262,7 +287,7 @@ function MovementChart({ play }: { play: TrendPlay }) {
   const maxLine = rawMax + padding;
   const latest = points[points.length - 1];
   const markers = movementMarkerIndexes(lines);
-  const times = timeAxis(points);
+  const dates = dateAxis(points);
   const lineTicks = Array.from({ length: 5 }, (_, index) => maxLine - ((maxLine - minLine) / 4) * index);
 
   const latestBetsY = chartY(clampPct(latest?.betsPct), 0, 100, top, bottom);
@@ -305,7 +330,7 @@ function MovementChart({ play }: { play: TrendPlay }) {
               <text x="25" y="14" textAnchor="middle">{Math.round(clampPct(latest?.moneyPct))}%</text>
             </g>
           </svg>
-          <div className="dkChartTimeAxis">{times.map((time) => <span key={time}>{time}</span>)}</div>
+          <div className="dkChartTimeAxis">{dates.map((date, index) => <span key={`${date}-${index}`}>{date}</span>)}</div>
           <div className="dkChartLegend"><span className="bets">Bets %</span><span className="money">Money %</span></div>
         </div>
 
@@ -345,7 +370,7 @@ function MovementChart({ play }: { play: TrendPlay }) {
               );
             })}
           </svg>
-          <div className="dkChartTimeAxis">{times.map((time) => <span key={time}>{time}</span>)}</div>
+          <div className="dkChartTimeAxis">{dates.map((date, index) => <span key={`${date}-${index}`}>{date}</span>)}</div>
         </div>
       </div>
     </section>
@@ -353,7 +378,7 @@ function MovementChart({ play }: { play: TrendPlay }) {
 }
 
 function MarketRow({ play, plays, sport }: { play: TrendPlay; plays: TrendPlay[]; sport: Sport }) {
-  const labels = labelsFor(play, plays);
+  const labels = labelsFor(play, plays, sport);
   const rlmSummary = labels.includes("Strong RLM") ? rlmBadgeSummary(play) : null;
   return (
     <div className={`dkTrendMarketRow ${labels.length ? "qualified" : ""}`}>
@@ -442,7 +467,7 @@ function GameCard({ group, sport }: { group: Group; sport: Sport }) {
     if (a.market === "Total" && a.side !== b.side) return a.side === "Over" ? -1 : 1;
     return pickLabel(a).localeCompare(pickLabel(b));
   });
-  const qualifying = ordered.filter((play) => labelsFor(play, ordered).length > 0);
+  const qualifying = ordered.filter((play) => labelsFor(play, ordered, sport).length > 0);
   const gameTime = ordered.find((play) => play.gameTime)?.gameTime || "";
   const gameDate = ordered.find((play) => play.date)?.date || "";
   const spreadRef = ordered.find((play) => play.market === "Spread");
@@ -546,7 +571,7 @@ function historicalGroupKey(row: SheetRow) {
   return `${String(row.Date || "")}|${String(row["Game Key"] || row["Game ID"] || row.Game || "")}|${textKey(row.Market)}`;
 }
 
-function historicalLabels(row: SheetRow, group: SheetRow[]) {
+function historicalLabels(row: SheetRow, group: SheetRow[], sport: Sport) {
   const ownKey = historicalSelectionKey(row);
   const publicSide = group.find((candidate) => historicalSelectionKey(candidate) !== ownKey);
   if (!publicSide) return [] as string[];
@@ -554,12 +579,13 @@ function historicalLabels(row: SheetRow, group: SheetRow[]) {
 
   const publicBets = Number(publicSide["Public Bets %"] || publicSide["Current Public %"]);
   const publicMoney = Number(publicSide["Public Money %"] || publicSide["Current Sharp %"]);
-  if (
-    Number.isFinite(publicBets) &&
-    Number.isFinite(publicMoney) &&
-    publicBets > 75 &&
-    publicBets - publicMoney >= 55
-  ) labels.push("Public Fade");
+  const publicFade = sport === "NFL"
+    ? Number.isFinite(publicBets) && publicBets >= 80
+    : Number.isFinite(publicBets) &&
+      Number.isFinite(publicMoney) &&
+      publicBets > 75 &&
+      publicBets - publicMoney >= 55;
+  if (publicFade) labels.push("Public Fade");
 
   const publicMove = Number(publicSide["Public Change %"]);
   const lineMove = Number(publicSide["Line Movement Value"]);
@@ -587,7 +613,7 @@ function tone(record: RecordTotals) {
   return "yellow";
 }
 
-export function DirectTrendRecords({ rows }: { rows: SheetRow[]; today?: string }) {
+export function DirectTrendRecords({ rows, sport }: { rows: SheetRow[]; today?: string; sport: Sport }) {
   const grouped = new Map<string, SheetRow[]>();
   rows.forEach((row) => {
     if (!resultCode(row.Result || row.Status)) return;
@@ -599,7 +625,7 @@ export function DirectTrendRecords({ rows }: { rows: SheetRow[]; today?: string 
   const labeled: Array<{ row: SheetRow; signal: string; category: string }> = [];
   grouped.forEach((group) => {
     group.forEach((row) => {
-      historicalLabels(row, group).forEach((signal) => labeled.push({ row, signal, category: recordCategory(row) }));
+      historicalLabels(row, group, sport).forEach((signal) => labeled.push({ row, signal, category: recordCategory(row) }));
     });
   });
 

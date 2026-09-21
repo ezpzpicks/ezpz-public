@@ -1447,11 +1447,11 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
         <div><strong>{activeWeek || "Waiting for DraftKings"}</strong><small>{storedGamesForWeek.length} games stored • Public Fade and Strong RLM are the only qualifying trends</small></div>
       </div>
       <div className="directTrendRules">
-        <span><b>Public Fade</b> &gt;75% bets + 55+ point Bets/Money gap</span>
+        <span><b>Public Fade</b> {sport === "NFL" ? "fade any side with 80%+ of bets" : ">75% bets + 55+ point Bets/Money gap"}</span>
         <span><b>Strong RLM</b> public bets rise 5+ points while spread moves 1.5+ points against that side</span>
       </div>
       {displayedTrendGroups.length ? <FootballTrendMarketBoard groups={displayedTrendGroups} sport={sport} /> : <div className="empty footballEmpty">No {sport} DraftKings Spread/Total markets are stored for {activeWeek || "this week"} yet.</div>}
-      <div className="directTrendRecordWrap"><DirectTrendRecords rows={data.trendRecordRows || []} today={data.today} /></div>
+      <div className="directTrendRecordWrap"><DirectTrendRecords rows={data.trendRecordRows || []} today={data.today} sport={sport} /></div>
     </>;
   } else if (tab === "EZPZ Picks") {
     content = <>
@@ -1507,7 +1507,7 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
       </div>
       <div className="sectionHead"><div><h2>DraftKings Trend Records</h2><p>Only the two active market signals: Public Fade and Strong RLM</p></div></div>
       <div className="advancedRecordsStack">
-        <DirectTrendRecords rows={trendRows} today={data.today} />
+        <DirectTrendRecords rows={trendRows} today={data.today} sport={sport} />
       </div>
       <div className="sectionHead"><div><h2>Bet Type Records</h2><p>Exact A/B grade + market + direction subsets used by HOT / COLD / SMALL SAMPLE</p></div></div>
       <div className="advancedRecordsStack">
