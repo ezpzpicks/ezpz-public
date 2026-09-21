@@ -1,0 +1,75 @@
+name: EZPZ Final Notifications (GitHub Backfill Only)
+
+# Production MLB live-data capture runs on Vercel Cron. This workflow stays
+# scheduled only to read the already-produced public state and backfill ntfy
+# notifications. It no longer sets scheduled=1 or tracking=v2 and therefore is
+# not an authoritative market/snapshot collector.
+on:
+  schedule:
+    - cron: "30,35,40,45,50,55 10 * * *"
+      timezone: "America/New_York"
+    - cron: "0,5,10,15,20,25,30,35,40,45,50,55 11-21 * * *"
+      timezone: "America/New_York"
+    - cron: "0,5,10,15,20,25,30 22 * * *"
+      timezone: "America/New_York"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ezpz-final-notification-backfill
+  cancel-in-progress: true
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore notification state
+        uses: actions/cache/restore@v4
+        with:
+          path: .cache/final_trend_lock_notification_state.json
+          key: final-trend-lock-notifications-${{ github.run_id }}
+          restore-keys: |
+            final-trend-lock-notifications-
+
+      - name: Read current EZPZ final state without live-data persistence
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          test -n "$CRON_SECRET" || { echo "Missing repository secret: CRON_SECRET"; exit 1; }
+          curl --fail-with-body \
+            --silent \
+            --show-error \
+            --retry 2 \
+            --retry-delay 10 \
+            --max-time 75 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            --output /tmp/ezpz_public_data.json \
+            "https://ezpzpicks.com/api/public-data-v2"
+
+      - name: Send newly finalized AI picks to ntfy
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          FINAL_LOCK_CLICK_URL: https://ezpzpicks.com
+        run: |
+          node scripts/ai_final_notifications.mjs /tmp/ezpz_public_data.json
+
+      - name: Prepare game-lock-only notification payload
+        run: jq '.aiPicks = []' /tmp/ezpz_public_data.json > /tmp/ezpz_game_lock_data.json
+
+      - name: Send each game's final odds lock to ntfy
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          FINAL_LOCK_CLICK_URL: https://ezpzpicks.com
+        run: node scripts/final_trend_lock_notifications.mjs /tmp/ezpz_game_lock_data.json
+
+      - name: Save notification state
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .cache/final_trend_lock_notification_state.json
+          key: final-trend-lock-notifications-${{ github.run_id }}
