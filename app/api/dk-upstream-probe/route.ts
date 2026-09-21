@@ -20,9 +20,6 @@ async function probe(name: string, params: Record<string, string>) {
     });
     const html = await response.text();
     const normalized = html.replace(/&amp;/g, "&").replace(/\s+/g, " ");
-    const games = [...normalized.matchAll(/>([^<>]{2,80}\s@\s[^<>]{2,80})<\/g)]
-      .slice(0, 30)
-      .map((match) => match[1].trim());
     return {
       name,
       url: url.toString(),
@@ -32,7 +29,6 @@ async function probe(name: string, params: Record<string, string>) {
       hasUnable: /Unable to fetch data from server/i.test(html),
       hasColtsChiefs: /IND Colts @ KC Chiefs/i.test(html),
       hasGiantsRams: /NY Giants @ LA Rams/i.test(html),
-      gameMatches: games,
       title: (html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || "").trim(),
     };
   } catch (error) {
