@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { readSportWorksheet } from "../../../../lib/sportSheets";
+import { readSportWorksheet } from "../../../lib/sportSheets";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
