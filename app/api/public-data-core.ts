@@ -2548,6 +2548,23 @@ function publicDisplayDraftKingsPayload(
   finalSnapshots: DraftKingsPayload,
   slateRows: SheetRow[],
 ): DraftKingsPayload {
+  function withScheduledTime(split: DraftKingsSplit) {
+    if (parseEventTimeKey(split.eventTime || "")) return split;
+    const matchingSlateRows = slateRows.filter(
+      (row) =>
+        isoPublicDate(row.Date || "") === isoPublicDate(split.date) &&
+        normalizeTeam(row["Away Team"] || "") === normalizeTeam(split.awayTeam) &&
+        normalizeTeam(row["Home Team"] || "") === normalizeTeam(split.homeTeam),
+    );
+    // ScoresAndOdds can omit the event time after first pitch. Recover it from
+    // the slate only when the matchup is unique that day; doubleheaders remain
+    // untouched rather than risking a cross-game merge.
+    if (matchingSlateRows.length !== 1) return split;
+    const eventTime = scheduledGameTimeKey(matchingSlateRows[0]);
+    return eventTime ? { ...split, eventTime } : split;
+  }
+
+  const currentMarketSplits = current.splits.map(withScheduledTime);
   const finalMarketSplits = finalSnapshots.splits.flatMap((split) => {
     if (
       split.snapshotStatus !== "FINAL_PREGAME" ||
@@ -2571,7 +2588,7 @@ function publicDisplayDraftKingsPayload(
   );
 
   const splitMap = new Map<string, DraftKingsSplit>();
-  for (const split of current.splits) {
+  for (const split of currentMarketSplits) {
     const gameKey = draftKingsMarketInstanceKey(split);
     if (
       lockedGameKeys.has(gameKey) &&
