@@ -52,9 +52,13 @@ type EzpzPick = {
   selection: string;
   odds: string;
   score: number;
-  tier: string;
+  tier?: string;
   qualification: string;
   record?: string;
+  date?: string;
+  selected?: boolean;
+  result?: "W" | "L" | "P";
+  units?: number;
 };
 
 type DraftKingsSplit = {
@@ -82,7 +86,7 @@ type FootballSignalHistoryRow = {
 type FootballData = {
   today: string; lastUpdated: string; database?: string; bestPlays: Play[]; slateToday: SheetRow[];
   betTrackerRows?: SheetRow[]; trendRecordRows?: SheetRow[]; draftKingsSignalRows?: FootballSignalHistoryRow[];
-  trendPlays?: TrendPlay[]; aiPicks?: EzpzPick[]; recordSummary?: Summary[];
+  trendPlays?: TrendPlay[]; aiPicks?: EzpzPick[]; aiPickRecordRows?: EzpzPick[]; recordSummary?: Summary[];
   last7RecordSummary?: Summary[]; aiSelectorStatus?: { message?: string };
   draftKings?: { status: string; updatedAt: string; splits: DraftKingsSplit[]; errors?: string[] };
 };
@@ -94,6 +98,42 @@ type WeeklyMarketData = {
   splits: DraftKingsSplit[];
   updatedAt?: string;
 };
+
+function footballEzpzRecord(
+  rows: EzpzPick[] | undefined,
+  today: string,
+  days?: number,
+): RecordTotals {
+  let wins = 0, losses = 0, pushes = 0, unitsWon = 0;
+  const todayStamp = Date.parse(`${today}T12:00:00Z`);
+  for (const row of rows || []) {
+    if (row.selected === false || !row.result) continue;
+    if (days) {
+      const date = String(row.date || "");
+      const stamp = Date.parse(`${date}T12:00:00Z`);
+      const diff = Math.round((todayStamp - stamp) / 86_400_000);
+      if (!Number.isFinite(diff) || diff < 0 || diff >= days) continue;
+    }
+    if (row.result === "W") wins += 1;
+    else if (row.result === "L") losses += 1;
+    else pushes += 1;
+    const units = Number(row.units);
+    if (Number.isFinite(units)) unitsWon += units;
+  }
+  const totalBets = wins + losses + pushes;
+  const decisions = wins + losses;
+  unitsWon = Math.round(unitsWon * 100) / 100;
+  return {
+    record: `${wins}-${losses}-${pushes}`,
+    totalBets,
+    wins,
+    losses,
+    pushes,
+    winPct: decisions ? Math.round((wins / decisions) * 1000) / 10 : 0,
+    unitsWon,
+    roiPct: totalBets ? Math.round((unitsWon / totalBets) * 1000) / 10 : 0,
+  };
+}
 
 function pct(value: unknown) {
   const n = Number(value);
@@ -1497,14 +1537,21 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
     const trendRows = data.trendRecordRows || [];
     const overallBest = fbTotals(recordTrackerRows, data.today);
     const last7Best = fbTotals(recordTrackerRows, data.today, 7);
+    const ezpzLast7 = footballEzpzRecord(data.aiPickRecordRows, data.today, 7);
+    const ezpzOverall = footballEzpzRecord(data.aiPickRecordRows, data.today);
     content = <div className="footballRecordsPage">
-      <div className="sectionHead"><div><h2>All Qualified Plays</h2><p>{sport === "NFL" ? "Official graded NFL game + player-prop plays" : "Official graded CFB model plays"}</p></div></div>
+      <div className="sectionHead"><div><h2>Model Play Records</h2><p>{sport === "NFL" ? "Official graded NFL game + player-prop plays" : "Official graded CFB model plays"}</p></div></div>
       <div className="qualifiedGrid">
-        <RecordTile label="Best Plays - Last 7 Days" value={last7Best} />
-        <RecordTile label="Best Plays - Running Total" value={overallBest} />
+        <RecordTile label="Model Plays - Last 7 Days" value={last7Best} />
+        <RecordTile label="Model Plays - Running Total" value={overallBest} />
         {(data.recordSummary || []).map((row) =>
           <RecordTile key={row.betType} label={`${row.betType} - Running Total`} value={row} />
         )}
+      </div>
+      <div className="sectionHead"><div><h2>EZPZ Picks Records</h2><p>Results of the actual Model + Public Fade / Strong RLM / Sharp qualification stream</p></div></div>
+      <div className="qualifiedGrid">
+        <RecordTile label="EZPZ Picks - Last 7 Days" value={ezpzLast7} />
+        <RecordTile label="EZPZ Picks - Running Total" value={ezpzOverall} />
       </div>
       <div className="sectionHead"><div><h2>DraftKings Trend Records</h2><p>Only the three active market signals: Public Fade, Strong RLM, and Sharp</p></div></div>
       <div className="advancedRecordsStack">
