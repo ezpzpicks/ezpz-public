@@ -61,7 +61,7 @@ async function runCron(request: NextRequest) {
       payload?.draftKings?.displayMode === "STALE_FALLBACK";
     if (staleDraftKings) {
       throw new Error(
-        `${sport} DraftKings refresh used retained/stale data; cron run rejected so monitoring cannot report a false success.`,
+        `${sport} ScoresAndOdds refresh used retained/stale data; cron run rejected so monitoring cannot report a false success.`,
       );
     }
     try {
