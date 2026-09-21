@@ -589,9 +589,8 @@ function GameCard({ group, sport }: { group: Group; sport: Sport }) {
   const qualifying = ordered.filter((play) => labelsFor(play, ordered, sport).length > 0);
   const gameTime = ordered.find((play) => play.gameTime)?.gameTime || "";
   const gameDate = ordered.find((play) => play.date)?.date || "";
-  const spreadRef = ordered.find((play) => isSpreadMarket(play.market));
-  const totalRef = ordered.find((play) => play.market === "Total" && play.side === "Over")
-    || ordered.find((play) => play.market === "Total");
+  const sideMarketRefs = ordered.filter((play) => isSpreadMarket(play.market) || play.market === "Moneyline");
+  const totalRefs = ordered.filter((play) => play.market === "Total");
   const matchup = matchupTeams(group.game, sport);
 
   return (
@@ -631,8 +630,18 @@ function GameCard({ group, sport }: { group: Group; sport: Sport }) {
       <details className="dkMovementDropdown">
         <summary><span>View market movement</span><small>Bets %, Money %, and line history</small></summary>
         <div className="dkMovementBody">
-          {spreadRef ? <MovementChart play={spreadRef} /> : null}
-          {totalRef ? <MovementChart play={totalRef} /> : null}
+          {sideMarketRefs.map((play) => (
+            <MovementChart
+              key={`${play.gameKey}-movement-${play.market}-${play.selection}-${play.side}`}
+              play={play}
+            />
+          ))}
+          {totalRefs.map((play) => (
+            <MovementChart
+              key={`${play.gameKey}-movement-${play.market}-${play.selection}-${play.side}`}
+              play={play}
+            />
+          ))}
         </div>
       </details>
     </article>
