@@ -730,11 +730,22 @@ export function DirectTrendRecords({ rows, trendPlays = [], sport }: { rows: She
   // This keeps games such as DET-BUF from disappearing from the record table.
   if (sport === "NFL" && trendPlays.length) {
     trendPlays
-      .filter((play) =>
-        play.market === "Spread" &&
-        play.snapshotStatus === "FINAL_PREGAME" &&
-        /strong reverse line movement support/i.test(String(play.lineMovementSignal || ""))
-      )
+      .filter((play) => {
+        const openingBets = Number(play.openingBetsPct);
+        const publicMove = Number(play.publicMovementPct);
+        const lineMove = Number(play.lineMovementValue);
+        return play.market === "Spread" &&
+          play.snapshotStatus === "FINAL_PREGAME" &&
+          /strong reverse line movement support/i.test(String(play.lineMovementSignal || "")) &&
+          Number.isFinite(openingBets) &&
+          openingBets > 0 &&
+          openingBets < 100 &&
+          String(play.lineMovementBasis || "").includes("Spread") &&
+          Number.isFinite(publicMove) &&
+          publicMove <= -5 &&
+          Number.isFinite(lineMove) &&
+          lineMove >= 1.5;
+      })
       .forEach((play) => {
         const alreadyTracked = labeled.some((item) =>
           item.signal === "Strong RLM" &&
