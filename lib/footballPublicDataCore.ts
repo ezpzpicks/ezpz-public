@@ -1973,23 +1973,43 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
   // append-only weekly market history has a later real first snapshot. Overlay
   // the corrected weekly movement state for public record classification so a
   // placeholder opening can neither create nor erase a Strong RLM result.
+  const publicTrendGameKey = (
+    date: unknown,
+    game: unknown,
+    awayTeam: unknown,
+    homeTeam: unknown,
+    market: unknown,
+  ) => {
+    const away = normalizeTeam(awayTeam, sport);
+    const home = normalizeTeam(homeTeam, sport);
+    const matchup = away && home ? `${away}|${home}` : textKey(game);
+    return [isoDate(date), matchup, textKey(market)].join("|");
+  };
   const publicTrendKey = (
     date: unknown,
     _gameKey: unknown,
     game: unknown,
+    awayTeam: unknown,
+    homeTeam: unknown,
     market: unknown,
     selection: unknown,
-  ) => [
-    isoDate(date),
-    textKey(game),
-    textKey(market),
-    textKey(selection),
-  ].join("|");
+  ) => {
+    const marketKey = textKey(market);
+    const selectionKey = marketKey === "total"
+      ? textKey(selection)
+      : normalizeTeam(selection, sport);
+    return [
+      publicTrendGameKey(date, game, awayTeam, homeTeam, market),
+      selectionKey,
+    ].join("|");
+  };
   const weeklyMovementByKey = new Map(displayTrendPlays.map((play) => [
     publicTrendKey(
       play.date,
       play.gameKey,
       play.game,
+      play.awayTeam,
+      play.homeTeam,
       play.market,
       play.market === "Total" ? play.side || play.selection : play.selectionTeam || play.selection,
     ),
@@ -2000,16 +2020,26 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
     const selection = market === "Total"
       ? row.Side || row.Selection
       : row["Public Split Selection"] || row.Selection;
+    const directTrendGroupKey = publicTrendGameKey(
+      row.Date,
+      row.Game,
+      row["Away Team"],
+      row["Home Team"],
+      market,
+    );
     const play = weeklyMovementByKey.get(publicTrendKey(
       row.Date,
       row["Game Key"],
       row.Game,
+      row["Away Team"],
+      row["Home Team"],
       market,
       selection,
     ));
-    if (!play) return row;
+    if (!play) return { ...row, "Direct Trend Group Key": directTrendGroupKey };
     return {
       ...row,
+      "Direct Trend Group Key": directTrendGroupKey,
       "Public Bets %": String(play.betsPct),
       "Public Money %": String(play.moneyPct),
       "Public Gap %": String(play.gapPct),
