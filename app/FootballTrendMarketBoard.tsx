@@ -557,11 +557,53 @@ const NFL_TEAM_PREFIXES = new Set([
   "KC","LV","LAC","LAR","LA","MIA","MIN","NE","NO","NY","NYG","NYJ","PHI","PIT","SEA","SF","TB","TEN","WAS"
 ]);
 
+const NFL_TEAM_DISPLAY: Record<string, string> = {
+  ari: "Cardinals", arizona: "Cardinals", cardinals: "Cardinals", "arizona cardinals": "Cardinals",
+  atl: "Falcons", atlanta: "Falcons", falcons: "Falcons", "atlanta falcons": "Falcons",
+  bal: "Ravens", baltimore: "Ravens", ravens: "Ravens", "baltimore ravens": "Ravens",
+  buf: "Bills", buffalo: "Bills", bills: "Bills", "buffalo bills": "Bills",
+  car: "Panthers", carolina: "Panthers", panthers: "Panthers", "carolina panthers": "Panthers",
+  chi: "Bears", chicago: "Bears", bears: "Bears", "chicago bears": "Bears",
+  cin: "Bengals", cincinnati: "Bengals", bengals: "Bengals", "cincinnati bengals": "Bengals",
+  cle: "Browns", clv: "Browns", cleveland: "Browns", browns: "Browns", "cleveland browns": "Browns",
+  dal: "Cowboys", dallas: "Cowboys", cowboys: "Cowboys", "dallas cowboys": "Cowboys",
+  den: "Broncos", denver: "Broncos", broncos: "Broncos", "denver broncos": "Broncos",
+  det: "Lions", detroit: "Lions", lions: "Lions", "detroit lions": "Lions",
+  gb: "Packers", "green bay": "Packers", packers: "Packers", "green bay packers": "Packers",
+  hou: "Texans", hst: "Texans", houston: "Texans", texans: "Texans", "houston texans": "Texans",
+  ind: "Colts", indianapolis: "Colts", colts: "Colts", "indianapolis colts": "Colts",
+  jac: "Jaguars", jax: "Jaguars", jacksonville: "Jaguars", jaguars: "Jaguars", "jacksonville jaguars": "Jaguars",
+  kc: "Chiefs", "kansas city": "Chiefs", chiefs: "Chiefs", "kansas city chiefs": "Chiefs",
+  lv: "Raiders", oak: "Raiders", "las vegas": "Raiders", raiders: "Raiders", "las vegas raiders": "Raiders",
+  lac: "Chargers", sd: "Chargers", chargers: "Chargers", "los angeles chargers": "Chargers",
+  la: "Rams", lar: "Rams", stl: "Rams", rams: "Rams", "la rams": "Rams", "lar rams": "Rams", "los angeles rams": "Rams",
+  mia: "Dolphins", miami: "Dolphins", dolphins: "Dolphins", "miami dolphins": "Dolphins",
+  min: "Vikings", minnesota: "Vikings", vikings: "Vikings", "minnesota vikings": "Vikings",
+  ne: "Patriots", "new england": "Patriots", patriots: "Patriots", "new england patriots": "Patriots",
+  no: "Saints", "new orleans": "Saints", saints: "Saints", "new orleans saints": "Saints",
+  nyg: "Giants", giants: "Giants", "ny giants": "Giants", "new york giants": "Giants",
+  nyj: "Jets", jets: "Jets", "ny jets": "Jets", "new york jets": "Jets",
+  phi: "Eagles", philadelphia: "Eagles", eagles: "Eagles", "philadelphia eagles": "Eagles",
+  pit: "Steelers", pittsburgh: "Steelers", steelers: "Steelers", "pittsburgh steelers": "Steelers",
+  sea: "Seahawks", seattle: "Seahawks", seahawks: "Seahawks", "seattle seahawks": "Seahawks",
+  sf: "49ers", "san francisco": "49ers", "49ers": "49ers", "san francisco 49ers": "49ers",
+  tb: "Buccaneers", tampa: "Buccaneers", "tampa bay": "Buccaneers", buccaneers: "Buccaneers", "tampa bay buccaneers": "Buccaneers",
+  ten: "Titans", tennessee: "Titans", titans: "Titans", "tennessee titans": "Titans",
+  was: "Commanders", wsh: "Commanders", washington: "Commanders", commanders: "Commanders", "washington commanders": "Commanders",
+};
+
 function cleanMatchupTeam(team: string, sport: Sport) {
   const raw = String(team || "").trim();
   if (sport !== "NFL") return raw;
+
+  const exact = NFL_TEAM_DISPLAY[textKey(raw)];
+  if (exact) return exact;
+
   const parts = raw.split(/\s+/);
-  if (parts.length > 1 && NFL_TEAM_PREFIXES.has(parts[0].toUpperCase())) return parts.slice(1).join(" ");
+  if (parts.length > 1 && NFL_TEAM_PREFIXES.has(parts[0].toUpperCase())) {
+    const stripped = parts.slice(1).join(" ");
+    return NFL_TEAM_DISPLAY[textKey(stripped)] || stripped;
+  }
   return raw;
 }
 
