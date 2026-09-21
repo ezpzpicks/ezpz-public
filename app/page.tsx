@@ -5113,7 +5113,7 @@ function AiPickSelectorCard({
     String(pick.selectorVersion || "").startsWith("mlb-trend-v2") ||
     String(pick.candidateId || "").startsWith("v2|");
   const isDirectTrendPick =
-    String(pick.selectorVersion || "").includes("mlb-direct-trends-nfl-rules-v1") ||
+    String(pick.selectorVersion || "").includes("mlb-direct-trends-moneyline-v2") ||
     (pick.source !== "Best Play" &&
       /(?:Public Fade|Strong RLM|Sharp)/i.test(String(pick.trendTier || "")));
   const directTrendLabels = isDirectTrendPick
@@ -7066,12 +7066,12 @@ export default function Home() {
               <h2>Today’s Trend Plays</h2>
               <div className="directTrendRules">
                 <span><b>Public Fade</b> Fade the opposite side when 80%+ of bets are on one side.</span>
-                <span><b>Strong RLM</b> Bets rise 5+ points while the Run Line moves 1.5+ runs against that increasingly public side.</span>
+                <span><b>Strong RLM</b> Moneyline bets rise 5+ points while that team’s implied probability moves 1.5+ points against it.</span>
                 <span><b>Sharp</b> Money share is 20+ points higher than bet share.</span>
               </div>
             </div>
             <span className="countPill">
-              {directTrendGroups.length} games • {displayedTrendSides} DraftKings Run Line / Total sides
+              {directTrendGroups.length} games • {displayedTrendSides} DraftKings Moneyline / Total sides
             </span>
           </div>
 
@@ -7079,7 +7079,7 @@ export default function Home() {
             <FootballTrendMarketBoard groups={directTrendGroups as any} sport="MLB" />
           ) : (
             <div className="empty">
-              No MLB Run Line or Total DraftKings splits are available for today’s slate yet.
+              No MLB Moneyline or Total DraftKings splits are available for today’s slate yet.
             </div>
           )}
 
