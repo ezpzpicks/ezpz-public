@@ -148,6 +148,32 @@ test("falls back to explicit Spread and Total tabs when All returns no rows", as
   assert.ok(requested.some((params) => params.tb_emt === "Total"));
 });
 
+test("tracks a page as missing when every DK request attempt for that page fails", async () => {
+  type Row = { id: string };
+  const filter: DraftKingsFilterCandidate = {
+    eventGroup: "NFL",
+    content: "NFL",
+    dateRange: "n30days",
+    label: "NFL",
+    source: "link",
+  };
+  const result = await crawlDraftKingsFootballFilter<Row>(
+    filter,
+    (html) => html === "PAGE2" ? [{ id: "page-two" }] : [],
+    (row) => row.id,
+    5,
+    async (params) => {
+      if (!params.tb_page || params.tb_page === "1") {
+        throw new Error("upstream unavailable");
+      }
+      if (params.tb_page === "2") return "PAGE2";
+      return "";
+    },
+  );
+  assert.deepEqual(result.rows, [{ id: "page-two" }]);
+  assert.ok(result.missingPages.includes(1));
+});
+
 test("rejects a plausible-looking but partial NFL slate", () => {
   type Row = { game: string; market: "Spread" | "Total"; side: string };
   const expected = new Map([

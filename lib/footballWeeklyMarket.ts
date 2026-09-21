@@ -434,6 +434,7 @@ type LoadedPostedSplits = {
   filter: DraftKingsFilterCandidate;
   pagesScanned: number;
   pagesWithRows: number[];
+  missingPages: number[];
   coverage: DraftKingsMarketCoverage;
 };
 
@@ -566,6 +567,7 @@ async function loadPostedSplits(
       filter,
       pagesScanned: crawl.pagesScanned,
       pagesWithRows: crawl.pagesWithRows,
+      missingPages: crawl.missingPages,
       coverage,
     };
     if (
@@ -579,16 +581,20 @@ async function loadPostedSplits(
       )
     ) best = candidate;
 
-    if (sport !== "NFL" && validated.length) return candidate;
-    if (sport === "NFL" && coverage.ok) return candidate;
+    // Football discovery must prove both slate coverage and crawl continuity.
+    // This prevents CFB from accepting a plausible-looking partial page set.
+    if (coverage.ok && crawl.missingPages.length === 0) return candidate;
   }
 
   if (!best) {
     throw new Error(`DraftKings ${sport} discovery returned no filter candidates.`);
   }
-  if (sport === "NFL") {
+  if (!best.coverage.ok || best.missingPages.length) {
+    const pageFailure = best.missingPages.length
+      ? `; missing crawl page(s) ${best.missingPages.join(", ")}`
+      : "";
     throw new Error(
-      `DraftKings NFL partial slate rejected: ${coverageFailureMessage(best.coverage)}. ` +
+      `DraftKings ${sport} partial slate rejected: ${coverageFailureMessage(best.coverage)}${pageFailure}. ` +
       `Filter ${best.filter.eventGroup}/${best.filter.dateRange}; ` +
       `received ${best.coverage.receivedGames} games and ${best.splits.length} market sides.`,
     );
@@ -614,6 +620,7 @@ export async function inspectPostedFootballMarkets(sport: FootballSport) {
     coverage: result.coverage,
     pagesScanned: result.pagesScanned,
     pagesWithRows: result.pagesWithRows,
+    missingPages: result.missingPages,
     games,
     marketSidesFound: result.splits.length,
     splits: result.splits.map((split) => ({
@@ -1802,6 +1809,7 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
     coverage: dk.coverage,
     pagesScanned: dk.pagesScanned,
     pagesWithRows: dk.pagesWithRows,
+    missingPages: dk.missingPages,
     trendRowsUpdated: rows.length,
     marketHistoryRowsAppended,
     marketHistoryRowsStored: marketHistoryRows.length,
