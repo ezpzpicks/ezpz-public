@@ -519,19 +519,43 @@ function mergeFootballTrackingSlate(projected: SheetRow[], schedule: SheetRow[],
   for (const row of projected.filter((entry) => inFootballTrackingWeek(entry, sport, referenceDate))) {
     const key = footballScheduleKey(row, sport);
     const date = isoDate(row.Date || row["Game Date"] || "");
-    const recoveredScheduleShell =
-      sport === "NFL" &&
-      textKey(row.Notes || "").includes("schedule only shell recovered from");
 
-    // If the live/saved authoritative NFL schedule already covers this date,
-    // never let an unmatched recovery shell create a second phantom matchup.
-    if (recoveredScheduleShell && date && authoritativeDates.has(date) && !authoritativeKeys.has(key)) continue;
+    if (sport === "NFL" && date && authoritativeDates.has(date)) {
+      const scheduleMatch = authoritativeSchedule.find((candidate) => {
+        const candidateDate = isoDate(candidate.Date || candidate["Game Date"] || "");
+        return (
+          candidateDate === date &&
+          sameTeam(candidate["Away Team"], row["Away Team"], sport) &&
+          sameTeam(candidate["Home Team"], row["Home Team"], sport)
+        );
+      });
+
+      // The real schedule is the only allowed NFL matchup skeleton for a date
+      // it covers. Attach model/projection fields to that scheduled matchup even
+      // if the saved row carries a stale Game string or different Game ID.
+      if (scheduleMatch) {
+        const scheduleKey = footballScheduleKey(scheduleMatch, sport);
+        const enriched = nonEmptyMerge(scheduleMatch, row);
+        merged.set(scheduleKey, {
+          ...enriched,
+          Date: scheduleMatch.Date || enriched.Date || "",
+          "Game Date": scheduleMatch["Game Date"] || scheduleMatch.Date || enriched["Game Date"] || "",
+          "Game Time": scheduleMatch["Game Time"] || enriched["Game Time"] || "",
+          "Game ID": scheduleMatch["Game ID"] || enriched["Game ID"] || "",
+          Game: scheduleMatch.Game || enriched.Game || "",
+          "Away Team": scheduleMatch["Away Team"] || enriched["Away Team"] || "",
+          "Home Team": scheduleMatch["Home Team"] || enriched["Home Team"] || "",
+        });
+      }
+
+      // If it does not match a real scheduled NFL game on that date, drop it.
+      // This prevents stale/mismapped rows such as a NYG/LA row labeled NYG @ ATL
+      // from becoming an extra expected game or duplicate display row.
+      continue;
+    }
 
     const authoritative = merged.get(key);
     if (sport === "NFL" && authoritative && authoritativeKeys.has(key)) {
-      // Keep model/projection fields, but never allow a saved/projected row to
-      // rewrite the real NFL schedule identity. The authoritative schedule owns
-      // the matchup, date, kickoff and event id for coverage validation.
       const enriched = nonEmptyMerge(authoritative, row);
       merged.set(key, {
         ...enriched,
