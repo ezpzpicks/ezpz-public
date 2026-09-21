@@ -1652,6 +1652,52 @@ function footballBestPlayRecordType(play: any, split: DraftKingsSplit | undefine
   return footballCfbRecordType(base, play.playType || play.grade || play["Model Grade"]);
 }
 
+const PUBLIC_FADE_MIN_BETS_PCT = 75;
+const PUBLIC_FADE_MIN_TICKET_MONEY_GAP_PCT = 55;
+const STRONG_RLM_MIN_PUBLIC_MOVE_PCT = 5;
+const STRONG_RLM_MIN_SPREAD_MOVE_POINTS = 1.5;
+
+function oppositeTrendPlay(play: TrendPlay, trends: TrendPlay[]) {
+  const sideKey = play.market === "Total" ? textKey(play.side) : textKey(play.selection);
+  return trends.find((candidate) => {
+    if (candidate.gameKey !== play.gameKey || candidate.market !== play.market) return false;
+    const candidateSide = candidate.market === "Total"
+      ? textKey(candidate.side)
+      : textKey(candidate.selection);
+    return candidateSide !== sideKey;
+  });
+}
+
+function isPublicFadeSource(play: TrendPlay) {
+  const bets = Number(play.betsPct);
+  const money = Number(play.moneyPct);
+  return Number.isFinite(bets)
+    && Number.isFinite(money)
+    && bets > PUBLIC_FADE_MIN_BETS_PCT
+    && bets - money >= PUBLIC_FADE_MIN_TICKET_MONEY_GAP_PCT;
+}
+
+function isStrongRlmSource(play: TrendPlay) {
+  const publicMove = Number(play.publicMovementPct);
+  const lineMove = Number(play.lineMovementValue);
+  const basis = String((play as TrendPlay & { lineMovementBasis?: string }).lineMovementBasis || "");
+  return play.market === "Spread"
+    && basis.includes("Spread")
+    && Number.isFinite(publicMove)
+    && publicMove >= STRONG_RLM_MIN_PUBLIC_MOVE_PCT
+    && Number.isFinite(lineMove)
+    && lineMove <= -STRONG_RLM_MIN_SPREAD_MOVE_POINTS;
+}
+
+function directTrendQualification(play: TrendPlay, trends: TrendPlay[]) {
+  const publicSide = oppositeTrendPlay(play, trends);
+  if (!publicSide) return { labels: [] as string[], publicSide: null as TrendPlay | null };
+  const labels: string[] = [];
+  if (isPublicFadeSource(publicSide)) labels.push("Public Fade");
+  if (isStrongRlmSource(publicSide)) labels.push("Strong RLM");
+  return { labels, publicSide };
+}
+
 function buildFootballEzpzPicks(
   best: any[],
   trends: TrendPlay[],
@@ -1686,48 +1732,27 @@ function buildFootballEzpzPicks(
     });
   }
 
-  for (const play of headToHead(trends) as TrendPlay[]) {
-    if (play.tier !== "Strong" && play.tier !== "Elite") continue;
-    const trendSampleSize = Number(play.TrendSampleSize || 0);
-    // CFB Weeks 1-4 provisional EZPZ gate: require more history while preserving
-    // the underlying Trend Play score/tier and every stored candidate for the
-    // Week 5 regression/backtest. NFL retains the existing early-season guardrail.
-    const minTrendSampleSize = sport === "NCAAF" ? 8 : 5;
-    if (trendSampleSize < minTrendSampleSize) continue;
-    const ezpzTrendTier =
-      trendSampleSize < 10 && play.tier === "Elite"
-        ? "Strong"
-        : play.tier;
-    if (sport === "NCAAF") {
-      const candidateMetrics = footballTrendMetrics(play);
-      const opponent = trends
-        .filter((candidate) =>
-          candidate.gameKey === play.gameKey &&
-          candidate.market === play.market &&
-          textKey(candidate.selection) !== textKey(play.selection))
-        .map((candidate) => ({ candidate, metrics: footballTrendMetrics(candidate) }))
-        .filter(({ metrics }) => metrics.hasData)
-        .sort((a, b) =>
-          b.metrics.score - a.metrics.score ||
-          b.metrics.roiPct - a.metrics.roiPct ||
-          b.metrics.winPct - a.metrics.winPct)[0];
-      const netRoiAdvantage = opponent ? candidateMetrics.roiPct - opponent.metrics.roiPct : Number.NEGATIVE_INFINITY;
-      if (!candidateMetrics.hasData || candidateMetrics.roiPct <= 0 || netRoiAdvantage < 25) continue;
-    }
-    if (!play.signals.length || !play.signals.every((signal) => signal.tone === "positive")) continue;
+  for (const play of trends) {
+    const direct = directTrendQualification(play, trends);
+    if (!direct.labels.length) continue;
     const odds = americanOddsText(play.odds);
     if (!odds || Number(odds) < -150) continue;
+
+    const strengthScore = direct.labels.includes("Strong RLM")
+      ? Math.min(100, 85 + Math.max(0, Math.abs(Number(direct.publicSide?.lineMovementValue || 0)) - STRONG_RLM_MIN_SPREAD_MOVE_POINTS) * 5)
+      : 85;
+
     picks.push({
       source: "Trend Play",
       game: play.game,
       market: play.market,
-      selection: play.market === "Total" ? `${play.side} ${play.line ?? ""}`.trim() : `${play.selection} ${play.line == null ? "" : `${play.line > 0 ? "+" : ""}${play.line}`}`.trim(),
+      selection: play.market === "Total"
+        ? `${play.side} ${play.line ?? ""}`.trim()
+        : `${play.selection} ${play.line == null ? "" : `${play.line > 0 ? "+" : ""}${play.line}`}`.trim(),
       odds,
-      score: Math.round(play.score * 10) / 10,
-      tier: `${ezpzTrendTier} Trend Play`,
-      qualification: sport === "NCAAF"
-        ? "All-green Trend Play • 25%+ net ROI advantage • 8+ graded trend sample"
-        : "All-green Trend Play • 15%+ net ROI advantage",
+      score: Math.round(strengthScore * 10) / 10,
+      tier: direct.labels.join(" + "),
+      qualification: direct.labels.join(" • "),
     });
   }
 
@@ -1871,7 +1896,7 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
   });
   const recordSummary = buildRecordSummary();
   const last7RecordSummary = buildRecordSummary(7);
-  return {ok:true,sport,database:sportDatabaseLabel(sport),today,lastUpdated:nowET(),tiles:{last7Days:last7,overallGreen:overall,handpickedLast7:last7,handpickedOverall:overall,pendingGreen:pending,bestPlaysToday:best.length},bestPlays:best,slateToday:todaySlate,betTrackerRows:effectiveTracker,draftKings:{ok:enriched.length>0,status:enriched.length?"LIVE":"UNAVAILABLE",updatedAt:nowET(),stale:false,splits:enriched,props:[],errors:dk.errors,filter:dk.filter,coverage:dk.coverage,displayMode:"LIVE",trackingMode:"WEEKLY",trackingWeekStart:trackingWeek.start,trackingWeekEnd:trackingWeek.end,trackedGames:trackingSlate.length},draftKingsSignalRows:history,trendRecordRows:trendRows.filter(r=>resultCode(r.Result)),trendPlays:displayTrendPlays,aiPicks,aiPickRecordRows:[],aiSelectorStatus:{mode:"LIVE",externalResearchConfigured:false,message:aiPicks.length?`${sport} EZPZ Picks are live for ${today}: HOT Best Plays are FINAL immediately; currently qualifying all-green Strong/Elite Trend Plays with 25%+ net ROI advantage and 8+ graded trend sample appear as PENDING until the next lock run; a delayed run may finalize after kickoff from the saved pregame snapshot; max price -150.`:`No ${sport} EZPZ Picks for ${today} currently qualify under the HOT / all-green 25%+ net ROI / 8+ graded trend sample / Strong-Elite / -150 rules. Qualifying Trend Plays appear as PENDING and can finalize on a later run even after kickoff, using only the saved pregame snapshot.`,updatedAt:nowET(),candidateCount:modelBest.length+todayTrendPlays.length,selectedCount:aiPicks.length},recordSummary,last7RecordSummary,handpickedRecordSummary:recordSummary,handpickedLast7RecordSummary:last7RecordSummary};
+  return {ok:true,sport,database:sportDatabaseLabel(sport),today,lastUpdated:nowET(),tiles:{last7Days:last7,overallGreen:overall,handpickedLast7:last7,handpickedOverall:overall,pendingGreen:pending,bestPlaysToday:best.length},bestPlays:best,slateToday:todaySlate,betTrackerRows:effectiveTracker,draftKings:{ok:enriched.length>0,status:enriched.length?"LIVE":"UNAVAILABLE",updatedAt:nowET(),stale:false,splits:enriched,props:[],errors:dk.errors,filter:dk.filter,coverage:dk.coverage,displayMode:"LIVE",trackingMode:"WEEKLY",trackingWeekStart:trackingWeek.start,trackingWeekEnd:trackingWeek.end,trackedGames:trackingSlate.length},draftKingsSignalRows:history,trendRecordRows:trendRows.filter(r=>resultCode(r.Result)),trendPlays:displayTrendPlays,aiPicks,aiPickRecordRows:[],aiSelectorStatus:{mode:"LIVE",externalResearchConfigured:false,message:aiPicks.length?`${sport} EZPZ Picks are live for ${today}: HOT Best Plays remain FINAL immediately; Trend Plays now qualify only through Public Fade (>75% bets with a 55+ point Bets%-Money% gap) or Strong RLM (public bet share rises at least 5 points while the spread moves 1.5+ points against that side). Qualifying Trend Plays remain tied to the saved pregame market snapshot.`:`No ${sport} EZPZ Picks for ${today} currently qualify under the HOT Best Play / Public Fade / Strong RLM rules.`,updatedAt:nowET(),candidateCount:modelBest.length+todayTrendPlays.length,selectedCount:aiPicks.length},recordSummary,last7RecordSummary,handpickedRecordSummary:recordSummary,handpickedLast7RecordSummary:last7RecordSummary};
 }
 
 const FOOTBALL_PUBLIC_DATA_CACHE_TTL_MS = 60_000;
