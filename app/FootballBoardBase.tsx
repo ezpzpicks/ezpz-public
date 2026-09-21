@@ -813,9 +813,9 @@ function fbTrendNetRoiSummary(play: TrendPlay, trendPlays: TrendPlay[]) {
 
 function fbTrendPickPassesEzpzRules(pick: EzpzPick, trendPlays: TrendPlay[], sport: Sport) {
   if (pick.source !== "Trend Play") return true;
-  // Trend EZPZ qualification is now intentionally deterministic on the backend:
-  // Public Fade or Strong RLM. Do not re-apply the retired tier/sample/ROI gates here.
-  return /(?:^|\b)(Public Fade|Strong RLM)(?:\b|$)/i.test(String(pick.qualification || pick.tier || ""));
+  // Trend EZPZ qualification is deterministic on the backend:
+  // Public Fade, Strong RLM, or Sharp. Do not re-apply retired tier/sample/ROI gates here.
+  return /(?:^|\b)(Public Fade|Strong RLM|Sharp)(?:\b|$)/i.test(String(pick.qualification || pick.tier || ""));
 }
 
 function BestPlayCard({ play, splits, index, sport, recentByType, lastSevenBetsByType }: { play: Play; splits: DraftKingsSplit[]; index: number; sport: Sport; recentByType: Map<string, Summary>; lastSevenBetsByType: Map<string, Summary> }) {
@@ -1444,18 +1444,19 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
     content = <>
       <div className="trendWeekControls simplifiedTrendControls">
         <label><span>View market week</span><select value={activeWeek} onChange={(event) => setSelectedWeek(event.target.value)} disabled={!trendWeeks.length}>{trendWeeks.length ? trendWeeks.map((week) => <option key={week} value={week}>{week}</option>) : <option value="">No weeks yet</option>}</select></label>
-        <div><strong>{activeWeek || "Waiting for DraftKings"}</strong><small>{storedGamesForWeek.length} games stored • Public Fade and Strong RLM are the only qualifying trends</small></div>
+        <div><strong>{activeWeek || "Waiting for DraftKings"}</strong><small>{storedGamesForWeek.length} games stored • Public Fade, Strong RLM, and Sharp are the only qualifying trends</small></div>
       </div>
       <div className="directTrendRules">
         <span><b>Public Fade</b> {sport === "NFL" ? "fade any side with 80%+ of bets" : ">75% bets + 55+ point Bets/Money gap"}</span>
         <span><b>Strong RLM</b> public bets rise 5+ points while spread moves 1.5+ points against that side</span>
+        <span><b>Sharp</b> money share exceeds bet share by {sport === "NFL" ? "20+" : "25+"} points</span>
       </div>
       {displayedTrendGroups.length ? <FootballTrendMarketBoard groups={displayedTrendGroups} sport={sport} /> : <div className="empty footballEmpty">No {sport} DraftKings Spread/Total markets are stored for {activeWeek || "this week"} yet.</div>}
       <div className="directTrendRecordWrap"><DirectTrendRecords rows={data.trendRecordRows || []} trendPlays={data.trendPlays || []} today={data.today} sport={sport} /></div>
     </>;
   } else if (tab === "EZPZ Picks") {
     content = <>
-      <div className="sectionHead"><div><h2>{sport} EZPZ Picks</h2><p>{data.aiSelectorStatus?.message || "HOT Model Plays plus qualifying Public Fade and Strong RLM trend plays."}</p></div></div>
+      <div className="sectionHead"><div><h2>{sport} EZPZ Picks</h2><p>{data.aiSelectorStatus?.message || "HOT Model Plays plus qualifying Public Fade, Strong RLM, and Sharp trend plays."}</p></div></div>
       {todayEzpzPicks.length ? <div className="aiPickStack">{todayEzpzPicks.map((pick, index) => <EzpzPickCard key={`${pick.game}-${pick.market}-${pick.selection}-${index}`} pick={pick} splits={splits} trendPlays={ezpzTrendSource} slateRows={slateRows} todayByType={todayByType} recentByType={last7Map} lastSevenBetsByType={lastSevenBetsByType} overallByType={summaryMap} sport={sport} />)}</div> : <div className="empty footballEmpty">No {sport} EZPZ Picks qualify for {data.today} right now.</div>}
     </>;
   } else if (tab === "Full Slate") {
@@ -1505,7 +1506,7 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
           <RecordTile key={row.betType} label={`${row.betType} - Running Total`} value={row} />
         )}
       </div>
-      <div className="sectionHead"><div><h2>DraftKings Trend Records</h2><p>Only the two active market signals: Public Fade and Strong RLM</p></div></div>
+      <div className="sectionHead"><div><h2>DraftKings Trend Records</h2><p>Only the three active market signals: Public Fade, Strong RLM, and Sharp</p></div></div>
       <div className="advancedRecordsStack">
         <DirectTrendRecords rows={trendRows} trendPlays={data.trendPlays || []} today={data.today} sport={sport} />
       </div>
@@ -1525,7 +1526,7 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
       <div className="fbHead">
         <div>
           <h2>{sport === "NFL" ? "NFL" : "College Football"} {displayTab}</h2>
-          <p>Regression projections • DraftKings market tracking • Public Fade + Strong RLM</p>
+          <p>Regression projections • DraftKings market tracking • Public Fade + Strong RLM + Sharp</p>
         </div>
         <div className="fbHeadActions">
           {tab === "Today’s Model Plays" ? <span className="countPill">{data.bestPlays.length} plays</span> : null}
