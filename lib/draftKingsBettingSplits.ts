@@ -21,6 +21,7 @@ export type DraftKingsPageCrawl<T> = {
   filter: DraftKingsFilterCandidate;
   pagesScanned: number;
   pagesWithRows: number[];
+  missingPages: number[];
   errors: string[];
 };
 
@@ -346,6 +347,7 @@ export async function crawlDraftKingsFootballFilter<T>(
   const map = new Map<string, T>();
   const errors: string[] = [];
   const pagesWithRows: number[] = [];
+  const missingPages: number[] = [];
   const seenPageSignatures = new Set<string>();
   let consecutiveEmptyPages = 0;
   let pagesScanned = 0;
@@ -357,6 +359,7 @@ export async function crawlDraftKingsFootballFilter<T>(
       tb_eg: filter.eventGroup,
       tb_edate: filter.dateRange,
     };
+    let pageHadUsableResponse = false;
 
     const fetchParsedMarketPage = async (marketFilter: string) => {
       const scopedParams = { ...baseParams, tb_emt: marketFilter };
@@ -376,7 +379,13 @@ export async function crawlDraftKingsFootballFilter<T>(
           continue;
         }
         const upstreamError = embeddedPageError(rawHtml);
-        if (upstreamError) errors.push(`${marketFilter} page ${page}: ${upstreamError}`);
+        if (upstreamError) {
+          errors.push(`${marketFilter} page ${page}: ${upstreamError}`);
+          continue;
+        }
+        // A real 200 response with no embedded upstream error proves that this
+        // page was reachable, even when DK legitimately has no rows on it.
+        pageHadUsableResponse = true;
         const rows = parsePage(rawHtml);
         if (rows.length) return rows;
       }
@@ -398,6 +407,10 @@ export async function crawlDraftKingsFootballFilter<T>(
       parsed = [...pageRows.values()];
     }
     if (!parsed.length) {
+      // Distinguish a legitimate empty DK page from a page for which every
+      // request attempt failed. Callers use missingPages to fail closed rather
+      // than silently accepting a hole in an otherwise populated football crawl.
+      if (!pageHadUsableResponse) missingPages.push(page);
       // DK can serve an empty/403-backed page between valid pages. In particular,
       // page 1 may be empty while the still-live Sunday/Monday games are on page 2.
       consecutiveEmptyPages += 1;
@@ -422,6 +435,7 @@ export async function crawlDraftKingsFootballFilter<T>(
     filter,
     pagesScanned,
     pagesWithRows,
+    missingPages,
     errors,
   };
 }
