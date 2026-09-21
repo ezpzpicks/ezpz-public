@@ -6,7 +6,7 @@ export const revalidate = 0;
 
 const BASE = "https://dknetwork.draftkings.com/draftkings-sportsbook-betting-splits/";
 
-async function probe(name: string, params: Record<string, string>) {
+async function probe(name: string, params: Record<string, string>, browserHeaders = false) {
   const url = new URL(BASE);
   for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
   try {
@@ -15,6 +15,13 @@ async function probe(name: string, params: Record<string, string>) {
       headers: {
         "User-Agent": "Mozilla/5.0 (compatible; EZPZ-Picks/1.0; +https://ezpzpicks.com)",
         Accept: "text/html,application/xhtml+xml",
+        ...(browserHeaders ? {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          "Accept-Language": "en-US,en;q=0.9",
+          "Cache-Control": "no-cache",
+          Pragma: "no-cache",
+          Referer: BASE,
+        } : {}),
       },
       signal: AbortSignal.timeout(12000),
     });
@@ -60,6 +67,7 @@ export async function GET() {
   const results = [];
   results.push(await probe("root", {}));
   results.push(await probe("all-first", { ...common, tb_emt: "0" }));
+  results.push(await probe("all-browser", { ...common, tb_emt: "0", ezpz_probe: "browser" }, true));
   results.push(await probe("spread-first", { ...common, tb_emt: "Spread" }));
   results.push(await probe("total-first", { ...common, tb_emt: "Total" }));
   results.push(await probe("all-page2", { ...common, tb_emt: "0", tb_page: "2" }));
