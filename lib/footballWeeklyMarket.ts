@@ -766,8 +766,20 @@ function historyLineLabel(market: WeeklyFootballMarket, line: number) {
 
 function marketHistorySummary(split: Split, rows: SheetRow[]) {
   const key = splitTrendKey(split);
-  const states = rows.filter((row) => marketHistoryLogicalKey(row) === key);
-  if (!states.length) return null;
+  const trackedStates = rows.filter((row) => marketHistoryLogicalKey(row) === key);
+  if (!trackedStates.length) return null;
+
+  // DraftKings often emits an immature 0%/100% ticket split on the first CFB
+  // scrape. That is not a usable RLM baseline. Start both bet-share and line
+  // movement from the first real ticket-share snapshot so the two movements
+  // are measured over the exact same window.
+  const firstRealIndex = trackedStates.findIndex((row) => {
+    const bets = Number(row["Bets %"]);
+    return Number.isFinite(bets) && bets > 0 && bets < 100;
+  });
+  if (firstRealIndex < 0) return null;
+
+  const states = trackedStates.slice(firstRealIndex);
   const first = states[0];
   const linePath: number[] = [];
   let previousLine: number | null = null;
@@ -1130,7 +1142,10 @@ function movement(split: Split, existing: SheetRow | undefined, marketRows: Shee
   const openingOdds = summary?.openingOdds || String(existing?.["Opening Odds"] || split.odds);
   const openingBetsPct = summary?.openingBetsPct ?? existingNumber(existing, "Opening Bets %", split.betsPct);
   const openingMoneyPct = summary?.openingMoneyPct ?? existingNumber(existing, "Opening Handle %", split.moneyPct);
-  const publicMovementPct = Math.round((split.betsPct - openingBetsPct) * 10) / 10;
+  const usableRlmOpening = Number.isFinite(openingBetsPct) && openingBetsPct > 0 && openingBetsPct < 100;
+  const publicMovementPct = usableRlmOpening
+    ? Math.round((split.betsPct - openingBetsPct) * 10) / 10
+    : 0;
   const sharpMovementPct = Math.round((split.moneyPct - openingMoneyPct) * 10) / 10;
   const openingImpliedPct = impliedPct(openingOdds);
   const currentImpliedPct = impliedPct(split.odds);
@@ -1148,11 +1163,13 @@ function movement(split: Split, existing: SheetRow | undefined, marketRows: Shee
     lineMovementValue = Math.round((currentImpliedPct - openingImpliedPct) * 10) / 10;
   }
 
-  const classification = classifySelectedSideMovement(
-    publicMovementPct,
-    lineMovementValue,
-    lineMovementBasis,
-  );
+  const classification = usableRlmOpening
+    ? classifySelectedSideMovement(
+        publicMovementPct,
+        lineMovementValue,
+        lineMovementBasis,
+      )
+    : { lineMovementSignal: "", lineMovementTone: "" as Tone | "" };
   return {
     openingLine, openingOdds, openingBetsPct, openingMoneyPct, publicMovementPct, sharpMovementPct,
     openingImpliedPct, currentImpliedPct, lineMovementBasis, lineMovementValue,
@@ -1795,7 +1812,7 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
 
 function movementHistoryForPlay(play: WeeklyTrendPlay, rows: SheetRow[]) {
   const selectionKey = textKey(play.market === "Total" ? play.side : play.selectionTeam || play.selection);
-  return rows
+  const points = rows
     .filter((row) => {
       if (String(row["Game Key"] || "") !== play.gameKey) return false;
       if (String(row.Market || "") !== play.market) return false;
@@ -1809,8 +1826,10 @@ function movementHistoryForPlay(play: WeeklyTrendPlay, rows: SheetRow[]) {
       betsPct: percent(row["Bets %"]),
       moneyPct: percent(row["Handle %"]),
     }))
-    .filter((row) => Number.isFinite(row.betsPct) && Number.isFinite(row.moneyPct))
-    .slice(-80);
+    .filter((row) => Number.isFinite(row.betsPct) && Number.isFinite(row.moneyPct));
+
+  const firstRealIndex = points.findIndex((point) => point.betsPct > 0 && point.betsPct < 100);
+  return firstRealIndex >= 0 ? points.slice(firstRealIndex).slice(-80) : [];
 }
 
 export async function readWeeklyFootballMarket(sport: FootballSport) {
@@ -1843,9 +1862,28 @@ export async function readWeeklyFootballMarket(sport: FootballSport) {
         warningKey: "", warning: "", warningTone: "neutral" as Tone, warningNegative: false,
       } as Split;
       if (!validFootballMarketSplit(storedSplit, sport, canonicalRows)) continue;
+      const correctedMove = movement(storedSplit, row, marketHistoryRows);
       trendPlays.push({
         ...play,
         week: String(row.Week || play.week || storedFootballWeek(sport, play, canonicalRows)),
+        openingBetsPct: correctedMove.openingBetsPct,
+        openingMoneyPct: correctedMove.openingMoneyPct,
+        publicMovementPct: correctedMove.publicMovementPct,
+        sharpMovementPct: correctedMove.sharpMovementPct,
+        openingLine: correctedMove.openingLine,
+        openingOdds: correctedMove.openingOdds,
+        openingImpliedPct: correctedMove.openingImpliedPct,
+        currentImpliedPct: correctedMove.currentImpliedPct,
+        lineMovementBasis: correctedMove.lineMovementBasis,
+        lineMovementValue: correctedMove.lineMovementValue,
+        lineMovementSignal: correctedMove.lineMovementSignal,
+        firstTrackedAt: correctedMove.firstTrackedAt || play.firstTrackedAt,
+        lowLine: correctedMove.lowLine,
+        highLine: correctedMove.highLine,
+        lineMoveCount: correctedMove.lineMoveCount,
+        lastLineMoveAt: correctedMove.lastLineMoveAt,
+        lineHistoryLabel: correctedMove.lineHistoryLabel,
+        movementVersion: SELECTED_SIDE_MOVEMENT_VERSION,
         movementHistory: movementHistoryForPlay(play, marketHistoryRows),
       });
     } catch { }
