@@ -26,18 +26,20 @@ const VOLATILE_WRITE_POLICIES: Record<string, VolatileWritePolicy> = {
     ignoredFields: ["Last Seen"],
   },
   weekly_market_trends: {
-    intervalMinutes: 10,
+    // The public card must reflect every successful five-minute poll even when
+    // the percentages/line are unchanged.
+    intervalMinutes: 0,
     timestampField: "Updated At",
     ignoredFields: ["Updated At"],
     jsonFields: { "Details JSON": ["updatedAt"] },
   },
   public_split_snapshots: {
-    intervalMinutes: 10,
+    intervalMinutes: 0,
     timestampField: "Snapshot Time ET",
     ignoredFields: ["Snapshot Time ET"],
   },
   all_game_trends: {
-    intervalMinutes: 10,
+    intervalMinutes: 0,
     timestampField: "Public Split Snapshot Time",
     ignoredFields: ["Public Split Snapshot Time"],
     jsonFields: { "Trend Score Details": ["updatedAt"] },
@@ -126,9 +128,9 @@ function maybeThrottleVolatileOnlyUpdate(
   const ageMinutes = Math.max(0, (Date.now() - previousStamp) / 60_000);
   if (ageMinutes >= policy.intervalMinutes) return candidate;
 
-  // DraftKings is still scraped every five minutes. When the market state did
-  // not change, keep the durable row until its small freshness interval expires
-  // instead of paying for a write whose only difference is the timestamp.
+  // For datasets with a nonzero interval, unchanged market state can reuse the
+  // durable row until that freshness interval expires. Core ScoresAndOdds
+  // snapshot datasets use intervalMinutes=0 so every poll gets a fresh time.
   return previous;
 }
 
