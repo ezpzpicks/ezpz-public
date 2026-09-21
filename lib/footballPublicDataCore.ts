@@ -2397,12 +2397,27 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
     return{...row,"Public Bets %":String(split.betsPct),"Public Money %":String(split.moneyPct),"Public Gap %":String(split.gapPct),"Public Warning":split.warning,"Public Warning Negative":split.warningNegative?"TRUE":"FALSE","Public Split Source":SCORES_AND_ODDS_SOURCE,"Public Split Market":split.market,"Public Split Selection":split.market==="Total"?split.side:split.selectionTeam,"Public Split Line":split.line==null?"":String(split.line),"Public Split Odds":split.odds,"Public Split Match Confidence":locked?"Final 15-minute football market lock":"Live weekly football market","Public Split Snapshot Time":marketStamp,"Opening Public %":String(split.openingBetsPct??split.betsPct),"Current Public %":String(split.betsPct),"Public Change %":String(split.publicMovementPct??0),"Opening Sharp %":String(split.openingMoneyPct??split.moneyPct),"Current Sharp %":String(split.moneyPct),"Sharp Change %":String(split.sharpMovementPct??0),"Opening Public Split Line":split.openingLine==null?"":String(split.openingLine),"Opening Public Split Odds":split.openingOdds||split.odds,"Opening Public Split Snapshot Time":split.openingSnapshotTime||String(snapshotMap.get(splitSnapshotKey(split))?.["Opening Snapshot Time ET"]||marketStamp),"Opening Implied %":split.openingImpliedPct==null?"":String(split.openingImpliedPct),"Current Implied %":split.currentImpliedPct==null?"":String(split.currentImpliedPct),"Line Movement Signal":split.lineMovementSignal||"","Line Movement Tone":split.lineMovementTone||"","Line Movement Basis":split.lineMovementBasis||"","Line Movement Value":split.lineMovementValue==null?"":String(split.lineMovementValue),"Trend Play":play?"TRUE":"FALSE","Trend Score":play?String(Math.round(play.score)):"","Trend Tier":play?.tier||"","Trend Signals":play?.signals.map(s=>s.signal).join(" | ")||"","Trend All Time Record":primary?.records.allTime.record||"","Trend Last 30 Record":primary?.records.last30.record||"","Trend Last 7 Record":primary?.records.last7.record||"","Trend Exact Sample":play?.signals.map(s=>s.exactSample).join(" | ")||"","Trend Sample Size":play?String(play.TrendSampleSize):"","History Source":play?.HistorySource||"","Fallback Reason":play?.FallbackReason||"","Trend Score Details":play?JSON.stringify({...play,frozenAt:locked?marketStamp:undefined,snapshotStatus:locked?"FINAL_PREGAME":"LIVE",gradingVersion:locked?FROZEN_TREND_GRADING_VERSION:undefined}):""};
   });
   if(persist) await upsertSportRows(sport,"all_game_trends",ALL_GAME_TRENDS_HEADERS,trendRows,trendRowKey);
-  // The weekly market worksheet is the sole public trend source. It stores
-  // the scored object and its immutable FINAL_PREGAME state.
+  // Historical/final trend rows stay in the weekly market store, but today's
+  // live rows come directly from the active ScoresAndOdds feed. This makes the
+  // source cutover authoritative for live rendering and prevents a legacy row
+  // from coexisting with the current market state.
   const weeklyMarket = await readWeeklyFootballMarket(sport);
-  const displayTrendPlays = Array.isArray(weeklyMarket.trendPlays)
+  const weeklyTrendPlays = Array.isArray(weeklyMarket.trendPlays)
     ? weeklyMarket.trendPlays as unknown as TrendPlay[]
     : [];
+  const displayTrendKey = (play: TrendPlay) => [
+    isoDate(play.date),
+    textKey(play.awayTeam),
+    textKey(play.homeTeam),
+    textKey(play.market),
+    textKey(play.market === "Total" ? play.side || play.selection : play.selectionTeam || play.selection),
+  ].join("|");
+  const displayTrendMap = new Map(weeklyTrendPlays.map((play) => [displayTrendKey(play), play]));
+  for (const play of trendPlays) {
+    if (isoDate(play.date) !== today) continue;
+    displayTrendMap.set(displayTrendKey(play), play);
+  }
+  const displayTrendPlays = [...displayTrendMap.values()];
 
   // all_game_trends can contain an older 0%/100% opening snapshot even when the
   // append-only weekly market history has a later real first snapshot. Overlay
