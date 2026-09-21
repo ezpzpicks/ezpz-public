@@ -1909,12 +1909,12 @@ function signedPublicMoveText(value?: number) {
 }
 
 function marketMovementText(
-  basis?: "Implied Probability" | "Total Line" | "",
+  basis?: "Implied Probability" | "Run Line" | "Total Line" | "",
   value?: number | null,
 ) {
   if (value == null || !basis) return "—";
   return `${value >= 0 ? "+" : ""}${value.toFixed(1)} ${
-    basis === "Total Line" ? "runs" : "implied pts"
+    basis === "Total Line" || basis === "Run Line" ? "runs" : "implied pts"
   }`;
 }
 
