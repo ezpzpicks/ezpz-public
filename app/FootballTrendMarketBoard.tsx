@@ -91,6 +91,26 @@ function pickLabel(play: TrendPlay) {
   return `${play.selection} ${lineLabel(play, play.line)}`.trim();
 }
 
+function compactMovementLine(play: TrendPlay, value: number | null | undefined) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "-";
+  const display = play.market === "Spread" ? Math.abs(n) : n;
+  return Number.isInteger(display) ? String(display) : display.toFixed(1);
+}
+
+function rlmBadgeSummary(play: TrendPlay) {
+  if (play.openingBetsPct == null || play.openingLine == null || play.line == null) return null;
+  const startBets = Number(play.openingBetsPct);
+  const endBets = Number(play.betsPct);
+  const startLine = Number(play.openingLine);
+  const endLine = Number(play.line);
+  if (![startBets, endBets, startLine, endLine].every((value) => Number.isFinite(value))) return null;
+  return {
+    bets: `${Math.round(startBets)}% → ${Math.round(endBets)}%`,
+    line: `${compactMovementLine(play, startLine)} → ${compactMovementLine(play, endLine)}`,
+  };
+}
+
 function opposite(play: TrendPlay, plays: TrendPlay[]) {
   const own = play.market === "Total" ? textKey(play.side) : textKey(play.selection);
   return plays.find((candidate) => {
@@ -332,6 +352,7 @@ function MovementChart({ play }: { play: TrendPlay }) {
 
 function MarketRow({ play, plays, sport }: { play: TrendPlay; plays: TrendPlay[]; sport: Sport }) {
   const labels = labelsFor(play, plays);
+  const rlmSummary = labels.includes("Strong RLM") ? rlmBadgeSummary(play) : null;
   return (
     <div className={`dkTrendMarketRow ${labels.length ? "qualified" : ""}`}>
       <div className="dkTrendMarketName">
@@ -353,7 +374,15 @@ function MarketRow({ play, plays, sport }: { play: TrendPlay; plays: TrendPlay[]
       </div>
       <div className="dkTrendBadges">
         {labels.map((label) => (
-          <span className={`directTrendBadge ${label === "Public Fade" ? "fade" : "rlm"}`} key={label}>{label}</span>
+          <div className="dkTrendBadgeGroup" key={label}>
+            <span className={`directTrendBadge ${label === "Public Fade" ? "fade" : "rlm"}`}>{label}</span>
+            {label === "Strong RLM" && rlmSummary ? (
+              <div className="rlmMovementMini" aria-label={`Strong RLM movement: bets ${rlmSummary.bets}, line ${rlmSummary.line}`}>
+                <span><b>Bets</b><strong>{rlmSummary.bets}</strong></span>
+                <span><b>Line</b><strong>{rlmSummary.line}</strong></span>
+              </div>
+            ) : null}
+          </div>
         ))}
       </div>
     </div>

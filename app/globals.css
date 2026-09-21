@@ -1342,6 +1342,61 @@ body::after {
   border: 1px solid rgba(59,130,246,.44);
 }
 
+.dkTrendBadgeGroup {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.rlmMovementMini {
+  display: inline-flex;
+  align-items: stretch;
+  overflow: hidden;
+  border: 1px solid rgba(82, 151, 255, .24);
+  border-radius: 11px;
+  background:
+    linear-gradient(145deg, rgba(12, 29, 54, .9), rgba(6, 16, 31, .94));
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.025),
+    0 6px 18px rgba(0,0,0,.16);
+}
+
+.rlmMovementMini > span {
+  display: inline-grid;
+  grid-template-columns: auto auto;
+  align-items: center;
+  gap: 5px;
+  min-height: 28px;
+  padding: 5px 8px;
+  white-space: nowrap;
+}
+
+.rlmMovementMini > span + span {
+  border-left: 1px solid rgba(93, 139, 202, .18);
+}
+
+.rlmMovementMini b {
+  color: #6f86a7;
+  font-size: .53rem;
+  font-weight: 950;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.rlmMovementMini strong {
+  color: #e7f2ff;
+  font-size: .64rem;
+  font-weight: 950;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.015em;
+}
+
+.rlmMovementMini strong::first-letter {
+  color: #7cc7ff;
+}
+
 .dkMovementDropdown {
   border-top: 1px solid rgba(100,143,197,.13);
 }
@@ -1737,6 +1792,23 @@ body::after {
   }
 
   .directTrendBadge {
+    font-size: .6rem;
+  }
+
+  .dkTrendBadgeGroup {
+    gap: 7px;
+  }
+
+  .rlmMovementMini > span {
+    min-height: 26px;
+    padding: 4px 7px;
+  }
+
+  .rlmMovementMini b {
+    font-size: .5rem;
+  }
+
+  .rlmMovementMini strong {
     font-size: .6rem;
   }
 
