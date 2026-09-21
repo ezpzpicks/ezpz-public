@@ -1625,6 +1625,13 @@ type FootballEzpzPick = {
   tier: string;
   qualification: string;
   record?: string;
+  betsPct?: number;
+  moneyPct?: number;
+  gapPct?: number;
+  publicSideBetsPct?: number;
+  publicSideMoneyPct?: number;
+  publicMovePct?: number;
+  lineMoveValue?: number;
 };
 
 function americanOddsText(value: unknown) {
@@ -1858,6 +1865,13 @@ function buildFootballEzpzPicks(
       score: Math.round(strengthScore * 10) / 10,
       tier: direct.labels.join(" + "),
       qualification: direct.labels.join(" • "),
+      betsPct: Number(play.betsPct),
+      moneyPct: Number(play.moneyPct),
+      gapPct: Math.round((Number(play.moneyPct) - Number(play.betsPct)) * 10) / 10,
+      publicSideBetsPct: direct.publicSide ? Number(direct.publicSide.betsPct) : undefined,
+      publicSideMoneyPct: direct.publicSide ? Number(direct.publicSide.moneyPct) : undefined,
+      publicMovePct: direct.publicSide ? Number(direct.publicSide.publicMovementPct) : undefined,
+      lineMoveValue: direct.publicSide ? Number(direct.publicSide.lineMovementValue) : undefined,
     });
   }
 
