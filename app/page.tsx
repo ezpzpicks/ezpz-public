@@ -387,6 +387,16 @@ type DraftKingsData = {
   finalSnapshotGames?: number;
 };
 
+type MlbDailyMarketData = {
+  ok: boolean;
+  error?: string;
+  selectedDate: string;
+  availableDates: string[];
+  games: SheetRow[];
+  trendPlays: TrendPlay[];
+  source?: string;
+};
+
 type Sport = "MLB" | "NFL" | "NCAAF" | "NCAAM";
 type Tab = "Today’s Model Plays" | "Today’s Trend Plays" | "EZPZ Picks" | "Full Slate" | "Records";
 
@@ -6648,12 +6658,54 @@ export default function Home() {
   const [activeSport, setActiveSport] = useState<Sport>("MLB");
   const [active, setActive] = useState<Tab>("Today’s Model Plays");
   const [selectedEzpzDate, setSelectedEzpzDate] = useState("");
+  const [selectedMlbTrendDate, setSelectedMlbTrendDate] = useState("");
+  const [mlbDailyMarket, setMlbDailyMarket] = useState<MlbDailyMarketData | null>(null);
+  const [mlbDailyMarketLoading, setMlbDailyMarketLoading] = useState(false);
+  const [mlbDailyMarketError, setMlbDailyMarketError] = useState("");
   const activeLoadRef = useRef<Promise<void> | null>(null);
   const activeLoadControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    if (data?.today) setSelectedEzpzDate(data.today);
+    if (data?.today) {
+      setSelectedEzpzDate(data.today);
+      if (activeSport === "MLB") setSelectedMlbTrendDate(data.today);
+    }
   }, [activeSport, data?.today]);
+
+  useEffect(() => {
+    if (activeSport !== "MLB" || !data?.today) return;
+    const selectedDate =
+      normalizedDateKey(selectedMlbTrendDate) ||
+      normalizedDateKey(data.today);
+    if (!selectedDate) return;
+
+    const controller = new AbortController();
+    let mounted = true;
+    setMlbDailyMarketLoading(true);
+    fetch(`/api/mlb-daily-market?date=${encodeURIComponent(selectedDate)}`, {
+      cache: "no-store",
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        const json = (await response.json()) as MlbDailyMarketData;
+        if (!response.ok || !json.ok) throw new Error(json.error || "Failed to load MLB daily market history");
+        if (!mounted) return;
+        setMlbDailyMarket(json);
+        setMlbDailyMarketError("");
+      })
+      .catch((error) => {
+        if (!mounted || (error instanceof Error && error.name === "AbortError")) return;
+        setMlbDailyMarketError(error instanceof Error ? error.message : "Failed to load MLB daily market history");
+      })
+      .finally(() => {
+        if (mounted) setMlbDailyMarketLoading(false);
+      });
+
+    return () => {
+      mounted = false;
+      controller.abort();
+    };
+  }, [activeSport, data?.today, data?.lastUpdated, selectedMlbTrendDate]);
 
   const loadData = useCallback(async (silent = false, forceFresh = false) => {
     // Reuse an active request instead of starting overlapping public-data
@@ -6933,11 +6985,40 @@ export default function Home() {
       ),
       ...regularBestPlays,
     ];
-    const trendPlays = data.trendPlays || [];
+    const currentMlbTrendDate = normalizedDateKey(data.today);
+    const activeMlbTrendDate =
+      normalizedDateKey(selectedMlbTrendDate) || currentMlbTrendDate;
+    const viewingCurrentMlbTrends = activeMlbTrendDate === currentMlbTrendDate;
+    const historicalMlbMarketReady =
+      mlbDailyMarket?.selectedDate === activeMlbTrendDate;
+    const trendPlays = viewingCurrentMlbTrends
+      ? (data.trendPlays || [])
+      : historicalMlbMarketReady
+        ? (mlbDailyMarket?.trendPlays || [])
+        : [];
+    const trendSlateRows = viewingCurrentMlbTrends
+      ? data.slateToday
+      : historicalMlbMarketReady
+        ? (mlbDailyMarket?.games || [])
+        : [];
+    const availableMlbTrendDates = Array.from(new Set([
+      currentMlbTrendDate,
+      ...(mlbDailyMarket?.availableDates || []),
+    ].filter(Boolean))).sort((a, b) => b.localeCompare(a));
+    const activeMlbTrendDateLabel = (() => {
+      const [year, month, day] = activeMlbTrendDate.split("-").map(Number);
+      if (!year || !month || !day) return activeMlbTrendDate || data.today;
+      return new Intl.DateTimeFormat("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      }).format(new Date(year, month - 1, day, 12));
+    })();
+
     const rankedTrendGames = groupRankedTrendPlays(
       trendPlays,
-      data.slateToday,
-      data.today,
+      trendSlateRows,
+      activeMlbTrendDate || data.today,
     );
     const qualifiedTrendPlays = rankedTrendGames.flatMap((group) =>
       group.plays.filter((play) => play.tier !== "Pass"),
@@ -7059,11 +7140,14 @@ export default function Home() {
     }
 
     if (active === "Today’s Trend Plays") {
+      const loadingHistorical =
+        !viewingCurrentMlbTrends &&
+        (mlbDailyMarketLoading || !historicalMlbMarketReady);
       return (
         <section>
           <div className="sectionHead">
             <div>
-              <h2>Today’s Trend Plays</h2>
+              <h2>{viewingCurrentMlbTrends ? "Today’s Trend Plays" : `MLB Trend Plays — ${activeMlbTrendDateLabel}`}</h2>
               <div className="directTrendRules">
                 <span><b>Public Fade</b> Fade the opposite side when 80%+ of bets are on one side.</span>
                 <span><b>Strong RLM</b> Moneyline bets rise 5+ points while that team’s implied probability moves 1.5+ points against it.</span>
@@ -7075,11 +7159,56 @@ export default function Home() {
             </span>
           </div>
 
-          {directTrendGroups.length ? (
+          <div className="trendWeekControls simplifiedTrendControls mlbDayControls">
+            <label>
+              <span>View market day</span>
+              <select
+                value={activeMlbTrendDate}
+                onChange={(event) => setSelectedMlbTrendDate(event.target.value)}
+                disabled={!availableMlbTrendDates.length}
+              >
+                {availableMlbTrendDates.length ? (
+                  availableMlbTrendDates.map((date) => {
+                    const [year, month, day] = date.split("-").map(Number);
+                    const label = year && month && day
+                      ? new Intl.DateTimeFormat("en-US", {
+                          weekday: "short",
+                          month: "short",
+                          day: "numeric",
+                        }).format(new Date(year, month - 1, day, 12))
+                      : date;
+                    return (
+                      <option key={date} value={date}>
+                        {date === currentMlbTrendDate ? `${label} — Today` : label}
+                      </option>
+                    );
+                  })
+                ) : (
+                  <option value="">No stored days yet</option>
+                )}
+              </select>
+            </label>
+            <div>
+              <strong>{activeMlbTrendDateLabel}</strong>
+              <small>
+                {viewingCurrentMlbTrends
+                  ? "Live DraftKings board"
+                  : `${trendSlateRows.length} games restored from stored MLB market data`}
+              </small>
+            </div>
+          </div>
+
+          {mlbDailyMarketError && !viewingCurrentMlbTrends ? (
+            <div className="staleBanner">Historical MLB market load failed: {mlbDailyMarketError}</div>
+          ) : null}
+
+          {loadingHistorical ? (
+            <div className="empty">Loading stored MLB DraftKings trends for {activeMlbTrendDateLabel}…</div>
+          ) : directTrendGroups.length ? (
             <FootballTrendMarketBoard groups={directTrendGroups as any} sport="MLB" />
           ) : (
             <div className="empty">
-              No MLB Moneyline or Total DraftKings splits are available for today’s slate yet.
+              No stored MLB Moneyline or Total DraftKings splits are available for {activeMlbTrendDateLabel}.
             </div>
           )}
 
@@ -7087,7 +7216,7 @@ export default function Home() {
             <DirectTrendRecords
               rows={(data.trendRecordRows || []) as any}
               trendPlays={trendPlays as any}
-              today={data.today}
+              today={activeMlbTrendDate || data.today}
               sport="MLB"
             />
           </div>
@@ -7406,6 +7535,10 @@ export default function Home() {
     activeSport,
     active,
     selectedEzpzDate,
+    selectedMlbTrendDate,
+    mlbDailyMarket,
+    mlbDailyMarketLoading,
+    mlbDailyMarketError,
     bestPlays,
     handpickedLast7,
     handpickedOverall,
