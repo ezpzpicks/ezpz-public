@@ -566,6 +566,7 @@ function htmlTokens(rawHtml: string) {
     .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
     .replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi, " ")
     .replace(/<svg\b[^>]*>[\s\S]*?<\/svg>/gi, " ")
+    .replace(/<img\b[^>]*>/gi, " ")
     .replace(/<[^>]+>/g, "\n");
   return decodeHtmlEntities(cleaned).split(/\r?\n/)
     .map((item) => item.replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim()).filter(Boolean);
