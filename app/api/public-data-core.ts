@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readWorksheet as readWorksheetUncached } from "../../lib/mlbStore";
 import { buildFootballPublicData } from "../../lib/footballPublicData";
-import { appendTursoDataset, isTursoConfigured, patchTursoDatasetRows, readTursoDataset, replaceTursoDataset } from "../../lib/tursoStore";
+import { appendTursoDataset, isTursoConfigured, patchTursoDatasetRows, readTursoDataset, readTursoDatasetByDateKeys, replaceTursoDataset } from "../../lib/tursoStore";
 import {
   SCORES_AND_ODDS_SOURCE,
   loadScoresAndOddsConsensus,
@@ -98,6 +98,7 @@ const DK_PLAYER_PROPS_URL =
 const CACHE_TTL_MS = 45_000;
 const STALE_FALLBACK_MS = 30 * 60_000;
 const PUBLIC_SPLIT_TAB = "public_split_snapshots";
+const PUBLIC_SPLIT_HISTORY_TAB = "public_split_history";
 const PUBLIC_SPLIT_HEADERS = [
   "Snapshot Time ET", "Opening Snapshot Time ET", "Date", "Game Time ET", "Game", "Away Team", "Home Team", "Data Type",
   "Market", "Selection", "Line", "Odds", "Opening Line", "Opening Odds",
@@ -764,7 +765,10 @@ function draftKingsSplitKey(row: DraftKingsSplit) {
     row.market === "Total"
       ? row.side || textKey(row.selection)
       : teamFromSelection(row.selectionTeam || row.selection);
-  return `${row.date}|${row.game}|${parseEventTimeKey(row.eventTime || "")}|${row.market}|${textKey(selectedSide)}`;
+  // Live ScoresAndOdds rows and retained snapshots can use different display
+  // labels for the same matchup. Key by canonical teams/date/time so the
+  // retained copy cannot render as a duplicate live market side.
+  return `${draftKingsMarketInstanceKey(row)}|${row.market}|${textKey(selectedSide)}`;
 }
 
 function draftKingsPropKey(row: DraftKingsProp) {
@@ -1739,13 +1743,59 @@ async function writeWorksheetBlocks(
 
 let publicSplitPersistenceQueue: Promise<void> = Promise.resolve();
 
+async function appendPublicSplitHistory(snapshotRecords: SheetRow[]) {
+  const marketRows = snapshotRecords.filter(
+    (row) => !textKey(row["Data Type"] || "").includes("player prop"),
+  );
+  if (!marketRows.length) return;
+
+  const dates = [...new Set(
+    marketRows.map((row) => isoPublicDate(row.Date || "")).filter(Boolean),
+  )];
+  const existing = dates.length
+    ? await readTursoDatasetByDateKeys(
+        "MLB",
+        PUBLIC_SPLIT_HISTORY_TAB,
+        dates,
+        PUBLIC_SPLIT_HEADERS,
+      )
+    : [];
+  const seen = new Set(
+    existing.map((row) =>
+      `${snapshotRecordKey(row as SheetRow)}|${String(row["Snapshot Time ET"] || "")}`,
+    ),
+  );
+  const appendRows = marketRows.filter((row) => {
+    const key = `${snapshotRecordKey(row)}|${String(row["Snapshot Time ET"] || "")}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  if (!appendRows.length) return;
+  await appendWorksheetRows(
+    null,
+    "turso:MLB",
+    PUBLIC_SPLIT_HISTORY_TAB,
+    PUBLIC_SPLIT_HEADERS,
+    appendRows,
+  );
+}
+
 function persistPublicSplitSnapshotRecords(
   sheets: any,
   spreadsheetId: string,
   snapshotRecords: SheetRow[],
+  retainHistory = false,
 ) {
   if (!snapshotRecords.length) return Promise.resolve();
   const operation = publicSplitPersistenceQueue.catch(() => undefined).then(async () => {
+    if (retainHistory) {
+      // Scheduled 5-minute collection is append-only here. The existing
+      // public_split_snapshots table keeps its latest/final semantics for
+      // downstream compatibility, while this dataset preserves every poll.
+      await appendPublicSplitHistory(snapshotRecords);
+    }
+
     const latestMatrix = await readWorksheetMatrixWithClient(
       sheets,
       spreadsheetId,
@@ -2581,6 +2631,28 @@ async function safeReadPublicSplitRows(): Promise<SheetRow[]> {
   }
 }
 
+async function safeReadPublicSplitHistoryRows(date: string): Promise<SheetRow[]> {
+  try {
+    const dateIso = isoPublicDate(date);
+    if (!dateIso) return [];
+    const rows = await readTursoDatasetByDateKeys(
+      "MLB",
+      PUBLIC_SPLIT_HISTORY_TAB,
+      [dateIso],
+      PUBLIC_SPLIT_HEADERS,
+    );
+    return rows.map((row) => {
+      const out: SheetRow = {};
+      for (const [key, value] of Object.entries(row || {})) out[key] = String(value ?? "");
+      return out;
+    });
+  } catch (error) {
+    // The dataset is created by the first scheduled capture after deployment.
+    console.error("Public split history read failed", error);
+    return [];
+  }
+}
+
 async function safeReadAllGameTrendRows(): Promise<SheetRow[]> {
   try {
     const { spreadsheetId, sheets } = mainSheetsClient();
@@ -3095,7 +3167,7 @@ async function persistFinalPregameDraftKings(
     }
 
     if (snapshotRecords.length) {
-      await persistPublicSplitSnapshotRecords(sheets, spreadsheetId, snapshotRecords);
+      await persistPublicSplitSnapshotRecords(sheets, spreadsheetId, snapshotRecords, scheduledCapture);
       result.snapshotRowsUpdated = snapshotRecords.length;
     }
 
@@ -11293,9 +11365,10 @@ async function buildUncachedPublicResponse(request: NextRequest) {
       primaryTrendRecordRows,
       buildAiHistoricalTrendRecordRows(storedAiPickRows),
     );
+    const savedPublicSplitHistory = await safeReadPublicSplitHistoryRows(today);
     const trendPlays = buildMlbDirectTrendPlays(
       publicDraftKings.splits,
-      savedPublicSplits,
+      [...savedPublicSplits, ...savedPublicSplitHistory],
       slateToday,
       today,
       publicDraftKings.updatedAt,
