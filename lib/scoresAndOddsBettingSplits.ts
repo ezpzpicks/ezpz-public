@@ -20,6 +20,60 @@ export type ScoresAndOddsMarketSplit = {
 export const SCORES_AND_ODDS_SOURCE = "ScoresAndOdds";
 export const SCORES_AND_ODDS_BASE_URL = "https://www.scoresandodds.com";
 
+export type ScoresAndOddsMarketCoverage = {
+  ok: boolean;
+  expectedGames: number;
+  receivedGames: number;
+  missingGames: string[];
+  incompleteGames: string[];
+};
+
+export function assessScoresAndOddsMarketCoverage<T>(
+  expected: Map<string, string>,
+  rows: T[],
+  gameKey: (row: T) => string,
+  market: (row: T) => "Spread" | "Total",
+  sideKey: (row: T) => string,
+): ScoresAndOddsMarketCoverage {
+  const received = new Map<string, { spread: Set<string>; total: Set<string> }>();
+  for (const row of rows) {
+    const key = gameKey(row);
+    const side = sideKey(row);
+    if (!key || !side) continue;
+    const state = received.get(key) || { spread: new Set<string>(), total: new Set<string>() };
+    if (market(row) === "Spread") state.spread.add(side);
+    else state.total.add(side);
+    received.set(key, state);
+  }
+
+  const missingGames: string[] = [];
+  const incompleteGames: string[] = [];
+  for (const [key, label] of expected) {
+    const state = received.get(key);
+    if (!state) {
+      missingGames.push(label);
+      continue;
+    }
+    const spreadPublished = state.spread.size > 0;
+    const totalPublished = state.total.size > 0;
+    const spreadIncomplete = spreadPublished && state.spread.size < 2;
+    const totalIncomplete = totalPublished && state.total.size < 2;
+    if ((!spreadPublished && !totalPublished) || spreadIncomplete || totalIncomplete) {
+      incompleteGames.push(
+        `${label} (${state.spread.size}/2 spread sides, ${state.total.size}/2 total sides)`,
+      );
+    }
+  }
+
+  return {
+    ok: expected.size > 0 && missingGames.length === 0 && incompleteGames.length === 0,
+    expectedGames: expected.size,
+    receivedGames: received.size,
+    missingGames,
+    incompleteGames,
+  };
+}
+
 const SPORT_SLUG: Record<ScoresAndOddsSport, string> = {
   MLB: "mlb",
   NFL: "nfl",
