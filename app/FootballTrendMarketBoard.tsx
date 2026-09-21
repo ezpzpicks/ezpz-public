@@ -1,6 +1,6 @@
 "use client";
 
-import { MatchupWithLogos, SelectionWithTeamLogo } from "./TeamLogoName";
+import { SelectionWithTeamLogo, TeamLogoName } from "./TeamLogoName";
 
 type SheetRow = Record<string, string>;
 type Sport = "NFL" | "NCAAF";
@@ -68,7 +68,15 @@ function compactTime(value: unknown) {
   const raw = String(value || "").trim();
   if (!raw) return "-";
   const match = raw.match(/(\d{1,2}:\d{2})(?::\d{2})?\s*(AM|PM)/i);
-  return match ? `${match[1]} ${match[2].toUpperCase()}` : raw;
+  if (match) return `${match[1]} ${match[2].toUpperCase()}`;
+  const stamp = Date.parse(raw);
+  if (!Number.isFinite(stamp)) return raw;
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  }).format(new Date(stamp));
 }
 
 function lineLabel(play: TrendPlay, value: number | null | undefined) {
@@ -152,25 +160,98 @@ function polyline(values: number[], width: number, height: number, min: number, 
   }).join(" ");
 }
 
+function clampPct(value: unknown) {
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : 0;
+}
+
+function chartX(index: number, count: number, left: number, right: number) {
+  if (count <= 1) return (left + right) / 2;
+  return left + (index / (count - 1)) * (right - left);
+}
+
+function chartY(value: number, min: number, max: number, top: number, bottom: number) {
+  const spread = Math.max(0.001, max - min);
+  return bottom - ((value - min) / spread) * (bottom - top);
+}
+
+function chartPolyline(values: number[], left: number, right: number, top: number, bottom: number, min: number, max: number) {
+  return values.map((value, index) =>
+    `${chartX(index, values.length, left, right).toFixed(1)},${chartY(value, min, max, top, bottom).toFixed(1)}`
+  ).join(" ");
+}
+
+function stepPolyline(values: number[], left: number, right: number, top: number, bottom: number, min: number, max: number) {
+  if (!values.length) return "";
+  const points: string[] = [];
+  values.forEach((value, index) => {
+    const x = chartX(index, values.length, left, right);
+    const y = chartY(value, min, max, top, bottom);
+    if (index === 0) {
+      points.push(`${x.toFixed(1)},${y.toFixed(1)}`);
+      return;
+    }
+    const previousY = chartY(values[index - 1], min, max, top, bottom);
+    points.push(`${x.toFixed(1)},${previousY.toFixed(1)}`);
+    points.push(`${x.toFixed(1)},${y.toFixed(1)}`);
+  });
+  return points.join(" ");
+}
+
+function movementMarkerIndexes(values: number[]) {
+  const indexes = values.reduce<number[]>((all, value, index) => {
+    if (index === 0 || index === values.length - 1 || value !== values[index - 1]) all.push(index);
+    return all;
+  }, []);
+  const unique = [...new Set(indexes)];
+  if (unique.length <= 6) return unique;
+  const chosen = [unique[0]];
+  for (let slot = 1; slot < 5; slot += 1) {
+    chosen.push(unique[Math.round((slot / 5) * (unique.length - 1))]);
+  }
+  chosen.push(unique[unique.length - 1]);
+  return [...new Set(chosen)];
+}
+
+function timeAxis(points: ReturnType<typeof historyPoints>) {
+  if (!points.length) return [] as string[];
+  const indexes = [0, .25, .5, .75, 1]
+    .map((ratio) => Math.round((points.length - 1) * ratio));
+  return [...new Set(indexes)].map((index) => compactTime(points[index]?.snapshotTime));
+}
+
 function MovementChart({ play }: { play: TrendPlay }) {
   const points = historyPoints(play);
-  const width = 520;
-  const height = 128;
-  const bets = points.map((point) => Number(point.betsPct));
-  const money = points.map((point) => Number(point.moneyPct));
+  const width = 560;
+  const height = 156;
+  const left = 38;
+  const right = 500;
+  const top = 12;
+  const bottom = 132;
+  const bets = points.map((point) => clampPct(point.betsPct));
+  const money = points.map((point) => clampPct(point.moneyPct));
   const finiteLines = points.map((point) => Number(point.line)).filter(Number.isFinite);
   const firstLine = finiteLines[0] ?? 0;
   const lines = points.map((point) => Number.isFinite(Number(point.line)) ? Number(point.line) : firstLine);
-  const minLine = finiteLines.length ? Math.min(...finiteLines) : 0;
-  const maxLine = finiteLines.length ? Math.max(...finiteLines) : 1;
+  const rawMin = finiteLines.length ? Math.min(...finiteLines) : 0;
+  const rawMax = finiteLines.length ? Math.max(...finiteLines) : 1;
+  const padding = rawMax === rawMin ? 1 : Math.max(.5, (rawMax - rawMin) * .35);
+  const minLine = rawMin - padding;
+  const maxLine = rawMax + padding;
   const latest = points[points.length - 1];
+  const markers = movementMarkerIndexes(lines);
+  const times = timeAxis(points);
+  const lineTicks = Array.from({ length: 5 }, (_, index) => maxLine - ((maxLine - minLine) / 4) * index);
+
+  const latestBetsY = chartY(clampPct(latest?.betsPct), 0, 100, top, bottom);
+  const latestMoneyY = chartY(clampPct(latest?.moneyPct), 0, 100, top, bottom);
 
   return (
     <section className="dkMovementPanel">
       <div className="dkMovementHead">
         <div>
           <strong>{play.market === "Total" ? play.side : play.selection}</strong>
-          <small>{points.length} saved snapshots - {play.market}</small>
+          <small>{play.market}</small>
         </div>
         <span>{lineLabel(play, latest?.line)} {latest?.odds || play.odds}</span>
       </div>
@@ -182,29 +263,67 @@ function MovementChart({ play }: { play: TrendPlay }) {
             <small>{pct(latest?.betsPct)} bets - {pct(latest?.moneyPct)} money</small>
           </div>
           <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Bet and money percentage movement">
-            <line x1="0" y1={height / 2} x2={width} y2={height / 2} className="dkChartGrid" />
-            <polyline points={polyline(bets, width, height, 0, 100)} className="dkChartBets" />
-            <polyline points={polyline(money, width, height, 0, 100)} className="dkChartMoney" />
+            {[0, 25, 50, 75, 100].map((tick) => {
+              const y = chartY(tick, 0, 100, top, bottom);
+              return (
+                <g key={tick}>
+                  <line x1={left} y1={y} x2={right} y2={y} className="dkChartGrid" />
+                  <text x="2" y={y + 3} className="dkChartTick">{tick}%</text>
+                </g>
+              );
+            })}
+            <polyline points={chartPolyline(bets, left, right, top, bottom, 0, 100)} className="dkChartBets" />
+            <polyline points={chartPolyline(money, left, right, top, bottom, 0, 100)} className="dkChartMoney" />
+            <g className="dkChartEndTag betsTag" transform={`translate(506 ${Math.max(2, Math.min(height - 22, latestBetsY - 10))})`}>
+              <rect width="50" height="20" rx="7" />
+              <text x="25" y="14" textAnchor="middle">{Math.round(clampPct(latest?.betsPct))}%</text>
+            </g>
+            <g className="dkChartEndTag moneyTag" transform={`translate(506 ${Math.max(2, Math.min(height - 22, latestMoneyY - 10))})`}>
+              <rect width="50" height="20" rx="7" />
+              <text x="25" y="14" textAnchor="middle">{Math.round(clampPct(latest?.moneyPct))}%</text>
+            </g>
           </svg>
+          <div className="dkChartTimeAxis">{times.map((time) => <span key={time}>{time}</span>)}</div>
           <div className="dkChartLegend"><span className="bets">Bets %</span><span className="money">Money %</span></div>
         </div>
 
-        <div className="dkChartBlock">
+        <div className="dkChartBlock dkLineMovementBlock">
           <div className="dkChartLabel">
             <span>Line movement</span>
-            <small>{lineLabel(play, points[0]?.line)} -&gt; {lineLabel(play, latest?.line)}</small>
           </div>
           <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Line movement">
-            <line x1="0" y1={height / 2} x2={width} y2={height / 2} className="dkChartGrid" />
+            {lineTicks.map((tick, index) => {
+              const y = chartY(tick, minLine, maxLine, top, bottom);
+              return (
+                <g key={index}>
+                  <line x1={left} y1={y} x2={right} y2={y} className="dkChartGrid" />
+                  <text x="2" y={y + 3} className="dkChartTick">{lineLabel(play, Math.round(tick * 2) / 2)}</text>
+                </g>
+              );
+            })}
             <polyline
-              points={polyline(lines, width, height, minLine, maxLine === minLine ? maxLine + 1 : maxLine)}
+              points={stepPolyline(lines, left, right, top, bottom, minLine, maxLine)}
               className="dkChartLine"
             />
+            {markers.map((index) => {
+              const x = chartX(index, lines.length, left, right);
+              const y = chartY(lines[index], minLine, maxLine, top, bottom);
+              const label = lineLabel(play, lines[index]);
+              const ticketWidth = Math.max(38, label.length * 8 + 14);
+              const ticketX = Math.max(left, Math.min(right - ticketWidth, x - ticketWidth / 2));
+              const ticketY = Math.max(2, y - 31);
+              return (
+                <g className="dkLineTicket" key={`${index}-${label}`}>
+                  <circle cx={x} cy={y} r="4" />
+                  <g transform={`translate(${ticketX} ${ticketY})`}>
+                    <rect width={ticketWidth} height="22" rx="7" />
+                    <text x={ticketWidth / 2} y="15" textAnchor="middle">{label}</text>
+                  </g>
+                </g>
+              );
+            })}
           </svg>
-          <div className="dkChartAxis">
-            <span>{compactTime(points[0]?.snapshotTime)}</span>
-            <span>{compactTime(latest?.snapshotTime)}</span>
-          </div>
+          <div className="dkChartTimeAxis">{times.map((time) => <span key={time}>{time}</span>)}</div>
         </div>
       </div>
     </section>
@@ -220,16 +339,53 @@ function MarketRow({ play, plays, sport }: { play: TrendPlay; plays: TrendPlay[]
         <strong><SelectionWithTeamLogo sport={sport} selection={pickLabel(play)} game={play.game} compact /></strong>
       </div>
       <div className="dkTrendPrice"><strong>{lineLabel(play, play.line)}</strong><small>{play.odds || "-"}</small></div>
-      <div className="dkTrendPercent"><strong>{pct(play.betsPct)}</strong><small>Bets</small></div>
-      <div className="dkTrendPercent"><strong>{pct(play.moneyPct)}</strong><small>Money</small></div>
+      <div className="dkTrendFlow">
+        <div className="dkTrendBarRow bets">
+          <span>Bets</span>
+          <div className="dkTrendBarTrack"><i style={{ width: `${clampPct(play.betsPct)}%` }} /></div>
+          <strong>{pct(play.betsPct)}</strong>
+        </div>
+        <div className="dkTrendBarRow money">
+          <span>Money</span>
+          <div className="dkTrendBarTrack"><i style={{ width: `${clampPct(play.moneyPct)}%` }} /></div>
+          <strong>{pct(play.moneyPct)}</strong>
+        </div>
+      </div>
       <div className="dkTrendBadges">
         {labels.map((label) => (
           <span className={`directTrendBadge ${label === "Public Fade" ? "fade" : "rlm"}`} key={label}>{label}</span>
         ))}
-        {!labels.length ? <span className="directTrendNone">-</span> : null}
       </div>
     </div>
   );
+}
+
+const NFL_TEAM_PREFIXES = new Set([
+  "ARI","ATL","BAL","BUF","CAR","CHI","CIN","CLE","DAL","DEN","DET","GB","HOU","IND","JAX","JAC",
+  "KC","LV","LAC","LAR","MIA","MIN","NE","NO","NYG","NYJ","PHI","PIT","SEA","SF","TB","TEN","WAS"
+]);
+
+function cleanMatchupTeam(team: string, sport: Sport) {
+  const raw = String(team || "").trim();
+  if (sport !== "NFL") return raw;
+  const parts = raw.split(/\s+/);
+  if (parts.length > 1 && NFL_TEAM_PREFIXES.has(parts[0].toUpperCase())) return parts.slice(1).join(" ");
+  return raw;
+}
+
+function matchupTeams(game: string, sport: Sport) {
+  const raw = String(game || "").trim();
+  const symbol = raw.split(/\s*@\s*/).map((part) => part.trim()).filter(Boolean);
+  const words = symbol.length === 2
+    ? symbol
+    : raw.split(/\s+(?:at|vs\.?|versus)\s+/i).map((part) => part.trim()).filter(Boolean);
+  if (words.length !== 2) return null;
+  return {
+    awayRaw: words[0],
+    homeRaw: words[1],
+    away: cleanMatchupTeam(words[0], sport),
+    home: cleanMatchupTeam(words[1], sport),
+  };
 }
 
 function GameCard({ group, sport }: { group: Group; sport: Sport }) {
@@ -244,22 +400,31 @@ function GameCard({ group, sport }: { group: Group; sport: Sport }) {
   const spreadRef = ordered.find((play) => play.market === "Spread");
   const totalRef = ordered.find((play) => play.market === "Total" && play.side === "Over")
     || ordered.find((play) => play.market === "Total");
+  const matchup = matchupTeams(group.game, sport);
 
   return (
     <article className={`dkTrendGame ${qualifying.length ? "hasSignal" : ""}`}>
       <div className="dkTrendGameHead">
-        <div>
-          <div className="dkTrendGameTitle"><MatchupWithLogos sport={sport} game={group.game} compact /></div>
+        <div className="dkTrendGameMatchupWrap">
+          {matchup ? (
+            <div className="dkTrendGameTitle dkTrendMatchupTitle">
+              <TeamLogoName sport={sport} team={matchup.away} text={matchup.away} className="dkMatchupTeam" />
+              <span className="dkTrendAt">at</span>
+              <TeamLogoName sport={sport} team={matchup.home} text={matchup.home} className="dkMatchupTeam" />
+            </div>
+          ) : <div className="dkTrendGameTitle">{group.game}</div>}
           <small>{gameDate}{gameDate && gameTime ? " - " : ""}{gameTime}</small>
         </div>
-        <span className={`dkSignalCount ${qualifying.length ? "" : "quiet"}`}>
-          {qualifying.length ? `${qualifying.length} trend ${qualifying.length === 1 ? "play" : "plays"}` : "Market tracked"}
-        </span>
+        {qualifying.length ? (
+          <span className="dkSignalCount">
+            {qualifying.length} trend {qualifying.length === 1 ? "play" : "plays"}
+          </span>
+        ) : null}
       </div>
 
       <div className="dkTrendMarketBoard">
         <div className="dkTrendMarketHeader">
-          <span>Market</span><span>Line / Odds</span><span>Bets</span><span>Money</span><span>Trend</span>
+          <span>Market</span><span>Line / Odds</span><span>Bets / Money</span><span>Trend</span>
         </div>
         {ordered.map((play) => (
           <MarketRow
