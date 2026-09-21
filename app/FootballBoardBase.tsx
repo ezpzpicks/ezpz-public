@@ -711,6 +711,82 @@ function fbMatchupTeams(value: unknown) {
   return wordParts.length === 2 ? { away: wordParts[0], home: wordParts[1] } : null;
 }
 
+const NFL_TREND_TEAM_KEYS: Record<string, string> = {
+  ari: "ari", arizona: "ari", cardinals: "ari", "arizona cardinals": "ari",
+  atl: "atl", atlanta: "atl", falcons: "atl", "atlanta falcons": "atl",
+  bal: "bal", baltimore: "bal", ravens: "bal", "baltimore ravens": "bal",
+  buf: "buf", buffalo: "buf", bills: "buf", "buffalo bills": "buf",
+  car: "car", carolina: "car", panthers: "car", "carolina panthers": "car",
+  chi: "chi", chicago: "chi", bears: "chi", "chicago bears": "chi",
+  cin: "cin", cincinnati: "cin", bengals: "cin", "cincinnati bengals": "cin",
+  cle: "cle", clv: "cle", cleveland: "cle", browns: "cle", "cleveland browns": "cle",
+  dal: "dal", dallas: "dal", cowboys: "dal", "dallas cowboys": "dal",
+  den: "den", denver: "den", broncos: "den", "denver broncos": "den",
+  det: "det", detroit: "det", lions: "det", "detroit lions": "det",
+  gb: "gb", "green bay": "gb", packers: "gb", "green bay packers": "gb",
+  hou: "hou", hst: "hou", houston: "hou", texans: "hou", "houston texans": "hou",
+  ind: "ind", indianapolis: "ind", colts: "ind", "indianapolis colts": "ind",
+  jac: "jax", jax: "jax", jacksonville: "jax", jaguars: "jax", "jacksonville jaguars": "jax",
+  kc: "kc", "kansas city": "kc", chiefs: "kc", "kansas city chiefs": "kc",
+  lv: "lv", oak: "lv", "las vegas": "lv", raiders: "lv", "las vegas raiders": "lv",
+  lac: "lac", sd: "lac", chargers: "lac", "los angeles chargers": "lac",
+  la: "lar", lar: "lar", stl: "lar", rams: "lar", "la rams": "lar", "lar rams": "lar", "los angeles rams": "lar",
+  mia: "mia", miami: "mia", dolphins: "mia", "miami dolphins": "mia",
+  min: "min", minnesota: "min", vikings: "min", "minnesota vikings": "min",
+  ne: "ne", "new england": "ne", patriots: "ne", "new england patriots": "ne",
+  no: "no", "new orleans": "no", saints: "no", "new orleans saints": "no",
+  nyg: "nyg", giants: "nyg", "ny giants": "nyg", "new york giants": "nyg",
+  nyj: "nyj", jets: "nyj", "ny jets": "nyj", "new york jets": "nyj",
+  phi: "phi", philadelphia: "phi", eagles: "phi", "philadelphia eagles": "phi",
+  pit: "pit", pittsburgh: "pit", steelers: "pit", "pittsburgh steelers": "pit",
+  sea: "sea", seattle: "sea", seahawks: "sea", "seattle seahawks": "sea",
+  sf: "sf", "san francisco": "sf", "49ers": "sf", "san francisco 49ers": "sf",
+  tb: "tb", tampa: "tb", "tampa bay": "tb", buccaneers: "tb", "tampa bay buccaneers": "tb",
+  ten: "ten", tennessee: "ten", titans: "ten", "tennessee titans": "ten",
+  was: "was", wsh: "was", washington: "was", commanders: "was", "washington commanders": "was",
+};
+
+function fbTrendTeamKey(value: unknown, sport: Sport) {
+  const key = textKey(value);
+  if (!key || sport !== "NFL") return key;
+  if (NFL_TREND_TEAM_KEYS[key]) return NFL_TREND_TEAM_KEYS[key];
+
+  const parts = key.split(" ").filter(Boolean);
+  const first = parts[0] ? NFL_TREND_TEAM_KEYS[parts[0]] : "";
+  if (first) return first;
+  const last = parts[parts.length - 1] ? NFL_TREND_TEAM_KEYS[parts[parts.length - 1]] : "";
+  return last || key;
+}
+
+function fbTrendGameIdentity(play: TrendPlay, sport: Sport) {
+  const dateKey = textKey(play.date || weekLabel(play));
+  const matchup = fbMatchupTeams(play.game);
+  if (!matchup) return `${dateKey}|${textKey(play.gameKey || play.game)}`;
+  return `${dateKey}|${fbTrendTeamKey(matchup.away, sport)}|${fbTrendTeamKey(matchup.home, sport)}`;
+}
+
+function fbTrendPlayIdentity(play: TrendPlay, sport: Sport) {
+  if (play.market === "Total") return `total|${textKey(play.side || play.selection)}`;
+  const selected = String(play.selectionTeam || play.selection || "")
+    .replace(/\s+[+-]?\d+(?:\.\d+)?\s*$/, "")
+    .trim();
+  return `spread|${fbTrendTeamKey(selected, sport)}`;
+}
+
+function fbTrendFreshness(play: TrendPlay) {
+  const stamp = Date.parse(String(play.updatedAt || play.frozenAt || ""));
+  return Number.isFinite(stamp) ? stamp : 0;
+}
+
+function fbPreferTrendPlay(current: TrendPlay, candidate: TrendPlay) {
+  const currentStamp = fbTrendFreshness(current);
+  const candidateStamp = fbTrendFreshness(candidate);
+  if (candidateStamp !== currentStamp) return candidateStamp > currentStamp ? candidate : current;
+  const currentHistory = current.movementHistory?.length || 0;
+  const candidateHistory = candidate.movementHistory?.length || 0;
+  return candidateHistory > currentHistory ? candidate : current;
+}
+
 function fbSameGame(a: unknown, b: unknown) {
   const left = fbComparableGame(a);
   const right = fbComparableGame(b);
@@ -1418,10 +1494,28 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
   const storedGamesForWeek = (weeklyData?.games || []).filter((row) => !activeWeek || String(row.Week || "") === activeWeek);
 
   const trendGroups = [...filteredTrends].reduce((map, play) => {
-    const key = play.gameKey || play.game;
+    const key = fbTrendGameIdentity(play, sport);
     const existing = map.get(key);
-    if (existing) existing.plays.push(play);
-    else map.set(key, { game: play.game, plays: [play] });
+    if (!existing) {
+      map.set(key, { game: play.game, plays: [play] });
+      return map;
+    }
+
+    const sideKey = fbTrendPlayIdentity(play, sport);
+    const duplicateIndex = existing.plays.findIndex(
+      (candidate) => fbTrendPlayIdentity(candidate, sport) === sideKey,
+    );
+    if (duplicateIndex >= 0) {
+      existing.plays[duplicateIndex] = fbPreferTrendPlay(existing.plays[duplicateIndex], play);
+    } else {
+      existing.plays.push(play);
+    }
+
+    // Prefer the richer matchup label when duplicate storage identities use
+    // abbreviations such as LA/LAR for the same NFL team.
+    if (String(play.game || "").length > String(existing.game || "").length) {
+      existing.game = play.game;
+    }
     return map;
   }, new Map<string, { game: string; plays: TrendPlay[] }>());
   const displayedTrendGroups = [...trendGroups.values()].sort((a, b) => {
