@@ -344,6 +344,9 @@ export async function crawlDraftKingsFootballFilter<T>(
         itm_content: filter.content,
         tb_eg: filter.eventGroup,
         tb_edate: filter.dateRange,
+        // DK's "All" tab is an explicit market filter. Omitting tb_emt can
+        // produce a successful HTML response with no betting-split rows.
+        tb_emt: "0",
     };
     // DK intermittently returns an embedded 403 for explicit tb_page=1 while
     // serving the same first filtered page when the page parameter is omitted.
