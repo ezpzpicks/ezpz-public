@@ -1870,6 +1870,68 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
   const displayTrendPlays = Array.isArray(weeklyMarket.trendPlays)
     ? weeklyMarket.trendPlays as unknown as TrendPlay[]
     : [];
+
+  // all_game_trends can contain an older 0%/100% opening snapshot even when the
+  // append-only weekly market history has a later real first snapshot. Overlay
+  // the corrected weekly movement state for public record classification so a
+  // placeholder opening can neither create nor erase a Strong RLM result.
+  const publicTrendKey = (
+    date: unknown,
+    gameKey: unknown,
+    game: unknown,
+    market: unknown,
+    selection: unknown,
+  ) => [
+    isoDate(date),
+    textKey(gameKey || game),
+    textKey(market),
+    textKey(selection),
+  ].join("|");
+  const weeklyMovementByKey = new Map(displayTrendPlays.map((play) => [
+    publicTrendKey(
+      play.date,
+      play.gameKey,
+      play.game,
+      play.market,
+      play.market === "Total" ? play.side || play.selection : play.selectionTeam || play.selection,
+    ),
+    play,
+  ]));
+  const publicTrendRows = trendRows.map((row) => {
+    const market = String(row.Market || "");
+    const selection = market === "Total"
+      ? row.Side || row.Selection
+      : row["Public Split Selection"] || row.Selection;
+    const play = weeklyMovementByKey.get(publicTrendKey(
+      row.Date,
+      row["Game Key"],
+      row.Game,
+      market,
+      selection,
+    ));
+    if (!play) return row;
+    return {
+      ...row,
+      "Public Bets %": String(play.betsPct),
+      "Public Money %": String(play.moneyPct),
+      "Public Gap %": String(play.gapPct),
+      "Public Split Line": play.line == null ? "" : String(play.line),
+      "Public Split Odds": play.odds,
+      "Opening Public %": String(play.openingBetsPct ?? play.betsPct),
+      "Current Public %": String(play.betsPct),
+      "Public Change %": String(play.publicMovementPct ?? 0),
+      "Opening Sharp %": String(play.openingMoneyPct ?? play.moneyPct),
+      "Current Sharp %": String(play.moneyPct),
+      "Sharp Change %": String(play.sharpMovementPct ?? 0),
+      "Opening Public Split Line": play.openingLine == null ? "" : String(play.openingLine),
+      "Opening Public Split Odds": play.openingOdds || play.odds,
+      "Opening Implied %": play.openingImpliedPct == null ? "" : String(play.openingImpliedPct),
+      "Current Implied %": play.currentImpliedPct == null ? "" : String(play.currentImpliedPct),
+      "Line Movement Signal": play.lineMovementSignal || "",
+      "Line Movement Basis": play.lineMovementBasis || "",
+      "Line Movement Value": play.lineMovementValue == null ? "" : String(play.lineMovementValue),
+    };
+  });
   // EZPZ is a daily card, even though the football trend board tracks the full market week.
   // Keep the weekly trend payload for the Trend Plays tab, but only today's games may enter EZPZ.
   const rawTodaySlate=slate.filter((row)=>isoDate(row.Date||row["Game Date"]||"")===today);
@@ -1909,7 +1971,7 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
   });
   const recordSummary = buildRecordSummary();
   const last7RecordSummary = buildRecordSummary(7);
-  return {ok:true,sport,database:sportDatabaseLabel(sport),today,lastUpdated:nowET(),tiles:{last7Days:last7,overallGreen:overall,handpickedLast7:last7,handpickedOverall:overall,pendingGreen:pending,bestPlaysToday:best.length},bestPlays:best,slateToday:todaySlate,betTrackerRows:effectiveTracker,draftKings:{ok:enriched.length>0,status:enriched.length?"LIVE":"UNAVAILABLE",updatedAt:nowET(),stale:false,splits:enriched,props:[],errors:dk.errors,filter:dk.filter,coverage:dk.coverage,displayMode:"LIVE",trackingMode:"WEEKLY",trackingWeekStart:trackingWeek.start,trackingWeekEnd:trackingWeek.end,trackedGames:trackingSlate.length},draftKingsSignalRows:history,trendRecordRows:trendRows.filter(r=>resultCode(r.Result)),trendPlays:displayTrendPlays,aiPicks,aiPickRecordRows:[],aiSelectorStatus:{mode:"LIVE",externalResearchConfigured:false,message:aiPicks.length?`${sport} EZPZ Picks are live for ${today}: HOT Best Plays remain FINAL immediately; Trend Plays now qualify only through Public Fade (>75% bets with a 55+ point Bets%-Money% gap) or Strong RLM (public bet share rises at least 5 points while the spread moves 1.5+ points against that side). Qualifying Trend Plays remain tied to the saved pregame market snapshot.`:`No ${sport} EZPZ Picks for ${today} currently qualify under the HOT Best Play / Public Fade / Strong RLM rules.`,updatedAt:nowET(),candidateCount:modelBest.length+todayTrendPlays.length,selectedCount:aiPicks.length},recordSummary,last7RecordSummary,handpickedRecordSummary:recordSummary,handpickedLast7RecordSummary:last7RecordSummary};
+  return {ok:true,sport,database:sportDatabaseLabel(sport),today,lastUpdated:nowET(),tiles:{last7Days:last7,overallGreen:overall,handpickedLast7:last7,handpickedOverall:overall,pendingGreen:pending,bestPlaysToday:best.length},bestPlays:best,slateToday:todaySlate,betTrackerRows:effectiveTracker,draftKings:{ok:enriched.length>0,status:enriched.length?"LIVE":"UNAVAILABLE",updatedAt:nowET(),stale:false,splits:enriched,props:[],errors:dk.errors,filter:dk.filter,coverage:dk.coverage,displayMode:"LIVE",trackingMode:"WEEKLY",trackingWeekStart:trackingWeek.start,trackingWeekEnd:trackingWeek.end,trackedGames:trackingSlate.length},draftKingsSignalRows:history,trendRecordRows:publicTrendRows.filter(r=>resultCode(r.Result)),trendPlays:displayTrendPlays,aiPicks,aiPickRecordRows:[],aiSelectorStatus:{mode:"LIVE",externalResearchConfigured:false,message:aiPicks.length?`${sport} EZPZ Picks are live for ${today}: HOT Best Plays remain FINAL immediately; Trend Plays now qualify only through Public Fade (>75% bets with a 55+ point Bets%-Money% gap) or Strong RLM (public bet share rises at least 5 points while the spread moves 1.5+ points against that side). Qualifying Trend Plays remain tied to the saved pregame market snapshot.`:`No ${sport} EZPZ Picks for ${today} currently qualify under the HOT Best Play / Public Fade / Strong RLM rules.`,updatedAt:nowET(),candidateCount:modelBest.length+todayTrendPlays.length,selectedCount:aiPicks.length},recordSummary,last7RecordSummary,handpickedRecordSummary:recordSummary,handpickedLast7RecordSummary:last7RecordSummary};
 }
 
 const FOOTBALL_PUBLIC_DATA_CACHE_TTL_MS = 60_000;
