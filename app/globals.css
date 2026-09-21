@@ -1348,13 +1348,9 @@ body::after {
   white-space: nowrap;
 }
 
-.directTrendBadge.fade {
-  color: #fde68a;
-  background: rgba(120,53,15,.25);
-  border: 1px solid rgba(245,158,11,.43);
-}
-
-.directTrendBadge.rlm {
+.directTrendBadge.fade,
+.directTrendBadge.rlm,
+.directTrendBadge.sharp {
   color: #bfdbfe;
   background: rgba(30,64,175,.24);
   border: 1px solid rgba(59,130,246,.44);
