@@ -1877,13 +1877,13 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
   // placeholder opening can neither create nor erase a Strong RLM result.
   const publicTrendKey = (
     date: unknown,
-    gameKey: unknown,
+    _gameKey: unknown,
     game: unknown,
     market: unknown,
     selection: unknown,
   ) => [
     isoDate(date),
-    textKey(gameKey || game),
+    textKey(game),
     textKey(market),
     textKey(selection),
   ].join("|");
