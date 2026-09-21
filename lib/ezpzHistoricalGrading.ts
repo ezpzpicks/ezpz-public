@@ -38,6 +38,7 @@ export type HistoricalEzpzGradeRepair = {
   officialDatesFetched: number;
   officialGamesFound: number;
   pitcherBoxscoresFetched: number;
+  firstInningLinescoresFetched: number;
 };
 
 function text(value: unknown) {
@@ -337,10 +338,18 @@ async function officialFinalGamesForDate(date: string): Promise<FinalGame[]> {
 
     for (const day of payload?.dates || []) {
       for (const game of day?.games || []) {
-        const state = `${String(game?.status?.detailedState || "")} ${String(
-          game?.status?.abstractGameState || "",
-        )}`.toLowerCase();
-        if (!state.includes("final")) continue;
+        const detailedState = String(game?.status?.detailedState || "").toLowerCase();
+        const abstractState = String(game?.status?.abstractGameState || "").toLowerCase();
+        const codedState = String(game?.status?.codedGameState || "").toUpperCase();
+        const statusCode = String(game?.status?.statusCode || "").toUpperCase();
+        const finalLike =
+          abstractState === "final" ||
+          codedState === "F" ||
+          statusCode === "F" ||
+          detailedState.includes("final") ||
+          detailedState.includes("completed") ||
+          detailedState.includes("game over");
+        if (!finalLike) continue;
 
         const gameKey = text(game?.gamePk).replace(/\.0$/, "");
         const awayRuns = Number(game?.teams?.away?.score);
@@ -411,6 +420,27 @@ function samePersonName(left: unknown, right: unknown) {
   return overlap >= 2;
 }
 
+async function firstInningRunsForGame(gameKey: string): Promise<number | null> {
+  if (!/^\d+$/.test(gameKey)) return null;
+  const url = new URL(`https://statsapi.mlb.com/api/v1/game/${gameKey}/linescore`);
+  try {
+    const response = await fetch(url, {
+      cache: "no-store",
+      headers: { Accept: "application/json" },
+    });
+    if (!response.ok) return null;
+    const payload = (await response.json()) as any;
+    const innings = Array.isArray(payload?.innings) ? payload.innings : [];
+    const first = innings.find((inning: any) => Number(inning?.num) === 1) || innings[0];
+    const away = Number(first?.away?.runs);
+    const home = Number(first?.home?.runs);
+    return Number.isFinite(away) && Number.isFinite(home) ? away + home : null;
+  } catch (error) {
+    console.warn("Official MLB first-inning linescore lookup failed", { gameKey, error });
+    return null;
+  }
+}
+
 async function pitcherResultsForGame(gameKey: string): Promise<PitcherResult[]> {
   if (!/^\d+$/.test(gameKey)) return [];
   const url = new URL(`https://statsapi.mlb.com/api/v1/game/${gameKey}/boxscore`);
@@ -475,9 +505,22 @@ async function gradePick(
   pick: ReturnType<typeof pickData>,
   game: FinalGame,
   pitcherCache: Map<string, Promise<PitcherResult[]>>,
+  firstInningCache: Map<string, Promise<number | null>>,
 ) {
-  if (key(pick.market) === "pitcher strikeouts") {
+  const market = key(pick.market);
+  if (market === "pitcher strikeouts") {
     return gradePitcherPick(pick, game, pitcherCache);
+  }
+  if (market === "first inning" && game.firstInningRuns == null && game.official) {
+    let request = firstInningCache.get(game.gameKey);
+    if (!request) {
+      request = firstInningRunsForGame(game.gameKey);
+      firstInningCache.set(game.gameKey, request);
+    }
+    const firstInningRuns = await request;
+    if (firstInningRuns != null) {
+      return gradeFromFinalGame(pick, { ...game, firstInningRuns });
+    }
   }
   return gradeFromFinalGame(pick, game);
 }
@@ -525,6 +568,7 @@ export async function repairHistoricalEzpzGrades(): Promise<HistoricalEzpzGradeR
   const official = await officialFinalGamesForDates([...pendingDates]);
   const trendFinalGames = uniqueFinalGames(trendRows);
   const pitcherCache = new Map<string, Promise<PitcherResult[]>>();
+  const firstInningCache = new Map<string, Promise<number | null>>();
   const updatedAt = new Date().toISOString();
 
   let selected = 0;
@@ -558,7 +602,7 @@ export async function repairHistoricalEzpzGrades(): Promise<HistoricalEzpzGradeR
 
     if (!prior) {
       game = matchFinalGame(pick, official.games) || matchFinalGame(pick, trendFinalGames);
-      if (game) result = await gradePick(pick, game, pitcherCache);
+      if (game) result = await gradePick(pick, game, pitcherCache, firstInningCache);
     } else if (market === "moneyline" || market === "total") {
       // Preserve the previous historical-correction behavior for already graded
       // full-game picks without adding any extra MLB API requests.
@@ -612,7 +656,7 @@ export async function repairHistoricalEzpzGrades(): Promise<HistoricalEzpzGradeR
     }
 
     const game = matchFinalGame(pick, official.games) || matchFinalGame(pick, trendFinalGames);
-    const result = game ? await gradePick(pick, game, pitcherCache) : "";
+    const result = game ? await gradePick(pick, game, pitcherCache, firstInningCache) : "";
     if (!result) {
       v2StillPending += 1;
       repairedV2.push(row);
@@ -659,5 +703,6 @@ export async function repairHistoricalEzpzGrades(): Promise<HistoricalEzpzGradeR
     officialDatesFetched: official.datesFetched,
     officialGamesFound: official.games.length,
     pitcherBoxscoresFetched: pitcherCache.size,
+    firstInningLinescoresFetched: firstInningCache.size,
   };
 }
