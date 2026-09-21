@@ -99,11 +99,12 @@ function compactMovementLine(play: TrendPlay, value: number | null | undefined) 
 }
 
 function rlmBadgeSummary(play: TrendPlay) {
+  if (play.openingBetsPct == null || play.openingLine == null || play.line == null) return null;
   const startBets = Number(play.openingBetsPct);
   const endBets = Number(play.betsPct);
   const startLine = Number(play.openingLine);
   const endLine = Number(play.line);
-  if (![startBets, endBets, startLine, endLine].every(Number.isFinite)) return null;
+  if (![startBets, endBets, startLine, endLine].every((value) => Number.isFinite(value))) return null;
   return {
     bets: `${Math.round(startBets)}% → ${Math.round(endBets)}%`,
     line: `${compactMovementLine(play, startLine)} → ${compactMovementLine(play, endLine)}`,
