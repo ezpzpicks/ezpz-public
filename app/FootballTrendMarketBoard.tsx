@@ -112,6 +112,23 @@ function compactDate(value: unknown) {
   }).format(new Date(stamp));
 }
 
+function compactSnapshotTime(value: unknown) {
+  const raw = String(value || "").trim();
+  if (!raw) return "-";
+  const twelveHour = raw.match(/(?:^|[\s,])(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)\b/i);
+  if (twelveHour) {
+    return `${Number(twelveHour[1])}:${twelveHour[2]} ${twelveHour[3].toUpperCase()} ET`;
+  }
+  const stamp = Date.parse(raw);
+  if (!Number.isFinite(stamp)) return raw;
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  }).format(new Date(stamp)) + " ET";
+}
+
 function lineLabel(play: TrendPlay, value: number | null | undefined) {
   if (play.market === "Moneyline") return play.odds || "-";
   const n = Number(value);
@@ -248,7 +265,26 @@ function historyPoints(play: TrendPlay) {
     },
   ];
 
-  const ordered = [...(saved.length >= 2 ? saved : fallback)].sort(
+  const base = [...(saved.length >= 2 ? saved : fallback)];
+  const heartbeatTime = String(play.updatedAt || "").trim();
+  if (heartbeatTime) {
+    const heartbeatEpoch = snapshotEpoch(heartbeatTime);
+    const lastEpoch = base.reduce((latest, point) => {
+      const epoch = snapshotEpoch(point.snapshotTime);
+      return Number.isFinite(epoch) ? Math.max(latest, epoch) : latest;
+    }, Number.NEGATIVE_INFINITY);
+    if (Number.isFinite(heartbeatEpoch) && heartbeatEpoch > lastEpoch) {
+      base.push({
+        snapshotTime: heartbeatTime,
+        line: play.line,
+        odds: play.odds,
+        betsPct: Number(play.betsPct),
+        moneyPct: Number(play.moneyPct),
+      });
+    }
+  }
+
+  const ordered = base.sort(
     (a, b) => snapshotEpoch(a.snapshotTime) - snapshotEpoch(b.snapshotTime),
   );
   const firstRealIndex = ordered.findIndex((point) => {
@@ -356,6 +392,7 @@ function MovementChart({ play }: { play: TrendPlay }) {
   const minLine = rawMin - padding;
   const maxLine = rawMax + padding;
   const latest = points[points.length - 1];
+  const lastSnapshotDisplay = compactSnapshotTime(play.updatedAt || latest?.snapshotTime);
   const markers = movementMarkerIndexes(lines);
   const dates = dateAxis(points);
   const lineTicks = Array.from({ length: 5 }, (_, index) => maxLine - ((maxLine - minLine) / 4) * index);
@@ -370,7 +407,13 @@ function MovementChart({ play }: { play: TrendPlay }) {
           <strong>{play.market === "Total" ? play.side : play.selection}</strong>
           <small>{play.market}</small>
         </div>
-        <span>{play.market === "Moneyline" ? (latest?.odds || play.odds) : `${lineLabel(play, latest?.line)} ${latest?.odds || play.odds}`}</span>
+        <div className="dkMovementHeadMeta">
+          <span className="dkMovementCurrentPrice">{play.market === "Moneyline" ? (latest?.odds || play.odds) : `${lineLabel(play, latest?.line)} ${latest?.odds || play.odds}`}</span>
+          <span className="dkSnapshotHeartbeat" title="Most recent successful DraftKings snapshot for this market">
+            <i aria-hidden="true" />
+            Last snapshot {lastSnapshotDisplay}
+          </span>
+        </div>
       </div>
 
       <div className="dkMovementCharts">
