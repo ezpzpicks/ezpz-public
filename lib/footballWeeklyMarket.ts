@@ -26,28 +26,16 @@ const SCORES_AND_ODDS_CUTOVER_DATE = "2026-09-21";
 
 function isScoresAndOddsCutoverRow(row: SheetRow) {
   const date = canonicalScheduleDate(row) || String(row.Date || "").trim();
-  if (!date || date < SCORES_AND_ODDS_CUTOVER_DATE) return true;
-  // From the permanent source cutover forward, only explicitly tagged
-  // ScoresAndOdds rows are allowed into the weekly market. Source-less rows
-  // are legacy migration state and must not be re-admitted.
-  return String(row.Source || "").trim() === SCORES_AND_ODDS_SOURCE;
-}
+  const source = String(row.Source || "").trim();
+  if (!date) return source !== SCORES_AND_ODDS_SOURCE;
 
-function preferScoresAndOddsRowsByWeek(rows: SheetRow[]) {
-  const scoresAndOddsWeeks = new Set(
-    rows
-      .filter((row) => String(row.Source || "").trim() === SCORES_AND_ODDS_SOURCE)
-      .map((row) => String(row.Week || "").trim())
-      .filter(Boolean),
-  );
-
-  return rows.filter((row) => {
-    const week = String(row.Week || "").trim();
-    if (week && scoresAndOddsWeeks.has(week)) {
-      return String(row.Source || "").trim() === SCORES_AND_ODDS_SOURCE;
-    }
-    return isScoresAndOddsCutoverRow(row);
-  });
+  // The source transition is event-date based:
+  // - games before 2026-09-21 retain their true pregame legacy snapshots;
+  // - games on/after 2026-09-21 use ScoresAndOdds only.
+  // This also rejects retroactive ScoresAndOdds consensus rows for games that
+  // had already finished before the source switch.
+  if (date < SCORES_AND_ODDS_CUTOVER_DATE) return source !== SCORES_AND_ODDS_SOURCE;
+  return source === SCORES_AND_ODDS_SOURCE;
 }
 
 export const POSTED_GAME_HEADERS = [
@@ -1725,9 +1713,9 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
     readSportWorksheet(sport, "schedule"),
     readSportWorksheet(sport, "daily_slate"),
   ]);
-  const sourceFilteredExistingGames = preferScoresAndOddsRowsByWeek(existingGames);
+  const sourceFilteredExistingGames = existingGames.filter(isScoresAndOddsCutoverRow);
   const removedLegacyGameRows = existingGames.length - sourceFilteredExistingGames.length;
-  const sourceFilteredExistingTrends = preferScoresAndOddsRowsByWeek(existingTrends);
+  const sourceFilteredExistingTrends = existingTrends.filter(isScoresAndOddsCutoverRow);
   const removedLegacyTrendRows = existingTrends.length - sourceFilteredExistingTrends.length;
   const allGameRepair = sport === "NFL"
     ? repairAllGameTrendMovementRows(allGameTrends)
@@ -1949,8 +1937,8 @@ export async function readWeeklyFootballMarket(sport: FootballSport) {
     readSportWorksheet(sport, "daily_slate"),
     readSportWorksheet(sport, "all_game_trends"),
   ]);
-  const sourceGames = preferScoresAndOddsRowsByWeek(games);
-  const sourceRows = preferScoresAndOddsRowsByWeek(rows);
+  const sourceGames = games.filter(isScoresAndOddsCutoverRow);
+  const sourceRows = rows.filter(isScoresAndOddsCutoverRow);
   const marketDates = [...new Set(sourceRows.map((row) => String(row.Date || "")).filter(Boolean))];
   const marketHistoryRows = marketDates.length
     ? (await readSportWorksheetByDateKeys(sport, MARKET_HISTORY_TAB, marketDates, MARKET_HISTORY_HEADERS))
