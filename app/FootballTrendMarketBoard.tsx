@@ -141,8 +141,11 @@ function labelsFor(play: TrendPlay, plays: TrendPlay[], sport: Sport) {
 
   const publicBets = Number(publicSide.betsPct);
   const publicMoney = Number(publicSide.moneyPct);
+  const placeholderSplit =
+    (publicBets === 100 && publicMoney === 100) ||
+    (publicBets === 0 && publicMoney === 0);
   const publicFade = sport === "NFL"
-    ? Number.isFinite(publicBets) && publicBets >= 80
+    ? !placeholderSplit && Number.isFinite(publicBets) && publicBets >= 80
     : Number.isFinite(publicBets) &&
       Number.isFinite(publicMoney) &&
       publicBets > 75 &&
@@ -579,8 +582,11 @@ function historicalLabels(row: SheetRow, group: SheetRow[], sport: Sport) {
 
   const publicBets = Number(publicSide["Public Bets %"] || publicSide["Current Public %"]);
   const publicMoney = Number(publicSide["Public Money %"] || publicSide["Current Sharp %"]);
+  const placeholderSplit =
+    (publicBets === 100 && publicMoney === 100) ||
+    (publicBets === 0 && publicMoney === 0);
   const publicFade = sport === "NFL"
-    ? Number.isFinite(publicBets) && publicBets >= 80
+    ? !placeholderSplit && Number.isFinite(publicBets) && publicBets >= 80
     : Number.isFinite(publicBets) &&
       Number.isFinite(publicMoney) &&
       publicBets > 75 &&
