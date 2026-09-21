@@ -301,6 +301,20 @@ function gradeFromFinalGame(pick: ReturnType<typeof pickData>, game: FinalGame):
     return sameTeam(selectedTeam, winner) ? "W" : "L";
   }
 
+  if (market === "run line") {
+    const line = number(pick.line);
+    const selectedTeam = pick.selection || pick.play;
+    if (line == null || !selectedTeam) return "";
+    const selectedIsAway = sameTeam(selectedTeam, game.awayTeam);
+    const selectedIsHome = sameTeam(selectedTeam, game.homeTeam);
+    if (!selectedIsAway && !selectedIsHome) return "";
+    const selectedRuns = selectedIsAway ? game.awayRuns : game.homeRuns;
+    const opponentRuns = selectedIsAway ? game.homeRuns : game.awayRuns;
+    const adjusted = selectedRuns + line;
+    if (Math.abs(adjusted - opponentRuns) < 0.001) return "P";
+    return adjusted > opponentRuns ? "W" : "L";
+  }
+
   if (market === "first inning") {
     if (game.firstInningRuns == null) return "";
     const source = `${pick.selection} ${pick.play}`.toUpperCase();
@@ -315,6 +329,7 @@ function recognizedMarket(pick: ReturnType<typeof pickData>) {
   const market = key(pick.market);
   return (
     market === "moneyline" ||
+    market === "run line" ||
     market === "total" ||
     market === "first inning" ||
     market === "pitcher strikeouts"
