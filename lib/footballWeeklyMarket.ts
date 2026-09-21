@@ -130,6 +130,13 @@ export type WeeklyTrendPlay = {
   lineMoveCount?: number;
   lastLineMoveAt?: string;
   lineHistoryLabel?: string;
+  movementHistory?: Array<{
+    snapshotTime: string;
+    line: number | null;
+    odds: string;
+    betsPct: number;
+    moneyPct: number;
+  }>;
   movementVersion?: string;
   score: number;
   baseScore?: number;
@@ -1786,6 +1793,26 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
   };
 }
 
+function movementHistoryForPlay(play: WeeklyTrendPlay, rows: SheetRow[]) {
+  const selectionKey = textKey(play.market === "Total" ? play.side : play.selectionTeam || play.selection);
+  return rows
+    .filter((row) => {
+      if (String(row["Game Key"] || "") !== play.gameKey) return false;
+      if (String(row.Market || "") !== play.market) return false;
+      const rowSelection = textKey(play.market === "Total" ? row.Side || row.Selection : row.Selection);
+      return rowSelection === selectionKey;
+    })
+    .map((row) => ({
+      snapshotTime: String(row["Snapshot Time ET"] || ""),
+      line: numericLine(row.Line),
+      odds: String(row.Odds || ""),
+      betsPct: percent(row["Bets %"]),
+      moneyPct: percent(row["Handle %"]),
+    }))
+    .filter((row) => Number.isFinite(row.betsPct) && Number.isFinite(row.moneyPct))
+    .slice(-80);
+}
+
 export async function readWeeklyFootballMarket(sport: FootballSport) {
   await Promise.all([
     ensureSportWorksheet(sport, POSTED_GAMES_TAB, POSTED_GAME_HEADERS),
@@ -1798,6 +1825,10 @@ export async function readWeeklyFootballMarket(sport: FootballSport) {
     readSportWorksheet(sport, "daily_slate"),
     readSportWorksheet(sport, "all_game_trends"),
   ]);
+  const marketDates = [...new Set(rows.map((row) => String(row.Date || "")).filter(Boolean))];
+  const marketHistoryRows = marketDates.length
+    ? await readSportWorksheetByDateKeys(sport, MARKET_HISTORY_TAB, marketDates, MARKET_HISTORY_HEADERS)
+    : [];
   const canonicalRows = [...scheduleRows, ...slateRows, ...allGameTrends];
   const trendPlays: WeeklyTrendPlay[] = [];
   for (const row of rows) {
@@ -1812,7 +1843,11 @@ export async function readWeeklyFootballMarket(sport: FootballSport) {
         warningKey: "", warning: "", warningTone: "neutral" as Tone, warningNegative: false,
       } as Split;
       if (!validFootballMarketSplit(storedSplit, sport, canonicalRows)) continue;
-      trendPlays.push({ ...play, week: String(row.Week || play.week || storedFootballWeek(sport, play, canonicalRows)) });
+      trendPlays.push({
+        ...play,
+        week: String(row.Week || play.week || storedFootballWeek(sport, play, canonicalRows)),
+        movementHistory: movementHistoryForPlay(play, marketHistoryRows),
+      });
     } catch { }
   }
   const splits = trendPlays.map((play) => ({
