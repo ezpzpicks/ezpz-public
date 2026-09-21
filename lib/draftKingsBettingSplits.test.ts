@@ -152,6 +152,43 @@ test("rejects a plausible-looking but partial NFL slate", () => {
   assert.equal(complete.receivedGames, 2);
 });
 
+test("accepts a complete published spread when DraftKings has not posted a total yet", () => {
+  type Row = { game: string; market: "Spread" | "Total"; side: string };
+  const expected = new Map([["future-game", "KC Chiefs @ MIA Dolphins"]]);
+  const spreadOnly: Row[] = [
+    { game: "future-game", market: "Spread", side: "KC" },
+    { game: "future-game", market: "Spread", side: "MIA" },
+  ];
+  const coverage = assessDraftKingsMarketCoverage(
+    expected,
+    spreadOnly,
+    (row) => row.game,
+    (row) => row.market,
+    (row) => row.side,
+  );
+  assert.equal(coverage.ok, true);
+  assert.deepEqual(coverage.incompleteGames, []);
+});
+
+test("rejects a game when DraftKings exposes only one side of a published market", () => {
+  type Row = { game: string; market: "Spread" | "Total"; side: string };
+  const expected = new Map([["future-game", "KC Chiefs @ MIA Dolphins"]]);
+  const oneSidedTotal: Row[] = [
+    { game: "future-game", market: "Spread", side: "KC" },
+    { game: "future-game", market: "Spread", side: "MIA" },
+    { game: "future-game", market: "Total", side: "Over" },
+  ];
+  const coverage = assessDraftKingsMarketCoverage(
+    expected,
+    oneSidedTotal,
+    (row) => row.game,
+    (row) => row.market,
+    (row) => row.side,
+  );
+  assert.equal(coverage.ok, false);
+  assert.equal(coverage.incompleteGames.length, 1);
+});
+
 test("does not call an empty canonical slate complete", () => {
   const coverage = assessDraftKingsMarketCoverage(
     new Map<string, string>(),
