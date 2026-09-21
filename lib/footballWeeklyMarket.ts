@@ -9,13 +9,13 @@ import {
   writeSportWorksheet,
 } from "./sportSheets";
 import {
-  DK_BETTING_SPLITS_URL,
   assessDraftKingsMarketCoverage,
-  crawlDraftKingsFootballFilter,
-  loadDraftKingsFootballFilterCandidates,
-  type DraftKingsFilterCandidate,
   type DraftKingsMarketCoverage,
 } from "./draftKingsBettingSplits";
+import {
+  SCORES_AND_ODDS_SOURCE,
+  loadScoresAndOddsConsensus,
+} from "./scoresAndOddsBettingSplits";
 
 export type WeeklyFootballMarket = "Spread" | "Total";
 type Tone = "negative" | "caution" | "positive" | "neutral";
@@ -431,7 +431,13 @@ function storedFootballWeek(sport: FootballSport, split: Pick<Split, "date" | "a
 type LoadedPostedSplits = {
   splits: Split[];
   errors: string[];
-  filter: DraftKingsFilterCandidate;
+  filter: {
+    eventGroup: string;
+    content: string;
+    dateRange: string;
+    label: string;
+    source: string;
+  };
   pagesScanned: number;
   pagesWithRows: number[];
   missingPages: number[];
@@ -539,75 +545,133 @@ async function loadPostedSplits(
   canonicalRows: SheetRow[],
   existingGames: SheetRow[] = [],
 ): Promise<LoadedPostedSplits> {
-  const discovery = await loadDraftKingsFootballFilterCandidates(sport);
+  const sourceSport = sport === "NCAAF" ? "NCAAF" : "NFL";
+  const loaded = await loadScoresAndOddsConsensus(sourceSport);
+  const errors: string[] = [];
   const expectedRows = [...existingGames, ...canonicalRows];
-  let best: LoadedPostedSplits | null = null;
+  const mapped: Split[] = [];
+  const today = todayET();
+  const todayStamp = Date.parse(`${today}T12:00:00Z`);
 
-  for (const filter of discovery.candidates.slice(0, 4)) {
-    const crawl = await crawlDraftKingsFootballFilter(
-      filter,
-      parseBettingSplits,
-      splitTrendKey,
-    );
-    const validated = crawl.rows.filter((split) =>
-      validFootballMarketSplit(split, sport, canonicalRows),
-    );
-    const errors = crawl.errors.map((error) =>
-      `${filter.label}/${filter.eventGroup}/${filter.dateRange}: ${error}`,
-    );
-    if (validated.length !== crawl.rows.length) {
-      errors.push(
-        `Football validation rejected ${crawl.rows.length - validated.length} non-${sport} or malformed market sides.`,
-      );
+  function matchesSourceTeams(row: SheetRow, away: string, home: string) {
+    if (sport === "NFL") {
+      const rowAway = nflMarketTeamCode(row["Away Team"]);
+      const rowHome = nflMarketTeamCode(row["Home Team"]);
+      const sourceAway = nflMarketTeamCode(away);
+      const sourceHome = nflMarketTeamCode(home);
+      return !!rowAway && !!rowHome && !!sourceAway && !!sourceHome &&
+        rowAway === sourceAway && rowHome === sourceHome;
     }
-    const coverage = assessDraftKingsCoverage(sport, validated, expectedRows);
-    const candidate: LoadedPostedSplits = {
-      splits: validated,
-      errors,
-      filter,
-      pagesScanned: crawl.pagesScanned,
-      pagesWithRows: crawl.pagesWithRows,
-      missingPages: crawl.missingPages,
-      coverage,
-    };
-    if (
-      !best ||
-      candidate.coverage.missingGames.length + candidate.coverage.incompleteGames.length <
-        best.coverage.missingGames.length + best.coverage.incompleteGames.length ||
-      (
-        candidate.coverage.missingGames.length + candidate.coverage.incompleteGames.length ===
-          best.coverage.missingGames.length + best.coverage.incompleteGames.length &&
-        candidate.splits.length > best.splits.length
-      )
-    ) best = candidate;
-
-    // NFL can be checked against its compact canonical slate. CFB cannot:
-    // DraftKings does not publish betting splits for every scheduled college
-    // matchup at once. For CFB, require a non-empty validated DK result and
-    // uninterrupted crawl pages instead of demanding every scheduled game.
-    const coverageAccepted = sport === "NFL" ? coverage.ok : validated.length > 0;
-    if (coverageAccepted && crawl.missingPages.length === 0) return candidate;
+    return collegeMarketTeamMatch(row["Away Team"], away) &&
+      collegeMarketTeamMatch(row["Home Team"], home);
   }
 
-  if (!best) {
-    throw new Error(`DraftKings ${sport} discovery returned no filter candidates.`);
-  }
-  const bestCoverageFailed = sport === "NFL" ? !best.coverage.ok : best.splits.length === 0;
-  if (bestCoverageFailed || best.missingPages.length) {
-    const pageFailure = best.missingPages.length
-      ? `; missing crawl page(s) ${best.missingPages.join(", ")}`
+  for (const source of loaded.splits) {
+    if (source.market !== "Spread" && source.market !== "Total") continue;
+    const candidates = canonicalRows
+      .filter((row) => matchesSourceTeams(row, source.awayTeam, source.homeTeam))
+      .map((row) => {
+        const date = canonicalScheduleDate(row);
+        const stamp = date ? Date.parse(`${date}T12:00:00Z`) : Number.NaN;
+        return {
+          row,
+          date,
+          distance: Number.isFinite(stamp) && Number.isFinite(todayStamp)
+            ? Math.abs(stamp - todayStamp)
+            : Number.POSITIVE_INFINITY,
+        };
+      })
+      .filter((candidate) => candidate.date)
+      .sort((left, right) => left.distance - right.distance);
+    const matched = candidates[0]?.row;
+    if (!matched) continue;
+
+    const awayTeam = String(matched["Away Team"] || source.awayTeam).trim();
+    const homeTeam = String(matched["Home Team"] || source.homeTeam).trim();
+    const selectionTeam = source.market === "Spread"
+      ? sport === "NFL"
+        ? nflMarketTeamCode(source.selectionTeam) === nflMarketTeamCode(source.awayTeam)
+          ? awayTeam
+          : nflMarketTeamCode(source.selectionTeam) === nflMarketTeamCode(source.homeTeam)
+            ? homeTeam
+            : source.selectionTeam
+        : collegeMarketTeamMatch(source.selectionTeam, source.awayTeam)
+          ? awayTeam
+          : collegeMarketTeamMatch(source.selectionTeam, source.homeTeam)
+            ? homeTeam
+            : source.selectionTeam
       : "";
-    const coverageFailure =
-      sport === "NFL"
-        ? coverageFailureMessage(best.coverage)
-        : "no CFB market sides matched the tracked slate";
-    throw new Error(
-      `DraftKings ${sport} partial slate rejected: ${coverageFailure}${pageFailure}. ` +
-      `Filter ${best.filter.eventGroup}/${best.filter.dateRange}; ` +
-      `received ${best.coverage.receivedGames} games and ${best.splits.length} market sides.`,
+    const line = source.line;
+    const warning = warningFor(source.betsPct, source.moneyPct);
+    mapped.push({
+      date: canonicalScheduleDate(matched),
+      eventTime: rowEventTime(matched),
+      game: `${awayTeam} @ ${homeTeam}`,
+      awayTeam,
+      homeTeam,
+      market: source.market,
+      selection: source.market === "Total"
+        ? source.side
+        : `${selectionTeam}${line == null ? "" : ` ${line > 0 ? "+" : ""}${line}`}`.trim(),
+      selectionTeam,
+      side: source.side,
+      sideGroup: source.market === "Total"
+        ? source.side
+        : line != null && line < 0
+          ? "Favorite"
+          : line != null && line > 0
+            ? "Underdog"
+            : "",
+      line,
+      odds: source.odds,
+      moneyPct: source.moneyPct,
+      betsPct: source.betsPct,
+      ...warning,
+      sourceUrl: source.sourceUrl,
+    });
+  }
+
+  const validated = mapped.filter((split) => validFootballMarketSplit(split, sport, canonicalRows));
+  if (validated.length !== mapped.length) {
+    errors.push(
+      `Football validation rejected ${mapped.length - validated.length} malformed ${sport} ScoresAndOdds market sides.`,
     );
   }
-  return best;
+  if (loaded.splits.length !== mapped.length) {
+    errors.push(
+      `ScoresAndOdds returned ${loaded.splits.length} parsed market sides; ${mapped.length} matched the current ${sport} canonical schedule before validation.`,
+    );
+  }
+
+  const deduped = new Map<string, Split>();
+  for (const split of validated) deduped.set(splitTrendKey(split), split);
+  const splits = [...deduped.values()];
+  const coverage = assessDraftKingsCoverage(sport, splits, expectedRows);
+  const coverageAccepted = sport === "NFL" ? coverage.ok : splits.length > 0;
+  if (!coverageAccepted) {
+    const coverageFailure = sport === "NFL"
+      ? coverageFailureMessage(coverage)
+      : "no NCAAF market sides matched the tracked slate";
+    throw new Error(
+      `ScoresAndOdds ${sport} partial slate rejected: ${coverageFailure}. Received ${coverage.receivedGames} games and ${splits.length} market sides.`,
+    );
+  }
+
+  return {
+    splits,
+    errors,
+    filter: {
+      eventGroup: sourceSport,
+      content: "scoresandodds-consensus",
+      dateRange: "current",
+      label: `ScoresAndOdds ${sourceSport} Consensus`,
+      source: "scoresandodds",
+    },
+    pagesScanned: 1,
+    pagesWithRows: splits.length ? [1] : [],
+    missingPages: [],
+    coverage,
+  };
 }
 
 export async function inspectPostedFootballMarkets(sport: FootballSport) {
@@ -734,8 +798,8 @@ function marketHistoryRowForSplit(split: Split, sport: FootballSport, canonicalR
     "Handle %": String(split.moneyPct),
     "Public Gap %": String(split.gapPct),
     Warning: split.warning,
-    Source: "DraftKings",
-    "Source URL": DK_BETTING_SPLITS_URL,
+    Source: SCORES_AND_ODDS_SOURCE,
+    "Source URL": split.sourceUrl || "https://www.scoresandodds.com",
     "State Signature": marketHistoryStateSignatureValues(split.line, split.odds, split.betsPct, split.moneyPct),
   };
 }
@@ -768,8 +832,8 @@ function marketHistorySeedRow(row: SheetRow, snapshotTime: string): SheetRow | n
     "Handle %": Number.isFinite(handlePct) ? String(handlePct) : "",
     "Public Gap %": Number.isFinite(gap) ? String(gap) : "",
     Warning: String(row.Warning || ""),
-    Source: "DraftKings",
-    "Source URL": DK_BETTING_SPLITS_URL,
+    Source: SCORES_AND_ODDS_SOURCE,
+    "Source URL": split.sourceUrl || "https://www.scoresandodds.com",
     "State Signature": marketHistoryStateSignatureValues(line, odds, betsPct, handlePct),
   };
 }
@@ -1658,7 +1722,8 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
   const dk = await loadPostedSplits(sport, canonicalRows, existingGames);
   const activeMarketDates = [...new Set(dk.splits.map((split) => split.date).filter(Boolean))];
   const existingMarketHistory = activeMarketDates.length
-    ? await readSportWorksheetByDateKeys(sport, MARKET_HISTORY_TAB, activeMarketDates, MARKET_HISTORY_HEADERS)
+    ? (await readSportWorksheetByDateKeys(sport, MARKET_HISTORY_TAB, activeMarketDates, MARKET_HISTORY_HEADERS))
+        .filter((row) => String(row.Source || "").trim() === SCORES_AND_ODDS_SOURCE)
     : [];
   const now = nowET();
   const gameMap = new Map(existingGames.map((row) => [postedGameKey(row), row]));
@@ -1678,8 +1743,8 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
       "Home Team": split.homeTeam,
       "First Seen": String(existing?.["First Seen"] || now),
       "Last Seen": now,
-      Source: "DraftKings",
-      "Source URL": DK_BETTING_SPLITS_URL,
+      Source: SCORES_AND_ODDS_SOURCE,
+      "Source URL": split.sourceUrl || "https://www.scoresandodds.com",
     });
   }
   if (postedRows.length) await upsertSportRows(sport, POSTED_GAMES_TAB, POSTED_GAME_HEADERS, postedRows, postedGameKey);
@@ -1700,16 +1765,6 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
 
   for (const split of dk.splits) {
     const key = splitTrendKey(split);
-    if (!existingHistoryKeys.has(key)) {
-      const existing = existingTrendMap.get(key);
-      const seed = existing ? marketHistorySeedRow(existing, firstSeenByGame.get(gameKey(split)) || now) : null;
-      if (seed) {
-        marketHistoryRows.push(seed);
-        marketHistoryRowsToAppend.push(seed);
-        latestHistoryByKey.set(key, seed);
-        existingHistoryKeys.add(key);
-      }
-    }
     const current = marketHistoryRowForSplit(split, sport, canonicalRows, now);
     const previous = latestHistoryByKey.get(key);
     if (!previous || marketHistoryStateSignature(previous) !== current["State Signature"]) {
@@ -1752,7 +1807,7 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
                 frozenAt: missedLock ? undefined : saved.updatedAt,
                 lockWarning: missedLock
                   ? `Lock capture missed — last verified ${saved.updatedAt}.`
-                  : "Finalized from the last verified pregame snapshot after DraftKings stopped updating.",
+                  : "Finalized from the last verified pregame snapshot after ScoresAndOdds stopped updating.",
               });
             }
           } catch { }
@@ -1800,7 +1855,7 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
         frozenAt: missedLock ? undefined : saved.updatedAt,
         lockWarning: missedLock
           ? `Lock capture missed — last verified ${saved.updatedAt}.`
-          : "DraftKings was unavailable at lock; finalized from the last verified pregame snapshot.",
+          : "ScoresAndOdds was unavailable at lock; finalized from the last verified pregame snapshot.",
       });
     } catch { }
   }
