@@ -55,6 +55,15 @@ async function runCron(request: NextRequest) {
       forceFresh: true,
       persist: true,
     });
+    const staleDraftKings =
+      payload?.stale === true ||
+      payload?.draftKings?.stale === true ||
+      payload?.draftKings?.displayMode === "STALE_FALLBACK";
+    if (staleDraftKings) {
+      throw new Error(
+        `${sport} DraftKings refresh used retained/stale data; cron run rejected so monitoring cannot report a false success.`,
+      );
+    }
     try {
       await persistEzpzCurrentPicks(sport, payload);
     } catch (error) {
