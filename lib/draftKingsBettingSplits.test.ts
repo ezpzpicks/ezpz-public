@@ -78,13 +78,16 @@ test("continues past an empty first page and de-duplicates a clamped final page"
   assert.deepEqual(result.pagesWithRows, [2, 3]);
   assert.equal(result.pagesScanned, 4);
   assert.match(result.errors[0], /page 1.*403/);
-  assert.deepEqual(requested[2], {
-    itm_content: "NFL",
-    tb_eg: "NFL",
-    tb_edate: "n30days",
-    tb_emt: "0",
-    tb_page: "2",
-  });
+  assert.deepEqual(
+    requested.find((params) => params.tb_page === "2" && params.tb_emt === "0"),
+    {
+      itm_content: "NFL",
+      tb_eg: "NFL",
+      tb_edate: "n30days",
+      tb_emt: "0",
+      tb_page: "2",
+    },
+  );
 });
 
 test("uses the filtered URL without tb_page for a working first page", async () => {
@@ -112,6 +115,37 @@ test("uses the filtered URL without tb_page for a working first page", async () 
     tb_edate: "n30days",
     tb_emt: "0",
   }]);
+});
+
+test("falls back to explicit Spread and Total tabs when All returns no rows", async () => {
+  type Row = { id: string };
+  const requested: Array<Record<string, string>> = [];
+  const filter: DraftKingsFilterCandidate = {
+    eventGroup: "NFL",
+    content: "NFL",
+    dateRange: "n30days",
+    label: "NFL",
+    source: "link",
+  };
+  const result = await crawlDraftKingsFootballFilter<Row>(
+    filter,
+    (html) =>
+      html === "SPREAD" ? [{ id: "spread-side" }] :
+      html === "TOTAL" ? [{ id: "total-side" }] :
+      [],
+    (row) => row.id,
+    1,
+    async (params) => {
+      requested.push(params);
+      if (params.tb_emt === "Spread") return "SPREAD";
+      if (params.tb_emt === "Total") return "TOTAL";
+      return "";
+    },
+  );
+  assert.deepEqual(result.rows, [{ id: "spread-side" }, { id: "total-side" }]);
+  assert.ok(requested.some((params) => params.tb_emt === "0"));
+  assert.ok(requested.some((params) => params.tb_emt === "Spread"));
+  assert.ok(requested.some((params) => params.tb_emt === "Total"));
 });
 
 test("rejects a plausible-looking but partial NFL slate", () => {
