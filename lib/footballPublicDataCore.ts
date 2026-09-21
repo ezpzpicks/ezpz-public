@@ -7,13 +7,18 @@ import {
   upsertSportRows,
 } from "./sportSheets";
 import { readWeeklyFootballMarket } from "./footballWeeklyMarket";
+import {
+  DK_BETTING_SPLITS_URL,
+  assessDraftKingsMarketCoverage,
+  crawlDraftKingsFootballFilter,
+  loadDraftKingsFootballFilterCandidates,
+  type DraftKingsFilterCandidate,
+  type DraftKingsMarketCoverage,
+} from "./draftKingsBettingSplits";
 
 export type FootballMarket = "Spread" | "Total";
 type Tone = "negative" | "caution" | "positive" | "neutral";
 type ResultCode = "W" | "L" | "P";
-
-const DK_BETTING_SPLITS_URL =
-  "https://dknetwork.draftkings.com/draftkings-sportsbook-betting-splits/";
 
 export const PUBLIC_SPLIT_HEADERS = [
   "Snapshot Time ET", "Opening Snapshot Time ET", "Date", "Game Time ET", "Game",
@@ -639,18 +644,6 @@ function parseBettingSplits(rawHtml: string): DraftKingsSplit[] {
   return [...map.values()];
 }
 
-async function fetchHtml(url: string, params: Record<string, string>) {
-  const target = new URL(url);
-  Object.entries(params).forEach(([key, value]) => target.searchParams.set(key, value));
-  const response = await fetch(target, {
-    cache: "no-store",
-    headers: { "User-Agent": "Mozilla/5.0 (compatible; EZPZ-Picks/1.0; +https://ezpzpicks.com)", Accept: "text/html,application/xhtml+xml" },
-    signal: AbortSignal.timeout(12_000),
-  });
-  if (!response.ok) throw new Error(`DraftKings splits request failed ${response.status}`);
-  return response.text();
-}
-
 function splitMatchesSlate(split: DraftKingsSplit, slate: SheetRow[], sport: FootballSport) {
   return slate.some((row) => {
     const rowDate = isoDate(row.Date || row["Game Date"] || "");
@@ -658,53 +651,119 @@ function splitMatchesSlate(split: DraftKingsSplit, slate: SheetRow[], sport: Foo
   });
 }
 
-async function loadDraftKingsSplits(sport: FootballSport, slate: SheetRow[]) {
-  const queries = sport === "NFL" ? ["84240"] : ["NCAA Football"];
-  const map = new Map<string, DraftKingsSplit>();
-  const errors: string[] = [];
-  for (const group of queries) {
-    let consecutiveEmptyPages = 0;
-    const seenPageSignatures = new Set<string>();
-    for (let page = 1; page <= 12; page += 1) {
-      try {
-        const parsed = parseBettingSplits(await fetchHtml(DK_BETTING_SPLITS_URL, {
-          itm_content: group, tb_edate: sport === "NFL" ? "n7days" : "n30days", tb_eg: group, tb_page: String(page),
-        }));
-        if (!parsed.length) {
-          // DraftKings occasionally serves an empty/403-backed page between valid pages.
-          // One empty page must not terminate the slate crawl.
-          consecutiveEmptyPages += 1;
-          if (consecutiveEmptyPages >= 3) break;
-          continue;
-        }
-        consecutiveEmptyPages = 0;
-        const pageSignature = parsed
-          .map((item) => `${item.date}|${textKey(item.game)}|${item.market}|${textKey(item.selection)}`)
-          .sort()
-          .join(";");
-        if (seenPageSignatures.has(pageSignature)) break;
-        seenPageSignatures.add(pageSignature);
-        for (const split of parsed.filter((item) => splitMatchesSlate(item, slate, sport))) {
-          const key = `${split.date}|${normalizeTeam(split.awayTeam, sport)}|${normalizeTeam(split.homeTeam, sport)}|${split.market}|${normalizeTeam(split.market === "Total" ? split.side : split.selectionTeam, sport)}`;
-          if (!map.has(key)) map.set(key, split);
-        }
-      } catch (error) {
-        errors.push(`${group} page ${page}: ${error instanceof Error ? error.message : String(error)}`);
-        // Continue because a later DK page can still be valid even when one page transiently fails.
-      }
+type LoadedDraftKingsSplits = {
+  splits: DraftKingsSplit[];
+  errors: string[];
+  filter: DraftKingsFilterCandidate;
+  coverage: DraftKingsMarketCoverage;
+};
+
+function splitCoverageGameKey(
+  date: string,
+  awayTeam: unknown,
+  homeTeam: unknown,
+  sport: FootballSport,
+) {
+  const teams = [normalizeTeam(awayTeam, sport), normalizeTeam(homeTeam, sport)]
+    .filter(Boolean)
+    .sort();
+  return date && teams.length === 2 ? `${date}|${teams.join("|")}` : "";
+}
+
+function assessTrackingSlateCoverage(
+  sport: FootballSport,
+  splits: DraftKingsSplit[],
+  slate: SheetRow[],
+): DraftKingsMarketCoverage {
+  const today = todayET();
+  const expected = new Map<string, string>();
+  for (const row of slate) {
+    const date = isoDate(row.Date || row["Game Date"] || "");
+    if (!date || date < today) continue;
+    const minutes = minutesUntilKickoff(row);
+    if (date === today && (minutes == null || minutes <= 15)) continue;
+    if (minutes != null && minutes <= 15) continue;
+    const key = splitCoverageGameKey(date, row["Away Team"], row["Home Team"], sport);
+    if (!key) continue;
+    expected.set(key, `${String(row["Away Team"] || "")} @ ${String(row["Home Team"] || "")}`);
+  }
+
+  return assessDraftKingsMarketCoverage(
+    expected,
+    splits,
+    (split) => splitCoverageGameKey(split.date, split.awayTeam, split.homeTeam, sport),
+    (split) => split.market,
+    (split) => split.market === "Spread"
+      ? normalizeTeam(split.selectionTeam, sport)
+      : split.side,
+  );
+}
+
+function trackingCoverageFailure(report: DraftKingsMarketCoverage) {
+  return [
+    report.missingGames.length ? `missing ${report.missingGames.join(", ")}` : "",
+    report.incompleteGames.length ? `incomplete ${report.incompleteGames.join(", ")}` : "",
+  ].filter(Boolean).join("; ") || "the returned NFL slate could not be verified as complete";
+}
+
+async function loadDraftKingsSplits(
+  sport: FootballSport,
+  slate: SheetRow[],
+): Promise<LoadedDraftKingsSplits> {
+  const discovery = await loadDraftKingsFootballFilterCandidates(sport);
+  let best: LoadedDraftKingsSplits | null = null;
+
+  for (const filter of discovery.candidates.slice(0, 4)) {
+    const crawl = await crawlDraftKingsFootballFilter(
+      filter,
+      parseBettingSplits,
+      (item) =>
+        `${item.date}|${normalizeTeam(item.awayTeam, sport)}|${normalizeTeam(item.homeTeam, sport)}|` +
+        `${item.market}|${normalizeTeam(item.market === "Total" ? item.side : item.selectionTeam, sport)}`,
+    );
+    const matched = crawl.rows.filter((item) => splitMatchesSlate(item, slate, sport));
+    const map = new Map<string, DraftKingsSplit>();
+    for (const split of matched) {
+      const key =
+        `${split.date}|${normalizeTeam(split.awayTeam, sport)}|${normalizeTeam(split.homeTeam, sport)}|` +
+        `${split.market}|${normalizeTeam(split.market === "Total" ? split.side : split.selectionTeam, sport)}`;
+      map.set(key, split);
     }
-    if (map.size) break;
+    const splits = [...map.values()];
+    const coverage = assessTrackingSlateCoverage(sport, splits, slate);
+    const errors = crawl.errors.map((error) =>
+      `${filter.label}/${filter.eventGroup}/${filter.dateRange}: ${error}`,
+    );
+    if (matched.length !== crawl.rows.length) {
+      errors.push(
+        `Football slate validation rejected ${crawl.rows.length - matched.length} unrelated market sides.`,
+      );
+    }
+    const candidate: LoadedDraftKingsSplits = { splits, errors, filter, coverage };
+    if (
+      !best ||
+      candidate.coverage.missingGames.length + candidate.coverage.incompleteGames.length <
+        best.coverage.missingGames.length + best.coverage.incompleteGames.length ||
+      (
+        candidate.coverage.missingGames.length + candidate.coverage.incompleteGames.length ===
+          best.coverage.missingGames.length + best.coverage.incompleteGames.length &&
+        candidate.splits.length > best.splits.length
+      )
+    ) best = candidate;
+
+    if (sport === "NFL" && coverage.ok) return candidate;
+    if (sport !== "NFL" && splits.length) return candidate;
   }
-  if (!map.size) {
-    try {
-      const parsed = parseBettingSplits(await fetchHtml(DK_BETTING_SPLITS_URL, {}));
-      for (const split of parsed.filter((item) => splitMatchesSlate(item, slate, sport))) {
-        const key = `${split.date}|${normalizeTeam(split.awayTeam, sport)}|${normalizeTeam(split.homeTeam, sport)}|${split.market}|${normalizeTeam(split.market === "Total" ? split.side : split.selectionTeam, sport)}`;
-        map.set(key, split);
-      }
-    } catch (error) { errors.push(`fallback: ${error instanceof Error ? error.message : String(error)}`); }
+
+  if (!best) throw new Error(`DraftKings ${sport} discovery returned no usable filter candidates.`);
+  if (sport === "NFL" && !best.coverage.ok) {
+    throw new Error(
+      `DraftKings NFL partial slate rejected: ${trackingCoverageFailure(best.coverage)}. ` +
+      `Filter ${best.filter.eventGroup}/${best.filter.dateRange}; ` +
+      `received ${best.coverage.receivedGames} games and ${best.splits.length} market sides.`,
+    );
   }
-  return { splits: [...map.values()], errors };
+  return best;
 }
 
 function snapshotKey(row: SheetRow) {
@@ -1809,7 +1868,7 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
   });
   const recordSummary = buildRecordSummary();
   const last7RecordSummary = buildRecordSummary(7);
-  return {ok:true,sport,database:sportDatabaseLabel(sport),today,lastUpdated:nowET(),tiles:{last7Days:last7,overallGreen:overall,handpickedLast7:last7,handpickedOverall:overall,pendingGreen:pending,bestPlaysToday:best.length},bestPlays:best,slateToday:todaySlate,betTrackerRows:effectiveTracker,draftKings:{ok:enriched.length>0,status:enriched.length?"LIVE":"UNAVAILABLE",updatedAt:nowET(),stale:false,splits:enriched,props:[],errors:dk.errors,displayMode:"LIVE",trackingMode:"WEEKLY",trackingWeekStart:trackingWeek.start,trackingWeekEnd:trackingWeek.end,trackedGames:trackingSlate.length},draftKingsSignalRows:history,trendRecordRows:trendRows.filter(r=>resultCode(r.Result)),trendPlays:displayTrendPlays,aiPicks,aiPickRecordRows:[],aiSelectorStatus:{mode:"LIVE",externalResearchConfigured:false,message:aiPicks.length?`${sport} EZPZ Picks are live for ${today}: HOT Best Plays are FINAL immediately; currently qualifying all-green Strong/Elite Trend Plays with 25%+ net ROI advantage and 8+ graded trend sample appear as PENDING until the next lock run; a delayed run may finalize after kickoff from the saved pregame snapshot; max price -150.`:`No ${sport} EZPZ Picks for ${today} currently qualify under the HOT / all-green 25%+ net ROI / 8+ graded trend sample / Strong-Elite / -150 rules. Qualifying Trend Plays appear as PENDING and can finalize on a later run even after kickoff, using only the saved pregame snapshot.`,updatedAt:nowET(),candidateCount:modelBest.length+todayTrendPlays.length,selectedCount:aiPicks.length},recordSummary,last7RecordSummary,handpickedRecordSummary:recordSummary,handpickedLast7RecordSummary:last7RecordSummary};
+  return {ok:true,sport,database:sportDatabaseLabel(sport),today,lastUpdated:nowET(),tiles:{last7Days:last7,overallGreen:overall,handpickedLast7:last7,handpickedOverall:overall,pendingGreen:pending,bestPlaysToday:best.length},bestPlays:best,slateToday:todaySlate,betTrackerRows:effectiveTracker,draftKings:{ok:enriched.length>0,status:enriched.length?"LIVE":"UNAVAILABLE",updatedAt:nowET(),stale:false,splits:enriched,props:[],errors:dk.errors,filter:dk.filter,coverage:dk.coverage,displayMode:"LIVE",trackingMode:"WEEKLY",trackingWeekStart:trackingWeek.start,trackingWeekEnd:trackingWeek.end,trackedGames:trackingSlate.length},draftKingsSignalRows:history,trendRecordRows:trendRows.filter(r=>resultCode(r.Result)),trendPlays:displayTrendPlays,aiPicks,aiPickRecordRows:[],aiSelectorStatus:{mode:"LIVE",externalResearchConfigured:false,message:aiPicks.length?`${sport} EZPZ Picks are live for ${today}: HOT Best Plays are FINAL immediately; currently qualifying all-green Strong/Elite Trend Plays with 25%+ net ROI advantage and 8+ graded trend sample appear as PENDING until the next lock run; a delayed run may finalize after kickoff from the saved pregame snapshot; max price -150.`:`No ${sport} EZPZ Picks for ${today} currently qualify under the HOT / all-green 25%+ net ROI / 8+ graded trend sample / Strong-Elite / -150 rules. Qualifying Trend Plays appear as PENDING and can finalize on a later run even after kickoff, using only the saved pregame snapshot.`,updatedAt:nowET(),candidateCount:modelBest.length+todayTrendPlays.length,selectedCount:aiPicks.length},recordSummary,last7RecordSummary,handpickedRecordSummary:recordSummary,handpickedLast7RecordSummary:last7RecordSummary};
 }
 
 const FOOTBALL_PUBLIC_DATA_CACHE_TTL_MS = 60_000;
