@@ -712,8 +712,47 @@ export function DirectTrendRecords({ rows, trendPlays = [], sport }: { rows: She
     });
   });
 
-  // Direct-trend records are derived only from the current three rules.
-  // Do not recover or infer historical Strong RLM from retired signal labels.
+  // Recover completed direct-trend results from finalized pregame snapshots using
+  // ONLY the current Public Fade, Strong RLM, and Sharp definitions. This avoids
+  // legacy signal labels while still handling historical rows stored under
+  // different game IDs.
+  if (trendPlays.length) {
+    const finalized = trendPlays.filter((play) => play.snapshotStatus === "FINAL_PREGAME");
+    finalized.forEach((play) => {
+      const siblings = finalized.filter((candidate) =>
+        textKey(candidate.date) === textKey(play.date) &&
+        textKey(candidate.game) === textKey(play.game)
+      );
+      const directLabels = labelsFor(play, siblings, sport);
+      if (!directLabels.length) return;
+
+      const settled = settledHistoricalRowForTrendPlay(play, rows);
+      if (!settled) return;
+
+      const recovered: SheetRow = {
+        ...settled,
+        "Public Split Line": Number.isFinite(Number(play.line))
+          ? String(play.line)
+          : String(settled["Public Split Line"] || settled.Line || ""),
+        "Public Bets %": String(play.betsPct),
+        "Public Money %": String(play.moneyPct),
+        "Opening Public %": play.openingBetsPct == null ? "" : String(play.openingBetsPct),
+        "Public Change %": play.publicMovementPct == null ? "" : String(play.publicMovementPct),
+        "Line Movement Basis": String(play.lineMovementBasis || ""),
+        "Line Movement Value": play.lineMovementValue == null ? "" : String(play.lineMovementValue),
+      };
+
+      directLabels.forEach((signal) => {
+        const alreadyTracked = labeled.some((item) =>
+          item.signal === signal &&
+          textKey(item.row.Date) === textKey(play.date) &&
+          textKey(item.row.Market) === textKey(play.market) &&
+          sameHistoricalTrendSelection(item.row, play)
+        );
+        if (!alreadyTracked) labeled.push({ row: recovered, signal, category: recordCategory(recovered) });
+      });
+    });
+  }
 
   const summaries: Array<{ label: string; totals: RecordTotals }> = [];
   ["Public Fade", "Strong RLM", "Sharp"].forEach((signal) => {
