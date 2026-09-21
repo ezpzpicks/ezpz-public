@@ -732,7 +732,12 @@ async function loadDraftKingsSplits(
   const discovery = await loadDraftKingsFootballFilterCandidates(sport);
   let best: LoadedDraftKingsSplits | null = null;
 
-  for (const filter of discovery.candidates.slice(0, 4)) {
+  // DK occasionally renames or duplicates football league filters during weekly
+  // rollover (for example, a live regular-season slate can temporarily remain
+  // under an "NFL Preseason" label). Try every dynamically discovered
+  // football-family candidate and let canonical slate coverage decide which
+  // response is safe to accept.
+  for (const filter of discovery.candidates) {
     const crawl = await crawlDraftKingsFootballFilter(
       filter,
       parseBettingSplits,
