@@ -132,7 +132,12 @@ function attributeValue(attributes: string, name: string) {
 function isSportLabel(value: unknown, sport: DraftKingsFootballSport) {
   const key = textKey(value);
   if (sport === "NFL") {
-    return key === "nfl" || key === "national football league" || key === "nfl regular season";
+    return (
+      key === "nfl" ||
+      key.startsWith("nfl ") ||
+      key === "national football league" ||
+      key.startsWith("national football league ")
+    );
   }
   return ["ncaaf", "ncaa football", "college football"].includes(key);
 }
