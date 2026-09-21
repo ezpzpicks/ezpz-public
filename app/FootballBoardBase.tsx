@@ -1507,7 +1507,7 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
       </div>
       <div className="sectionHead"><div><h2>DraftKings Trend Records</h2><p>Only the two active market signals: Public Fade and Strong RLM</p></div></div>
       <div className="advancedRecordsStack">
-        <DirectTrendRecords rows={trendRows} today={data.today} />
+        <DirectTrendRecords rows={trendRows} today={data.today} sport={sport} />
       </div>
       <div className="sectionHead"><div><h2>Bet Type Records</h2><p>Exact A/B grade + market + direction subsets used by HOT / COLD / SMALL SAMPLE</p></div></div>
       <div className="advancedRecordsStack">
