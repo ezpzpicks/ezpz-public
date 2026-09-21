@@ -239,7 +239,7 @@ function tokens(raw: string) {
     .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
     .replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi, " ")
     .replace(/<svg\b[^>]*>[\s\S]*?<\/svg>/gi, " ")
-    .replace(/<[^>]+>/g, "\n"))
+    .replace(/<img\\b[^>]*>/gi, " ")\n    .replace(/<[^>]+>/g, "\n"))
     .split(/\r?\n/).map((item) => item.replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim()).filter(Boolean);
 }
 
