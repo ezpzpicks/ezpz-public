@@ -725,69 +725,105 @@ function trackingCoverageFailure(report: DraftKingsMarketCoverage) {
   ].filter(Boolean).join("; ") || "the returned NFL slate could not be verified as complete";
 }
 
+async function fetchDraftKingsFootballLegacyHtml(params: Record<string, string>) {
+  const target = new URL(DK_BETTING_SPLITS_URL);
+  Object.entries(params).forEach(([key, value]) => target.searchParams.set(key, value));
+  const response = await fetch(target, {
+    cache: "no-store",
+    headers: {
+      "User-Agent": "Mozilla/5.0 (compatible; EZPZ-Picks/1.0; +https://ezpzpicks.com)",
+      Accept: "text/html,application/xhtml+xml",
+    },
+    signal: AbortSignal.timeout(12_000),
+  });
+  if (!response.ok) throw new Error(`DraftKings splits request failed ${response.status}`);
+  return response.text();
+}
+
 async function loadDraftKingsSplits(
   sport: FootballSport,
   slate: SheetRow[],
 ): Promise<LoadedDraftKingsSplits> {
-  const discovery = await loadDraftKingsFootballFilterCandidates(sport);
-  let best: LoadedDraftKingsSplits | null = null;
+  // Restore the known-good direct DraftKings football retrieval path that was
+  // used before dynamic filter discovery. Keep the newer canonical slate
+  // coverage guard so an empty/partial response can never overwrite good data.
+  const group = sport === "NFL" ? "84240" : "NCAA Football";
+  const dateRange = sport === "NFL" ? "n7days" : "n30days";
+  const map = new Map<string, DraftKingsSplit>();
+  const errors: string[] = [];
+  let consecutiveEmptyPages = 0;
+  const seenPageSignatures = new Set<string>();
 
-  // DK occasionally renames or duplicates football league filters during weekly
-  // rollover (for example, a live regular-season slate can temporarily remain
-  // under an "NFL Preseason" label). Try every dynamically discovered
-  // football-family candidate and let canonical slate coverage decide which
-  // response is safe to accept.
-  for (const filter of discovery.candidates) {
-    const crawl = await crawlDraftKingsFootballFilter(
-      filter,
-      parseBettingSplits,
-      (item) =>
-        `${item.date}|${normalizeTeam(item.awayTeam, sport)}|${normalizeTeam(item.homeTeam, sport)}|` +
-        `${item.market}|${normalizeTeam(item.market === "Total" ? item.side : item.selectionTeam, sport)}`,
-    );
-    const matched = crawl.rows.filter((item) => splitMatchesSlate(item, slate, sport));
-    const map = new Map<string, DraftKingsSplit>();
-    for (const split of matched) {
-      const key =
-        `${split.date}|${normalizeTeam(split.awayTeam, sport)}|${normalizeTeam(split.homeTeam, sport)}|` +
-        `${split.market}|${normalizeTeam(split.market === "Total" ? split.side : split.selectionTeam, sport)}`;
-      map.set(key, split);
+  for (let page = 1; page <= 12; page += 1) {
+    try {
+      const html = await fetchDraftKingsFootballLegacyHtml({
+        itm_content: group,
+        tb_edate: dateRange,
+        tb_eg: group,
+        tb_page: String(page),
+      });
+      const parsed = parseBettingSplits(html);
+      if (!parsed.length) {
+        consecutiveEmptyPages += 1;
+        if (consecutiveEmptyPages >= 3) break;
+        continue;
+      }
+      consecutiveEmptyPages = 0;
+      const pageSignature = parsed
+        .map((item) => `${item.date}|${textKey(item.game)}|${item.market}|${textKey(item.selection)}`)
+        .sort()
+        .join(";");
+      if (seenPageSignatures.has(pageSignature)) break;
+      seenPageSignatures.add(pageSignature);
+      for (const split of parsed.filter((item) => splitMatchesSlate(item, slate, sport))) {
+        const key =
+          `${split.date}|${normalizeTeam(split.awayTeam, sport)}|${normalizeTeam(split.homeTeam, sport)}|` +
+          `${split.market}|${normalizeTeam(split.market === "Total" ? split.side : split.selectionTeam, sport)}`;
+        map.set(key, split);
+      }
+    } catch (error) {
+      errors.push(`${group} page ${page}: ${error instanceof Error ? error.message : String(error)}`);
     }
-    const splits = [...map.values()];
-    const coverage = assessTrackingSlateCoverage(sport, splits, slate);
-    const errors = crawl.errors.map((error) =>
-      `${filter.label}/${filter.eventGroup}/${filter.dateRange}: ${error}`,
-    );
-    if (matched.length !== crawl.rows.length) {
-      errors.push(
-        `Football slate validation rejected ${crawl.rows.length - matched.length} unrelated market sides.`,
-      );
-    }
-    const candidate: LoadedDraftKingsSplits = { splits, errors, filter, coverage };
-    if (
-      !best ||
-      candidate.coverage.missingGames.length + candidate.coverage.incompleteGames.length <
-        best.coverage.missingGames.length + best.coverage.incompleteGames.length ||
-      (
-        candidate.coverage.missingGames.length + candidate.coverage.incompleteGames.length ===
-          best.coverage.missingGames.length + best.coverage.incompleteGames.length &&
-        candidate.splits.length > best.splits.length
-      )
-    ) best = candidate;
-
-    if (sport === "NFL" && coverage.ok) return candidate;
-    if (sport !== "NFL" && splits.length) return candidate;
   }
 
-  if (!best) throw new Error(`DraftKings ${sport} discovery returned no usable filter candidates.`);
-  if (sport === "NFL" && !best.coverage.ok) {
+  // Preserve the original known-good root-page recovery as a last retrieval
+  // attempt, but still subject every row to the canonical football slate.
+  if (!map.size) {
+    try {
+      const parsed = parseBettingSplits(await fetchDraftKingsFootballLegacyHtml({}));
+      for (const split of parsed.filter((item) => splitMatchesSlate(item, slate, sport))) {
+        const key =
+          `${split.date}|${normalizeTeam(split.awayTeam, sport)}|${normalizeTeam(split.homeTeam, sport)}|` +
+          `${split.market}|${normalizeTeam(split.market === "Total" ? split.side : split.selectionTeam, sport)}`;
+        map.set(key, split);
+      }
+    } catch (error) {
+      errors.push(`fallback: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  const splits = [...map.values()];
+  const coverage = assessTrackingSlateCoverage(sport, splits, slate);
+  const filter: DraftKingsFilterCandidate = {
+    eventGroup: group,
+    content: group,
+    dateRange,
+    label: `Legacy direct ${sport} filter`,
+    source: "option",
+  };
+
+  if (sport === "NFL" && !coverage.ok) {
     throw new Error(
-      `DraftKings NFL partial slate rejected: ${trackingCoverageFailure(best.coverage)}. ` +
-      `Filter ${best.filter.eventGroup}/${best.filter.dateRange}; ` +
-      `received ${best.coverage.receivedGames} games and ${best.splits.length} market sides.`,
+      `DraftKings NFL partial slate rejected: ${trackingCoverageFailure(coverage)}. ` +
+      `Legacy direct filter ${group}/${dateRange}; received ${coverage.receivedGames} games and ${splits.length} market sides.`,
     );
   }
-  return best;
+  if (sport !== "NFL" && !splits.length) {
+    throw new Error(
+      `DraftKings ${sport} direct retrieval returned no usable market sides. Legacy direct filter ${group}/${dateRange}.`,
+    );
+  }
+  return { splits, errors, filter, coverage };
 }
 
 function snapshotKey(row: SheetRow) {
