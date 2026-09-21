@@ -1778,7 +1778,7 @@ function displayPublicSlateTime(
 
 function liveSplitsForRow(
   row: SheetRow | undefined,
-  market: "Moneyline" | "Spread" | "Total",
+  market: "Moneyline" | "Spread" | "Run Line" | "Total",
   draftKings?: DraftKingsData | null,
 ) {
   return (draftKings?.splits || [])
