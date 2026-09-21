@@ -188,7 +188,7 @@ type TrendRecordResult = {
   game: string;
   gameKey: string;
   gameTime: string;
-  market: "Moneyline" | "Total";
+  market: "Moneyline" | "Run Line" | "Total";
   selection: string;
   result: "W" | "L" | "P";
   odds: number;
@@ -243,7 +243,7 @@ type TrendPlay = {
   game: string;
   awayTeam: string;
   homeTeam: string;
-  market: "Moneyline" | "Total";
+  market: "Moneyline" | "Run Line" | "Total";
   selection: string;
   selectionTeam: string;
   side: "Over" | "Under" | "";
