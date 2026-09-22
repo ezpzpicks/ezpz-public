@@ -6,6 +6,8 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 export const maxDuration = 60;
 
+const NFL_TRACKING_LOOKAHEAD_DAYS = 7;
+
 type SheetRow = Record<string, string>;
 
 type EspnCompetitor = {
@@ -94,6 +96,12 @@ function todayET(date = new Date()) {
   }).formatToParts(date);
   const get = (type: string) => parts.find((part) => part.type === type)?.value || "";
   return `${get("year")}-${get("month")}-${get("day")}`;
+}
+
+function addDaysIso(date: string, days: number) {
+  const [year, month, day] = date.split("-").map(Number);
+  const stamp = Date.UTC(year, month - 1, day, 12) + days * 86_400_000;
+  return new Date(stamp).toISOString().slice(0, 10);
 }
 
 function isoDate(value: unknown) {
@@ -186,6 +194,13 @@ export async function GET(request: NextRequest) {
   }
 
   const date = todayET();
+  const trackingDates = Array.from(
+    { length: NFL_TRACKING_LOOKAHEAD_DAYS + 1 },
+    (_, offset) => addDaysIso(date, offset),
+  );
+  const trackingDateSet = new Set(trackingDates);
+  const trackingThrough = trackingDates.at(-1) || date;
+
   try {
     const [existing, trends, snapshots] = await Promise.all([
       readSportWorksheet("NFL", "daily_slate"),
@@ -193,18 +208,41 @@ export async function GET(request: NextRequest) {
       readSportWorksheet("NFL", "public_split_snapshots"),
     ]);
 
-    let discovered: SheetRow[] = [];
-    let source = "ESPN";
-    let warning = "";
-    try {
-      discovered = await loadEspnGames(date);
-    } catch (error) {
-      warning = error instanceof Error ? error.message : String(error);
+    const scheduleResults = await Promise.all(
+      trackingDates.map(async (targetDate) => {
+        try {
+          return {
+            date: targetDate,
+            rows: await loadEspnGames(targetDate),
+            warning: "",
+          };
+        } catch (error) {
+          return {
+            date: targetDate,
+            rows: [] as SheetRow[],
+            warning: error instanceof Error ? error.message : String(error),
+          };
+        }
+      }),
+    );
+
+    const discovered: SheetRow[] = [];
+    const warnings: string[] = [];
+    let usedStoredFallback = false;
+    for (const result of scheduleResults) {
+      if (result.warning) warnings.push(`${result.date}: ${result.warning}`);
+      if (result.rows.length) {
+        discovered.push(...result.rows);
+        continue;
+      }
+      const recovered = fallbackRows(result.date, trends, snapshots);
+      if (recovered.length) {
+        discovered.push(...recovered);
+        usedStoredFallback = true;
+      }
     }
-    if (!discovered.length) {
-      discovered = fallbackRows(date, trends, snapshots);
-      source = "stored football tracking";
-    }
+    const source = usedStoredFallback ? "ESPN + stored football tracking" : "ESPN";
+    const warning = warnings.join(" | ");
 
     const merged = new Map<string, SheetRow>();
     const passthrough: SheetRow[] = [];
@@ -223,14 +261,20 @@ export async function GET(request: NextRequest) {
 
     await writeSportWorksheet("NFL", "daily_slate", DAILY_SLATE_HEADERS, [...passthrough, ...merged.values()]);
     const todayRows = [...merged.values()].filter((row) => isoDate(row.Date) === date);
+    const trackingWindowRows = [...merged.values()].filter((row) =>
+      trackingDateSet.has(isoDate(row.Date)),
+    );
     return NextResponse.json({
       ok: true,
       sport: "NFL",
       date,
+      trackingThrough,
+      trackingLookaheadDays: NFL_TRACKING_LOOKAHEAD_DAYS,
       source,
       discoveredGames: discovered.length,
       addedGames: added,
       slateGamesToday: todayRows.length,
+      slateGamesInTrackingWindow: trackingWindowRows.length,
       warning,
     }, { headers: { "Cache-Control": "no-store, max-age=0" } });
   } catch (error) {
