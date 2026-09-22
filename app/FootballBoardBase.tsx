@@ -1611,7 +1611,7 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
       <div className="trendTabHeader">
         <div className="directTrendRules">
           <span><b>Public Fade</b> {sport === "NFL" ? "Fade any side with 80%+ of bets" : "Bets exceed 75% with a 55+ point Bets/Money gap"}</span>
-          <span><b>Strong RLM</b> Public bets rise 5+ points while spread moves 1.5+ points against that side</span>
+          <span><b>Strong RLM</b> Public bets rise 5+ points while the spread or total moves 1.5+ points against that side</span>
           <span><b>Sharp</b> Money share exceeds bet share by {sport === "NFL" ? "20+" : "25+"} points</span>
         </div>
         <div className="trendGamesCountRow">
