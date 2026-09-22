@@ -1073,6 +1073,17 @@ function footballTrendSignalDisplayLabel(value: unknown) {
   return FOOTBALL_TREND_SIGNAL_DISPLAY_LABELS[label] || label;
 }
 
+function footballPublicSplitCopy(value: unknown) {
+  return String(value ?? "")
+    .replace(/\bStrong Trend\b/gi, "Strong Split")
+    .replace(/\bPositive Trend\b/gi, "Positive Split")
+    .replace(/\bTrend Plays\b/gi, "Betting Split signals")
+    .replace(/\bTrend Play\b/gi, "Betting Split signal")
+    .replace(/\btrend signals\b/gi, "betting split signals")
+    .replace(/\btrend signal\b/gi, "betting split signal")
+    .replace(/\btrend history\b/gi, "split history");
+}
+
 function footballTrendRecordTone(record: Pick<RecordTotals, "wins" | "losses">) {
   if (record.wins > record.losses) return "positive";
   if (record.losses > record.wins) return "negative";
@@ -1160,7 +1171,7 @@ function TrendSelectionRow({ play, selectionRank, initiallyOpen, sport }: { play
           <small>{play.market}{play.sideGroup ? ` • ${play.sideGroup}` : ""}{compactSignals ? ` • ${compactSignals}` : ""}</small>
         </span>
         <span className="trendSelectionMarket">
-          <small>{play.tier}</small>
+          <small>{footballPublicSplitCopy(play.tier)}</small>
           <strong>{Math.round(play.score)}</strong>
         </span>
         <span className="trendSelectionChevron" aria-hidden="true">⌄</span>
@@ -1352,7 +1363,7 @@ function EzpzPickCard({
                 <h3>Betting Split Evidence</h3>
                 <p>Historical market-signal performance behind this betting split signal.</p>
               </div>
-              <span className="aiTrendTierPill">{trendPlay.tier}</span>
+              <span className="aiTrendTierPill">{footballPublicSplitCopy(trendPlay.tier)}</span>
             </div>
 
             {trendRoiSummary ? (
@@ -1626,7 +1637,7 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
     </>;
   } else if (tab === "EZPZ Picks") {
     content = <>
-      <div className="sectionHead"><div><h2>{sport} EZPZ Picks</h2><p>{data.aiSelectorStatus?.message || "HOT Model Plays plus qualifying Public Fade, RLM, and Sharp betting split signals."}</p></div></div>
+      <div className="sectionHead"><div><h2>{sport} EZPZ Picks</h2><p>{footballPublicSplitCopy(data.aiSelectorStatus?.message) || "HOT Model Plays plus qualifying Public Fade, RLM, and Sharp betting split signals."}</p></div></div>
       {todayEzpzPicks.length ? <div className="aiPickStack">{todayEzpzPicks.map((pick, index) => <EzpzPickCard key={`${pick.game}-${pick.market}-${pick.selection}-${index}`} pick={pick} splits={splits} trendPlays={ezpzTrendSource} slateRows={slateRows} todayByType={todayByType} recentByType={last7Map} lastSevenBetsByType={lastSevenBetsByType} overallByType={summaryMap} sport={sport} />)}</div> : <div className="empty footballEmpty">No {sport} EZPZ Picks qualify for {data.today} right now.</div>}
     </>;
   } else if (tab === "Full Slate") {
