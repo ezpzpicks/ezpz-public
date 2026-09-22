@@ -7459,7 +7459,8 @@ function buildBestPlaysFromSlate(
         selectedProbability: totalSelectedProbability,
       });
       if (totalGrading && totalGrading.tier !== "Non-Edge") {
-        const totalOdds = oddsFromLineCell(totalOddsRaw);
+        const totalAmericanOdds = parseAmericanOdds(totalOddsRaw);
+        const totalOdds = totalAmericanOdds ? String(totalAmericanOdds) : oddsFromLineCell(totalOddsRaw);
         plays.push({
           playType: totalGrading.grade,
           game,
