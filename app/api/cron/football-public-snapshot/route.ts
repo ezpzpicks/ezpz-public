@@ -55,6 +55,17 @@ async function runCron(request: NextRequest) {
       forceFresh: true,
       persist: true,
     });
+    // Keep the lightweight EZPZ Picks notification snapshot independent from
+    // live ScoresAndOdds health. The public football payload can still produce
+    // the currently displayed picks from retained snapshots/model data even
+    // when the live market refresh is rejected as incomplete. Persist those
+    // picks first, then let the market-monitoring cron fail loudly below.
+    try {
+      await persistEzpzCurrentPicks(sport, payload);
+    } catch (error) {
+      console.error(`${sport} current EZPZ picks snapshot failed`, error);
+    }
+
     const staleDraftKings =
       payload?.stale === true ||
       payload?.draftKings?.stale === true ||
@@ -63,11 +74,6 @@ async function runCron(request: NextRequest) {
       throw new Error(
         `${sport} ScoresAndOdds refresh used retained/stale data; cron run rejected so monitoring cannot report a false success.`,
       );
-    }
-    try {
-      await persistEzpzCurrentPicks(sport, payload);
-    } catch (error) {
-      console.error(`${sport} current EZPZ picks snapshot failed`, error);
     }
     let trendV2Lifecycle: unknown = null;
     try {
