@@ -1188,7 +1188,6 @@ export function DirectTrendRecords({
       <summary className="recordsSummary">
         <div>
           <div className="recordsSummaryTitle">Public Fade + Strong RLM + Sharp Records</div>
-          <div className="recordsSummarySub">Active ScoresAndOdds trend rules, separated by market side</div>
         </div>
         <span className="recordsCount">{labeled.length} graded</span>
       </summary>
