@@ -15,6 +15,10 @@ export type ScoresAndOddsMarketSplit = {
   moneyPct: number;
   betsPct: number;
   sourceUrl: string;
+  // 1-based occurrence of this same-team matchup on the source page.
+  // ScoresAndOdds omits MLB event times, so this preserves doubleheaders until
+  // the MLB route can bind each occurrence to the scheduled slate instance.
+  sourceGameOccurrence?: number;
 };
 
 export const SCORES_AND_ODDS_SOURCE = "ScoresAndOdds";
@@ -367,6 +371,10 @@ export function parseScoresAndOddsConsensus(
   const sourceUrl = scoresAndOddsConsensusUrl(sport);
   const pageDate = dateFromPage(rawHtml);
   const rows: ScoresAndOddsMarketSplit[] = [];
+  const matchupOccurrenceState = new Map<
+    string,
+    { occurrence: number; seenMarkets: Set<ScoresAndOddsMarketSplit["market"]> }
+  >();
 
   for (let anchor = 0; anchor < tokens.length; anchor += 1) {
     if (!/%\s*of\s*Bets/i.test(tokens[anchor] || "")) continue;
@@ -382,6 +390,21 @@ export function parseScoresAndOddsConsensus(
     const awayTeam = contextAway || (market === "Total" ? "" : cleanSelectionTeam(descriptor.left));
     const homeTeam = contextHome || (market === "Total" ? "" : cleanSelectionTeam(descriptor.right));
     if (!awayTeam || !homeTeam || awayTeam === homeTeam) continue;
+
+    const matchupKey = `${pageDate}|${awayTeam.toLowerCase()}|${homeTeam.toLowerCase()}`;
+    let occurrenceState = matchupOccurrenceState.get(matchupKey);
+    if (!occurrenceState) {
+      occurrenceState = { occurrence: 1, seenMarkets: new Set() };
+      matchupOccurrenceState.set(matchupKey, occurrenceState);
+    } else if (occurrenceState.seenMarkets.has(market)) {
+      occurrenceState = {
+        occurrence: occurrenceState.occurrence + 1,
+        seenMarkets: new Set(),
+      };
+      matchupOccurrenceState.set(matchupKey, occurrenceState);
+    }
+    occurrenceState.seenMarkets.add(market);
+    const sourceGameOccurrence = occurrenceState.occurrence;
 
     const [leftLine, rightLine] = parsePairedLines(header, market);
     const leftOdds = findBestOdds(
@@ -425,6 +448,7 @@ export function parseScoresAndOddsConsensus(
       moneyPct: percentages.money[0],
       betsPct: percentages.bets[0],
       sourceUrl,
+      sourceGameOccurrence,
     });
     rows.push({
       date: pageDate,
@@ -441,6 +465,7 @@ export function parseScoresAndOddsConsensus(
       moneyPct: percentages.money[1],
       betsPct: percentages.bets[1],
       sourceUrl,
+      sourceGameOccurrence,
     });
   }
 
@@ -448,6 +473,7 @@ export function parseScoresAndOddsConsensus(
   for (const row of rows) {
     const key = [
       row.game.toLowerCase(),
+      String(row.sourceGameOccurrence || 1),
       row.market,
       (row.market === "Total" ? row.side : row.selectionTeam).toLowerCase(),
     ].join("|");
