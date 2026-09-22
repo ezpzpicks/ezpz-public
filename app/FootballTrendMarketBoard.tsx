@@ -1106,7 +1106,7 @@ export function DirectTrendRecords({
           ? selectionText.match(/\s([+-]?\d+(?:\.\d+)?)\s*$/)?.[1] || ""
           : "";
       const recoveredLine = String(pick.line || inlineLine || "");
-      const recoveredSelection =
+      const recoveredSelectionText =
         marketKey === "spread" || marketKey === "run line"
           ? selectionText.replace(/\s+[+-]?\d+(?:\.\d+)?\s*$/, "").trim()
           : selectionText;
@@ -1116,7 +1116,7 @@ export function DirectTrendRecords({
         "Game Key": String(pick.gameKey || ""),
         "Game Time": String(pick.gameTime || ""),
         Market: market,
-        Selection: marketKey === "total" ? totalSide : recoveredSelection,
+        Selection: marketKey === "total" ? totalSide : recoveredSelectionText,
         Side: totalSide,
         Line: recoveredLine,
         "Public Split Line": recoveredLine,
