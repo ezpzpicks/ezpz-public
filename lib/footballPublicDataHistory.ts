@@ -268,6 +268,14 @@ function stripTrailingLine(value: unknown) {
   return textKey(String(value || "").replace(/\s+[+-]?\d+(?:\.\d+)?\s*$/, ""));
 }
 
+function sameHistoryTeam(a: unknown, b: unknown, sport: FootballSport) {
+  const left = stripTrailingLine(a);
+  const right = stripTrailingLine(b);
+  if (!left || !right) return false;
+  if (left === right || left.includes(right) || right.includes(left)) return true;
+  return sport === "NFL" && nflTeamIdentity(left) === nflTeamIdentity(right);
+}
+
 function rowMatchesHistory(row: SheetRow, history: SheetRow, sport: FootballSport) {
   if (rowDate(row) !== isoDate(history.Date)) return false;
   if (!sameGame(rowGame(row), history.Game, sport)) return false;
@@ -302,9 +310,7 @@ function rowMatchesHistory(row: SheetRow, history: SheetRow, sport: FootballSpor
 
   if (historyMarket.includes("spread")) {
     if (!rowMarket.includes("spread") && !textKey(row["Bet Type"]).includes("spread")) return false;
-    const historyTeam = stripTrailingLine(history.Selection);
-    const rowTeam = stripTrailingLine(row.Selection || row.Pick);
-    return Boolean(historyTeam && rowTeam && (historyTeam === rowTeam || historyTeam.includes(rowTeam) || rowTeam.includes(historyTeam)));
+    return sameHistoryTeam(history.Selection, row.Selection || row.Pick, sport);
   }
 
   return textKey(history.Selection) === textKey(row.Selection || row.Pick || row.Side);
