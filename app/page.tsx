@@ -7031,7 +7031,6 @@ export default function Home() {
       directTrendGroupMap.set(key, existing);
     }
     const directTrendGroups = [...directTrendGroupMap.values()];
-    const displayedTrendSides = trendPlays.length;
     // Pending candidates remain visible until final review. A finalized
     // rejection is returned with selected=false or BLOCKED and disappears;
     // an approved candidate remains and changes from PENDING to FINAL.
@@ -7145,56 +7144,44 @@ export default function Home() {
         (mlbDailyMarketLoading || !historicalMlbMarketReady);
       return (
         <section>
-          <div className="sectionHead">
-            <div>
-              <h2>{viewingCurrentMlbTrends ? "Today’s Trend Plays" : `MLB Trend Plays — ${activeMlbTrendDateLabel}`}</h2>
-              <div className="directTrendRules">
-                <span><b>Public Fade</b> Fade the opposite side when 80%+ of bets are on one side.</span>
-                <span><b>Strong RLM</b> Moneyline bets rise 5+ points while that team’s implied probability moves 1.5+ points against it.</span>
-                <span><b>Sharp</b> Money share is 20+ points higher than bet share.</span>
-              </div>
+          <div className="trendTabHeader">
+            <div className="directTrendRules">
+              <span><b>Public Fade</b> Fade the opposite side when 80%+ of bets are on one side.</span>
+              <span><b>Strong RLM</b> Moneyline bets rise 5+ points while that team’s implied probability moves 1.5+ points against it.</span>
+              <span><b>Sharp</b> Money share is 20+ points higher than bet share.</span>
             </div>
-            <span className="countPill">
-              {directTrendGroups.length} games • {displayedTrendSides} ScoresAndOdds Moneyline / Total sides
-            </span>
-          </div>
-
-          <div className="trendWeekControls simplifiedTrendControls mlbDayControls">
-            <label>
-              <span>View market day</span>
-              <select
-                value={activeMlbTrendDate}
-                onChange={(event) => setSelectedMlbTrendDate(event.target.value)}
-                disabled={!availableMlbTrendDates.length}
-              >
-                {availableMlbTrendDates.length ? (
-                  availableMlbTrendDates.map((date) => {
-                    const [year, month, day] = date.split("-").map(Number);
-                    const label = year && month && day
-                      ? new Intl.DateTimeFormat("en-US", {
-                          weekday: "short",
-                          month: "short",
-                          day: "numeric",
-                        }).format(new Date(year, month - 1, day, 12))
-                      : date;
-                    return (
-                      <option key={date} value={date}>
-                        {date === currentMlbTrendDate ? `${label} — Today` : label}
-                      </option>
-                    );
-                  })
-                ) : (
-                  <option value="">No stored days yet</option>
-                )}
-              </select>
-            </label>
-            <div>
-              <strong>{activeMlbTrendDateLabel}</strong>
-              <small>
-                {viewingCurrentMlbTrends
-                  ? "Live ScoresAndOdds board"
-                  : `${trendSlateRows.length} games restored from stored MLB market data`}
-              </small>
+            <div className="trendGamesCountRow">
+              <span className="countPill">{directTrendGroups.length} games</span>
+            </div>
+            <div className="trendWeekControls simplifiedTrendControls mlbDayControls">
+              <label>
+                <span>View market day</span>
+                <select
+                  value={activeMlbTrendDate}
+                  onChange={(event) => setSelectedMlbTrendDate(event.target.value)}
+                  disabled={!availableMlbTrendDates.length}
+                >
+                  {availableMlbTrendDates.length ? (
+                    availableMlbTrendDates.map((date) => {
+                      const [year, month, day] = date.split("-").map(Number);
+                      const label = year && month && day
+                        ? new Intl.DateTimeFormat("en-US", {
+                            weekday: "short",
+                            month: "short",
+                            day: "numeric",
+                          }).format(new Date(year, month - 1, day, 12))
+                        : date;
+                      return (
+                        <option key={date} value={date}>
+                          {date === currentMlbTrendDate ? `${label} — Today` : label}
+                        </option>
+                      );
+                    })
+                  ) : (
+                    <option value="">No stored days yet</option>
+                  )}
+                </select>
+              </label>
             </div>
           </div>
 
