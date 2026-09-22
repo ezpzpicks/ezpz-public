@@ -6875,6 +6875,7 @@ const MLB_PITCHER_K_REGULAR_EDGE = 15;
 const MLB_PITCHER_K_REGULAR_GAP = 10;
 const MLB_PITCHER_K_LEAN_EDGE = 10;
 const MLB_PITCHER_K_LEAN_GAP = 15;
+const MLB_PITCHER_K_LEAN_MAX_GAP = 25;
 
 type MlbPitcherKTier = "Strong" | "Regular" | "Lean" | "Non-Edge";
 type MlbPitcherKSide = "OVER" | "UNDER";
@@ -6947,7 +6948,9 @@ function mlbPitcherKTierForMetrics(probabilityEdge: number, projectionGapPct: nu
   ) return "Regular";
   if (
     probabilityEdge >= MLB_PITCHER_K_LEAN_EDGE &&
-    projectionGapPct >= MLB_PITCHER_K_LEAN_GAP
+    probabilityEdge < MLB_PITCHER_K_REGULAR_EDGE &&
+    projectionGapPct >= MLB_PITCHER_K_LEAN_GAP &&
+    projectionGapPct < MLB_PITCHER_K_LEAN_MAX_GAP
   ) return "Lean";
   return "Non-Edge";
 }
