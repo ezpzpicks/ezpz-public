@@ -129,6 +129,98 @@ function compactSnapshotTime(value: unknown) {
   }).format(new Date(stamp)) + " ET";
 }
 
+function trendDateParts(value: unknown) {
+  const raw = String(value || "").trim();
+  const iso = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (iso) return { year: Number(iso[1]), month: Number(iso[2]), day: Number(iso[3]) };
+  const slash = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (slash) return { year: Number(slash[3]), month: Number(slash[1]), day: Number(slash[2]) };
+  const stamp = Date.parse(raw);
+  if (!Number.isFinite(stamp)) return null;
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+  }).formatToParts(new Date(stamp));
+  const get = (type: string) => Number(parts.find((part) => part.type === type)?.value || 0);
+  const year = get("year");
+  const month = get("month");
+  const day = get("day");
+  return year && month && day ? { year, month, day } : null;
+}
+
+function trendTimeMinutes(value: unknown) {
+  const raw = String(value || "").trim();
+  if (!raw) return Number.POSITIVE_INFINITY;
+
+  const twelveHour = raw.match(/^(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)\b/i);
+  if (twelveHour) {
+    let hour = Number(twelveHour[1]) % 12;
+    if (twelveHour[3].toUpperCase() === "PM") hour += 12;
+    return hour * 60 + Number(twelveHour[2]);
+  }
+
+  const twentyFourHour = raw.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+  if (twentyFourHour) {
+    const hour = Number(twentyFourHour[1]);
+    const minute = Number(twentyFourHour[2]);
+    if (hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59) return hour * 60 + minute;
+  }
+
+  const stamp = Date.parse(raw);
+  if (!Number.isFinite(stamp)) return Number.POSITIVE_INFINITY;
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date(stamp));
+  const hour = Number(parts.find((part) => part.type === "hour")?.value || 0);
+  const minute = Number(parts.find((part) => part.type === "minute")?.value || 0);
+  return hour * 60 + minute;
+}
+
+function trendTimeLabel(value: unknown) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const minutes = trendTimeMinutes(raw);
+  if (!Number.isFinite(minutes)) return raw;
+  const hour24 = Math.floor(minutes / 60) % 24;
+  const minute = minutes % 60;
+  const suffix = hour24 >= 12 ? "PM" : "AM";
+  const hour12 = hour24 % 12 || 12;
+  return `${hour12}:${String(minute).padStart(2, "0")} ${suffix}`;
+}
+
+function trendDateLabel(value: unknown) {
+  const parts = trendDateParts(value);
+  if (!parts) return String(value || "").trim();
+  const date = new Date(Date.UTC(parts.year, parts.month - 1, parts.day, 12));
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "UTC",
+    month: "short",
+    day: "numeric",
+  }).format(date);
+}
+
+function trendGameDateTimeLabel(dateValue: unknown, timeValue: unknown) {
+  const date = trendDateLabel(dateValue);
+  const time = trendTimeLabel(timeValue);
+  if (date && time) return `${date} • ${time}`;
+  return date || time || "";
+}
+
+function trendGroupSortValue(group: Group) {
+  const gameDate = group.plays.find((play) => play.date)?.date || "";
+  const gameTime = group.plays.find((play) => play.gameTime)?.gameTime || "";
+  const date = trendDateParts(gameDate);
+  const minutes = trendTimeMinutes(gameTime);
+  if (!date) return Number.POSITIVE_INFINITY;
+  const safeMinutes = Number.isFinite(minutes) ? minutes : 24 * 60;
+  return Date.UTC(date.year, date.month - 1, date.day) + safeMinutes * 60_000;
+}
+
 function lineLabel(play: TrendPlay, value: number | null | undefined) {
   if (play.market === "Moneyline") return play.odds || "-";
   const n = Number(value);
@@ -651,7 +743,7 @@ function GameCard({ group, sport }: { group: Group; sport: Sport }) {
               <TeamLogoName sport={sport} team={matchup.home} text={matchup.home} className="dkMatchupTeam" />
             </div>
           ) : <div className="dkTrendGameTitle">{group.game}</div>}
-          <small>{gameDate}{gameDate && gameTime ? " - " : ""}{gameTime}</small>
+          <small className="dkTrendGameDateTime">{trendGameDateTimeLabel(gameDate, gameTime)}</small>
         </div>
         {qualifying.length ? (
           <span className="dkSignalCount">
@@ -980,7 +1072,12 @@ export function DirectTrendRecords({ rows, trendPlays = [], sport }: { rows: She
 }
 
 export function FootballTrendMarketBoard({ groups, sport }: { groups: Group[]; sport: Sport }) {
-  return groups.length
-    ? <div className="dkTrendGameGrid">{groups.map((group) => <GameCard key={group.plays[0]?.gameKey || group.game} group={group} sport={sport} />)}</div>
+  const sortedGroups = [...groups].sort((a, b) => {
+    const timeDifference = trendGroupSortValue(a) - trendGroupSortValue(b);
+    if (Number.isFinite(timeDifference) && timeDifference !== 0) return timeDifference;
+    return a.game.localeCompare(b.game);
+  });
+  return sortedGroups.length
+    ? <div className="dkTrendGameGrid">{sortedGroups.map((group) => <GameCard key={group.plays[0]?.gameKey || group.game} group={group} sport={sport} />)}</div>
     : null;
 }
