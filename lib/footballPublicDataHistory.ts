@@ -119,11 +119,91 @@ function normalizedGame(value: unknown) {
   return textKey(value).replace(/\b(?:vs|at)\b/g, " ").replace(/\s+/g, " ").trim();
 }
 
-function sameGame(a: unknown, b: unknown) {
+const NFL_TEAM_CODE_TO_MASCOT: Record<string, string> = {
+  ari: "cardinals",
+  atl: "falcons",
+  bal: "ravens",
+  buf: "bills",
+  car: "panthers",
+  chi: "bears",
+  cin: "bengals",
+  cle: "browns",
+  dal: "cowboys",
+  den: "broncos",
+  det: "lions",
+  gb: "packers",
+  hou: "texans",
+  ind: "colts",
+  jac: "jaguars",
+  jax: "jaguars",
+  kc: "chiefs",
+  lv: "raiders",
+  lac: "chargers",
+  lar: "rams",
+  mia: "dolphins",
+  min: "vikings",
+  ne: "patriots",
+  no: "saints",
+  nyg: "giants",
+  nyj: "jets",
+  phi: "eagles",
+  pit: "steelers",
+  sea: "seahawks",
+  sf: "49ers",
+  tb: "buccaneers",
+  ten: "titans",
+  was: "commanders",
+  wsh: "commanders",
+};
+
+const NFL_MASCOTS = new Set(Object.values(NFL_TEAM_CODE_TO_MASCOT));
+
+function matchupTeams(value: unknown) {
+  return String(value || "")
+    .trim()
+    .split(/\s*(?:@|\bat\b|\bvs\.?\b|\bversus\b)\s*/i)
+    .map((team) => team.trim())
+    .filter(Boolean);
+}
+
+function nflTeamIdentity(value: unknown) {
+  const key = textKey(value);
+  if (!key) return "";
+  const direct = NFL_TEAM_CODE_TO_MASCOT[key];
+  if (direct) return direct;
+  const tokens = key.split(" ").filter(Boolean);
+  const mascot = tokens[tokens.length - 1] || "";
+  return NFL_MASCOTS.has(mascot) ? mascot : key;
+}
+
+function sameGame(a: unknown, b: unknown, sport?: FootballSport) {
   const left = normalizedGame(a);
   const right = normalizedGame(b);
   if (!left || !right) return false;
   if (left === right) return true;
+
+  // NFL history can use display names such as "NY Giants @ LA Rams" while the
+  // settled trend ledger stores "New York Giants @ Los Angeles Rams". Compare
+  // the two team identities before falling back to fuzzy whole-game matching.
+  if (sport === "NFL") {
+    const leftTeams = matchupTeams(a).map(nflTeamIdentity);
+    const rightTeams = matchupTeams(b).map(nflTeamIdentity);
+    if (
+      leftTeams.length === 2 &&
+      rightTeams.length === 2 &&
+      leftTeams.every(Boolean) &&
+      rightTeams.every(Boolean)
+    ) {
+      const sameOrder =
+        leftTeams[0] === rightTeams[0] &&
+        leftTeams[1] === rightTeams[1];
+      const reverseOrder =
+        leftTeams[0] === rightTeams[1] &&
+        leftTeams[1] === rightTeams[0];
+      if (sameOrder || reverseOrder) return true;
+    }
+  }
+
   const leftTokens = new Set(left.split(" ").filter((token) => token.length > 1));
   const rightTokens = new Set(right.split(" ").filter((token) => token.length > 1));
   const overlap = [...leftTokens].filter((token) => rightTokens.has(token)).length;
@@ -188,9 +268,17 @@ function stripTrailingLine(value: unknown) {
   return textKey(String(value || "").replace(/\s+[+-]?\d+(?:\.\d+)?\s*$/, ""));
 }
 
-function rowMatchesHistory(row: SheetRow, history: SheetRow) {
+function sameHistoryTeam(a: unknown, b: unknown, sport: FootballSport) {
+  const left = stripTrailingLine(a);
+  const right = stripTrailingLine(b);
+  if (!left || !right) return false;
+  if (left === right || left.includes(right) || right.includes(left)) return true;
+  return sport === "NFL" && nflTeamIdentity(left) === nflTeamIdentity(right);
+}
+
+function rowMatchesHistory(row: SheetRow, history: SheetRow, sport: FootballSport) {
   if (rowDate(row) !== isoDate(history.Date)) return false;
-  if (!sameGame(rowGame(row), history.Game)) return false;
+  if (!sameGame(rowGame(row), history.Game, sport)) return false;
 
   const historyPlayer = textKey(history.Player);
   if (historyPlayer) {
@@ -222,15 +310,13 @@ function rowMatchesHistory(row: SheetRow, history: SheetRow) {
 
   if (historyMarket.includes("spread")) {
     if (!rowMarket.includes("spread") && !textKey(row["Bet Type"]).includes("spread")) return false;
-    const historyTeam = stripTrailingLine(history.Selection);
-    const rowTeam = stripTrailingLine(row.Selection || row.Pick);
-    return Boolean(historyTeam && rowTeam && (historyTeam === rowTeam || historyTeam.includes(rowTeam) || rowTeam.includes(historyTeam)));
+    return sameHistoryTeam(history.Selection, row.Selection || row.Pick, sport);
   }
 
   return textKey(history.Selection) === textKey(row.Selection || row.Pick || row.Side);
 }
 
-function settledResultForHistory(history: SheetRow, data: AnyPick) {
+function settledResultForHistory(history: SheetRow, data: AnyPick, sport: FootballSport) {
   const source = textKey(history.Source);
   const tracker = Array.isArray(data.betTrackerRows) ? data.betTrackerRows as SheetRow[] : [];
   const trends = Array.isArray(data.trendRecordRows) ? data.trendRecordRows as SheetRow[] : [];
@@ -239,7 +325,7 @@ function settledResultForHistory(history: SheetRow, data: AnyPick) {
   if (source.includes("best") || !source) pools.push(tracker);
   if (!pools.length) pools.push(tracker, trends);
   for (const pool of pools) {
-    const match = pool.find((row) => rowMatchesHistory(row, history) && resultCode(row.Result || row.Status));
+    const match = pool.find((row) => rowMatchesHistory(row, history, sport) && resultCode(row.Result || row.Status));
     if (match) {
       return {
         result: resultCode(match.Result || match.Status),
@@ -454,7 +540,7 @@ export async function buildFootballPublicData(
 
   let gradingChanged = false;
   const gradedHistory = history.map((row) => {
-    const settled = settledResultForHistory(row, core);
+    const settled = settledResultForHistory(row, core, sport);
     if (!settled.result || settled.result === resultCode(row.Result)) return row;
     gradingChanged = true;
     return {
