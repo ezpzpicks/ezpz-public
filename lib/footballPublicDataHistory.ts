@@ -371,14 +371,35 @@ function scheduleGameText(row: SheetRow) {
   return away && home ? `${away} @ ${home}` : "";
 }
 
-function nflHistoryGameId(history: SheetRow, schedule: SheetRow[]) {
+function nflHistoryGameId(
+  history: SheetRow,
+  schedule: SheetRow[],
+  trendRows: SheetRow[],
+) {
   const date = isoDate(history.Date);
   if (!date) return "";
-  const match = schedule.find((row) =>
+
+  // The football schedule can use internal model IDs such as
+  // 2026_02_NYG_LA, while ESPN's summary API requires its numeric event ID.
+  // Settled trend rows already carry the canonical ESPN game key, so prefer it.
+  const trendMatch = trendRows.find((row) =>
+    isoDate(row.Date || row["Game Date"]) === date &&
+    sameGame(scheduleGameText(row), history.Game, "NFL") &&
+    /^\d+$/.test(String(row["Game Key"] || row["Game ID"] || "").trim().replace(/\.0$/, ""))
+  );
+  const trendId = String(trendMatch?.["Game Key"] || trendMatch?.["Game ID"] || "")
+    .trim()
+    .replace(/\.0$/, "");
+  if (trendId) return trendId;
+
+  const scheduleMatch = schedule.find((row) =>
     isoDate(row["Game Date"] || row.Date) === date &&
     sameGame(scheduleGameText(row), history.Game, "NFL")
   );
-  return String(match?.["Game ID"] || match?.["Game Key"] || "").trim().replace(/\.0$/, "");
+  const scheduleId = String(scheduleMatch?.["Game ID"] || scheduleMatch?.["Game Key"] || "")
+    .trim()
+    .replace(/\.0$/, "");
+  return /^\d+$/.test(scheduleId) ? scheduleId : "";
 }
 
 function summaryCompleted(summary: AnyPick) {
@@ -466,6 +487,7 @@ async function fetchNflSummary(
 async function settledNflPropResult(
   history: SheetRow,
   schedule: SheetRow[],
+  trendRows: SheetRow[],
   summaryCache: Map<string, Promise<AnyPick | null>>,
 ) {
   const player = String(history.Player || "").trim();
@@ -474,7 +496,7 @@ async function settledNflPropResult(
   const line = historyPropLine(history);
   if (!player || !market || !propSide || line == null) return { result: "" as ResultCode, updated: "" };
 
-  const gameId = nflHistoryGameId(history, schedule);
+  const gameId = nflHistoryGameId(history, schedule, trendRows);
   if (!gameId) return { result: "" as ResultCode, updated: "" };
   const summary = await fetchNflSummary(gameId, summaryCache);
   if (!summary || !summaryCompleted(summary)) return { result: "" as ResultCode, updated: "" };
@@ -712,7 +734,12 @@ export async function buildFootballPublicData(
       sport === "NFL" &&
       recentUngradedProp(row, today)
     ) {
-      settled = await settledNflPropResult(row, nflSchedule, nflSummaryCache);
+      settled = await settledNflPropResult(
+        row,
+        nflSchedule,
+        Array.isArray(core.trendRecordRows) ? core.trendRecordRows as SheetRow[] : [],
+        nflSummaryCache,
+      );
     }
     if (!settled.result || settled.result === resultCode(row.Result)) return row;
     gradingChanged = true;
