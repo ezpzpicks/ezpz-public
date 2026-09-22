@@ -205,8 +205,8 @@ function RecordTable({ rows }: { rows: Summary[] }) {
     </tbody></table></div>
   );
 }
-function RecordDropdown({ title, subtitle, rows, open = false }: { title: string; subtitle: string; rows: Summary[]; open?: boolean }) {
-  return <details className="recordsDropdown" open={open || undefined}><summary className="recordsSummary"><div><div className="recordsSummaryTitle">{title}</div><div className="recordsSummarySub">{subtitle}</div></div><span className="recordsCount">{rows.reduce((sum, row) => sum + row.totalBets, 0)} bets</span></summary>{rows.length ? <RecordTable rows={rows} /> : <div className="empty insideDropdown">No completed results yet.</div>}</details>;
+function RecordDropdown({ title, rows, open = false }: { title: string; rows: Summary[]; open?: boolean }) {
+  return <details className="recordsDropdown" open={open || undefined}><summary className="recordsSummary"><div><div className="recordsSummaryTitle">{title}</div></div><span className="recordsCount">{rows.reduce((sum, row) => sum + row.totalBets, 0)} bets</span></summary>{rows.length ? <RecordTable rows={rows} /> : <div className="empty insideDropdown">No completed results yet.</div>}</details>;
 }
 function resultCode(value: unknown) {
   const key = String(value || "").trim().toUpperCase();
@@ -509,7 +509,7 @@ function FootballRecords({ sport, data }: { sport: Sport; data: FootballData }) 
   return (
     <>
       <section className="footballCanonicalRecords">
-        <div className="sectionHead"><div><h2>{sport} Model Play Records</h2><p>{sport === "NFL" ? "Official graded NFL game and player-prop Model Plays from the canonical trackers." : "Official graded CFB Model Plays with A/B grade, market, and direction subsets."}</p></div></div>
+        <div className="sectionHead"><div><h2>{sport} Model Play Records</h2></div></div>
         <div className="qualifiedGrid">
           <RecordTile label="Model Plays - Last 7 Days" value={last7} />
           <RecordTile label="Model Plays - Running Total" value={overall} />
@@ -520,16 +520,15 @@ function FootballRecords({ sport, data }: { sport: Sport; data: FootballData }) 
           <RecordTile label="EZPZ Picks - Last 7 Days" value={ezpzLast7} />
           <RecordTile label="EZPZ Picks - Running Total" value={ezpzOverall} />
         </div>
-        <div className="sectionHead"><div><h2>Market Trend Records</h2><p>Only the three active market signals: Public Fade, Strong RLM, and Sharp.</p></div></div>
+        <div className="sectionHead"><div><h2>Market Trend Records</h2></div></div>
         <div className="recordsDropdownStack advancedRecordsStack">
           <DirectTrendRecords rows={data.trendRecordRows || []} trendPlays={data.trendPlays || []} aiPickRows={data.aiPickRecordRows || []} today={data.today || ""} sport={sport} />
         </div>
-        <div className="sectionHead"><div><h2>Bet Type Records</h2><p>These are the exact subsets used for HOT / COLD / SMALL SAMPLE status.</p></div></div>
-        <div className="advancedRecordsStack"><RecordDropdown title="Last 7 Days Model Plays" subtitle={`Exact ${sport} grade / market / direction records`} rows={last7Rows} open /><RecordDropdown title="Overall Model Plays" subtitle={`Running exact ${sport} grade / market / direction records`} rows={overallRows} /></div>
-        <details className="recordsDropdown"><summary className="recordsSummary"><div><div className="recordsSummaryTitle">Recent Graded Model Plays</div><div className="recordsSummarySub">Individual graded plays behind the record</div></div><span className="recordsCount">{recent.length} results</span></summary>
+        <div className="sectionHead"><div><h2>Bet Type Records</h2></div></div>
+        <div className="advancedRecordsStack"><RecordDropdown title="Last 7 Days Model Plays" rows={last7Rows} open /><RecordDropdown title="Overall Model Plays" rows={overallRows} /></div>
+        <details className="recordsDropdown"><summary className="recordsSummary"><div><div className="recordsSummaryTitle">Recent Graded Model Plays</div></div><span className="recordsCount">{recent.length} results</span></summary>
           {recent.length ? <div className="tableWrap"><table className="recordsTable"><thead><tr><th>Date</th><th>Game</th><th>Type</th><th>Play</th><th>Result</th></tr></thead><tbody>{recent.map((row, index) => { const result = resultCode(row.Result || row.Status); return <tr className={`footballRecentResult result-${result.toLowerCase()}`} key={`${row.Date}-${recentGame(row)}-${recentSelection(row)}-${index}`}><td>{row.Date || row["Game Date"]}</td><td>{recentGame(row)}</td><td>{recentLabel(row)}</td><td><strong>{recentSelection(row)}</strong></td><td><b>{result}</b></td></tr>; })}</tbody></table></div> : <div className="empty insideDropdown">Completed Model Plays will populate here automatically.</div>}
         </details>
-        <div className="card footballCanonicalInfo"><b>Record grading database:</b> {data.database || `${sport} Model Database`}<br />Model Plays and the active Public Fade, Strong RLM, and Sharp records are graded only after a completed game has a verified final result.</div>
       </section>
       <style jsx global>{`
         .footballCanonicalRecords{display:grid;gap:18px}.footballCanonicalRecordTile{display:grid;gap:7px;transition:border-color .2s ease,box-shadow .2s ease}.footballRecordTileTop{display:flex;align-items:center;justify-content:space-between;gap:10px}.footballRecordTileTop>span{color:var(--ez-muted);font-size:.75rem;font-weight:850}.footballCanonicalRecordTile>strong{font-size:1.75rem;letter-spacing:-.035em}.footballCanonicalRecordTile>small{color:var(--ez-muted);font-size:.72rem}.footballCanonicalRecordTile.green{border-color:rgba(43,216,117,.42);box-shadow:0 0 0 1px rgba(43,216,117,.08),0 0 22px rgba(43,216,117,.09)}.footballCanonicalRecordTile.yellow{border-color:rgba(247,200,92,.38);box-shadow:0 0 0 1px rgba(247,200,92,.06)}.footballCanonicalRecordTile.red{border-color:rgba(255,105,120,.38);box-shadow:0 0 0 1px rgba(255,105,120,.06)}.footballRecordStatus{display:inline-flex;width:max-content;border:1px solid rgba(123,151,190,.18);border-radius:999px;padding:4px 7px;font-size:.62rem;font-weight:950;letter-spacing:.055em}.footballRecordStatus.green{color:#aef2c6;border-color:rgba(43,216,117,.3);background:rgba(28,130,78,.14)}.footballRecordStatus.yellow{color:#ffe29a;border-color:rgba(247,200,92,.28);background:rgba(150,105,20,.14)}.footballRecordStatus.red{color:#ffc0c8;border-color:rgba(255,105,120,.3);background:rgba(145,34,52,.15)}.footballRecordStatus.neutral{color:#c9d8eb;background:rgba(82,105,136,.12)}.footballCanonicalRecordRow.green{background:rgba(43,216,117,.035)}.footballCanonicalRecordRow.yellow{background:rgba(247,200,92,.035)}.footballCanonicalRecordRow.red{background:rgba(255,105,120,.035)}.footballCanonicalRecordRow.green td:first-child{border-left:3px solid rgba(43,216,117,.7)}.footballCanonicalRecordRow.yellow td:first-child{border-left:3px solid rgba(247,200,92,.7)}.footballCanonicalRecordRow.red td:first-child{border-left:3px solid rgba(255,105,120,.7)}.footballRecordWinPct{display:inline-flex;border-radius:999px;padding:4px 7px;font-weight:900}.footballRecordWinPct.green{color:#aef2c6;background:rgba(28,130,78,.14)}.footballRecordWinPct.yellow{color:#ffe29a;background:rgba(150,105,20,.14)}.footballRecordWinPct.red{color:#ffc0c8;background:rgba(145,34,52,.15)}.footballRecentResult.result-w td:last-child{color:#aef2c6}.footballRecentResult.result-l td:last-child{color:#ffc0c8}.footballRecentResult.result-p td:last-child{color:#ffe29a}.footballCanonicalInfo{line-height:1.55}
