@@ -135,7 +135,7 @@ const ALL_GAME_TRENDS_HEADERS = [
 const AI_PICK_SELECTOR_TAB = "ai_pick_selector";
 const AI_BUILDER_MATCHUP_DETAILS_TAB = "matchup_details_today";
 const AI_BUILDER_CONTEXT_KEY = "__EZPZ_BUILDER_CONTEXT_JSON";
-const AI_PICK_SELECTOR_VERSION = "ezpz-picks-pitcher-quality-v13";
+const AI_PICK_SELECTOR_VERSION = "ezpz-picks-pitcher-edge-gap-v14";
 const AI_MINIMUM_ESTIMATED_ADVANTAGE = 5;
 // A durable 15-minute snapshot is allowed one short retry window after the
 // scheduled start if its selector row missed the LIVE -> FINAL_PREGAME handoff.
@@ -144,8 +144,9 @@ const AI_FINAL_PREGAME_RECOVERY_GRACE_MS = 30 * 60_000;
 
 // PERMANENT EZPZ PICKS POLICY. Moneyline, totals, and first-inning Model Picks
 // require HOT Last-7-Bets form plus their market-specific quality gate.
-// Pitcher strikeouts use Reliability 80+ and Selected Probability 65%+ instead
-// of HOT form. All Model Picks keep the -150 maximum favorite price.
+// Pitcher strikeouts use the authoritative edge + projection-gap tiers:
+// Strong/Regular qualify for EZPZ, Lean stays model-visible only.
+// All Model Picks keep the -150 maximum favorite price.
 // Trend path: every signal green plus at least +10% net ROI vs the opposing side.
 const AI_BEST_PLAY_FINAL_MARKER =
   "EZPZ Best Play is final for the full day; no separate pregame finalization is required";
@@ -339,8 +340,6 @@ const EZPZ_BEST_PLAY_POLICIES: Record<AiPickMarket, EzpzBestPlayPolicy> = {
   },
   "Pitcher Strikeouts": {
     maxFavoritePrice: -150,
-    minimumReliability: 80,
-    minimumSelectedProbability: 65,
   },
 };
 
@@ -6869,6 +6868,202 @@ function isPitcherKType(value: unknown) {
   ].includes(normalizeType(value));
 }
 
+
+const MLB_PITCHER_K_STRONG_EDGE = 15;
+const MLB_PITCHER_K_STRONG_GAP = 22.5;
+const MLB_PITCHER_K_REGULAR_EDGE = 15;
+const MLB_PITCHER_K_REGULAR_GAP = 10;
+const MLB_PITCHER_K_LEAN_EDGE = 10;
+const MLB_PITCHER_K_LEAN_GAP = 15;
+
+type MlbPitcherKTier = "Strong" | "Regular" | "Lean" | "Non-Edge";
+type MlbPitcherKSide = "OVER" | "UNDER";
+
+type MlbPitcherKGrading = {
+  tier: MlbPitcherKTier;
+  side: MlbPitcherKSide;
+  grade: string;
+  probabilityEdge: number;
+  projectionGapPct: number;
+  projectionGapKs: number;
+};
+
+function finiteMlbPitcherNumber(value: unknown) {
+  if (value === null || value === undefined || String(value).trim() === "") return null;
+  const match = String(value).replace(/[−–—]/g, "-").match(/[-+]?\d+(?:\.\d+)?/);
+  if (!match) return null;
+  const number = Number(match[0]);
+  return Number.isFinite(number) ? number : null;
+}
+
+function mlbPitcherKLineNumber(value: unknown) {
+  const number = finiteMlbPitcherNumber(value);
+  return number != null && number > 0 && number < 20 ? number : null;
+}
+
+function mlbPitcherPercentPoints(value: unknown) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+  const cleaned = raw
+    .replace(/\bEdge\b/gi, "")
+    .replace(/%/g, "")
+    .replace(/[^0-9+.-]/g, "");
+  const number = Number(cleaned);
+  if (!Number.isFinite(number)) return null;
+  if (!raw.includes("%") && Math.abs(number) > 0 && Math.abs(number) <= 1) {
+    return number * 100;
+  }
+  return number;
+}
+
+function mlbPitcherKSide(
+  value: unknown,
+  projected: number,
+  line: number,
+): MlbPitcherKSide | null {
+  const normalized = normalizeType(value);
+  if (normalized.includes("UNDER")) return "UNDER";
+  if (normalized.includes("OVER")) return "OVER";
+  if (projected > line) return "OVER";
+  if (projected < line) return "UNDER";
+  return null;
+}
+
+function mlbPitcherKGradeLabel(tier: MlbPitcherKTier, side: MlbPitcherKSide) {
+  if (tier === "Strong") return `STRONG ${side}`;
+  if (tier === "Regular") return side;
+  if (tier === "Lean") return `LEAN ${side}`;
+  return `NON-EDGE ${side}`;
+}
+
+function mlbPitcherKTierForMetrics(probabilityEdge: number, projectionGapPct: number): MlbPitcherKTier {
+  if (
+    probabilityEdge >= MLB_PITCHER_K_STRONG_EDGE &&
+    projectionGapPct >= MLB_PITCHER_K_STRONG_GAP
+  ) return "Strong";
+  if (
+    probabilityEdge >= MLB_PITCHER_K_REGULAR_EDGE &&
+    projectionGapPct >= MLB_PITCHER_K_REGULAR_GAP
+  ) return "Regular";
+  if (
+    probabilityEdge >= MLB_PITCHER_K_LEAN_EDGE &&
+    projectionGapPct >= MLB_PITCHER_K_LEAN_GAP
+  ) return "Lean";
+  return "Non-Edge";
+}
+
+function mlbPitcherKGradingFromMetrics(input: {
+  sideSource: unknown;
+  projected: unknown;
+  line: unknown;
+  odds?: unknown;
+  selectedProbability?: unknown;
+  explicitProbabilityEdge?: unknown;
+}): MlbPitcherKGrading | null {
+  const projected = finiteMlbPitcherNumber(input.projected);
+  const line = mlbPitcherKLineNumber(input.line);
+  if (projected == null || line == null) return null;
+
+  const side = mlbPitcherKSide(input.sideSource, projected, line);
+  if (!side) return null;
+
+  let probabilityEdge = mlbPitcherPercentPoints(input.explicitProbabilityEdge);
+  if (probabilityEdge == null) {
+    const selectedProbability = normalizePercentValue(input.selectedProbability || "");
+    const impliedProbability = aiImpliedProbability(input.odds || "");
+    if (selectedProbability <= 0 || impliedProbability <= 0) return null;
+    probabilityEdge = selectedProbability - impliedProbability;
+  }
+
+  const projectionGapKs = side === "OVER" ? projected - line : line - projected;
+  if (!(projectionGapKs > 0)) {
+    return {
+      tier: "Non-Edge",
+      side,
+      grade: mlbPitcherKGradeLabel("Non-Edge", side),
+      probabilityEdge,
+      projectionGapPct: projectionGapKs / line * 100,
+      projectionGapKs,
+    };
+  }
+
+  const projectionGapPct = (projectionGapKs / line) * 100;
+  const tier = mlbPitcherKTierForMetrics(probabilityEdge, projectionGapPct);
+  return {
+    tier,
+    side,
+    grade: mlbPitcherKGradeLabel(tier, side),
+    probabilityEdge,
+    projectionGapPct,
+    projectionGapKs,
+  };
+}
+
+function mlbPitcherKGradingForPlay(play: Play) {
+  return mlbPitcherKGradingFromMetrics({
+    sideSource: play.playType,
+    projected: play.projectedKs,
+    line: play.altLine,
+    odds: play.altOdds || play.oddsLine,
+    selectedProbability: play.selectedProbability,
+  });
+}
+
+function isMlbPitcherKTrackerRow(row: SheetRow) {
+  const market = textKey(row["Market"] || row["Prop Type"] || "");
+  return (
+    market.includes("pitcher strikeout") ||
+    market.includes("pitcher k") ||
+    market === "strikeouts"
+  );
+}
+
+function mlbPitcherKGradingForTrackerRow(row: SheetRow) {
+  if (!isMlbPitcherKTrackerRow(row)) return null;
+
+  const selectedProbability = firstValue(row, [
+    "Selected Probability",
+    "Model %",
+    "Probability",
+  ]);
+  // Older pre-v16 rows sometimes stored the raw K projection in Model %.
+  // Do not reinterpret those legacy rows as probability-based tiers.
+  if (normalizePercentValue(selectedProbability) < 20) return null;
+
+  return mlbPitcherKGradingFromMetrics({
+    sideSource: row["Bet Type"] || row["Model Grade"],
+    projected: firstValue(row, [
+      "Calibrated Projection",
+      "Raw Projection",
+      "Projection",
+      "Projected Ks",
+    ]),
+    line: firstValue(row, [
+      "Odds/Line",
+      "Strikeout Line",
+      "Prop Line",
+      "Line",
+    ]),
+    odds: firstValue(row, ["Odds/Line", "Odds", "Prop Odds"]),
+    selectedProbability,
+    explicitProbabilityEdge: firstValue(row, [
+      "Edge %",
+      "Probability Edge",
+      "Edge",
+    ]),
+  });
+}
+
+function applyMlbPitcherKTrackerGrade(row: SheetRow): SheetRow {
+  const grading = mlbPitcherKGradingForTrackerRow(row);
+  if (!grading) return row;
+  return {
+    ...row,
+    "Bet Type": grading.grade,
+    "Model Grade": grading.grade,
+  };
+}
+
 function isCompletedResult(value: unknown) {
   const result = String(value || "")
     .trim()
@@ -7244,8 +7439,7 @@ function buildBestPlaysFromSlate(
     ];
 
     for (const market of kMarkets) {
-      const type = normalizeType(market.summary);
-      if (!isGreenType(type)) continue;
+      const legacyType = normalizeType(market.summary);
       const parsed = parseKSummary(market.summary);
       const pitcherName =
         parsed.pitcherName || cleanPitcherName(market.summary);
@@ -7277,13 +7471,22 @@ function buildBestPlaysFromSlate(
           summaryOdds ||
           (parsed.line ? `Line ${parsed.line}` : ""),
       );
+      const pitcherGrading = mlbPitcherKGradingFromMetrics({
+        sideSource: legacyType,
+        projected: parsed.projected,
+        line: parsed.line,
+        odds,
+        selectedProbability: market.probability,
+      });
+      if (!pitcherGrading || pitcherGrading.tier === "Non-Edge") continue;
+      const pitcherGrade = pitcherGrading.grade;
 
       plays.push({
-        playType: type,
+        playType: pitcherGrade,
         game,
         play: pitcherName || market.summary,
         oddsLine: odds,
-        score: calculatePitcherKEZPZScore(market.summary, market.score, type),
+        score: calculatePitcherKEZPZScore(market.summary, market.score, pitcherGrade),
         isGreen: true,
         awayTeam,
         homeTeam,
@@ -7851,28 +8054,22 @@ function aiBestPlayQualification(
   }
 
   if (candidate.market === "Pitcher Strikeouts") {
-    const reliability = normalizePercentValue(candidate.bestPlay?.reliability || "");
-    const selectedProbability = normalizePercentValue(
-      candidate.bestPlay?.selectedProbability || "",
-    );
-    const minimumReliability = policy.minimumReliability ?? 80;
-    const minimumSelectedProbability = policy.minimumSelectedProbability ?? 65;
-    const failures: string[] = [];
-    if (reliability < minimumReliability) {
-      failures.push(
-        `Pitcher K reliability ${reliability.toFixed(0)} did not reach ${minimumReliability}+`,
-      );
-    }
-    if (selectedProbability < minimumSelectedProbability) {
-      failures.push(
-        `Pitcher K selected probability ${selectedProbability.toFixed(1)}% did not reach ${minimumSelectedProbability}%+`,
-      );
-    }
+    const grading = candidate.bestPlay
+      ? mlbPitcherKGradingForPlay(candidate.bestPlay)
+      : null;
+    const tier = grading?.tier || "Non-Edge";
+    const qualifies = tier === "Strong" || tier === "Regular";
+    const probabilityEdge = grading?.probabilityEdge ?? 0;
+    const projectionGapPct = grading?.projectionGapPct ?? 0;
+    const thresholdText =
+      "Strong: edge 15%+ / gap 22.5%+ • Regular: edge 15%+ / gap 10%+";
     return {
-      qualifies: failures.length === 0,
-      label: `Pitcher K reliability ${reliability.toFixed(0)} / selected probability ${selectedProbability.toFixed(1)}%`,
-      status: `${formStatus} • Pitcher K EZPZ gate: reliability ${reliability.toFixed(0)} (min ${minimumReliability}) • selected probability ${selectedProbability.toFixed(1)}% (min ${minimumSelectedProbability}%) • odds no worse than ${policy.maxFavoritePrice}`,
-      failure: failures.join(" • "),
+      qualifies,
+      label: `Pitcher K ${tier} / edge ${probabilityEdge.toFixed(1)}% / gap ${projectionGapPct.toFixed(1)}%`,
+      status: `${formStatus} • Pitcher K tier: ${tier} • probability edge ${probabilityEdge.toFixed(1)}% • projection gap ${projectionGapPct.toFixed(1)}% • ${thresholdText} • odds no worse than ${policy.maxFavoritePrice}`,
+      failure: qualifies
+        ? ""
+        : `Pitcher K tier ${tier} is not EZPZ-eligible; Strong or Regular required (${thresholdText})`,
     };
   }
 
@@ -10574,6 +10771,7 @@ function aiStoredBestPlayHotFormCorrection(
 function aiStoredPitcherHotBlockQualityCorrection(
   pick: AiPick,
 ): AiPick | null {
+  if (pick.selectorVersion !== AI_PICK_SELECTOR_VERSION) return null;
   if (
     pick.market !== "Pitcher Strikeouts" ||
     pick.selected ||
@@ -10887,7 +11085,7 @@ async function buildAiPickSelector(args: {
 
   // Model Pick gates are evaluated from pre-date history. HOT Last-7 form remains
   // mandatory for Moneyline, Total, and First Inning. Pitcher strikeouts instead
-  // use Reliability 80+ and Selected Probability 65%+, plus the same price cap.
+  // use the edge + projection-gap tier, plus the same price cap.
 
   // A market-qualified pitcher Best Play that was frozen with only the synthetic
   // "Playable odds are missing" rejection may be retried. The pregame slate
@@ -10919,16 +11117,25 @@ async function buildAiPickSelector(args: {
           ) &&
           start != null &&
           selectorNow < start;
+        const retryableLegacyPitcherTier =
+          pick.market === "Pitcher Strikeouts" &&
+          pick.selectorVersion !== AI_PICK_SELECTOR_VERSION &&
+          start != null &&
+          selectorNow < start;
 
-        return !retryableMissingPitcherOdds && !retryableFormerHotBlock;
+        return (
+          !retryableMissingPitcherOdds &&
+          !retryableFormerHotBlock &&
+          !retryableLegacyPitcherTier
+        );
       })
       .map((pick) => pick.candidateId),
   );
 
-  // MARKET_BEST_PLAY_IMMEDIATE_FINAL_V4: Model Picks do not wait for the
+  // MARKET_BEST_PLAY_IMMEDIATE_FINAL_V5: Model Picks do not wait for the
   // 15-minute lifecycle. Moneyline, Total, and First Inning must be HOT and
-  // clear their market-specific gate. Pitcher strikeouts instead clear the
-  // reliability/probability gate. All markets still pass price/safety checks,
+  // clear their market-specific gate. Pitcher strikeouts instead require a
+  // Strong/Regular edge + gap tier. All markets still pass price/safety checks,
   // then save as FINAL_PREGAME for the rest of the day.
   // Trend-only candidates still use the frozen pregame snapshot below.
   const immediateBestPlayDecisions = finalizeImmediateBestPlays(
@@ -11366,14 +11573,16 @@ async function buildUncachedPublicResponse(request: NextRequest) {
       finalSnapshotDraftKings,
       slateTodayRaw as SheetRow[],
     );
-    const trackerRows: SheetRow[] = (trackerRaw as SheetRow[]).map(
-      (row: SheetRow): SheetRow => ({
-        ...row,
-        Date: normalizeDate(
-          row["Date"] || row["date"] || row["Bet Date"] || "",
-        ),
-      }),
-    );
+    const trackerRows: SheetRow[] = (trackerRaw as SheetRow[])
+      .map(
+        (row: SheetRow): SheetRow => ({
+          ...row,
+          Date: normalizeDate(
+            row["Date"] || row["date"] || row["Bet Date"] || "",
+          ),
+        }),
+      )
+      .map(applyMlbPitcherKTrackerGrade);
     const completedTrackerRows = trackerRows.filter((row) =>
       isCompletedResult(row["Result"]),
     );
