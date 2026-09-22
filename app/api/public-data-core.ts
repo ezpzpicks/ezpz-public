@@ -5566,6 +5566,51 @@ function trendSlateRowForSplit(split: DraftKingsSplit, slateRows: SheetRow[]) {
   return matchupRows.length === 1 ? matchupRows[0] : null;
 }
 
+function trendSlateRowForDirectLiveSplit(
+  split: DraftKingsSplit,
+  slateRows: SheetRow[],
+) {
+  const exact = trendSlateRowForSplit(split, slateRows);
+  if (exact) return exact;
+
+  // ScoresAndOdds consensus rows currently do not expose an event time. When
+  // MLB has a same-day doubleheader, the strict historical matcher above must
+  // stay ambiguous so we never rewrite/freeze the wrong game. The live direct
+  // Trend Plays board can still display the source market safely by attaching
+  // a time-less matchup to the next scheduled instance only.
+  if (parseEventTimeKey(split.eventTime || "")) return null;
+
+  const splitDate = isoPublicDate(split.date);
+  const matchupRows = slateRows
+    .filter((row) => {
+      const rowDate = isoPublicDate(row.Date || "");
+      return (
+        (!splitDate || !rowDate || splitDate === rowDate) &&
+        normalizeTeam(row["Away Team"] || "") === normalizeTeam(split.awayTeam) &&
+        normalizeTeam(row["Home Team"] || "") === normalizeTeam(split.homeTeam)
+      );
+    })
+    .sort((left, right) => {
+      const leftStart = scheduledGameStart(left);
+      const rightStart = scheduledGameStart(right);
+      if (leftStart == null && rightStart == null) return 0;
+      if (leftStart == null) return 1;
+      if (rightStart == null) return -1;
+      return leftStart - rightStart;
+    });
+
+  if (!matchupRows.length) return null;
+  const now = Date.now();
+  return (
+    matchupRows.find((row) => {
+      const start = scheduledGameStart(row);
+      return start == null || start > now;
+    }) ||
+    matchupRows[matchupRows.length - 1] ||
+    null
+  );
+}
+
 function frozenTrendPlayMetrics(play: TrendPlay) {
   const signals = play.signals
     .map((signal) => {
@@ -5939,7 +5984,7 @@ function buildMlbDirectTrendPlays(
       (split.market === "Moneyline" || split.market === "Total")
     )
     .flatMap((split) => {
-      const slateRow = trendSlateRowForSplit(split, slateRows);
+      const slateRow = trendSlateRowForDirectLiveSplit(split, slateRows);
       if (!slateRow) return [];
       const selectionTeam = split.market === "Total" ? "" : split.selectionTeam || teamFromSelection(split.selection);
       const sideGroup: TrendPlay["sideGroup"] = split.market === "Total"
