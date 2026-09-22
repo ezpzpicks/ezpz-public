@@ -5860,7 +5860,7 @@ const MLB_DIRECT_TREND_PUBLIC_FADE_MIN = 80;
 const MLB_DIRECT_TREND_STRONG_RLM_PUBLIC_MOVE_MIN = 5;
 const MLB_DIRECT_TREND_STRONG_RLM_ML_IMPLIED_MOVE_MIN = 1.5;
 const MLB_DIRECT_TREND_MAX_FAVORITE_PRICE = -150;
-const MLB_DIRECT_TREND_VERSION = "mlb-direct-trends-moneyline-v2";
+const MLB_DIRECT_TREND_VERSION = "mlb-direct-trends-no-public-fade-v3";
 
 function mlbDirectSelectionKey(play: TrendPlay) {
   return play.market === "Total"
@@ -6028,19 +6028,25 @@ function buildMlbDirectTrendEzpzPicks(trendPlays: TrendPlay[], today: string): A
   for (const group of groups.values()) {
     for (const play of group) {
       const direct = mlbDirectTrendLabels(play, group, MLB_DIRECT_TREND_EZPZ_SHARP_MIN);
-      if (!direct.labels.length) continue;
+      // Public Fade remains visible/tracked on the MLB trend board, but it is
+      // not an EZPZ qualification path. Only Sharp and Strong RLM can promote
+      // a direct trend play into EZPZ Picks.
+      const ezpzLabels = direct.labels.filter(
+        (label) => label === "Sharp" || label === "Strong RLM",
+      );
+      if (!ezpzLabels.length) continue;
       const oddsNumber = parseAmericanOdds(play.odds);
       if (!oddsNumber || oddsNumber < MLB_DIRECT_TREND_MAX_FAVORITE_PRICE) continue;
       const selection = play.market === "Total" ? String(play.side || "") : String(play.selectionTeam || play.selection || "");
       const line = play.line == null ? "" : String(play.line);
       const gameKey = String(play.gameKey || play.recordGameKey || textKey(play.game));
       const publicSide = direct.publicSide;
-      const strengthScore = direct.labels.includes("Strong RLM")
+      const strengthScore = ezpzLabels.includes("Strong RLM")
         ? Math.min(100, 85 + Math.max(0, Math.abs(Number(publicSide?.lineMovementValue || 0)) - MLB_DIRECT_TREND_STRONG_RLM_ML_IMPLIED_MOVE_MIN) * 5)
         : 85;
       const implied = aiImpliedProbability(play.odds);
       const snapshotStatus: AiPickSnapshotStatus = play.snapshotStatus === "FINAL_PREGAME" ? "FINAL_PREGAME" : "LIVE";
-      const qualification = direct.labels.join(" • ");
+      const qualification = ezpzLabels.join(" • ");
       const displayPlay = play.market === "Total"
         ? `${selection} ${line}`.trim()
         : `${selection} Moneyline`;
@@ -6049,22 +6055,22 @@ function buildMlbDirectTrendEzpzPicks(trendPlays: TrendPlay[], today: string): A
         date: isoPublicDate(today), gameKey, gameTime: String(play.gameTime || play.recordGameTime || ""),
         game: play.game, awayTeam: play.awayTeam, homeTeam: play.homeTeam,
         market: play.market as AiPickMarket, play: displayPlay, selection, line, odds: String(play.odds || ""),
-        source: "Trend Play", bestPlayType: "", trendTier: direct.labels.join(" + "), modelScore: 0,
+        source: "Trend Play", bestPlayType: "", trendTier: ezpzLabels.join(" + "), modelScore: 0,
         trendScore: Math.round(strengthScore * 10) / 10, aiScore: Math.round(strengthScore * 10) / 10,
         estimatedProbability: implied, marketImpliedProbability: implied,
         estimatedAdvantage: Math.round((Number(play.moneyPct) - Number(play.betsPct)) * 10) / 10,
         selected: true, protectionStatus: "PASSED", rejectionReason: "", confidenceReason: [qualification],
         whySelected: [
           `Qualified by MLB direct DraftKings trend rules: ${qualification}`,
-          direct.labels.includes("Sharp") ? `Sharp EZPZ gate: Money % exceeds Bets % by at least ${MLB_DIRECT_TREND_EZPZ_SHARP_MIN} points` : "",
-          direct.labels.includes("Public Fade") ? `Public Fade EZPZ gate: fade the opposite side when it has ${MLB_DIRECT_TREND_PUBLIC_FADE_MIN}%+ of bets` : "",
-          direct.labels.includes("Strong RLM") ? `Strong RLM EZPZ gate: public bets rose ${MLB_DIRECT_TREND_STRONG_RLM_PUBLIC_MOVE_MIN}+ points while Moneyline implied probability moved ${MLB_DIRECT_TREND_STRONG_RLM_ML_IMPLIED_MOVE_MIN}+ points against that side` : "",
+          ezpzLabels.includes("Sharp") ? `Sharp EZPZ gate: Money % exceeds Bets % by at least ${MLB_DIRECT_TREND_EZPZ_SHARP_MIN} points` : "",
+          ezpzLabels.includes("Strong RLM") ? `Strong RLM EZPZ gate: public bets rose ${MLB_DIRECT_TREND_STRONG_RLM_PUBLIC_MOVE_MIN}+ points while Moneyline implied probability moved ${MLB_DIRECT_TREND_STRONG_RLM_ML_IMPLIED_MOVE_MIN}+ points against that side` : "",
         ].filter(Boolean),
         historicalNotes: [], risks: [], researchSummary: "",
         verdict: `${snapshotStatus === "FINAL_PREGAME" ? "FINAL" : "LIVE"} MLB direct trend EZPZ Pick — ${displayPlay}`,
         dataStatus: [
           `Direct trend system ${MLB_DIRECT_TREND_VERSION}`,
           `Badge Sharp threshold ${MLB_DIRECT_TREND_BADGE_SHARP_MIN} points; EZPZ Sharp threshold ${MLB_DIRECT_TREND_EZPZ_SHARP_MIN} points`,
+          `Public Fade ${MLB_DIRECT_TREND_PUBLIC_FADE_MIN}%+ is tracking-only and does not qualify for EZPZ`,
           `Odds cap ${MLB_DIRECT_TREND_MAX_FAVORITE_PRICE}`,
         ],
         externalReviewStatus: "NOT_REQUIRED", snapshotStatus,
@@ -6085,6 +6091,20 @@ function buildMlbDirectTrendEzpzPicks(trendPlays: TrendPlay[], today: string): A
     });
   }
   return [...deduped.values()].sort(aiSortByGameTime);
+}
+
+function isMlbDirectPublicFadeOnlyRecord(pick: AiPick) {
+  const selectorVersion = String(pick.selectorVersion || "");
+  if (!selectorVersion.startsWith("mlb-direct-trends-")) return false;
+  const labels = String(pick.trendTier || "")
+    .split(" + ")
+    .map((label) => textKey(label))
+    .filter(Boolean);
+  return (
+    labels.includes("public fade") &&
+    !labels.includes("sharp") &&
+    !labels.includes("strong rlm")
+  );
 }
 
 function sameMlbEzpzWager(left: AiPick, right: AiPick) {
@@ -11885,6 +11905,7 @@ async function buildUncachedPublicResponse(request: NextRequest) {
     const currentAiPickRecordRows = [
       ...aiSelector.recordRows.filter(
         (pick) =>
+          !isMlbDirectPublicFadeOnlyRecord(pick) &&
           !persistedKeys.has(`${pick.date}|${pick.candidateId}`) &&
           !(
             pick.date === isoPublicDate(today) &&
@@ -11902,8 +11923,8 @@ async function buildUncachedPublicResponse(request: NextRequest) {
       ...aiSelector.status,
       message:
         directTrendCount > 0
-          ? `${directTrendCount} MLB direct trend EZPZ pick${directTrendCount === 1 ? "" : "s"} qualify now using NFL rules: Public Fade 80%+, Strong RLM, or Sharp 25%+ Money-over-Bets; odds no worse than -150.`
-          : "MLB direct trends use NFL EZPZ rules: Public Fade 80%+, Strong RLM, or Sharp 25%+ Money-over-Bets; odds no worse than -150.",
+          ? `${directTrendCount} MLB direct trend EZPZ pick${directTrendCount === 1 ? "" : "s"} qualify now: Strong RLM or Sharp 25%+ Money-over-Bets; Public Fade 80%+ remains tracking-only; odds no worse than -150.`
+          : "MLB direct trend EZPZ rules: Strong RLM or Sharp 25%+ Money-over-Bets; Public Fade 80%+ remains tracking-only; odds no worse than -150.",
       candidateCount: aiSelector.status.candidateCount + trendPlays.length,
       selectedCount: mergedEzpz.picks.length,
     };
@@ -11948,6 +11969,7 @@ async function buildUncachedPublicResponse(request: NextRequest) {
         badgeSharpMinimum: MLB_DIRECT_TREND_BADGE_SHARP_MIN,
         ezpzSharpMinimum: MLB_DIRECT_TREND_EZPZ_SHARP_MIN,
         publicFadeMinimumBets: MLB_DIRECT_TREND_PUBLIC_FADE_MIN,
+        publicFadeTrackingOnly: true,
         strongRlmMinimumPublicMove: MLB_DIRECT_TREND_STRONG_RLM_PUBLIC_MOVE_MIN,
         strongRlmMinimumMoneylineImpliedMove: MLB_DIRECT_TREND_STRONG_RLM_ML_IMPLIED_MOVE_MIN,
         maxFavoritePrice: MLB_DIRECT_TREND_MAX_FAVORITE_PRICE,
