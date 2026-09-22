@@ -514,7 +514,7 @@ function HistoryPickCard({ pick, sport, viewingToday, data }: { pick: EzpzPick; 
         <div className="footballHistoryTrendPickRow">
           <div>
             <h3>{pick.selection}</h3>
-            <p>{pick.market || "Trend Play"} <span>•</span> ScoresAndOdds trend</p>
+            <p>{pick.market || "Betting Split"} <span>•</span> ScoresAndOdds split</p>
           </div>
           <strong className="footballHistoryTrendOdds">{displayOdds(pick.odds)}</strong>
         </div>
