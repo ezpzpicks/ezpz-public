@@ -409,9 +409,14 @@ function MovementChart({ play }: { play: TrendPlay }) {
         </div>
         <div className="dkMovementHeadMeta">
           <span className="dkMovementCurrentPrice">{play.market === "Moneyline" ? (latest?.odds || play.odds) : `${lineLabel(play, latest?.line)} ${latest?.odds || play.odds}`}</span>
-          <span className="dkSnapshotHeartbeat" title="Most recent successful ScoresAndOdds snapshot for this market">
+          <span
+            className="dkSnapshotHeartbeat"
+            title={play.snapshotStatus === "FINAL_PREGAME"
+              ? "Official frozen final pregame ScoresAndOdds snapshot for this market"
+              : "Most recent successful ScoresAndOdds snapshot for this market"}
+          >
             <i aria-hidden="true" />
-            Last snapshot {lastSnapshotDisplay}
+            {play.snapshotStatus === "FINAL_PREGAME" ? "Final snapshot" : "Last snapshot"} {lastSnapshotDisplay}
           </span>
         </div>
       </div>
