@@ -2657,7 +2657,6 @@ function publicDisplayDraftKingsPayload(
     return eventTime ? { ...split, eventTime } : split;
   }
 
-  const currentMarketSplits = current.splits.map(withScheduledTime);
   const finalMarketSplits = finalSnapshots.splits.flatMap((split) => {
     if (
       split.snapshotStatus !== "FINAL_PREGAME" ||
@@ -2679,6 +2678,32 @@ function publicDisplayDraftKingsPayload(
   const lockedGameKeys = new Set(
     finalMarketSplits.map((split) => draftKingsMarketInstanceKey(split)),
   );
+  const resolvedFinalMatchups = new Set(
+    finalMarketSplits
+      .filter((split) => Boolean(parseEventTimeKey(split.eventTime || "")))
+      .map(
+        (split) =>
+          `${isoPublicDate(split.date)}|${normalizeTeam(split.awayTeam)}|${normalizeTeam(split.homeTeam)}`,
+      ),
+  );
+  const currentMarketSplits = current.splits
+    .map(withScheduledTime)
+    .filter((split) => {
+      if (
+        split.snapshotStatus !== "FINAL_PREGAME" ||
+        parseEventTimeKey(split.eventTime || "")
+      ) {
+        return true;
+      }
+      const matchupKey =
+        `${isoPublicDate(split.date)}|${normalizeTeam(split.awayTeam)}|${normalizeTeam(split.homeTeam)}`;
+      // Legacy saved rows created before game-instance persistence can remain
+      // time-less inside the merged live payload. Once finalSnapshots has
+      // resolved that same matchup to a scheduled game time, the blank copy is
+      // redundant and dangerous: the live direct matcher can attach it to the
+      // next game of a doubleheader. Drop only that superseded legacy copy.
+      return !resolvedFinalMatchups.has(matchupKey);
+    });
 
   const splitMap = new Map<string, DraftKingsSplit>();
   for (const split of currentMarketSplits) {
