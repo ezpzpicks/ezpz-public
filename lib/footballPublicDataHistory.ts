@@ -336,6 +336,182 @@ function settledResultForHistory(history: SheetRow, data: AnyPick, sport: Footba
   return { result: resultCode(history.Result), updated: String(history["Result Updated"] || "") };
 }
 
+function truthy(value: unknown) {
+  return ["1", "true", "yes", "y"].includes(String(value || "").trim().toLowerCase());
+}
+
+function historyPropMarket(row: SheetRow) {
+  return textKey(row["Prop Market"] || row.Market || "");
+}
+
+function historyPropSide(row: SheetRow) {
+  const direct = String(row["Prop Side"] || "").trim();
+  if (direct) return textKey(direct).startsWith("under") ? "under" : textKey(direct).startsWith("over") ? "over" : "";
+  return side(row.Selection || "");
+}
+
+function historyPropLine(row: SheetRow) {
+  const direct = lineNumber(row["Prop Line"]);
+  if (direct != null) return direct;
+  return lineNumber(row.Selection);
+}
+
+function scheduleGameText(row: SheetRow) {
+  const direct = String(row.Game || "").trim();
+  if (direct) return direct;
+  const away = String(row["Away Team"] || "").trim();
+  const home = String(row["Home Team"] || "").trim();
+  return away && home ? `${away} @ ${home}` : "";
+}
+
+function nflHistoryGameId(history: SheetRow, schedule: SheetRow[]) {
+  const date = isoDate(history.Date);
+  if (!date) return "";
+  const match = schedule.find((row) =>
+    isoDate(row["Game Date"] || row.Date) === date &&
+    sameGame(scheduleGameText(row), history.Game, "NFL")
+  );
+  return String(match?.["Game ID"] || match?.["Game Key"] || "").trim().replace(/\.0$/, "");
+}
+
+function summaryCompleted(summary: AnyPick) {
+  const status =
+    summary?.header?.competitions?.[0]?.status?.type ||
+    summary?.header?.competitions?.[0]?.status ||
+    {};
+  return status?.completed === true ||
+    textKey(status?.name).includes("final") ||
+    textKey(status?.state) === "post";
+}
+
+function matchingEspnAthlete(summary: AnyPick, playerName: string) {
+  const target = textKey(playerName);
+  if (!target) return null;
+  const playerGroups = Array.isArray(summary?.boxscore?.players) ? summary.boxscore.players : [];
+  for (const teamGroup of playerGroups) {
+    const statistics = Array.isArray(teamGroup?.statistics) ? teamGroup.statistics : [];
+    for (const statGroup of statistics) {
+      const athletes = Array.isArray(statGroup?.athletes) ? statGroup.athletes : [];
+      for (const entry of athletes) {
+        const athlete = entry?.athlete || {};
+        const names = [
+          athlete?.fullName,
+          athlete?.displayName,
+          athlete?.shortName,
+          athlete?.name,
+        ].map(textKey).filter(Boolean);
+        if (names.some((name) => name === target)) {
+          return { statGroup, entry };
+        }
+      }
+    }
+  }
+  return null;
+}
+
+function espnPlayerStat(summary: AnyPick, playerName: string, propMarket: string) {
+  const target = textKey(playerName);
+  const market = textKey(propMarket);
+  if (!target || !market) return null;
+  const playerGroups = Array.isArray(summary?.boxscore?.players) ? summary.boxscore.players : [];
+
+  const wanted = market.includes("receiving") && market.includes("yard")
+    ? { category: "receiv", keys: ["receivingyards"], labels: ["yds", "yards"] }
+    : market.includes("rushing") && market.includes("yard")
+      ? { category: "rush", keys: ["rushingyards"], labels: ["yds", "yards"] }
+      : market.includes("passing") && market.includes("yard")
+        ? { category: "pass", keys: ["passingyards"], labels: ["yds", "yards"] }
+        : market.includes("reception")
+          ? { category: "receiv", keys: ["receptions"], labels: ["rec", "receptions"] }
+          : null;
+  if (!wanted) return null;
+
+  for (const teamGroup of playerGroups) {
+    const statistics = Array.isArray(teamGroup?.statistics) ? teamGroup.statistics : [];
+    for (const statGroup of statistics) {
+      const groupName = textKey(statGroup?.name || statGroup?.displayName || statGroup?.label);
+      if (!groupName.includes(wanted.category) && !wanted.keys.some((key) => groupName.includes(key))) continue;
+
+      const athletes = Array.isArray(statGroup?.athletes) ? statGroup.athletes : [];
+      const entry = athletes.find((candidate: AnyPick) => {
+        const athlete = candidate?.athlete || {};
+        return [athlete?.fullName, athlete?.displayName, athlete?.shortName, athlete?.name]
+          .map(textKey)
+          .some((name) => name === target);
+      });
+      if (!entry) continue;
+
+      const stats = Array.isArray(entry?.stats) ? entry.stats : [];
+      const keys = Array.isArray(statGroup?.keys) ? statGroup.keys.map(textKey) : [];
+      const labels = Array.isArray(statGroup?.labels) ? statGroup.labels.map(textKey) : [];
+
+      let index = keys.findIndex((key: string) => wanted.keys.includes(key));
+      if (index < 0) index = labels.findIndex((label: string) => wanted.labels.includes(label));
+      if (index < 0 && wanted.keys.some((key) => groupName.includes(key))) index = 0;
+      if (index < 0 || index >= stats.length) continue;
+
+      const parsed = Number(String(stats[index] ?? "").replace(/,/g, "").trim());
+      if (Number.isFinite(parsed)) return parsed;
+    }
+  }
+  return null;
+}
+
+async function fetchNflSummary(
+  gameId: string,
+  cache: Map<string, Promise<AnyPick | null>>,
+) {
+  if (!gameId) return null;
+  const existing = cache.get(gameId);
+  if (existing) return existing;
+  const request = (async () => {
+    try {
+      const response = await fetch(
+        `https://site.api.espn.com/apis/site/v2/sports/football/nfl/summary?event=${encodeURIComponent(gameId)}`,
+        { cache: "no-store" },
+      );
+      if (!response.ok) return null;
+      const summary = await response.json();
+      return summary && typeof summary === "object" ? summary as AnyPick : null;
+    } catch {
+      return null;
+    }
+  })();
+  cache.set(gameId, request);
+  return request;
+}
+
+async function settledNflPropResult(
+  history: SheetRow,
+  schedule: SheetRow[],
+  summaryCache: Map<string, Promise<AnyPick | null>>,
+) {
+  const player = String(history.Player || "").trim();
+  const market = historyPropMarket(history);
+  const propSide = historyPropSide(history);
+  const line = historyPropLine(history);
+  if (!player || !market || !propSide || line == null) return { result: "" as ResultCode, updated: "" };
+
+  const gameId = nflHistoryGameId(history, schedule);
+  if (!gameId) return { result: "" as ResultCode, updated: "" };
+  const summary = await fetchNflSummary(gameId, summaryCache);
+  if (!summary || !summaryCompleted(summary)) return { result: "" as ResultCode, updated: "" };
+
+  const actual = espnPlayerStat(summary, player, market);
+  if (actual == null) return { result: "" as ResultCode, updated: "" };
+
+  const difference = actual - line;
+  const result: ResultCode =
+    Math.abs(difference) < 1e-9 ? "P" :
+    propSide === "over" ? (difference > 0 ? "W" : "L") :
+    propSide === "under" ? (difference < 0 ? "W" : "L") :
+    "";
+  return {
+    result,
+    updated: result ? new Date().toISOString() : "",
+  };
+}
+
 function historyPickFromRow(row: SheetRow): AnyPick {
   let details: AnyPick = {};
   try {
@@ -539,8 +715,28 @@ export async function buildFootballPublicData(
   }
 
   let gradingChanged = false;
-  const gradedHistory = history.map((row) => {
-    const settled = settledResultForHistory(row, core, sport);
+  const needsNflPropFallback =
+    sport === "NFL" &&
+    history.some((row) =>
+      !resultCode(row.Result) &&
+      Boolean(String(row.Player || "").trim()) &&
+      Boolean(historyPropMarket(row))
+    );
+  const nflSchedule = needsNflPropFallback
+    ? await readSportWorksheet("NFL", "schedule")
+    : [];
+  const nflSummaryCache = new Map<string, Promise<AnyPick | null>>();
+
+  const gradedHistory = await Promise.all(history.map(async (row) => {
+    let settled = settledResultForHistory(row, core, sport);
+    if (
+      !settled.result &&
+      sport === "NFL" &&
+      !resultCode(row.Result) &&
+      Boolean(String(row.Player || "").trim())
+    ) {
+      settled = await settledNflPropResult(row, nflSchedule, nflSummaryCache);
+    }
     if (!settled.result || settled.result === resultCode(row.Result)) return row;
     gradingChanged = true;
     return {
@@ -548,7 +744,7 @@ export async function buildFootballPublicData(
       Result: settled.result,
       "Result Updated": settled.updated,
     };
-  });
+  }));
 
   if (options.persist && gradingChanged) {
     await upsertSportRows(
