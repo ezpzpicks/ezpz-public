@@ -88,7 +88,7 @@ type FootballData = {
   betTrackerRows?: SheetRow[]; trendRecordRows?: SheetRow[]; draftKingsSignalRows?: FootballSignalHistoryRow[];
   trendPlays?: TrendPlay[]; aiPicks?: EzpzPick[]; aiPickRecordRows?: EzpzPick[]; recordSummary?: Summary[];
   last7RecordSummary?: Summary[]; aiSelectorStatus?: { message?: string };
-  draftKings?: { status: string; updatedAt: string; splits: DraftKingsSplit[]; errors?: string[] };
+  draftKings?: { status: string; updatedAt: string; splits: DraftKingsSplit[]; errors?: string[]; stale?: boolean; displayMode?: string; source?: string };
 };
 
 type WeeklyMarketData = {
@@ -1480,6 +1480,13 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
     return () => { active = false; controller.abort(); };
   }, [sport, data.lastUpdated]);
 
+  const scoresAndOddsFresh = data.draftKings?.status === "LIVE" && !data.draftKings?.stale && data.draftKings?.displayMode !== "STALE_FALLBACK";
+  const scoresAndOddsStatus = data.draftKings?.stale || data.draftKings?.displayMode === "STALE_FALLBACK"
+    ? "ScoresAndOdds stale"
+    : scoresAndOddsFresh
+      ? "ScoresAndOdds live"
+      : "ScoresAndOdds pending";
+
   const splits = useMemo(() => {
     const map = new Map<string, DraftKingsSplit>();
     for (const split of [...(data.draftKings?.splits || []), ...(weeklyData?.splits || [])]) {
@@ -1699,8 +1706,8 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
           {tab === "Today’s Model Plays" ? <span className="countPill">{data.bestPlays.length} plays</span> : null}
           {tab === "Today’s Trend Plays" ? <span className="countPill">{displayedTrendGroups.length} games</span> : null}
           {tab === "Full Slate" ? <span className="countPill">{slateRows.length} games</span> : null}
-          <span className={`fbStatus ${data.draftKings?.status === "LIVE" || weeklyData?.trendPlays?.length ? "live" : ""}`}>
-            {data.draftKings?.status === "LIVE" || weeklyData?.trendPlays?.length ? "ScoresAndOdds live" : "ScoresAndOdds pending"}
+          <span className={`fbStatus ${scoresAndOddsFresh ? "live" : ""}`}>
+            {scoresAndOddsStatus}
           </span>
         </div>
       </div>
