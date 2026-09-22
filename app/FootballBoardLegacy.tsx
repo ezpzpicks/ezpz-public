@@ -77,6 +77,7 @@ type FootballData = {
   lastUpdated?: string;
   bestPlays?: NflPlay[];
   aiPicks?: NflEzpzPick[];
+  aiPickRecordRows?: any[];
   aiSelectorStatus?: { message?: string };
   betTrackerRows?: SheetRow[];
   trendRecordRows?: SheetRow[];
@@ -484,7 +485,7 @@ function FootballRecords({ sport, data }: { sport: Sport; data: FootballData }) 
         </div>
         <div className="sectionHead"><div><h2>Market Trend Records</h2><p>Only the three active market signals: Public Fade, Strong RLM, and Sharp.</p></div></div>
         <div className="recordsDropdownStack advancedRecordsStack">
-          <DirectTrendRecords rows={data.trendRecordRows || []} trendPlays={data.trendPlays || []} today={data.today || ""} sport={sport} />
+          <DirectTrendRecords rows={data.trendRecordRows || []} trendPlays={data.trendPlays || []} aiPickRows={data.aiPickRecordRows || []} today={data.today || ""} sport={sport} />
         </div>
         <div className="sectionHead"><div><h2>Bet Type Records</h2><p>These are the exact subsets used for HOT / COLD / SMALL SAMPLE status.</p></div></div>
         <div className="advancedRecordsStack"><RecordDropdown title="Last 7 Days Model Plays" subtitle={`Exact ${sport} grade / market / direction records`} rows={last7Rows} open /><RecordDropdown title="Overall Model Plays" subtitle={`Running exact ${sport} grade / market / direction records`} rows={overallRows} /></div>
