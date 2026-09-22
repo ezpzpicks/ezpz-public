@@ -2633,6 +2633,62 @@ function publicDisplayDraftKingsPayload(
   };
 }
 
+function finalPregameDisplayPayloadFromRows(
+  rows: SheetRow[],
+  slateRows: SheetRow[],
+  today: string,
+): DraftKingsPayload {
+  const todayIso = isoPublicDate(today);
+  const finalSlateRows = slateRows.filter(
+    (row) =>
+      isoPublicDate(row.Date || "") === todayIso &&
+      slateHasFinalPregameSnapshot(row),
+  );
+
+  const selectedRows = rows.filter((row) => {
+    if (isoPublicDate(row.Date || "") !== todayIso) return false;
+
+    // The dedicated tracking snapshot is always authoritative as soon as it is
+    // captured. If that poll was missed, once the slate marks the game FINAL
+    // PREGAME, keep the last verified pregame market row visible for the rest
+    // of the Eastern calendar day instead of letting the game disappear when
+    // ScoresAndOdds removes it after first pitch.
+    if (isFifteenMinuteTrackingSnapshot(row)) return true;
+    if (!isPregameMarketSnapshot(row)) return false;
+
+    const away = normalizeTeam(row["Away Team"] || "");
+    const home = normalizeTeam(row["Home Team"] || "");
+    if (!away || !home) return false;
+
+    const matchingFinalGames = finalSlateRows.filter(
+      (slateRow) =>
+        normalizeTeam(slateRow["Away Team"] || "") === away &&
+        normalizeTeam(slateRow["Home Team"] || "") === home,
+    );
+    if (!matchingFinalGames.length) return false;
+
+    const snapshotTime = parseEventTimeKey(row["Game Time ET"] || "");
+    if (snapshotTime) {
+      return matchingFinalGames.some(
+        (slateRow) => scheduledGameTimeKey(slateRow) === snapshotTime,
+      );
+    }
+
+    // A time-less fallback is safe only when this matchup occurs once that day.
+    // This preserves the strict doubleheader protection.
+    return matchingFinalGames.length === 1;
+  });
+
+  const payload = snapshotPayloadFromRows(selectedRows, today);
+  return {
+    ...payload,
+    splits: payload.splits.map((split) => ({
+      ...split,
+      snapshotStatus: "FINAL_PREGAME" as const,
+    })),
+  };
+}
+
 function truthyValue(value: unknown) {
   return ["TRUE", "YES", "Y", "1"].includes(String(value ?? "").trim().toUpperCase());
 }
@@ -11749,8 +11805,9 @@ async function buildUncachedPublicResponse(request: NextRequest) {
     let slateTodayRaw = initialSlateTodayRaw;
     let savedPublicSplits = initialSavedPublicSplits;
     const savedDraftKings = snapshotPayloadFromRows(savedPublicSplits, today);
-    let finalSnapshotDraftKings = snapshotPayloadFromRows(
-      savedPublicSplits.filter(isFifteenMinuteTrackingSnapshot),
+    let finalSnapshotDraftKings = finalPregameDisplayPayloadFromRows(
+      savedPublicSplits,
+      initialSlateTodayRaw as SheetRow[],
       today,
     );
     const draftKings = mergeDraftKingsPayload(liveDraftKings, savedDraftKings);
@@ -11771,11 +11828,15 @@ async function buildUncachedPublicResponse(request: NextRequest) {
     }
     if (persistence.snapshotRowsUpdated > 0) {
       savedPublicSplits = await safeReadPublicSplitRows();
-      finalSnapshotDraftKings = snapshotPayloadFromRows(
-        savedPublicSplits.filter(isFifteenMinuteTrackingSnapshot),
-        today,
-      );
     }
+    // Recompute after any slate/snapshot write. This is what keeps a started
+    // game's frozen final pregame card visible through the end of the day even
+    // when ScoresAndOdds has already removed the live event.
+    finalSnapshotDraftKings = finalPregameDisplayPayloadFromRows(
+      savedPublicSplits,
+      slateTodayRaw as SheetRow[],
+      today,
+    );
 
     const mlbResultSync = await syncMlbResults(today);
     const trackerRaw = mlbResultSync.trackerUpdated > 0
