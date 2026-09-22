@@ -2048,7 +2048,7 @@ function getPublicBettingInfo(
       source: String(
         firstValue(row, [`${prefix} Public Split Source`]) ||
           play.publicSplitSource ||
-          "DraftKings",
+          "ScoresAndOdds",
       ),
       betsPct,
       moneyPct,
