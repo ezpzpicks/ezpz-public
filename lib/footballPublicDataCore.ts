@@ -1702,9 +1702,70 @@ function qualifiedFootballModelGrade(value: unknown) {
     grade !== "no market line";
 }
 
+const NFL_YARDAGE_PROP_MARKETS = new Set(["passing yards", "rushing yards", "receiving yards"]);
+
+function finitePropNumber(value: unknown) {
+  const parsed = Number(String(value ?? "").replace("%", "").trim());
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function isNflYardagePropRow(row: SheetRow) {
+  return NFL_YARDAGE_PROP_MARKETS.has(textKey(row.Market || row["Bet Type"]));
+}
+
+function nflYardagePropMetrics(row: SheetRow) {
+  if (!isNflYardagePropRow(row)) return null;
+  const marketLine = finitePropNumber(row["Market Line"] ?? row.Line ?? row["Prop Line"]);
+  const probabilityEdgeRaw = finitePropNumber(row["Probability Edge"] ?? row.Edge);
+  if (marketLine == null || marketLine <= 0 || probabilityEdgeRaw == null) return null;
+
+  const storedProjectionEdge = finitePropNumber(row["Projection Edge"]);
+  const projection = finitePropNumber(row.Projection);
+  const projectionGap =
+    storedProjectionEdge != null
+      ? Math.abs(storedProjectionEdge)
+      : projection != null
+        ? Math.abs(projection - marketLine)
+        : null;
+  if (projectionGap == null) return null;
+
+  const probabilityEdgePct = probabilityEdgeRaw <= 1 ? probabilityEdgeRaw * 100 : probabilityEdgeRaw;
+  const projectionGapPct = (projectionGap / Math.abs(marketLine)) * 100;
+  return { marketLine, probabilityEdgePct, projectionGap, projectionGapPct };
+}
+
+function nflYardagePropTier(row: SheetRow) {
+  const metrics = nflYardagePropMetrics(row);
+  if (!metrics) return "";
+  if (metrics.projectionGapPct < 30 || metrics.probabilityEdgePct < 12) return "Non-Edge";
+  if (metrics.probabilityEdgePct >= 30) return "Strong";
+  if (metrics.probabilityEdgePct >= 16) return "Regular";
+  return "Lean";
+}
+
+function applyNflYardagePropGrade(row: SheetRow): SheetRow {
+  const tier = nflYardagePropTier(row);
+  if (!tier) return row;
+  const metrics = nflYardagePropMetrics(row);
+  return {
+    ...row,
+    Grade: tier,
+    "Yardage Prop Tier": tier,
+    ...(metrics ? {
+      "Projection Gap %": String(Math.round(metrics.projectionGapPct * 10) / 10),
+      "Probability Edge %": String(Math.round(metrics.probabilityEdgePct * 10) / 10),
+    } : {}),
+  };
+}
+
 function qualifiedNflPropGrade(value: unknown) {
   const grade = textKey(value);
-  return grade === "a prop" || grade === "b prop";
+  return ["strong", "regular", "lean", "a prop", "b prop"].includes(grade);
+}
+
+function nflEzpzYardagePropGrade(value: unknown) {
+  const grade = textKey(value);
+  return grade === "strong" || grade === "regular";
 }
 
 function playerPropTeams(row: SheetRow) {
@@ -1760,17 +1821,80 @@ function nflPlayerPropBestPlays(propRows: SheetRow[], slate: SheetRow[], today: 
       };
     })
     .sort((a, b) => {
-      const gradeRank = (value: unknown) => textKey(value) === "a prop" ? 2 : 1;
+      const gradeRank = (value: unknown) => {
+        const grade = textKey(value);
+        if (grade === "strong") return 5;
+        if (grade === "regular") return 4;
+        if (grade === "lean") return 3;
+        if (grade === "a prop") return 2;
+        if (grade === "b prop") return 1;
+        return 0;
+      };
       const gradeDiff = gradeRank(b.playType) - gradeRank(a.playType);
       if (gradeDiff) return gradeDiff;
       return Number(b.score || 0) - Number(a.score || 0);
     });
 }
 
+function nflPlayerPropEzpzPicks(propRows: SheetRow[], slate: SheetRow[], today: string): FootballEzpzPick[] {
+  return propRows
+    .filter((row) => isoDate(row.Date || row["Game Date"] || "") === today)
+    .filter((row) => isNflYardagePropRow(row) && nflEzpzYardagePropGrade(row.Grade))
+    .filter((row) => {
+      const gameId = String(row["Game ID"] || row["Game Key"] || "").trim();
+      const teams = playerPropTeams(row);
+      return slate.some((game) => {
+        const slateId = String(game["Game ID"] || game["Game Key"] || "").trim();
+        if (gameId && slateId && gameId === slateId) return true;
+        return sameTeam(teams.away, game["Away Team"], "NFL") && sameTeam(teams.home, game["Home Team"], "NFL");
+      });
+    })
+    .map((row) => {
+      const teams = playerPropTeams(row);
+      const metrics = nflYardagePropMetrics(row);
+      const rawProbability = finitePropNumber(row["Model Probability"]);
+      const score = rawProbability == null ? 0 : rawProbability <= 1 ? rawProbability * 100 : rawProbability;
+      const grade = String(row.Grade || "").trim();
+      const player = String(row.Player || "").trim();
+      const market = String(row.Market || "").trim();
+      const pick = String(row.Pick || "").trim();
+      const line = String(row["Market Line"] || "").trim();
+      const side = textKey(pick).startsWith("under") ? "Under" : textKey(pick).startsWith("over") ? "Over" : "";
+      const oddsValue = Number(row["Pick Odds"]);
+      const odds = Number.isFinite(oddsValue) ? (oddsValue > 0 ? `+${oddsValue}` : String(oddsValue)) : String(row["Pick Odds"] || "");
+      return {
+        source: "Best Play" as const,
+        game: `${teams.away} @ ${teams.home}`,
+        market: "Player Prop" as const,
+        selection: pick,
+        odds,
+        score: Math.round(score * 10) / 10,
+        tier: grade,
+        qualification: `${grade} yardage prop • edge ${metrics ? metrics.probabilityEdgePct.toFixed(1) : "—"}% • projection gap ${metrics ? metrics.projectionGapPct.toFixed(1) : "—"}%`,
+        playerName: player,
+        playerTeam: String(row.Team || "").trim(),
+        propMarket: market,
+        propSide: side,
+        propLine: line,
+        propProjection: String(row.Projection || ""),
+        modelGapPct: metrics ? Math.round(metrics.projectionGapPct * 10) / 10 : undefined,
+        predictedWinPct: Math.round(score * 10) / 10,
+        impliedProbabilityPct: (() => {
+          const implied = finitePropNumber(row["Implied Probability"]);
+          return implied == null ? undefined : Math.round((implied <= 1 ? implied * 100 : implied) * 10) / 10;
+        })(),
+      };
+    })
+    .sort((a, b) => {
+      const rank = (tier: string) => textKey(tier) === "strong" ? 2 : 1;
+      return rank(b.tier) - rank(a.tier) || b.score - a.score;
+    });
+}
+
 type FootballEzpzPick = {
   source: "Best Play" | "Trend Play" | "Best + Trend";
   game: string;
-  market: "Spread" | "Total";
+  market: "Spread" | "Total" | "Player Prop";
   selection: string;
   odds: string;
   score: number;
@@ -1784,6 +1908,15 @@ type FootballEzpzPick = {
   publicSideMoneyPct?: number;
   publicMovePct?: number;
   lineMoveValue?: number;
+  playerName?: string;
+  playerTeam?: string;
+  propMarket?: string;
+  propSide?: string;
+  propLine?: string;
+  propProjection?: string;
+  modelGapPct?: number;
+  predictedWinPct?: number;
+  impliedProbabilityPct?: number;
 };
 
 function americanOddsText(value: unknown) {
@@ -1966,7 +2099,7 @@ function directTrendQualification(
 type FootballEzpzRecordRow = {
   date: string;
   game: string;
-  market: "Spread" | "Total";
+  market: "Spread" | "Total" | "Player Prop";
   selection: string;
   odds: string;
   score: number;
@@ -1975,6 +2108,16 @@ type FootballEzpzRecordRow = {
   selected: true;
   result: "W" | "L" | "P";
   units: number;
+  tier?: string;
+  playerName?: string;
+  playerTeam?: string;
+  propMarket?: string;
+  propSide?: string;
+  propLine?: string;
+  propProjection?: string;
+  modelGapPct?: number;
+  predictedWinPct?: number;
+  impliedProbabilityPct?: number;
 };
 
 function historicalTrendSplitFromRow(row: SheetRow, sport: FootballSport): DraftKingsSplit | null {
@@ -2045,6 +2188,44 @@ function buildFootballEzpzRecordRows(
     const result = resultCode(row.Result || row.Status);
     const date = isoDate(row.Date || row["Game Date"] || "");
     if (!result || !date) continue;
+
+    if (sport === "NFL" && isNflYardagePropRow(row)) {
+      const grade = nflYardagePropTier(row);
+      if (!nflEzpzYardagePropGrade(grade)) continue;
+      const metrics = nflYardagePropMetrics(row);
+      const rawProbability = finitePropNumber(row["Model Probability"]);
+      const score = rawProbability == null ? 0 : rawProbability <= 1 ? rawProbability * 100 : rawProbability;
+      const side = textKey(row.Pick).startsWith("under") ? "Under" : textKey(row.Pick).startsWith("over") ? "Over" : "";
+      const oddsNumber = parseOdds(row["Pick Odds"] || row.Odds || row["Odds/Line"]);
+      candidates.push({
+        date,
+        game: String(row.Game || ""),
+        market: "Player Prop",
+        selection: String(row.Pick || ""),
+        odds: oddsNumber ? String(oddsNumber > 0 ? `+${oddsNumber}` : oddsNumber) : String(row["Pick Odds"] || ""),
+        score: Math.round(score * 10) / 10,
+        source: "Best Play",
+        qualification: `${grade} yardage prop • edge ${metrics ? metrics.probabilityEdgePct.toFixed(1) : "—"}% • projection gap ${metrics ? metrics.projectionGapPct.toFixed(1) : "—"}%`,
+        selected: true,
+        result,
+        units: result === "P" ? 0 : result === "L" ? -1 : profitUnits(oddsNumber || -110),
+        tier: grade,
+        playerName: String(row.Player || "").trim(),
+        playerTeam: String(row.Team || "").trim(),
+        propMarket: String(row.Market || row["Bet Type"] || "").trim(),
+        propSide: side,
+        propLine: String(row["Market Line"] || row.Line || "").trim(),
+        propProjection: String(row.Projection || ""),
+        modelGapPct: metrics ? Math.round(metrics.projectionGapPct * 10) / 10 : undefined,
+        predictedWinPct: Math.round(score * 10) / 10,
+        impliedProbabilityPct: (() => {
+          const implied = finitePropNumber(row["Implied Probability"]);
+          return implied == null ? undefined : Math.round((implied <= 1 ? implied * 100 : implied) * 10) / 10;
+        })(),
+      });
+      continue;
+    }
+
     if (!qualifiedFootballModelGrade(row.Grade || row["Model Grade"])) continue;
     if (sport === "NCAAF" && cfbProjectionOnlySpread(row)) continue;
 
@@ -2536,13 +2717,20 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
     : trackerEnrichedTodaySlate;
   const effectiveTracker=sport==="NCAAF"
     ? tracker.map((row)=>cfbProjectionOnlySpread(row)?{...row,Grade:"No Play"}:row)
-    : tracker;
+    : sport==="NFL"
+      ? tracker.map(applyNflYardagePropGrade)
+      : tracker;
+  const effectivePropProjectionRows=sport==="NFL"
+    ? propProjectionRows.map(applyNflYardagePropGrade)
+    : propProjectionRows;
   const todayTrendPlays=displayTrendPlays.filter((play)=>isoDate(play.date)===today);
   const todayEnriched=enriched.filter((split)=>isoDate(split.date)===today);
   const modelBest=bestPlays(todaySlate,sport);
-  const propBest=sport==="NFL"?nflPlayerPropBestPlays(propProjectionRows,todaySlate,today):[];
+  const propBest=sport==="NFL"?nflPlayerPropBestPlays(effectivePropProjectionRows,todaySlate,today):[];
   const best=[...modelBest,...propBest];
-  const aiPicks=buildFootballEzpzPicks(modelBest,todayTrendPlays,effectiveTracker,todayEnriched,sport,today);
+  const baseAiPicks=buildFootballEzpzPicks(modelBest,todayTrendPlays,effectiveTracker,todayEnriched,sport,today);
+  const propAiPicks=sport==="NFL"?nflPlayerPropEzpzPicks(effectivePropProjectionRows,todaySlate,today):[];
+  const aiPicks=[...baseAiPicks,...propAiPicks].sort((a,b)=>b.score-a.score||a.game.localeCompare(b.game));
   // CFB projection-only / No Play rows stay in the tracker for audit and model
   // research, but they are not official graded plays and must not affect records.
   const recordTracker = sport === "NCAAF"
@@ -2568,7 +2756,7 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
   const recordSummary = buildRecordSummary();
   const last7RecordSummary = buildRecordSummary(7);
   const aiPickRecordRows = buildFootballEzpzRecordRows(effectiveTracker, publicTrendRows, sport);
-  return {ok:true,sport,database:sportDatabaseLabel(sport),today,lastUpdated:nowET(),tiles:{last7Days:last7,overallGreen:overall,handpickedLast7:last7,handpickedOverall:overall,pendingGreen:pending,bestPlaysToday:best.length},bestPlays:best,slateToday:todaySlate,betTrackerRows:effectiveTracker,draftKings:{ok:enriched.length>0,status:enriched.length?"LIVE":"UNAVAILABLE",updatedAt:nowET(),stale:usingStoredDraftKingsFallback,splits:enriched,props:[],errors:dk.errors,source:SCORES_AND_ODDS_SOURCE,filter:dk.filter,coverage:dk.coverage,displayMode:usingStoredDraftKingsFallback?"STALE_FALLBACK":"LIVE",trackingMode:"WEEKLY",trackingWeekStart:trackingWeek.start,trackingWeekEnd:trackingWeek.end,trackedGames:trackingSlate.length},draftKingsSignalRows:history,trendRecordRows:publicTrendRows.filter(r=>resultCode(r.Result)),trendPlays:displayTrendPlays,aiPicks,aiPickRecordRows,aiSelectorStatus:{mode:"LIVE",externalResearchConfigured:false,message:aiPicks.length?`${sport} EZPZ Picks are live for ${today}: HOT Best Plays remain FINAL immediately; Trend Plays qualify only through Public Fade, Strong RLM, or Sharp. NFL Public Fade uses 80%+ bets; CFB Public Fade uses >75% bets with a 55+ point Bets%-Money% gap. Strong RLM requires public bet share to rise at least 5 points while the spread moves 1.5+ points against that side. EZPZ Sharp requires money share over bet share by ${sport === "NFL" ? 25 : 40}+ points. Qualifying Trend Plays remain tied to the saved pregame market snapshot.`:`No ${sport} EZPZ Picks for ${today} currently qualify under the HOT Best Play / Public Fade / Strong RLM / Sharp rules.`,updatedAt:nowET(),candidateCount:modelBest.length+todayTrendPlays.length,selectedCount:aiPicks.length},recordSummary,last7RecordSummary,handpickedRecordSummary:recordSummary,handpickedLast7RecordSummary:last7RecordSummary};
+  return {ok:true,sport,database:sportDatabaseLabel(sport),today,lastUpdated:nowET(),tiles:{last7Days:last7,overallGreen:overall,handpickedLast7:last7,handpickedOverall:overall,pendingGreen:pending,bestPlaysToday:best.length},bestPlays:best,slateToday:todaySlate,betTrackerRows:effectiveTracker,draftKings:{ok:enriched.length>0,status:enriched.length?"LIVE":"UNAVAILABLE",updatedAt:nowET(),stale:usingStoredDraftKingsFallback,splits:enriched,props:[],errors:dk.errors,source:SCORES_AND_ODDS_SOURCE,filter:dk.filter,coverage:dk.coverage,displayMode:usingStoredDraftKingsFallback?"STALE_FALLBACK":"LIVE",trackingMode:"WEEKLY",trackingWeekStart:trackingWeek.start,trackingWeekEnd:trackingWeek.end,trackedGames:trackingSlate.length},draftKingsSignalRows:history,trendRecordRows:publicTrendRows.filter(r=>resultCode(r.Result)),trendPlays:displayTrendPlays,aiPicks,aiPickRecordRows,aiSelectorStatus:{mode:"LIVE",externalResearchConfigured:false,message:aiPicks.length?`${sport} EZPZ Picks are live for ${today}: ${sport === "NFL" ? "yardage props qualify directly at Strong or Regular; Lean is tracked but excluded from EZPZ Picks. " : ""}HOT game Best Plays remain FINAL immediately; Trend Plays qualify only through Public Fade, Strong RLM, or Sharp. NFL Public Fade uses 80%+ bets; CFB Public Fade uses >75% bets with a 55+ point Bets%-Money% gap. Strong RLM requires public bet share to rise at least 5 points while the spread moves 1.5+ points against that side. EZPZ Sharp requires money share over bet share by ${sport === "NFL" ? 25 : 40}+ points. Qualifying Trend Plays remain tied to the saved pregame market snapshot.`:`No ${sport} EZPZ Picks for ${today} currently qualify under the active game, prop, or trend rules.`,updatedAt:nowET(),candidateCount:modelBest.length+todayTrendPlays.length+propBest.length,selectedCount:aiPicks.length},recordSummary,last7RecordSummary,handpickedRecordSummary:recordSummary,handpickedLast7RecordSummary:last7RecordSummary};
 }
 
 const FOOTBALL_PUBLIC_DATA_CACHE_TTL_MS = 60_000;
