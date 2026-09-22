@@ -24,10 +24,6 @@
     {
       "path": "/api/cron/football-slate-sync",
       "schedule": "30 * * * *"
-    },
-    {
-      "path": "/api/cron/football-betmgm-snapshot?sport=NFL",
-      "schedule": "3,8,13,18,23,28,33,38,43,48,53,58 * * * *"
     }
   ]
 }
