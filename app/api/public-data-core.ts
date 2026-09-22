@@ -8083,7 +8083,7 @@ function aiBestPlayQualification(
     const probabilityEdge = grading?.probabilityEdge ?? 0;
     const projectionGapPct = grading?.projectionGapPct ?? 0;
     const thresholdText =
-      "Strong: edge 15%+ / gap 22.5%+ • Regular: edge 15%+ / gap 10%+ • Lean: edge 10%+ / gap 15%+";
+      "Strong: edge 15%+ / gap 22.5%+ • Regular: edge 15%+ / gap 10%+ • Lean: edge 10%–<15% / gap 15%–<25%";
     return {
       qualifies,
       label: `Pitcher K ${tier} / edge ${probabilityEdge.toFixed(1)}% / gap ${projectionGapPct.toFixed(1)}%`,
