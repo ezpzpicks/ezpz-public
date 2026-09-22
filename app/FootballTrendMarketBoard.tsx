@@ -339,7 +339,7 @@ function labelsFor(play: TrendPlay, plays: TrendPlay[], sport: Sport) {
     publicMove >= 5 &&
     Number.isFinite(lineMove) &&
     lineMove <= -1.5
-  ) labels.push("Strong RLM");
+  ) labels.push("RLM");
 
   return labels;
 }
@@ -599,7 +599,7 @@ function MovementChart({ play }: { play: TrendPlay }) {
 
 function MarketRow({ play, plays, sport }: { play: TrendPlay; plays: TrendPlay[]; sport: Sport }) {
   const labels = labelsFor(play, plays, sport);
-  const rlmPublicSide = labels.includes("Strong RLM") ? opposite(play, plays) : null;
+  const rlmPublicSide = labels.includes("RLM") ? opposite(play, plays) : null;
   const rlmSummary = rlmPublicSide ? rlmBadgeSummary(rlmPublicSide) : null;
   return (
     <div className={`dkTrendMarketRow ${labels.length ? "qualified" : ""}`}>
@@ -626,11 +626,11 @@ function MarketRow({ play, plays, sport }: { play: TrendPlay; plays: TrendPlay[]
       <div className="dkTrendBadges">
         {labels.map((label) => (
           <div className="dkTrendBadgeGroup" key={label}>
-            <span className={`directTrendBadge ${label === "Public Fade" ? "fade" : label === "Strong RLM" ? "rlm" : "sharp"}`}>{label}</span>
-            {label === "Strong RLM" && rlmSummary ? (
+            <span className={`directTrendBadge ${label === "Public Fade" ? "fade" : label === "RLM" ? "rlm" : "sharp"}`}>{label}</span>
+            {label === "RLM" && rlmSummary ? (
               <div
                 className="rlmMovementMini"
-                aria-label={`Strong RLM movement: bets ${rlmSummary.startBets} to ${rlmSummary.endBets}, line ${rlmSummary.startLine} to ${rlmSummary.endLine}`}
+                aria-label={`RLM movement: bets ${rlmSummary.startBets} to ${rlmSummary.endBets}, line ${rlmSummary.startLine} to ${rlmSummary.endLine}`}
               >
                 <span>
                   <b>Bets</b>
@@ -942,7 +942,7 @@ function historicalLabels(row: SheetRow, group: SheetRow[], sport: Sport) {
     publicMove >= 5 &&
     Number.isFinite(lineMove) &&
     lineMove <= -1.5
-  ) labels.push("Strong RLM");
+  ) labels.push("RLM");
 
   return labels;
 }
@@ -1024,7 +1024,7 @@ export function DirectTrendRecords({
   });
 
   // Recover completed direct-trend results from finalized pregame snapshots using
-  // ONLY the current Public Fade, Strong RLM, and Sharp definitions. This avoids
+  // ONLY the current Public Fade, RLM, and Sharp definitions. This avoids
   // legacy signal labels while still handling historical rows stored under
   // different game IDs.
   if (trendPlays.length) {
@@ -1066,12 +1066,12 @@ export function DirectTrendRecords({
   }
 
   // Finalized direct-trend EZPZ picks are the durable source of truth for the
-  // new MLB Public Fade / Strong RLM / Sharp system. They are stored in
+  // new MLB Public Fade / RLM / Sharp system. They are stored in
   // aiPickRecordRows, while legacy trendRecordRows may have no row at all.
   // Merge those finalized picks into the trend-record ledger and de-duplicate
   // against any historical row that already represents the same decision.
   if (aiPickRows.length) {
-    const activeSignals = ["Public Fade", "Strong RLM", "Sharp"] as const;
+    const activeSignals = ["Public Fade", "RLM", "Sharp"] as const;
     aiPickRows.forEach((pick) => {
       if (!resultCode(pick.result)) return;
 
@@ -1179,10 +1179,10 @@ export function DirectTrendRecords({
   }
 
   const summaries: Array<{ label: string; totals: RecordTotals }> = [];
-  ["Public Fade", "Strong RLM", "Sharp"].forEach((signal) => {
+  ["Public Fade", "RLM", "Sharp"].forEach((signal) => {
     let signalRows = labeled.filter((item) => item.signal === signal);
-    if (signal === "Strong RLM") {
-      // Strong RLM is side-specific. A team can appear twice in historical storage
+    if (signal === "RLM") {
+      // RLM is side-specific. A team can appear twice in historical storage
       // under different game IDs, so use one settled result per team/date.
       const unique = new Map<string, (typeof signalRows)[number]>();
       signalRows.forEach((item) => {
@@ -1203,7 +1203,7 @@ export function DirectTrendRecords({
     <details className="recordsDropdown directTrendRecords" open>
       <summary className="recordsSummary">
         <div>
-          <div className="recordsSummaryTitle">Public Fade + Strong RLM + Sharp Records</div>
+          <div className="recordsSummaryTitle">Public Fade + RLM + Sharp Records</div>
         </div>
         <span className="recordsCount">{labeled.length} graded</span>
       </summary>
@@ -1228,7 +1228,7 @@ export function DirectTrendRecords({
             </tbody>
           </table>
         </div>
-      ) : <div className="empty insideDropdown">No completed Public Fade, Strong RLM, or Sharp results are available yet.</div>}
+      ) : <div className="empty insideDropdown">No completed Public Fade, RLM, or Sharp results are available yet.</div>}
     </details>
   );
 }

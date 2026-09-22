@@ -5186,11 +5186,11 @@ function AiPickSelectorCard({
   const isDirectTrendPick =
     String(pick.selectorVersion || "").includes("mlb-direct-trends-moneyline-v2") ||
     (pick.source !== "Best Play" &&
-      /(?:Public Fade|Strong RLM|Sharp)/i.test(String(pick.trendTier || "")));
+      /(?:Public Fade|RLM|Sharp)/i.test(String(pick.trendTier || "")));
   const directTrendLabels = isDirectTrendPick
     ? String(pick.trendTier || "")
         .split(" + ")
-        .map((label) => label.trim())
+        .map((label) => label.trim().toLowerCase() === "strong rlm" ? "RLM" : label.trim())
         .filter(Boolean)
     : [];
   const showGapOnly = isMlbTrendV2Pick;
@@ -7227,7 +7227,7 @@ export default function Home() {
           <div className="trendTabHeader">
             <div className="directTrendRules">
               <span><b>Public Fade</b> Fade the opposite side when 80%+ of bets are on one side.</span>
-              <span><b>Strong RLM</b> Public bets rise 5+ points while the market moves 1.5+ points against that side (implied probability for moneylines, total line for totals).</span>
+              <span><b>RLM</b> Public bets rise 5+ points while the market moves 1.5+ points against that side (implied probability for moneylines, total line for totals).</span>
               <span><b>Sharp</b> Money share is 20+ points higher than bet share.</span>
             </div>
             <div className="trendGamesCountRow">
