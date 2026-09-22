@@ -54,7 +54,7 @@ type FootballData = {
   bestPlays?: Play[];
   slateToday?: SheetRow[];
   betTrackerRows?: SheetRow[];
-  draftKings?: { status?: string; splits?: Split[] };
+  draftKings?: { status?: string; splits?: Split[]; stale?: boolean; displayMode?: string };
 };
 
 type WeeklyData = {
@@ -451,7 +451,12 @@ export default function FootballGameTabs({ sport, tab, data }: { sport: Sport; t
     return output.sort((a, b) => timeSortValue(a.time) - timeSortValue(b.time) || a.game.localeCompare(b.game));
   }, [plays, slate, sport]);
 
-  const live = data.draftKings?.status === "LIVE" || Boolean(weekly?.splits?.length);
+  const live = data.draftKings?.status === "LIVE" && !data.draftKings?.stale && data.draftKings?.displayMode !== "STALE_FALLBACK";
+  const sourceStatus = data.draftKings?.stale || data.draftKings?.displayMode === "STALE_FALLBACK"
+    ? "ScoresAndOdds stale"
+    : live
+      ? "ScoresAndOdds live"
+      : "ScoresAndOdds pending";
 
   return (
     <section className="footballGameTabs">
@@ -460,7 +465,7 @@ export default function FootballGameTabs({ sport, tab, data }: { sport: Sport; t
           <h2>{sport === "NFL" ? "NFL" : "College Football"} {tab}</h2>
           <p>{tab === "Full Slate" ? "One matchup tile per game • whole-number score projections" : "Model Plays grouped by matchup so the full Saturday/Sunday board stays easy to scan"}</p>
         </div>
-        <div className="fgtHeadBadges"><span>{tab === "Full Slate" ? slate.length : groups.length} games</span><span className={live ? "live" : ""}>{live ? "DraftKings live" : "DraftKings pending"}</span></div>
+        <div className="fgtHeadBadges"><span>{tab === "Full Slate" ? slate.length : groups.length} games</span><span className={live ? "live" : ""}>{sourceStatus}</span></div>
       </div>
 
       {tab === "Full Slate" ? (

@@ -482,7 +482,7 @@ function FootballRecords({ sport, data }: { sport: Sport; data: FootballData }) 
           <RecordTile label="EZPZ Picks - Last 7 Days" value={ezpzLast7} />
           <RecordTile label="EZPZ Picks - Running Total" value={ezpzOverall} />
         </div>
-        <div className="sectionHead"><div><h2>DraftKings Trend Records</h2><p>Only the three active market signals: Public Fade, Strong RLM, and Sharp.</p></div></div>
+        <div className="sectionHead"><div><h2>Market Trend Records</h2><p>Only the three active market signals: Public Fade, Strong RLM, and Sharp.</p></div></div>
         <div className="recordsDropdownStack advancedRecordsStack">
           <DirectTrendRecords rows={data.trendRecordRows || []} trendPlays={data.trendPlays || []} today={data.today || ""} sport={sport} />
         </div>

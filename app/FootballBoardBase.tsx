@@ -88,7 +88,7 @@ type FootballData = {
   betTrackerRows?: SheetRow[]; trendRecordRows?: SheetRow[]; draftKingsSignalRows?: FootballSignalHistoryRow[];
   trendPlays?: TrendPlay[]; aiPicks?: EzpzPick[]; aiPickRecordRows?: EzpzPick[]; recordSummary?: Summary[];
   last7RecordSummary?: Summary[]; aiSelectorStatus?: { message?: string };
-  draftKings?: { status: string; updatedAt: string; splits: DraftKingsSplit[]; errors?: string[] };
+  draftKings?: { status: string; updatedAt: string; splits: DraftKingsSplit[]; errors?: string[]; stale?: boolean; displayMode?: string; source?: string };
 };
 
 type WeeklyMarketData = {
@@ -576,7 +576,7 @@ function FbDraftKingsSignalRecords({ rows, today }: { rows: FootballSignalHistor
   return (
     <details className="recordsDropdown dkSignalRecordsDropdown fbMlbRecordsDropdown" open>
       <summary className="recordsSummary">
-        <div><div className="recordsSummaryTitle">DraftKings Market Signals</div><div className="recordsSummarySub">Historical Bets / Handle and line-movement signal records</div></div>
+        <div><div className="recordsSummaryTitle">ScoresAndOdds Market Signals</div><div className="recordsSummarySub">Historical Bets / Handle and line-movement signal records</div></div>
         <span className="recordsCount">{summaries.length} signals</span>
       </summary>
       <div className="fbMlbRecordsBody">
@@ -594,7 +594,7 @@ function FbDraftKingsSignalRecords({ rows, today }: { rows: FootballSignalHistor
               <tbody>{summaries.map(({ summary, signalType }) => <tr key={summary.betType}><td><span className={"fbSignalPill " + fbSignalTone(summary)}>{summary.betType}</span></td><td><strong>{signalType === "Public Split" ? "Bets / Handle" : "Line Movement"}</strong></td><td>{summary.record}</td><td>{summary.winPct.toFixed(1)}%</td><td>{summary.unitsWon > 0 ? "+" : ""}{summary.unitsWon.toFixed(2)}u</td><td>{summary.roiPct > 0 ? "+" : ""}{summary.roiPct.toFixed(1)}%</td><td>{summary.totalBets}</td></tr>)}</tbody>
             </table>
           </div>
-        ) : <div className="empty insideDropdown">No completed DraftKings signal history is available for these filters yet.</div>}
+        ) : <div className="empty insideDropdown">No completed ScoresAndOdds signal history is available for these filters yet.</div>}
       </div>
     </details>
   );
@@ -1010,7 +1010,7 @@ function BestPlayCard({ play, splits, index, sport, recentByType, lastSevenBetsB
       {split ? (
         <div className="publicSplitPanel footballPublicSplitPanel">
           <div className="publicSplitTitle">
-            <span>DraftKings market</span>
+            <span>ScoresAndOdds market</span>
             <strong><SelectionWithTeamLogo sport={sport} selection={split.selection || play.play} game={play.game} compact /></strong>
           </div>
           <div className="footballSplitGrid">
@@ -1023,7 +1023,7 @@ function BestPlayCard({ play, splits, index, sport, recentByType, lastSevenBetsB
         </div>
       ) : (
         <div className="modelMeta footballModelMeta">
-          <span>{isPlayerProp ? "Player prop market" : "DraftKings selected-side split pending"}</span>
+          <span>{isPlayerProp ? "Player prop market" : "ScoresAndOdds selected-side split pending"}</span>
         </div>
       )}
 
@@ -1454,7 +1454,7 @@ function SlateCard({ row, splits, sport }: { row: SheetRow; splits: DraftKingsSp
 
       {gameSplits.length ? (
         <div className="fbDkBox fbSlateDkBox">
-          <b>DraftKings market</b>
+          <b>ScoresAndOdds market</b>
           {gameSplits.map((split, i) => (
             <span key={`${split.market}-${split.selection}-${i}`}>
               {split.market}: <SelectionWithTeamLogo sport={sport} selection={split.selection} game={game} compact /> {split.odds} • {split.betsPct}% bets / {split.moneyPct}% handle{split.warning ? ` • ${split.warning}` : ""}
@@ -1479,6 +1479,13 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
       .catch(() => undefined);
     return () => { active = false; controller.abort(); };
   }, [sport, data.lastUpdated]);
+
+  const scoresAndOddsFresh = data.draftKings?.status === "LIVE" && !data.draftKings?.stale && data.draftKings?.displayMode !== "STALE_FALLBACK";
+  const scoresAndOddsStatus = data.draftKings?.stale || data.draftKings?.displayMode === "STALE_FALLBACK"
+    ? "ScoresAndOdds stale"
+    : scoresAndOddsFresh
+      ? "ScoresAndOdds live"
+      : "ScoresAndOdds pending";
 
   const splits = useMemo(() => {
     const map = new Map<string, DraftKingsSplit>();
@@ -1604,14 +1611,14 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
     content = <>
       <div className="trendWeekControls simplifiedTrendControls">
         <label><span>View market week</span><select value={activeWeek} onChange={(event) => setSelectedWeek(event.target.value)} disabled={!trendWeeks.length}>{trendWeeks.length ? trendWeeks.map((week) => <option key={week} value={week}>{week}</option>) : <option value="">No weeks yet</option>}</select></label>
-        <div><strong>{activeWeek || "Waiting for DraftKings"}</strong><small>{storedGamesForWeek.length} games stored • Public Fade, Strong RLM, and Sharp are the only qualifying trends</small></div>
+        <div><strong>{activeWeek || "Waiting for ScoresAndOdds"}</strong><small>{storedGamesForWeek.length} games stored • Public Fade, Strong RLM, and Sharp are the only qualifying trends</small></div>
       </div>
       <div className="directTrendRules">
         <span><b>Public Fade</b> {sport === "NFL" ? "fade any side with 80%+ of bets" : ">75% bets + 55+ point Bets/Money gap"}</span>
         <span><b>Strong RLM</b> public bets rise 5+ points while spread moves 1.5+ points against that side</span>
         <span><b>Sharp</b> money share exceeds bet share by {sport === "NFL" ? "20+" : "25+"} points</span>
       </div>
-      {displayedTrendGroups.length ? <FootballTrendMarketBoard groups={displayedTrendGroups} sport={sport} /> : <div className="empty footballEmpty">No {sport} DraftKings Spread/Total markets are stored for {activeWeek || "this week"} yet.</div>}
+      {displayedTrendGroups.length ? <FootballTrendMarketBoard groups={displayedTrendGroups} sport={sport} /> : <div className="empty footballEmpty">No {sport} ScoresAndOdds Spread/Total markets are stored for {activeWeek || "this week"} yet.</div>}
       <div className="directTrendRecordWrap"><DirectTrendRecords rows={data.trendRecordRows || []} trendPlays={data.trendPlays || []} today={data.today} sport={sport} /></div>
     </>;
   } else if (tab === "EZPZ Picks") {
@@ -1673,7 +1680,7 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
         <RecordTile label="EZPZ Picks - Last 7 Days" value={ezpzLast7} />
         <RecordTile label="EZPZ Picks - Running Total" value={ezpzOverall} />
       </div>
-      <div className="sectionHead"><div><h2>DraftKings Trend Records</h2><p>Only the three active market signals: Public Fade, Strong RLM, and Sharp</p></div></div>
+      <div className="sectionHead"><div><h2>Market Trend Records</h2><p>Only the three active market signals: Public Fade, Strong RLM, and Sharp</p></div></div>
       <div className="advancedRecordsStack">
         <DirectTrendRecords rows={trendRows} trendPlays={data.trendPlays || []} today={data.today} sport={sport} />
       </div>
@@ -1693,14 +1700,14 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
       <div className="fbHead">
         <div>
           <h2>{sport === "NFL" ? "NFL" : "College Football"} {displayTab}</h2>
-          <p>Regression projections • DraftKings market tracking • Public Fade + Strong RLM + Sharp</p>
+          <p>Regression projections • ScoresAndOdds market tracking • Public Fade + Strong RLM + Sharp</p>
         </div>
         <div className="fbHeadActions">
           {tab === "Today’s Model Plays" ? <span className="countPill">{data.bestPlays.length} plays</span> : null}
           {tab === "Today’s Trend Plays" ? <span className="countPill">{displayedTrendGroups.length} games</span> : null}
           {tab === "Full Slate" ? <span className="countPill">{slateRows.length} games</span> : null}
-          <span className={`fbStatus ${data.draftKings?.status === "LIVE" || weeklyData?.trendPlays?.length ? "live" : ""}`}>
-            {data.draftKings?.status === "LIVE" || weeklyData?.trendPlays?.length ? "DraftKings live" : "DraftKings pending"}
+          <span className={`fbStatus ${scoresAndOddsFresh ? "live" : ""}`}>
+            {scoresAndOddsStatus}
           </span>
         </div>
       </div>
