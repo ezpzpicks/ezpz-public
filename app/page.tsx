@@ -7227,7 +7227,7 @@ export default function Home() {
           <div className="trendTabHeader">
             <div className="directTrendRules">
               <span><b>Public Fade</b> Fade the opposite side when 80%+ of bets are on one side.</span>
-              <span><b>Strong RLM</b> Moneyline bets rise 5+ points while that team’s implied probability moves 1.5+ points against it.</span>
+              <span><b>Strong RLM</b> Public bets rise 5+ points while the market moves 1.5+ points against that side (implied probability for moneylines, total line for totals).</span>
               <span><b>Sharp</b> Money share is 20+ points higher than bet share.</span>
             </div>
             <div className="trendGamesCountRow">

@@ -313,17 +313,25 @@ function labelsFor(play: TrendPlay, plays: TrendPlay[], sport: Sport) {
   const openingPublicBets = Number(publicSide.openingBetsPct);
   const publicMove = Number(publicSide.publicMovementPct);
   const lineMove = Number(publicSide.lineMovementValue);
-  const footballSpreadRlm =
+  const footballLineRlm =
     sport !== "MLB" &&
-    isSpreadMarket(play.market) &&
-    (String(publicSide.lineMovementBasis || "").includes("Spread") ||
-      String(publicSide.lineMovementBasis || "").includes("Run Line"));
+    (
+      (isSpreadMarket(play.market) &&
+        (String(publicSide.lineMovementBasis || "").includes("Spread") ||
+          String(publicSide.lineMovementBasis || "").includes("Run Line"))) ||
+      (play.market === "Total" &&
+        String(publicSide.lineMovementBasis || "").includes("Total Line"))
+    );
   const mlbMoneylineRlm =
     sport === "MLB" &&
     play.market === "Moneyline" &&
     String(publicSide.lineMovementBasis || "").includes("Implied Probability");
+  const mlbTotalRlm =
+    sport === "MLB" &&
+    play.market === "Total" &&
+    String(publicSide.lineMovementBasis || "").includes("Total Line");
   if (
-    (footballSpreadRlm || mlbMoneylineRlm) &&
+    (footballLineRlm || mlbMoneylineRlm || mlbTotalRlm) &&
     Number.isFinite(openingPublicBets) &&
     openingPublicBets > 0 &&
     openingPublicBets < 100 &&
@@ -908,17 +916,25 @@ function historicalLabels(row: SheetRow, group: SheetRow[], sport: Sport) {
   const publicMove = Number(publicSide["Public Change %"]);
   const lineMove = Number(publicSide["Line Movement Value"]);
   const marketKey = textKey(row.Market);
-  const footballSpreadRlm =
+  const footballLineRlm =
     sport !== "MLB" &&
-    (marketKey === "spread" || marketKey === "run line") &&
-    (String(publicSide["Line Movement Basis"] || "").includes("Spread") ||
-      String(publicSide["Line Movement Basis"] || "").includes("Run Line"));
+    (
+      ((marketKey === "spread" || marketKey === "run line") &&
+        (String(publicSide["Line Movement Basis"] || "").includes("Spread") ||
+          String(publicSide["Line Movement Basis"] || "").includes("Run Line"))) ||
+      (marketKey === "total" &&
+        String(publicSide["Line Movement Basis"] || "").includes("Total Line"))
+    );
   const mlbMoneylineRlm =
     sport === "MLB" &&
     marketKey === "moneyline" &&
     String(publicSide["Line Movement Basis"] || "").includes("Implied Probability");
+  const mlbTotalRlm =
+    sport === "MLB" &&
+    marketKey === "total" &&
+    String(publicSide["Line Movement Basis"] || "").includes("Total Line");
   if (
-    (footballSpreadRlm || mlbMoneylineRlm) &&
+    (footballLineRlm || mlbMoneylineRlm || mlbTotalRlm) &&
     Number.isFinite(openingPublicBets) &&
     openingPublicBets > 0 &&
     openingPublicBets < 100 &&

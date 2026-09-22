@@ -342,10 +342,15 @@ function directTrendLabels(row: SheetRow, group: SheetRow[], sport: Sport): Dire
   const openingBets = Number(publicSide["Opening Public %"] || publicSide["Opening Bets %"]);
   const publicMove = Number(publicSide["Public Change %"]);
   const lineMove = Number(publicSide["Line Movement Value"]);
+  const marketKey = textKey(row.Market);
+  const rlmMarketMatches =
+    (marketKey === "spread" &&
+      String(publicSide["Line Movement Basis"] || "").includes("Spread")) ||
+    (marketKey === "total" &&
+      String(publicSide["Line Movement Basis"] || "").includes("Total Line"));
   if (
-    textKey(row.Market) === "spread" &&
+    rlmMarketMatches &&
     Number.isFinite(openingBets) && openingBets > 0 && openingBets < 100 &&
-    String(publicSide["Line Movement Basis"] || "").includes("Spread") &&
     Number.isFinite(publicMove) && publicMove >= 5 &&
     Number.isFinite(lineMove) && lineMove <= -1.5
   ) labels.push("Strong RLM");
