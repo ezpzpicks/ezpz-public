@@ -5190,7 +5190,7 @@ function AiPickSelectorCard({
   const directTrendLabels = isDirectTrendPick
     ? String(pick.trendTier || "")
         .split(" + ")
-        .map((label) => textKey(label) === "strong rlm" ? "RLM" : label.trim())
+        .map((label) => label.trim().toLowerCase() === "strong rlm" ? "RLM" : label.trim())
         .filter(Boolean)
     : [];
   const showGapOnly = isMlbTrendV2Pick;
