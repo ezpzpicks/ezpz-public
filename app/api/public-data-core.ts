@@ -7055,8 +7055,26 @@ function mlbPitcherKGradingForTrackerRow(row: SheetRow) {
 }
 
 function applyMlbPitcherKTrackerGrade(row: SheetRow): SheetRow {
+  if (!isMlbPitcherKTrackerRow(row)) return row;
+
+  const selectedProbability = normalizePercentValue(
+    firstValue(row, ["Selected Probability", "Model %", "Probability"]),
+  );
   const grading = mlbPitcherKGradingForTrackerRow(row);
-  if (!grading) return row;
+  if (!grading) {
+    // Once a row belongs to the probability-based K era, never let an old
+    // stored Strong/Regular/Lean label bypass the new edge+gap system.
+    // Missing projection/line data means we cannot prove the new tier, so keep
+    // it out of tier records and EZPZ qualification instead of grandfathering it.
+    if (selectedProbability >= 20) {
+      return {
+        ...row,
+        "Bet Type": "PITCHER K UNCLASSIFIED",
+        "Model Grade": "PITCHER K UNCLASSIFIED",
+      };
+    }
+    return row;
+  }
   return {
     ...row,
     "Bet Type": grading.grade,
