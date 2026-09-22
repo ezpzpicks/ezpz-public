@@ -1804,6 +1804,78 @@ function liveSplitsForRow(
     });
 }
 
+type FullSlateTrendLabel = "Public Fade" | "RLM" | "Sharp";
+
+function fullSlateTrendLabels(
+  split: DraftKingsSplit,
+  marketRows: DraftKingsSplit[],
+): FullSlateTrendLabel[] {
+  // Full Slate should use the same live signal definitions as Today's Trend
+  // Plays, rather than the legacy handle-share / movement warning system.
+  const labels: FullSlateTrendLabel[] = [];
+  const ownBets = Number(split.betsPct);
+  const ownMoney = Number(split.moneyPct);
+
+  // MLB Sharp badge: selected-side handle exceeds selected-side bets by 20+ pts.
+  if (
+    Number.isFinite(ownBets) &&
+    Number.isFinite(ownMoney) &&
+    ownMoney - ownBets >= 20
+  ) {
+    labels.push("Sharp");
+  }
+
+  const selectedKey =
+    split.market === "Total"
+      ? String(split.side || "").toLowerCase()
+      : publicMatchKey(split.selectionTeam || split.selection);
+  const publicSide = marketRows.find((candidate) => {
+    const candidateKey =
+      candidate.market === "Total"
+        ? String(candidate.side || "").toLowerCase()
+        : publicMatchKey(candidate.selectionTeam || candidate.selection);
+    return candidateKey && candidateKey !== selectedKey;
+  });
+  if (!publicSide) return labels;
+
+  const publicBets = Number(publicSide.betsPct);
+  const publicMoney = Number(publicSide.moneyPct);
+  const placeholderSplit =
+    (publicBets === 100 && publicMoney === 100) ||
+    (publicBets === 0 && publicMoney === 0);
+
+  // Current MLB Public Fade badge: 80%+ of bets on the opposite side.
+  if (!placeholderSplit && Number.isFinite(publicBets) && publicBets >= 80) {
+    labels.push("Public Fade");
+  }
+
+  // Current MLB RLM badge: public bets on the opposite side increased 5+ pts
+  // while the market moved at least 1.5 pts against that public side.
+  const openingPublicBets = Number(publicSide.openingBetsPct);
+  const publicMove = Number(publicSide.publicMovementPct);
+  const lineMove = Number(publicSide.lineMovementValue);
+  const rlmMarketMatches =
+    (split.market === "Moneyline" &&
+      String(publicSide.lineMovementBasis || "").includes("Implied Probability")) ||
+    (split.market === "Total" &&
+      String(publicSide.lineMovementBasis || "").includes("Total Line"));
+
+  if (
+    rlmMarketMatches &&
+    Number.isFinite(openingPublicBets) &&
+    openingPublicBets > 0 &&
+    openingPublicBets < 100 &&
+    Number.isFinite(publicMove) &&
+    publicMove >= 5 &&
+    Number.isFinite(lineMove) &&
+    lineMove <= -1.5
+  ) {
+    labels.push("RLM");
+  }
+
+  return labels;
+}
+
 function liveSplitInfoForPlay(
   play: Play,
   slateRows: SheetRow[],
@@ -3547,16 +3619,7 @@ function LiveMarketSplits({
       </div>
       <div className="liveSplitTable">
         {rows.map((split) => {
-          const warningTone =
-            split.warningTone || (split.warningNegative ? "negative" : "neutral");
-          const warningIcon =
-            warningTone === "negative" || warningTone === "caution"
-              ? "⚠"
-              : warningTone === "positive"
-                ? "↗"
-                : "○";
-          const movementTone = split.lineMovementTone || "neutral";
-          const movementIcon = movementTone === "negative" ? "↘" : "↗";
+          const trendLabels = fullSlateTrendLabels(split, rows);
 
           return (
             <div className="liveSplitEntry" key={`${split.market}-${split.selection}`}>
@@ -3575,18 +3638,22 @@ function LiveMarketSplits({
                   {formatOdds(split.odds)}
                 </span>
               </div>
-              {split.warning || split.lineMovementSignal ? (
+              {trendLabels.length ? (
                 <div className="liveSplitSignals">
-                  {split.warning ? (
-                    <span className={`liveSignalPill ${warningTone}`}>
-                      {warningIcon} {draftKingsSignalDisplayLabel(split.warning)}
+                  {trendLabels.map((label) => (
+                    <span
+                      key={label}
+                      className={`directTrendBadge ${
+                        label === "Public Fade"
+                          ? "fade"
+                          : label === "RLM"
+                            ? "rlm"
+                            : "sharp"
+                      }`}
+                    >
+                      {label}
                     </span>
-                  ) : null}
-                  {split.lineMovementSignal ? (
-                    <span className={`liveSignalPill ${movementTone}`}>
-                      {movementIcon} {draftKingsSignalDisplayLabel(split.lineMovementSignal)}
-                    </span>
-                  ) : null}
+                  ))}
                 </div>
               ) : null}
             </div>
