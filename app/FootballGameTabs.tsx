@@ -460,7 +460,7 @@ export default function FootballGameTabs({ sport, tab, data }: { sport: Sport; t
           <h2>{sport === "NFL" ? "NFL" : "College Football"} {tab}</h2>
           <p>{tab === "Full Slate" ? "One matchup tile per game • whole-number score projections" : "Model Plays grouped by matchup so the full Saturday/Sunday board stays easy to scan"}</p>
         </div>
-        <div className="fgtHeadBadges"><span>{tab === "Full Slate" ? slate.length : groups.length} games</span><span className={live ? "live" : ""}>{live ? "DraftKings live" : "DraftKings pending"}</span></div>
+        <div className="fgtHeadBadges"><span>{tab === "Full Slate" ? slate.length : groups.length} games</span><span className={live ? "live" : ""}>{live ? "ScoresAndOdds live" : "ScoresAndOdds pending"}</span></div>
       </div>
 
       {tab === "Full Slate" ? (
