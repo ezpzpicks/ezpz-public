@@ -960,6 +960,9 @@ type DirectTrendPickRecord = {
   line?: string;
   odds?: string;
   trendTier?: string;
+  tier?: string;
+  qualification?: string;
+  source?: string;
   confidenceReason?: string[];
   selected?: boolean;
   protectionStatus?: string;
@@ -1054,22 +1057,36 @@ export function DirectTrendRecords({
   if (aiPickRows.length) {
     const activeSignals = ["Public Fade", "Strong RLM", "Sharp"] as const;
     aiPickRows.forEach((pick) => {
-      if (
-        !pick.selected ||
-        pick.protectionStatus !== "PASSED" ||
-        pick.snapshotStatus !== "FINAL_PREGAME" ||
-        !resultCode(pick.result)
-      ) return;
+      if (!resultCode(pick.result)) return;
 
-      // MLB direct records should only come from the current direct-trend
-      // selector, not the older trend scoring system.
-      if (
-        sport === "MLB" &&
-        !String(pick.selectorVersion || "").startsWith("mlb-direct-trends")
-      ) return;
+      if (sport === "MLB") {
+        // Preserve the MLB recovery path exactly: only finalized, selected
+        // direct-trend picks from the current selector are eligible.
+        if (
+          !pick.selected ||
+          pick.protectionStatus !== "PASSED" ||
+          pick.snapshotStatus !== "FINAL_PREGAME" ||
+          !String(pick.selectorVersion || "").startsWith("mlb-direct-trends")
+        ) return;
+      } else {
+        // Football EZPZ history is already the durable ledger of picks that
+        // were actually published. Recover only saved Trend Play / Best + Trend
+        // decisions once they have a verified grade.
+        const sourceKey = textKey(pick.source);
+        const isSavedTrendPick =
+          sourceKey === textKey("Trend Play") ||
+          sourceKey === textKey("Best + Trend");
+        if (!isSavedTrendPick) return;
+        if (
+          pick.selected === false ||
+          textKey(pick.protectionStatus) === "blocked"
+        ) return;
+      }
 
       const signalSources = [
         String(pick.trendTier || ""),
+        String(pick.tier || ""),
+        String(pick.qualification || ""),
         ...(pick.confidenceReason || []).map((value) => String(value || "")),
       ].map(textKey);
       const signals = activeSignals.filter((signal) =>
@@ -1084,15 +1101,25 @@ export function DirectTrendRecords({
         marketKey === "total"
           ? (textKey(selectionText).startsWith("under") ? "Under" : "Over")
           : "";
+      const inlineLine =
+        (marketKey === "spread" || marketKey === "run line")
+          ? selectionText.match(/\s([+-]?\d+(?:\.\d+)?)\s*$/)?.[1] || ""
+          : "";
+      const recoveredLine = String(pick.line || inlineLine || "");
+      const recoveredSelection =
+        marketKey === "spread" || marketKey === "run line"
+          ? selectionText.replace(/\s+[+-]?\d+(?:\.\d+)?\s*$/, "").trim()
+          : selectionText;
       const recovered: SheetRow = {
         Date: String(pick.date || ""),
         Game: String(pick.game || ""),
         "Game Key": String(pick.gameKey || ""),
         "Game Time": String(pick.gameTime || ""),
         Market: market,
-        Selection: marketKey === "total" ? totalSide : selectionText,
+        Selection: marketKey === "total" ? totalSide : recoveredSelection,
         Side: totalSide,
-        Line: String(pick.line || ""),
+        Line: recoveredLine,
+        "Public Split Line": recoveredLine,
         Odds: String(pick.odds || ""),
         "Public Split Odds": String(pick.odds || ""),
         Result: String(pick.result || ""),
