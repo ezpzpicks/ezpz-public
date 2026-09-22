@@ -217,9 +217,12 @@ function isNflYardagePropRow(row: SheetRow) {
 
 function nflYardagePropMetrics(row: SheetRow) {
   if (!isNflYardagePropRow(row)) return null;
+  const marketKey = textKey(row.Market || row["Bet Type"]);
   const marketLine = finitePropNumber(row["Market Line"] ?? row.Line ?? row["Prop Line"]);
   const probabilityEdgeRaw = finitePropNumber(row["Probability Edge"] ?? row.Edge);
   if (marketLine == null || marketLine <= 0 || probabilityEdgeRaw == null) return null;
+  if ((marketKey === "receiving yards" || marketKey === "rushing yards") && marketLine > 200) return null;
+  if (marketKey === "passing yards" && (marketLine < 100 || marketLine > 400)) return null;
 
   const storedProjectionEdge = finitePropNumber(row["Projection Edge"]);
   const projection = finitePropNumber(row.Projection);
@@ -263,10 +266,6 @@ function applyNflYardagePropGrade(row: SheetRow): SheetRow {
 
 function nflGradeLabel(value: unknown) {
   const key = textKey(value);
-  if (key === "strong" || key.startsWith("strong ")) return "Strong";
-  if (key === "regular" || key.startsWith("regular ")) return "Regular";
-  if (key === "lean" || key.startsWith("lean ")) return "Lean";
-  if (key === "non edge" || key.startsWith("non edge ")) return "Non-Edge";
   if (key === "a" || key === "a grade" || key === "a prop" || key.startsWith("a grade ") || key.startsWith("a prop ")) return "A";
   if (key === "b" || key === "b grade" || key === "b prop" || key.startsWith("b grade ") || key.startsWith("b prop ")) return "B";
   return "";
@@ -276,8 +275,7 @@ function nflRowGrade(row: SheetRow) {
   return nflGradeLabel(row.Grade || row["Model Grade"] || row["Bet Type"] || row.Tier);
 }
 function qualifiedNflPropGrade(value: unknown) {
-  const grade = nflGradeLabel(value);
-  return ["Strong", "Regular", "Lean", "A", "B"].includes(grade);
+  return Boolean(nflGradeLabel(value));
 }
 function qualifiedNflPropRow(row: SheetRow) {
   const grade = nflRowGrade(row);
@@ -525,10 +523,11 @@ async function buildNflPropModelPlays(propRows: SheetRow[], propTracker: SheetRo
     };
   }).sort((a, b) => {
     const gradeRank = (value: unknown) => {
+      const key = textKey(value);
+      if (key === "strong") return 5;
+      if (key === "regular") return 4;
+      if (key === "lean") return 3;
       const grade = nflGradeLabel(value);
-      if (grade === "Strong") return 5;
-      if (grade === "Regular") return 4;
-      if (grade === "Lean") return 3;
       if (grade === "A") return 2;
       if (grade === "B") return 1;
       return 0;
@@ -545,7 +544,12 @@ async function buildNflPropModelPlays(propRows: SheetRow[], propTracker: SheetRo
 function modelPlayEzpzPick(play: any): NflEzpzPick | null {
   const isProp = textKey(play.role).includes("player prop");
   const isYardageProp = isProp && NFL_YARDAGE_PROP_MARKETS.has(textKey(play.propMarket));
-  const yardageTier = nflGradeLabel(play.playType);
+  const yardageTierKey = textKey(play.playType);
+  const yardageTier =
+    yardageTierKey === "strong" ? "Strong" :
+    yardageTierKey === "regular" ? "Regular" :
+    yardageTierKey === "lean" ? "Lean" :
+    yardageTierKey === "non edge" ? "Non-Edge" : "";
 
   if (isYardageProp) {
     if (yardageTier !== "Strong" && yardageTier !== "Regular") return null;
