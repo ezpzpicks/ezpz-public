@@ -135,7 +135,7 @@ const ALL_GAME_TRENDS_HEADERS = [
 const AI_PICK_SELECTOR_TAB = "ai_pick_selector";
 const AI_BUILDER_MATCHUP_DETAILS_TAB = "matchup_details_today";
 const AI_BUILDER_CONTEXT_KEY = "__EZPZ_BUILDER_CONTEXT_JSON";
-const AI_PICK_SELECTOR_VERSION = "ezpz-picks-pitcher-edge-gap-v14";
+const AI_PICK_SELECTOR_VERSION = "ezpz-picks-pitcher-edge-gap-lean-v15";
 const AI_MINIMUM_ESTIMATED_ADVANTAGE = 5;
 // A durable 15-minute snapshot is allowed one short retry window after the
 // scheduled start if its selector row missed the LIVE -> FINAL_PREGAME handoff.
@@ -145,7 +145,7 @@ const AI_FINAL_PREGAME_RECOVERY_GRACE_MS = 30 * 60_000;
 // PERMANENT EZPZ PICKS POLICY. Moneyline, totals, and first-inning Model Picks
 // require HOT Last-7-Bets form plus their market-specific quality gate.
 // Pitcher strikeouts use the authoritative edge + projection-gap tiers:
-// Strong/Regular qualify for EZPZ, Lean stays model-visible only.
+// Strong/Regular/Lean qualify for EZPZ; Non-Edge stays model-visible only.
 // All Model Picks keep the -150 maximum favorite price.
 // Trend path: every signal green plus at least +10% net ROI vs the opposing side.
 const AI_BEST_PLAY_FINAL_MARKER =
@@ -8079,18 +8079,18 @@ function aiBestPlayQualification(
       ? mlbPitcherKGradingForPlay(candidate.bestPlay)
       : null;
     const tier = grading?.tier || "Non-Edge";
-    const qualifies = tier === "Strong" || tier === "Regular";
+    const qualifies = tier === "Strong" || tier === "Regular" || tier === "Lean";
     const probabilityEdge = grading?.probabilityEdge ?? 0;
     const projectionGapPct = grading?.projectionGapPct ?? 0;
     const thresholdText =
-      "Strong: edge 15%+ / gap 22.5%+ • Regular: edge 15%+ / gap 10%+";
+      "Strong: edge 15%+ / gap 22.5%+ • Regular: edge 15%+ / gap 10%+ • Lean: edge 10%+ / gap 15%+";
     return {
       qualifies,
       label: `Pitcher K ${tier} / edge ${probabilityEdge.toFixed(1)}% / gap ${projectionGapPct.toFixed(1)}%`,
       status: `${formStatus} • Pitcher K tier: ${tier} • probability edge ${probabilityEdge.toFixed(1)}% • projection gap ${projectionGapPct.toFixed(1)}% • ${thresholdText} • odds no worse than ${policy.maxFavoritePrice}`,
       failure: qualifies
         ? ""
-        : `Pitcher K tier ${tier} is not EZPZ-eligible; Strong or Regular required (${thresholdText})`,
+        : `Pitcher K tier ${tier} is not EZPZ-eligible; Strong, Regular, or Lean required (${thresholdText})`,
     };
   }
 
@@ -11156,7 +11156,7 @@ async function buildAiPickSelector(args: {
   // MARKET_BEST_PLAY_IMMEDIATE_FINAL_V5: Model Picks do not wait for the
   // 15-minute lifecycle. Moneyline, Total, and First Inning must be HOT and
   // clear their market-specific gate. Pitcher strikeouts instead require a
-  // Strong/Regular edge + gap tier. All markets still pass price/safety checks,
+  // Strong/Regular/Lean edge + gap tier. All markets still pass price/safety checks,
   // then save as FINAL_PREGAME for the rest of the day.
   // Trend-only candidates still use the frozen pregame snapshot below.
   const immediateBestPlayDecisions = finalizeImmediateBestPlays(
