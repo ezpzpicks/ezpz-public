@@ -23,6 +23,7 @@ const POSTED_GAMES_TAB = "posted_games";
 const WEEKLY_TRENDS_TAB = "weekly_market_trends";
 const MARKET_HISTORY_TAB = "odds_snapshot";
 const SCORES_AND_ODDS_CUTOVER_DATE = "2026-09-21";
+const FOOTBALL_TRACKING_LOOKAHEAD_DAYS = 7;
 
 function isScoresAndOddsCutoverRow(row: SheetRow) {
   const date = canonicalScheduleDate(row) || String(row.Date || "").trim();
@@ -402,6 +403,21 @@ function canonicalScheduleDate(row: SheetRow) {
   return "";
 }
 
+function isWithinFootballTrackingWindow(date: string) {
+  if (!date) return false;
+  const start = Date.parse(`${todayET()}T12:00:00Z`);
+  const target = Date.parse(`${date}T12:00:00Z`);
+  return Number.isFinite(start) && Number.isFinite(target) &&
+    target >= start &&
+    target <= start + FOOTBALL_TRACKING_LOOKAHEAD_DAYS * 86_400_000;
+}
+
+function keepStoredFootballTrackingRow(row: SheetRow) {
+  const date = canonicalScheduleDate(row) || String(row.Date || "").trim();
+  if (!date) return true;
+  return date <= todayET() || isWithinFootballTrackingWindow(date);
+}
+
 function collegeMarketTeamMatch(leftValue: unknown, rightValue: unknown) {
   const left = textKey(leftValue).replace(/\buniversity\b/g, "").replace(/\bthe\b/g, "").replace(/\s+/g, " ").trim();
   const right = textKey(rightValue).replace(/\buniversity\b/g, "").replace(/\bthe\b/g, "").replace(/\s+/g, " ").trim();
@@ -521,7 +537,7 @@ function expectedActiveGames(
     const awayTeam = String(row["Away Team"] || "").trim();
     const homeTeam = String(row["Home Team"] || "").trim();
     const key = coverageGameKey(sport, date, awayTeam, homeTeam);
-    if (!key || !date || date < today) continue;
+    if (!key || !date || date < today || !isWithinFootballTrackingWindow(date)) continue;
     const minutes = minutesUntilEvent(date, rowEventTime(row));
     // Missing same-day kickoff times cannot safely prove that a game is still pregame.
     if (date === today && (minutes == null || minutes <= 15)) continue;
@@ -601,7 +617,10 @@ async function loadPostedSplits(
   for (const source of loaded.splits) {
     if (source.market !== "Spread" && source.market !== "Total") continue;
     const candidates = canonicalRows
-      .filter((row) => matchesSourceTeams(row, source.awayTeam, source.homeTeam))
+      .filter((row) =>
+        matchesSourceTeams(row, source.awayTeam, source.homeTeam) &&
+        isWithinFootballTrackingWindow(canonicalScheduleDate(row))
+      )
       .map((row) => {
         const date = canonicalScheduleDate(row);
         const stamp = date ? Date.parse(`${date}T12:00:00Z`) : Number.NaN;
@@ -1736,9 +1755,13 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
     readSportWorksheet(sport, "schedule"),
     readSportWorksheet(sport, "daily_slate"),
   ]);
-  const sourceFilteredExistingGames = existingGames.filter(isScoresAndOddsCutoverRow);
+  const sourceFilteredExistingGames = existingGames.filter(
+    (row) => isScoresAndOddsCutoverRow(row) && keepStoredFootballTrackingRow(row),
+  );
   const removedLegacyGameRows = existingGames.length - sourceFilteredExistingGames.length;
-  const sourceFilteredExistingTrends = existingTrends.filter((row) => isWeeklyTrendSourceRow(row, sport));
+  const sourceFilteredExistingTrends = existingTrends.filter(
+    (row) => isWeeklyTrendSourceRow(row, sport) && keepStoredFootballTrackingRow(row),
+  );
   const removedLegacyTrendRows = existingTrends.length - sourceFilteredExistingTrends.length;
   const allGameRepair = sport === "NFL"
     ? repairAllGameTrendMovementRows(allGameTrends)
