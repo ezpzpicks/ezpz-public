@@ -337,6 +337,13 @@ function weekSort(label: string) {
   return 99;
 }
 
+function nextRegularSeasonWeekLabel(label: string) {
+  const match = String(label || "").trim().match(/^Week\s+(\d+)$/i);
+  if (!match) return "";
+  const week = Number(match[1]);
+  return week >= 1 && week < 18 ? `Week ${week + 1}` : "";
+}
+
 function defaultWeek(trends: TrendPlay[], today: string) {
   const dated = [...trends].filter((play) => play.date).sort((a, b) => String(a.date).localeCompare(String(b.date)));
   const sameDay = dated.find((play) => play.date === today);
@@ -1483,11 +1490,13 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
   }, [data.draftKings?.splits, weeklyData?.splits]);
 
   const trends = weeklyData?.trendPlays?.length ? weeklyData.trendPlays : (data.trendPlays || []);
+  const fallbackWeek = defaultWeek(trends, data.today) || defaultStoredWeek(weeklyData?.games || [], data.today);
+  const nextTrackedWeek = sport === "NFL" ? nextRegularSeasonWeekLabel(fallbackWeek) : "";
   const trendWeeks = useMemo(() => [...new Set([
     ...trends.map(weekLabel),
     ...(weeklyData?.games || []).map((row) => String(row.Week || "").trim()).filter(Boolean),
-  ])].sort((a, b) => weekSort(a) - weekSort(b) || a.localeCompare(b)), [trends, weeklyData?.games]);
-  const fallbackWeek = defaultWeek(trends, data.today) || defaultStoredWeek(weeklyData?.games || [], data.today);
+    ...(nextTrackedWeek ? [nextTrackedWeek] : []),
+  ])].sort((a, b) => weekSort(a) - weekSort(b) || a.localeCompare(b)), [trends, weeklyData?.games, nextTrackedWeek]);
   const activeWeek = selectedWeek && trendWeeks.includes(selectedWeek) ? selectedWeek : fallbackWeek;
   const weekTrends = activeWeek ? trends.filter((play) => weekLabel(play) === activeWeek) : trends;
   const filteredTrends = weekTrends;
