@@ -62,8 +62,9 @@ export async function GET(request: NextRequest) {
   const requested = String(request.nextUrl.searchParams.get("sport") || "NCAAF").toUpperCase();
   const sport: FootballSport = requested === "NFL" ? "NFL" : "NCAAF";
   const debugDate = String(request.nextUrl.searchParams.get("date") || "").trim();
+  const debugPlayer = textKey(request.nextUrl.searchParams.get("player") || "");
   const worksheetNames = sport === "NFL"
-    ? ["all_game_trends", "bet_tracker", "schedule", "public_split_snapshots", "prop_projections", "prop_tracker"] as const
+    ? ["all_game_trends", "bet_tracker", "schedule", "public_split_snapshots", "prop_projections", "prop_tracker", "ezpz_pick_history"] as const
     : ["all_game_trends", "bet_tracker", "schedule", "public_split_snapshots"] as const;
   const worksheetRows = await Promise.all(worksheetNames.map((name) => readSportWorksheet(sport, name)));
   const trends = worksheetRows[0];
@@ -72,6 +73,7 @@ export async function GET(request: NextRequest) {
   const snapshots = worksheetRows[3];
   const propProjections = sport === "NFL" ? worksheetRows[4] : [];
   const propTracker = sport === "NFL" ? worksheetRows[5] : [];
+  const ezpzPickHistory = sport === "NFL" ? worksheetRows[6] : [];
 
   const completedTrends = trends.filter((row) => code(row.Result));
   const qualified = trends.filter((row) => truthy(row["Trend Play"]) && String(row["Trend Tier"] || "").trim() && String(row["Trend Tier"] || "").toUpperCase() !== "PASS");
@@ -162,6 +164,30 @@ export async function GET(request: NextRequest) {
       byPosition,
       strongestGraded,
       propTrackerRows: propTracker.length,
+      ...(debugPlayer ? {
+        debugPlayer,
+        matchingPropProjections: propProjections
+          .filter((row) => textKey(row.Player || row["Player Name"]).includes(debugPlayer))
+          .map((row) => ({ ...row })),
+        matchingPropTracker: propTracker
+          .filter((row) => textKey(row.Player || row["Player Name"]).includes(debugPlayer))
+          .map((row) => ({ ...row })),
+        matchingEzpzHistory: ezpzPickHistory
+          .filter((row) => textKey(row.Player || row["Player Name"]).includes(debugPlayer))
+          .map((row) => ({ ...row })),
+        scheduleOnDate: schedule
+          .filter((row) => !debugDate || isoDate(row["Game Date"] || row.Date) === debugDate)
+          .map((row) => ({
+            date: row["Game Date"] || row.Date,
+            gameId: row["Game ID"] || row["Game Key"],
+            game: row.Game,
+            away: row["Away Team"],
+            home: row["Home Team"],
+            completed: row.Completed,
+            awayScore: row["Away Score"],
+            homeScore: row["Home Score"],
+          })),
+      } : {}),
     };
   }
 
