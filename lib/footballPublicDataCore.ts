@@ -1715,9 +1715,12 @@ function isNflYardagePropRow(row: SheetRow) {
 
 function nflYardagePropMetrics(row: SheetRow) {
   if (!isNflYardagePropRow(row)) return null;
+  const marketKey = textKey(row.Market || row["Bet Type"]);
   const marketLine = finitePropNumber(row["Market Line"] ?? row.Line ?? row["Prop Line"]);
   const probabilityEdgeRaw = finitePropNumber(row["Probability Edge"] ?? row.Edge);
   if (marketLine == null || marketLine <= 0 || probabilityEdgeRaw == null) return null;
+  if ((marketKey === "receiving yards" || marketKey === "rushing yards") && marketLine > 200) return null;
+  if (marketKey === "passing yards" && (marketLine < 100 || marketLine > 400)) return null;
 
   const storedProjectionEdge = finitePropNumber(row["Projection Edge"]);
   const projection = finitePropNumber(row.Projection);
@@ -1760,7 +1763,15 @@ function applyNflYardagePropGrade(row: SheetRow): SheetRow {
 
 function qualifiedNflPropGrade(value: unknown) {
   const grade = textKey(value);
-  return ["strong", "regular", "lean", "a prop", "b prop"].includes(grade);
+  return grade === "a prop" || grade === "b prop";
+}
+
+function qualifiedNflPropRow(row: SheetRow) {
+  if (isNflYardagePropRow(row)) {
+    const tier = nflYardagePropTier(row);
+    return tier === "Strong" || tier === "Regular" || tier === "Lean";
+  }
+  return qualifiedNflPropGrade(row.Grade || row["Model Grade"]);
 }
 
 function nflEzpzYardagePropGrade(value: unknown) {
@@ -1789,7 +1800,7 @@ function bestPlays(slate:SheetRow[],sport:FootballSport){
 function nflPlayerPropBestPlays(propRows: SheetRow[], slate: SheetRow[], today: string) {
   return propRows
     .filter((row) => isoDate(row.Date || row["Game Date"] || "") === today)
-    .filter((row) => qualifiedNflPropGrade(row.Grade))
+    .filter((row) => qualifiedNflPropRow(row))
     .filter((row) => {
       const gameId = String(row["Game ID"] || row["Game Key"] || "").trim();
       const teams = playerPropTeams(row);
