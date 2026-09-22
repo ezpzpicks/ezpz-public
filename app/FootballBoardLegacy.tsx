@@ -6,7 +6,7 @@ import FootballGameTabs from "./FootballGameTabs";
 import { DirectTrendRecords } from "./FootballTrendMarketBoard";
 import { MatchupWithLogos, SelectionWithTeamLogo, TeamLogoName } from "./TeamLogoName";
 
-type Tab = "Today’s Model Plays" | "Today’s Trend Plays" | "EZPZ Picks" | "Full Slate" | "Records";
+type Tab = "Today’s Model Plays" | "Public Betting Splits" | "EZPZ Picks" | "Full Slate" | "Records";
 type Sport = "NFL" | "NCAAF";
 type FormStatus = "HOT" | "COLD" | "NEUTRAL" | "SAMPLE";
 type SheetRow = Record<string, string>;

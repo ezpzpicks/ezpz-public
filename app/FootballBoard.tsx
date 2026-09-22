@@ -5,7 +5,7 @@ import LegacyFootballBoard from "./FootballBoardLegacy";
 import { MatchupWithLogos, SelectionWithTeamLogo, TeamLogoName } from "./TeamLogoName";
 import FootballModelFormBadges from "./FootballModelFormBadges";
 
-type Tab = "Today’s Model Plays" | "Today’s Trend Plays" | "EZPZ Picks" | "Full Slate" | "Records";
+type Tab = "Today’s Model Plays" | "Public Betting Splits" | "EZPZ Picks" | "Full Slate" | "Records";
 type Sport = "NFL" | "NCAAF";
 type SheetRow = Record<string, string>;
 type ResultCode = "W" | "L" | "P" | "";

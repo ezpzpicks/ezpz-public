@@ -5,7 +5,7 @@ import { MatchupWithLogos, SelectionWithTeamLogo, TeamLogoName } from "./TeamLog
 import { DirectTrendRecords, FootballTrendMarketBoard } from "./FootballTrendMarketBoard";
 
 type SheetRow = Record<string, string>;
-type Tab = "Today’s Model Plays" | "Today’s Trend Plays" | "EZPZ Picks" | "Full Slate" | "Records";
+type Tab = "Today’s Model Plays" | "Public Betting Splits" | "EZPZ Picks" | "Full Slate" | "Records";
 type Sport = "NFL" | "NCAAF";
 
 type RecordTotals = {
@@ -1606,7 +1606,7 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
   let content;
   if (tab === "Today’s Model Plays") {
     content = data.bestPlays.length ? <div className="fbGrid">{data.bestPlays.map((play, index) => <BestPlayCard key={`${play.game}-${play.play}-${index}`} play={play} splits={splits} index={index} sport={sport} recentByType={last7Map} lastSevenBetsByType={lastSevenBetsByType} />)}</div> : <div className="empty footballEmpty">No graded {sport} Best Plays are saved for {data.today}.</div>;
-  } else if (tab === "Today’s Trend Plays") {
+  } else if (tab === "Public Betting Splits") {
     content = <>
       <div className="trendTabHeader">
         <div className="directTrendRules">
@@ -1697,10 +1697,10 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
     </div>;
   }
 
-  const displayTab = tab === "Today’s Trend Plays" ? "Trend Plays" : String(tab) === "EZPZ AI Picks" ? "EZPZ Picks" : tab;
+  const displayTab = tab === "Public Betting Splits" ? "Trend Plays" : String(tab) === "EZPZ AI Picks" ? "EZPZ Picks" : tab;
   return (
     <section className="footballBoard">
-      {tab !== "Today’s Trend Plays" ? (
+      {tab !== "Public Betting Splits" ? (
         <div className="fbHead">
           <div>
             <h2>{sport === "NFL" ? "NFL" : "College Football"} {displayTab}</h2>

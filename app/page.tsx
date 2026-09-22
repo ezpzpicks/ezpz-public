@@ -398,7 +398,7 @@ type MlbDailyMarketData = {
 };
 
 type Sport = "MLB" | "NFL" | "NCAAF" | "NCAAM";
-type Tab = "Today’s Model Plays" | "Today’s Trend Plays" | "EZPZ Picks" | "Full Slate" | "Records";
+type Tab = "Today’s Model Plays" | "Public Betting Splits" | "EZPZ Picks" | "Full Slate" | "Records";
 
 type SportMeta = {
   name: string;
@@ -408,7 +408,7 @@ type SportMeta = {
 };
 
 const SPORTS: Sport[] = ["MLB", "NFL", "NCAAF", "NCAAM"];
-const TABS: Tab[] = ["Today’s Model Plays", "Today’s Trend Plays", "EZPZ Picks", "Full Slate", "Records"];
+const TABS: Tab[] = ["Today’s Model Plays", "Public Betting Splits", "EZPZ Picks", "Full Slate", "Records"];
 
 const SPORT_META: Record<Sport, SportMeta> = {
   MLB: {
@@ -7285,7 +7285,7 @@ export default function Home() {
       );
     }
 
-    if (active === "Today’s Trend Plays") {
+    if (active === "Public Betting Splits") {
       const loadingHistorical =
         !viewingCurrentMlbTrends &&
         (mlbDailyMarketLoading || !historicalMlbMarketReady);
@@ -7812,7 +7812,7 @@ export default function Home() {
                 green={data.tiles.overallGreen.totalBets > 0}
               />
               <Tile label="Today’s Model Plays" value={String(data.bestPlays.length)} meta="Spread + Total" green={data.bestPlays.length > 0} />
-              <Tile label="Today’s Trend Plays" value={String((data.trendPlays || []).filter((play) => play.tier !== "Pass").length)} meta="Sport-specific ScoresAndOdds records" />
+              <Tile label="Public Betting Splits" value={String((data.trendPlays || []).filter((play) => play.tier !== "Pass").length)} meta="Sport-specific ScoresAndOdds records" />
               <Tile label="Model Stage" value="LIVE" meta={activeSportMeta.status} green />
               <Tile label="Published Matchups" value={String(data.slateToday.length)} meta="Separate sport database" green={data.slateToday.length > 0} />
             </>
