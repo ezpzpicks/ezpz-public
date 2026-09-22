@@ -1847,6 +1847,37 @@ function nflPlayerPropBestPlays(propRows: SheetRow[], slate: SheetRow[], today: 
     });
 }
 
+function nflYardagePropRecordKey(row: SheetRow) {
+  const tier = textKey(row.Grade || row["Yardage Prop Tier"] || nflYardagePropTier(row));
+  const market = textKey(row.Market || row["Bet Type"]);
+  const direction = textKey(row.Pick || row.Side || row.Selection).startsWith("under")
+    ? "under"
+    : textKey(row.Pick || row.Side || row.Selection).startsWith("over")
+      ? "over"
+      : "";
+  return tier && market && direction ? `${tier}|${market}|${direction}` : "";
+}
+
+function nflYardagePropLastSevenRecord(rows: SheetRow[], current: SheetRow, beforeDate: string) {
+  const key = nflYardagePropRecordKey(current);
+  if (!key) return recordTotals([]);
+  const completed = rows
+    .map((row, index) => ({
+      row,
+      index,
+      date: isoDate(row.Date || row["Game Date"] || ""),
+      stamp: Date.parse(`${isoDate(row.Date || row["Game Date"] || "")}T12:00:00Z`) || 0,
+    }))
+    .filter(({ row, date }) =>
+      Boolean(date && date < beforeDate && resultCode(row.Result || row.Status)) &&
+      nflYardagePropRecordKey(row) === key
+    )
+    .sort((a, b) => b.stamp - a.stamp || b.index - a.index)
+    .slice(0, 7)
+    .map(({ row }) => row);
+  return recordTotals(completed);
+}
+
 function nflPlayerPropEzpzPicks(propRows: SheetRow[], slate: SheetRow[], today: string): FootballEzpzPick[] {
   return propRows
     .filter((row) => isoDate(row.Date || row["Game Date"] || "") === today)
@@ -1873,6 +1904,7 @@ function nflPlayerPropEzpzPicks(propRows: SheetRow[], slate: SheetRow[], today: 
       const side = textKey(pick).startsWith("under") ? "Under" : textKey(pick).startsWith("over") ? "Over" : "";
       const oddsValue = Number(row["Pick Odds"]);
       const odds = Number.isFinite(oddsValue) ? (oddsValue > 0 ? `+${oddsValue}` : String(oddsValue)) : String(row["Pick Odds"] || "");
+      const lastSeven = nflYardagePropLastSevenRecord(propRows, row, today);
       return {
         source: "Best Play" as const,
         game: `${teams.away} @ ${teams.home}`,
@@ -1882,6 +1914,7 @@ function nflPlayerPropEzpzPicks(propRows: SheetRow[], slate: SheetRow[], today: 
         score: Math.round(score * 10) / 10,
         tier: grade,
         qualification: `${grade} yardage prop • edge ${metrics ? metrics.probabilityEdgePct.toFixed(1) : "—"}% • projection gap ${metrics ? metrics.projectionGapPct.toFixed(1) : "—"}%`,
+        record: lastSeven.record,
         playerName: player,
         playerTeam: String(row.Team || "").trim(),
         propMarket: market,
