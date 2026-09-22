@@ -437,6 +437,13 @@ function trendSignalDetail(pick: EzpzPick, signal: DirectTrendSignal) {
   return String(pick.qualification || signal);
 }
 
+function propMarketDisplayLabel(pick: EzpzPick) {
+  const market = String(pick.propMarket || "Player Prop").trim();
+  const side = String(pick.propSide || "").trim();
+  const tier = textKey(pick.tier);
+  return [tier === "strong" ? "Strong" : "", side, market].filter(Boolean).join(" ");
+}
+
 function PlayerAvatar({ pick }: { pick: EzpzPick }) {
   const name = String(pick.playerName || "").trim();
   const initials = name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase() || "NFL";
@@ -515,7 +522,7 @@ function HistoryPickCard({ pick, sport, viewingToday, data }: { pick: EzpzPick; 
         <div className="footballHistoryPropHero">
           <PlayerAvatar pick={pick} />
           <div>
-            <span className="footballHistoryEyebrow"><TeamLogoName sport="NFL" team={pick.playerTeam || ""} text={pick.playerTeam || "NFL"} compact /> • {pick.propMarket || "Player Prop"}</span>
+            <span className="footballHistoryEyebrow"><TeamLogoName sport="NFL" team={pick.playerTeam || ""} text={pick.playerTeam || "NFL"} compact /> • {propMarketDisplayLabel(pick)}</span>
             <h3>{pick.playerName || pick.selection}</h3>
             <p><MatchupWithLogos sport="NFL" game={pick.game || ""} compact /></p>
             <div className="footballHistoryPropPick"><span>Pick</span><b>{propSelectionWithProjection}</b></div>
