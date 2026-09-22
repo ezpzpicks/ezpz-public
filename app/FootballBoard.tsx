@@ -353,7 +353,7 @@ function directTrendLabels(row: SheetRow, group: SheetRow[], sport: Sport): Dire
   return labels;
 }
 
-function directTrendRecord(rows: SheetRow[], sport: Sport, signal: DirectTrendSignal) {
+function directTrendRecord(rows: SheetRow[], sport: Sport, signal: DirectTrendSignal, beforeDate = "") {
   const grouped = new Map<string, SheetRow[]>();
   for (const row of rows || []) {
     if (!resultCode(row.Result || row.Status)) continue;
@@ -392,8 +392,20 @@ function directTrendRecord(rows: SheetRow[], sport: Sport, signal: DirectTrendSi
     if (!deduped.has(key)) deduped.set(key, row);
   }
 
+  const recentRows = [...deduped.values()]
+    .filter((row) => {
+      const rowDate = isoDate(row.Date || row["Game Date"] || "");
+      return !beforeDate || Boolean(rowDate && rowDate < beforeDate);
+    })
+    .sort((a, b) => {
+      const aDate = isoDate(a.Date || a["Game Date"] || "");
+      const bDate = isoDate(b.Date || b["Game Date"] || "");
+      return bDate.localeCompare(aDate);
+    })
+    .slice(0, 7);
+
   let wins = 0, losses = 0, pushes = 0, units = 0;
-  deduped.forEach((row) => {
+  recentRows.forEach((row) => {
     const result = resultCode(row.Result || row.Status);
     const odds = americanOdds(row["Public Split Odds"] || row.Odds) ?? -110;
     if (result === "W") {
@@ -471,7 +483,12 @@ function HistoryPickCard({ pick, sport, viewingToday, data }: { pick: EzpzPick; 
   const matchup = matchupTeams(pick.game);
 
   if (!isProp && primaryTrend) {
-    const trendRecord = directTrendRecord(data.trendRecordRows || [], sport, primaryTrend);
+    const trendRecord = directTrendRecord(
+      data.trendRecordRows || [],
+      sport,
+      primaryTrend,
+      isoDate(pick.date) || isoDate(data.today),
+    );
     return (
       <article className="footballHistoryPickCard footballHistoryTrendCard">
         <div className="footballHistoryTrendTop">
@@ -503,8 +520,8 @@ function HistoryPickCard({ pick, sport, viewingToday, data }: { pick: EzpzPick; 
         </div>
 
         <div className="footballHistoryTrendRecordInline">
-          <span className="footballHistoryTrendRecordLabel">{trendRecordTitle(primaryTrend, sport)}</span>
-          <strong>{trendRecord.totalBets ? trendRecord.record : "No graded sample yet"}</strong>
+          <span className="footballHistoryTrendRecordLabel">{trendRecordTitle(primaryTrend, sport)} • Last 7</span>
+          <strong>L7 {trendRecord.record}</strong>
           {trendRecord.totalBets ? <span>{trendRecord.units >= 0 ? "+" : ""}{trendRecord.units.toFixed(2)}u</span> : null}
           {trendRecord.totalBets ? <span>ROI {trendRecord.roi >= 0 ? "+" : ""}{trendRecord.roi.toFixed(1)}%</span> : null}
         </div>
@@ -535,10 +552,10 @@ function HistoryPickCard({ pick, sport, viewingToday, data }: { pick: EzpzPick; 
           <p>{pick.market || "Model Play"}</p>
         </div>
       )}
-      {form ? (
+      {form || formRecord ? (
         <div className="footballHistoryFormLine">
-          <span className={`footballHistoryFormBadge ${form.tone}`}>{form.icon} {form.label}</span>
-          {formRecord ? <span className="footballHistoryFormRecord">L7 <b>{formRecord}</b></span> : null}
+          {form ? <span className={`footballHistoryFormBadge ${form.tone}`}>{form.icon} {form.label}</span> : null}
+          <span className="footballHistoryFormRecord">L7 <b>{formRecord || "0-0-0"}</b></span>
         </div>
       ) : null}
       {!isProp && sport !== "NFL" && pick.source !== "Trend Play" ? (
