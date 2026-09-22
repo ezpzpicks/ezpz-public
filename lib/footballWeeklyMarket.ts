@@ -229,9 +229,16 @@ function parseEventDate(value: unknown) {
 
 function parseEventTime(value: unknown) {
   const raw = String(value || "").trim();
-  const match = raw.match(/(?:^|[,\s])(\d{1,2})(?::(\d{2}))\s*(AM|PM)\b/i);
-  if (!match) return "";
-  return `${Number(match[1])}:${match[2]} ${match[3].toUpperCase()}`;
+  const twelveHour = raw.match(/(?:^|[,\s])(\d{1,2})(?::(\d{2}))\s*(AM|PM)\b/i);
+  if (twelveHour) {
+    return `${Number(twelveHour[1])}:${twelveHour[2]} ${twelveHour[3].toUpperCase()}`;
+  }
+  const twentyFourHour = raw.match(/\b([01]?\d|2[0-3]):([0-5]\d)\b/);
+  if (!twentyFourHour) return "";
+  const hour24 = Number(twentyFourHour[1]);
+  const suffix = hour24 >= 12 ? "PM" : "AM";
+  const hour12 = hour24 % 12 || 12;
+  return `${hour12}:${twentyFourHour[2]} ${suffix}`;
 }
 
 function numericLine(value: unknown) {
@@ -1164,12 +1171,25 @@ const MAX_LOCK_FALLBACK_AGE_MINUTES = 18 * 60;
 
 function minutesUntilEvent(date: string, eventTime: string) {
   if (!date || !eventTime) return null;
-  const match = eventTime.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
-  if (!match) return null;
-  let hour = Number(match[1]) % 12;
-  if (match[3].toUpperCase() === "PM") hour += 12;
+
+  const raw = String(eventTime).trim();
+  const twelveHour = raw.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+  let hour: number;
+  let minute: number;
+
+  if (twelveHour) {
+    hour = Number(twelveHour[1]) % 12;
+    if (twelveHour[3].toUpperCase() === "PM") hour += 12;
+    minute = Number(twelveHour[2]);
+  } else {
+    const twentyFourHour = raw.match(/\b([01]?\d|2[0-3]):([0-5]\d)\b/);
+    if (!twentyFourHour) return null;
+    hour = Number(twentyFourHour[1]);
+    minute = Number(twentyFourHour[2]);
+  }
+
   const [year, month, day] = date.split("-").map(Number);
-  const kickoff = Date.UTC(year, month - 1, day, hour, Number(match[2]));
+  const kickoff = Date.UTC(year, month - 1, day, hour, minute);
   const now = new Date();
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit",
