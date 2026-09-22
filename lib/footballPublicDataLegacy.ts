@@ -204,20 +204,89 @@ function matchingSlateGame(prop: SheetRow, slate: SheetRow[]) {
   });
 }
 
+const NFL_YARDAGE_PROP_MARKETS = new Set(["passing yards", "rushing yards", "receiving yards"]);
+
+function finitePropNumber(value: unknown) {
+  const parsed = Number(String(value ?? "").replace("%", "").trim());
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function isNflYardagePropRow(row: SheetRow) {
+  return NFL_YARDAGE_PROP_MARKETS.has(textKey(row.Market || row["Bet Type"]));
+}
+
+function nflYardagePropMetrics(row: SheetRow) {
+  if (!isNflYardagePropRow(row)) return null;
+  const marketLine = finitePropNumber(row["Market Line"] ?? row.Line ?? row["Prop Line"]);
+  const probabilityEdgeRaw = finitePropNumber(row["Probability Edge"] ?? row.Edge);
+  if (marketLine == null || marketLine <= 0 || probabilityEdgeRaw == null) return null;
+
+  const storedProjectionEdge = finitePropNumber(row["Projection Edge"]);
+  const projection = finitePropNumber(row.Projection);
+  const projectionGap =
+    storedProjectionEdge != null
+      ? Math.abs(storedProjectionEdge)
+      : projection != null
+        ? Math.abs(projection - marketLine)
+        : null;
+  if (projectionGap == null) return null;
+
+  const probabilityEdgePct =
+    Math.abs(probabilityEdgeRaw) <= 1 ? probabilityEdgeRaw * 100 : probabilityEdgeRaw;
+  const projectionGapPct = (projectionGap / Math.abs(marketLine)) * 100;
+  return { marketLine, probabilityEdgePct, projectionGap, projectionGapPct };
+}
+
+function nflYardagePropTier(row: SheetRow) {
+  const metrics = nflYardagePropMetrics(row);
+  if (!metrics) return "";
+  if (metrics.projectionGapPct < 30 || metrics.probabilityEdgePct < 12) return "Non-Edge";
+  if (metrics.probabilityEdgePct >= 30) return "Strong";
+  if (metrics.probabilityEdgePct >= 16) return "Regular";
+  return "Lean";
+}
+
+function applyNflYardagePropGrade(row: SheetRow): SheetRow {
+  const tier = nflYardagePropTier(row);
+  if (!tier) return row;
+  const metrics = nflYardagePropMetrics(row);
+  return {
+    ...row,
+    Grade: tier,
+    "Yardage Prop Tier": tier,
+    ...(metrics ? {
+      "Projection Gap %": String(Math.round(metrics.projectionGapPct * 10) / 10),
+      "Probability Edge %": String(Math.round(metrics.probabilityEdgePct * 10) / 10),
+    } : {}),
+  };
+}
+
 function nflGradeLabel(value: unknown) {
   const key = textKey(value);
+  if (key === "strong" || key.startsWith("strong ")) return "Strong";
+  if (key === "regular" || key.startsWith("regular ")) return "Regular";
+  if (key === "lean" || key.startsWith("lean ")) return "Lean";
+  if (key === "non edge" || key.startsWith("non edge ")) return "Non-Edge";
   if (key === "a" || key === "a grade" || key === "a prop" || key.startsWith("a grade ") || key.startsWith("a prop ")) return "A";
   if (key === "b" || key === "b grade" || key === "b prop" || key.startsWith("b grade ") || key.startsWith("b prop ")) return "B";
   return "";
 }
 function nflRowGrade(row: SheetRow) {
+  if (isNflYardagePropRow(row)) return nflYardagePropTier(row);
   return nflGradeLabel(row.Grade || row["Model Grade"] || row["Bet Type"] || row.Tier);
 }
 function qualifiedNflPropGrade(value: unknown) {
-  return Boolean(nflGradeLabel(value));
+  const grade = nflGradeLabel(value);
+  return ["Strong", "Regular", "Lean", "A", "B"].includes(grade);
 }
 function qualifiedNflPropRow(row: SheetRow) {
-  return Boolean(nflRowGrade(row));
+  const grade = nflRowGrade(row);
+  return ["Strong", "Regular", "Lean", "A", "B"].includes(grade);
+}
+function nflEzpzYardagePropRow(row: SheetRow) {
+  if (!isNflYardagePropRow(row)) return false;
+  const tier = nflYardagePropTier(row);
+  return tier === "Strong" || tier === "Regular";
 }
 function propSide(row: SheetRow) {
   const direct = String(row.Pick || row.Side || row.Selection || "").trim();
@@ -405,6 +474,7 @@ function annotateGameModelPlays(plays: any[], tracker: SheetRow[], splits: any[]
 
 async function buildNflPropModelPlays(propRows: SheetRow[], propTracker: SheetRow[], slate: SheetRow[], today: string) {
   const eligible = propRows
+    .map(applyNflYardagePropGrade)
     .filter((row) => isoDate(row.Date || row["Game Date"] || "") === today)
     .filter((row) => qualifiedNflPropRow(row))
     .map((row) => ({ row, game: matchingSlateGame(row, slate) }))
@@ -428,7 +498,7 @@ async function buildNflPropModelPlays(propRows: SheetRow[], propTracker: SheetRo
       || "";
     const projection = String(row.Projection || row["Raw Projection"] || "").trim();
     return {
-      playType: String(row.Grade || row["Model Grade"] || "").trim(),
+      playType: nflRowGrade(row) || String(row.Grade || row["Model Grade"] || "").trim(),
       game: `${awayTeam} @ ${homeTeam}`,
       play: `${playerName} ${side}${line ? ` ${line}` : ""}`.replace(/\s+/g, " ").trim(),
       oddsLine: odds,
@@ -454,23 +524,69 @@ async function buildNflPropModelPlays(propRows: SheetRow[], propTracker: SheetRo
       formType,
     };
   }).sort((a, b) => {
+    const gradeRank = (value: unknown) => {
+      const grade = nflGradeLabel(value);
+      if (grade === "Strong") return 5;
+      if (grade === "Regular") return 4;
+      if (grade === "Lean") return 3;
+      if (grade === "A") return 2;
+      if (grade === "B") return 1;
+      return 0;
+    };
+    const gradeDiff = gradeRank(b.playType) - gradeRank(a.playType);
+    if (gradeDiff) return gradeDiff;
     const formRank = (value: EzpzForm) => value === "HOT" ? 4 : value === "NEUTRAL" ? 3 : value === "SAMPLE" ? 2 : 1;
     const formDiff = formRank(b.formStatus) - formRank(a.formStatus);
     if (formDiff) return formDiff;
-    const gradeRank = (value: unknown) => nflGradeLabel(value) === "A" ? 2 : 1;
-    const gradeDiff = gradeRank(b.playType) - gradeRank(a.playType);
-    if (gradeDiff) return gradeDiff;
     return Number(b.score || 0) - Number(a.score || 0);
   });
 }
 
 function modelPlayEzpzPick(play: any): NflEzpzPick | null {
+  const isProp = textKey(play.role).includes("player prop");
+  const isYardageProp = isProp && NFL_YARDAGE_PROP_MARKETS.has(textKey(play.propMarket));
+  const yardageTier = nflGradeLabel(play.playType);
+
+  if (isYardageProp) {
+    if (yardageTier !== "Strong" && yardageTier !== "Regular") return null;
+    const odds = parseAmericanOdds(play.marketOdds || play.oddsLine);
+    const rawScore = Number(play.score || 0);
+    const score = Number.isFinite(rawScore) ? (rawScore <= 1 ? rawScore * 100 : rawScore) : 0;
+    const projection = Number(play.propProjection);
+    const marketLine = Number(play.propLine);
+    const projectionGapPct =
+      Number.isFinite(projection) && Number.isFinite(marketLine) && marketLine > 0
+        ? (Math.abs(projection - marketLine) / Math.abs(marketLine)) * 100
+        : null;
+    return {
+      source: "Best Play",
+      game: play.game,
+      market: "Player Prop",
+      selection: play.play,
+      odds: odds == null ? String(play.marketOdds || play.oddsLine || "") : formatAmericanOdds(odds),
+      score,
+      tier: yardageTier,
+      qualification: `${yardageTier} yardage prop • 30%+ projection gap • ${yardageTier === "Strong" ? "30%+" : "16%+"} probability edge`,
+      formStatus: play.formStatus,
+      formType: play.formType,
+      headshotUrl: play.headshotUrl,
+      playerName: play.playerName,
+      playerTeam: play.playerTeam,
+      propMarket: play.propMarket,
+      propSide: play.propSide,
+      propLine: play.propLine,
+      propProjection: play.propProjection,
+      modelGapPct: projectionGapPct == null ? undefined : Math.round(projectionGapPct * 10) / 10,
+      predictedWinPct: score,
+      snapshotStatus: "FINAL",
+    };
+  }
+
   if (play.formStatus !== "HOT") return null;
   const odds = parseAmericanOdds(play.marketOdds || play.oddsLine);
   if (odds == null || odds < -150) return null;
   const rawScore = Number(play.score || 0);
   const score = Number.isFinite(rawScore) ? (rawScore <= 1 ? rawScore * 100 : rawScore) : 0;
-  const isProp = textKey(play.role).includes("player prop");
   return {
     source: "Best Play",
     game: play.game,
@@ -669,21 +785,24 @@ export async function buildFootballPublicData(
   const core = await buildCoreFootballPublicData(sport, options) as any;
   if (sport !== "NFL") return core;
 
-  const [propRows, propTracker, trendModelRows] = await Promise.all([
+  const [propRowsRaw, propTrackerRaw, trendModelRows] = await Promise.all([
     readSportWorksheet("NFL", "prop_projections"),
     readSportWorksheet("NFL", "prop_tracker"),
     readSportWorksheet("NFL", "trend_v2_models"),
   ]);
+  const propRows = propRowsRaw.map(applyNflYardagePropGrade);
+  const propTracker = propTrackerRaw.map(applyNflYardagePropGrade);
   const nflTrendModel = parseNflTrendModelState(trendModelRows);
   const today = String(core.today || "");
   const slate = Array.isArray(core.slateToday) ? core.slateToday : [];
   const tracker = Array.isArray(core.betTrackerRows) ? core.betTrackerRows : [];
   const splits = Array.isArray(core.draftKings?.splits) ? core.draftKings.splits : [];
 
-  // The prop tracker is the canonical history for NFL player props. Do not
-  // gate record ingestion on one exact legacy Grade spelling; normalize A/B
-  // grade variants and retain every qualifying row so historical props cannot
-  // silently disappear from the public record.
+  // The prop tracker is the canonical settled history for NFL player props.
+  // Yardage props are regraded from their raw edge + projection gap so legacy
+  // A/B labels cannot override Strong / Regular / Lean. Non-Edge rows remain
+  // outside the official model-play record; Lean remains tracked but never
+  // qualifies for EZPZ Picks.
   const propTrackerForRecords = propTracker.filter(qualifiedNflPropRow);
   const combinedModelTracker = [...tracker, ...propTrackerForRecords];
 
@@ -760,10 +879,16 @@ export async function buildFootballPublicData(
     "Receiving TDs Over", "Receiving TDs Under",
   ];
   const nflRecordTypeSort = (left: string, right: string) => {
-    const leftGrade = left.startsWith("A ") ? 0 : left.startsWith("B ") ? 1 : 2;
-    const rightGrade = right.startsWith("A ") ? 0 : right.startsWith("B ") ? 1 : 2;
+    const gradeRank = (value: string) =>
+      value.startsWith("Strong ") ? 0 :
+      value.startsWith("Regular ") ? 1 :
+      value.startsWith("Lean ") ? 2 :
+      value.startsWith("A ") ? 3 :
+      value.startsWith("B ") ? 4 : 5;
+    const leftGrade = gradeRank(left);
+    const rightGrade = gradeRank(right);
     if (leftGrade !== rightGrade) return leftGrade - rightGrade;
-    const strip = (value: string) => value.replace(/^[AB]\s+/, "");
+    const strip = (value: string) => value.replace(/^(?:Strong|Regular|Lean|A|B)\s+/, "");
     const leftRank = recordOrder.indexOf(strip(left));
     const rightRank = recordOrder.indexOf(strip(right));
     if (leftRank !== rightRank) return (leftRank < 0 ? 999 : leftRank) - (rightRank < 0 ? 999 : rightRank);
@@ -799,8 +924,8 @@ export async function buildFootballPublicData(
     ? `Trend gate = NFL V2 predicted win probability − market-implied probability ≥ +${nflTrendModel.threshold.toFixed(1)}%.`
     : `NFL Trend V2 is ${nflTrendModel.status || "COLLECTING"}; no Trend EZPZ pick can qualify until an active NFL regression is promoted.${nflTrendModel.reason ? ` ${nflTrendModel.reason}` : ""}`;
   const ruleMessage = aiPicks.length
-    ? `NFL EZPZ Picks live: Model Play = HOT Last-7 + -150 or better. ${trendRule} Net ROI is not used.`
-    : `No NFL EZPZ Picks qualify right now. Model Play = HOT Last-7 + -150 or better. ${trendRule} Net ROI is not used.`;
+    ? `NFL EZPZ Picks live: yardage props qualify directly at Strong or Regular; Lean is tracked but excluded. Non-yardage Model Plays keep the existing HOT Last-7 + -150 rule. ${trendRule} Net ROI is not used.`
+    : `No NFL EZPZ Picks qualify right now. Yardage props require Strong or Regular; Lean is tracked but excluded. Non-yardage Model Plays keep the existing HOT Last-7 + -150 rule. ${trendRule} Net ROI is not used.`;
 
   return {
     ...core,
