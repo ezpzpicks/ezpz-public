@@ -1044,8 +1044,35 @@ body::after {
 
 
 /* ===== SIMPLIFIED DRAFTKINGS TREND BOARD ===== */
+.trendTabHeader {
+  display: grid;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+  margin: 0 0 10px;
+}
+
+.trendTabHeader .directTrendRules {
+  margin: 0;
+}
+
+.trendGamesCountRow {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+}
+
 .simplifiedTrendControls {
-  margin-bottom: 10px;
+  margin-bottom: 0;
+}
+
+.simplifiedTrendControls > label {
+  flex: 1 1 auto;
+  width: 100%;
+}
+
+.simplifiedTrendControls select {
+  width: 100%;
 }
 
 /* MLB market-day selector parity with football week selector */
