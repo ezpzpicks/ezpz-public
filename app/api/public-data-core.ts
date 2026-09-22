@@ -2645,38 +2645,92 @@ function finalPregameDisplayPayloadFromRows(
       slateHasFinalPregameSnapshot(row),
   );
 
-  const selectedRows = rows.filter((row) => {
-    if (isoPublicDate(row.Date || "") !== todayIso) return false;
+  function resolveFinalSlateGame(row: SheetRow, matchingFinalGames: SheetRow[]) {
+    const storedTime = parseEventTimeKey(row["Game Time ET"] || "");
+    if (storedTime) {
+      return (
+        matchingFinalGames.find(
+          (slateRow) => scheduledGameTimeKey(slateRow) === storedTime,
+        ) || null
+      );
+    }
+    if (matchingFinalGames.length === 1) return matchingFinalGames[0];
+    if (matchingFinalGames.length < 2) return null;
 
-    // The dedicated tracking snapshot is always authoritative as soon as it is
-    // captured. If that poll was missed, once the slate marks the game FINAL
-    // PREGAME, keep the last verified pregame market row visible for the rest
-    // of the Eastern calendar day instead of letting the game disappear when
-    // ScoresAndOdds removes it after first pitch.
-    if (isFifteenMinuteTrackingSnapshot(row)) return true;
-    if (!isPregameMarketSnapshot(row)) return false;
+    // Legacy ScoresAndOdds rows from before game-instance persistence can be
+    // time-less. For same-day doubleheaders, recover the correct game from the
+    // snapshot timestamp: the final pregame snapshot belongs to the nearest
+    // scheduled game that had not started more than five minutes earlier.
+    const snapshotAt = scheduledGameStart({
+      Date: row.Date || "",
+      "Game Time": row["Snapshot Time ET"] || "",
+    });
+    if (snapshotAt == null) return null;
+
+    const candidates = matchingFinalGames
+      .map((slateRow) => {
+        const start = scheduledGameStart(slateRow);
+        return start == null
+          ? null
+          : {
+              slateRow,
+              start,
+              distance: Math.abs(start - snapshotAt),
+            };
+      })
+      .filter(
+        (
+          candidate,
+        ): candidate is { slateRow: SheetRow; start: number; distance: number } =>
+          candidate != null && candidate.start >= snapshotAt - 5 * 60_000,
+      )
+      .sort((left, right) => left.distance - right.distance);
+
+    if (!candidates.length) return null;
+    if (
+      candidates.length > 1 &&
+      candidates[0].distance === candidates[1].distance
+    ) {
+      return null;
+    }
+    return candidates[0].slateRow;
+  }
+
+  const selectedRows = rows.flatMap((row) => {
+    if (isoPublicDate(row.Date || "") !== todayIso) return [];
+
+    const trackingSnapshot = isFifteenMinuteTrackingSnapshot(row);
+    if (!trackingSnapshot && !isPregameMarketSnapshot(row)) return [];
 
     const away = normalizeTeam(row["Away Team"] || "");
     const home = normalizeTeam(row["Home Team"] || "");
-    if (!away || !home) return false;
+    if (!away || !home) return [];
 
     const matchingFinalGames = finalSlateRows.filter(
       (slateRow) =>
         normalizeTeam(slateRow["Away Team"] || "") === away &&
         normalizeTeam(slateRow["Home Team"] || "") === home,
     );
-    if (!matchingFinalGames.length) return false;
 
-    const snapshotTime = parseEventTimeKey(row["Game Time ET"] || "");
-    if (snapshotTime) {
-      return matchingFinalGames.some(
-        (slateRow) => scheduledGameTimeKey(slateRow) === snapshotTime,
-      );
+    // Dedicated ~15-minute rows remain authoritative. If a legacy row omitted
+    // the event time, recover the exact game instance before building the
+    // public payload so a doubleheader final is not discarded as ambiguous.
+    const resolvedSlateGame = resolveFinalSlateGame(row, matchingFinalGames);
+    if (resolvedSlateGame) {
+      const resolvedTime = scheduledGameTimeKey(resolvedSlateGame);
+      return resolvedTime
+        ? [{ ...row, "Game Time ET": resolvedTime }]
+        : [row];
     }
 
-    // A time-less fallback is safe only when this matchup occurs once that day.
-    // This preserves the strict doubleheader protection.
-    return matchingFinalGames.length === 1;
+    if (trackingSnapshot) {
+      // Preserve the prior behavior for unique/non-doubleheader matchups. The
+      // downstream display layer can still recover the time when only one game
+      // exists that day.
+      return [row];
+    }
+
+    return [];
   });
 
   const payload = snapshotPayloadFromRows(selectedRows, today);
@@ -2893,24 +2947,33 @@ async function persistFinalPregameDraftKings(
       }
       if (!matchingSplits.length && !matchingProps.length) continue;
 
-      matchingSplits.forEach((item) =>
+      const rowEventTime = scheduledGameTimeKey(row);
+      matchingSplits.forEach((item) => {
+        const snapshotItem =
+          rowEventTime && !parseEventTimeKey(item.eventTime || "")
+            ? { ...item, eventTime: rowEventTime }
+            : item;
         snapshotRecords.push(
           snapshotRecordFromSplit(
-            item,
+            snapshotItem,
             item.lastSeenAt || livePayload.updatedAt,
             rowCaptureMode,
           ),
-        ),
-      );
-      matchingProps.forEach((item) =>
+        );
+      });
+      matchingProps.forEach((item) => {
+        const snapshotItem =
+          rowEventTime && !parseEventTimeKey(item.eventTime || "")
+            ? { ...item, eventTime: rowEventTime }
+            : item;
         snapshotRecords.push(
           snapshotRecordFromProp(
-            item,
+            snapshotItem,
             item.lastSeenAt || livePayload.updatedAt,
             rowCaptureMode,
           ),
-        ),
-      );
+        );
+      });
 
       const hasLiveMarket =
         matchingSplits.some((item) => !item.retained) ||
