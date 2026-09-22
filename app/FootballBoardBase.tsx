@@ -461,14 +461,14 @@ function fbQualifiedTrend(row: SheetRow) {
 
 function FbTrendRecords({ rows, today }: { rows: SheetRow[]; today: string }) {
   const build = (days: number) => [
-    fbSummary("All Trend Plays", fbTotals(rows, today, days, fbQualifiedTrend)),
-    fbSummary("Elite Trend", fbTotals(rows, today, days, (row) => fbQualifiedTrend(row) && textKey(row["Trend Tier"]) === "elite")),
-    fbSummary("Strong Trend", fbTotals(rows, today, days, (row) => fbQualifiedTrend(row) && textKey(row["Trend Tier"]) === "strong")),
-    fbSummary("Good Trend", fbTotals(rows, today, days, (row) => fbQualifiedTrend(row) && textKey(row["Trend Tier"]) === "good")),
-    fbSummary("Spread Trend", fbTotals(rows, today, days, (row) => fbQualifiedTrend(row) && textKey(row.Market).includes("spread"))),
-    fbSummary("Total Trend", fbTotals(rows, today, days, (row) => fbQualifiedTrend(row) && textKey(row.Market).includes("total"))),
+    fbSummary("All Split Signals", fbTotals(rows, today, days, fbQualifiedTrend)),
+    fbSummary("Elite Split", fbTotals(rows, today, days, (row) => fbQualifiedTrend(row) && textKey(row["Trend Tier"]) === "elite")),
+    fbSummary("Strong Split", fbTotals(rows, today, days, (row) => fbQualifiedTrend(row) && textKey(row["Trend Tier"]) === "strong")),
+    fbSummary("Good Split", fbTotals(rows, today, days, (row) => fbQualifiedTrend(row) && textKey(row["Trend Tier"]) === "good")),
+    fbSummary("Spread Split", fbTotals(rows, today, days, (row) => fbQualifiedTrend(row) && textKey(row.Market).includes("spread"))),
+    fbSummary("Total Split", fbTotals(rows, today, days, (row) => fbQualifiedTrend(row) && textKey(row.Market).includes("total"))),
   ].filter((row) => row.totalBets > 0);
-  return <><FbRecordDropdown title="Trend Tier Records - Last 7 Days" subtitle="Good / Strong / Elite football trend history" rows={build(7)} /><FbRecordDropdown title="Trend Tier Records - Overall" subtitle="Running sport-specific trend history" rows={build(0)} /></>;
+  return <><FbRecordDropdown title="Betting Split Records - Last 7 Days" subtitle="Good / Strong / Elite football betting split history" rows={build(7)} /><FbRecordDropdown title="Betting Split Records - Overall" subtitle="Running sport-specific betting split history" rows={build(0)} /></>;
 }
 
 function fbSignalSummaries(rows: FootballSignalHistoryRow[], today: string, days: number) {
@@ -498,8 +498,8 @@ function FbCombinationRecords({ tracker, trends, today }: { tracker: SheetRow[];
       return market === "total" ? textKey(play.Selection).startsWith(trendSelection) : Boolean(selection && trendSelection && (selection.includes(trendSelection) || trendSelection.includes(selection)));
     });
   });
-  const rows = [fbSummary("Model + Trend Match", fbTotals(matched, today)), fbSummary("Spread + Trend", fbTotals(matched, today, 0, (row) => textKey(row["Bet Type"] || row.Market).includes("spread"))), fbSummary("Total + Trend", fbTotals(matched, today, 0, (row) => textKey(row["Bet Type"] || row.Market).includes("total")))].filter((row) => row.totalBets > 0);
-  return <FbRecordDropdown title="Combination Records" subtitle="Model Plays that also matched a qualified Trend Play" rows={rows} />;
+  const rows = [fbSummary("Model + Split Match", fbTotals(matched, today)), fbSummary("Spread + Split", fbTotals(matched, today, 0, (row) => textKey(row["Bet Type"] || row.Market).includes("spread"))), fbSummary("Total + Split", fbTotals(matched, today, 0, (row) => textKey(row["Bet Type"] || row.Market).includes("total")))].filter((row) => row.totalBets > 0);
+  return <FbRecordDropdown title="Combination Records" subtitle="Model Plays that also matched a qualified betting split signal" rows={rows} />;
 }
 
 function FbRecentResults({ rows, sport }: { rows: SheetRow[]; sport: Sport }) {
@@ -514,23 +514,23 @@ function FbTrendRecordExplorer({ rows, today }: { rows: SheetRow[]; today: strin
   const marketOkay = (row: SheetRow) => market === "All" || textKey(row.Market) === textKey(market);
   const qualified = (row: SheetRow) => fbQualifiedTrend(row) && marketOkay(row);
   const summaries = [
-    fbSummary("All Trend Plays", fbTotals(rows, today, days, qualified)),
-    fbSummary("Elite Trend", fbTotals(rows, today, days, (row) => qualified(row) && textKey(row["Trend Tier"]) === "elite")),
-    fbSummary("Strong Trend", fbTotals(rows, today, days, (row) => qualified(row) && textKey(row["Trend Tier"]) === "strong")),
-    fbSummary("Good Trend", fbTotals(rows, today, days, (row) => qualified(row) && textKey(row["Trend Tier"]) === "good")),
+    fbSummary("All Split Signals", fbTotals(rows, today, days, qualified)),
+    fbSummary("Elite Split", fbTotals(rows, today, days, (row) => qualified(row) && textKey(row["Trend Tier"]) === "elite")),
+    fbSummary("Strong Split", fbTotals(rows, today, days, (row) => qualified(row) && textKey(row["Trend Tier"]) === "strong")),
+    fbSummary("Good Split", fbTotals(rows, today, days, (row) => qualified(row) && textKey(row["Trend Tier"]) === "good")),
   ];
   return (
     <details className="recordsDropdown fbMlbRecordsDropdown" open>
       <summary className="recordsSummary">
-        <div><div className="recordsSummaryTitle">Trend Tier Records</div><div className="recordsSummarySub">Good / Strong / Elite football trend history</div></div>
-        <span className="recordsCount">{summaries.find((row) => row.betType === "All Trend Plays")?.totalBets || 0} plays</span>
+        <div><div className="recordsSummaryTitle">Betting Split Records</div><div className="recordsSummarySub">Good / Strong / Elite football betting split history</div></div>
+        <span className="recordsCount">{summaries.find((row) => row.betType === "All Split Signals")?.totalBets || 0} plays</span>
       </summary>
       <div className="fbMlbRecordsBody">
         <div className="fbMlbRecordFilters twoFilters">
           <label><span>Period</span><select value={period} onChange={(event) => setPeriod(event.target.value as "all" | "30" | "7")}><option value="all">Overall</option><option value="30">Last 30 Days</option><option value="7">Last 7 Days</option></select></label>
           <label><span>Market</span><select value={market} onChange={(event) => setMarket(event.target.value as "All" | "Spread" | "Total")}><option>All</option><option>Spread</option><option>Total</option></select></label>
         </div>
-        {summaries.length ? <FbRecordTable rows={summaries} /> : <div className="empty insideDropdown">No completed qualified Trend Plays are available for these filters yet.</div>}
+        {summaries.length ? <FbRecordTable rows={summaries} /> : <div className="empty insideDropdown">No completed qualified betting split signals are available for these filters yet.</div>}
       </div>
     </details>
   );
@@ -1073,6 +1073,17 @@ function footballTrendSignalDisplayLabel(value: unknown) {
   return FOOTBALL_TREND_SIGNAL_DISPLAY_LABELS[label] || label;
 }
 
+function footballPublicSplitCopy(value: unknown) {
+  return String(value ?? "")
+    .replace(/\bStrong Trend\b/gi, "Strong Split")
+    .replace(/\bPositive Trend\b/gi, "Positive Split")
+    .replace(/\bTrend Plays\b/gi, "Betting Split signals")
+    .replace(/\bTrend Play\b/gi, "Betting Split signal")
+    .replace(/\btrend signals\b/gi, "betting split signals")
+    .replace(/\btrend signal\b/gi, "betting split signal")
+    .replace(/\btrend history\b/gi, "split history");
+}
+
 function footballTrendRecordTone(record: Pick<RecordTotals, "wins" | "losses">) {
   if (record.wins > record.losses) return "positive";
   if (record.losses > record.wins) return "negative";
@@ -1160,7 +1171,7 @@ function TrendSelectionRow({ play, selectionRank, initiallyOpen, sport }: { play
           <small>{play.market}{play.sideGroup ? ` • ${play.sideGroup}` : ""}{compactSignals ? ` • ${compactSignals}` : ""}</small>
         </span>
         <span className="trendSelectionMarket">
-          <small>{play.tier}</small>
+          <small>{footballPublicSplitCopy(play.tier)}</small>
           <strong>{Math.round(play.score)}</strong>
         </span>
         <span className="trendSelectionChevron" aria-hidden="true">⌄</span>
@@ -1349,10 +1360,10 @@ function EzpzPickCard({
           <section className="aiPickDetailSection historical aiTrendEvidence">
             <div className="aiTrendEvidenceHead">
               <div>
-                <h3>Trend Evidence</h3>
-                <p>Historical market-signal performance behind this Trend Play.</p>
+                <h3>Betting Split Evidence</h3>
+                <p>Historical market-signal performance behind this betting split signal.</p>
               </div>
-              <span className="aiTrendTierPill">{trendPlay.tier}</span>
+              <span className="aiTrendTierPill">{footballPublicSplitCopy(trendPlay.tier)}</span>
             </div>
 
             {trendRoiSummary ? (
@@ -1626,7 +1637,7 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
     </>;
   } else if (tab === "EZPZ Picks") {
     content = <>
-      <div className="sectionHead"><div><h2>{sport} EZPZ Picks</h2><p>{data.aiSelectorStatus?.message || "HOT Model Plays plus qualifying Public Fade, RLM, and Sharp trend plays."}</p></div></div>
+      <div className="sectionHead"><div><h2>{sport} EZPZ Picks</h2><p>{footballPublicSplitCopy(data.aiSelectorStatus?.message) || "HOT Model Plays plus qualifying Public Fade, RLM, and Sharp betting split signals."}</p></div></div>
       {todayEzpzPicks.length ? <div className="aiPickStack">{todayEzpzPicks.map((pick, index) => <EzpzPickCard key={`${pick.game}-${pick.market}-${pick.selection}-${index}`} pick={pick} splits={splits} trendPlays={ezpzTrendSource} slateRows={slateRows} todayByType={todayByType} recentByType={last7Map} lastSevenBetsByType={lastSevenBetsByType} overallByType={summaryMap} sport={sport} />)}</div> : <div className="empty footballEmpty">No {sport} EZPZ Picks qualify for {data.today} right now.</div>}
     </>;
   } else if (tab === "Full Slate") {
@@ -1683,7 +1694,7 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
         <RecordTile label="EZPZ Picks - Last 7 Days" value={ezpzLast7} />
         <RecordTile label="EZPZ Picks - Running Total" value={ezpzOverall} />
       </div>
-      <div className="sectionHead"><div><h2>Market Trend Records</h2><p>Only the three active market signals: Public Fade, RLM, and Sharp</p></div></div>
+      <div className="sectionHead"><div><h2>Betting Split Records</h2><p>Only the three active market signals: Public Fade, RLM, and Sharp</p></div></div>
       <div className="advancedRecordsStack">
         <DirectTrendRecords rows={trendRows} trendPlays={data.trendPlays || []} today={data.today} sport={sport} />
       </div>
@@ -1693,11 +1704,11 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
         <FbRecordDropdown title="Overall Model Plays" subtitle={`Running exact ${sport} grade / market / direction records`} rows={data.recordSummary || []} />
         <FbRecentResults rows={recordTrackerRows} sport={sport} />
       </div>
-      <div className="card fbInfo"><b>Record grading database:</b> {data.database || (sport + " Model Database")}<br />Model Plays and trend signals are graded only after a completed game has a verified final score.</div>
+      <div className="card fbInfo"><b>Record grading database:</b> {data.database || (sport + " Model Database")}<br />Model Plays and betting split signals are graded only after a completed game has a verified final score.</div>
     </div>;
   }
 
-  const displayTab = tab === "Public Betting Splits" ? "Trend Plays" : String(tab) === "EZPZ AI Picks" ? "EZPZ Picks" : tab;
+  const displayTab = tab === "Public Betting Splits" ? "Betting Splits" : String(tab) === "EZPZ AI Picks" ? "EZPZ Picks" : tab;
   return (
     <section className="footballBoard">
       {tab !== "Public Betting Splits" ? (

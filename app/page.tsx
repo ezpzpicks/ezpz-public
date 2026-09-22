@@ -423,14 +423,14 @@ const SPORT_META: Record<Sport, SportMeta> = {
     shortName: "NFL",
     status: "Live model",
     description:
-      "Regression spreads and totals, price-aware markets, projected scores, personnel reliability, and sport-specific trend records.",
+      "Regression spreads and totals, price-aware markets, projected scores, personnel reliability, and sport-specific betting split records.",
   },
   NCAAF: {
     name: "College Football",
     shortName: "NCAAF",
     status: "Live model",
     description:
-      "Regression-based margins, calibrated spread uncertainty, totals, availability, and sport-specific trend records.",
+      "Regression-based margins, calibrated spread uncertainty, totals, availability, and sport-specific betting split records.",
   },
   NCAAM: {
     name: "College Basketball",
@@ -3671,9 +3671,9 @@ function LiveMarketSplits({
 
 function modelTrendBadgeText(status: ModelTrendMatch) {
   return status === "MATCH"
-    ? "MODEL + TREND MATCH"
+    ? "MODEL + SPLIT MATCH"
     : status === "AGREE"
-      ? "MODEL + TREND AGREE"
+      ? "MODEL + SPLIT AGREE"
       : "";
 }
 
@@ -3835,6 +3835,14 @@ function rankedTrendLabel(score: number, eligible = true): TrendTier {
   if (score >= 69) return "Strong";
   return "Good";
 }
+
+function publicSplitTierLabel(value: unknown) {
+  const label = String(value ?? "").trim();
+  if (/^strong trend$/i.test(label)) return "Strong Split";
+  if (/^positive trend$/i.test(label)) return "Positive Split";
+  return label;
+}
+
 
 function clampTrendValue(value: number) {
   return Math.max(0, Math.min(100, value));
@@ -4533,7 +4541,7 @@ function TrendSelectionRow({
           </small>
         </span>
         <span className="trendSelectionMarket">
-          <small>{play.tier}</small>
+          <small>{publicSplitTierLabel(play.tier)}</small>
           <strong>{play.score}</strong>
           {v2Number(play.v2MarketGap) !== null ? (
             <small>Gap {v2PercentText(play.v2MarketGap)}</small>
@@ -4611,7 +4619,7 @@ function TrendSelectionRow({
                 : ""}
           </span>
           <span>Exact sample: {trendExactSample(play)} bets</span>
-          <span>{play.updatedAt ? `Updated ${play.updatedAt}` : "ScoresAndOdds trend history"}</span>
+          <span>{play.updatedAt ? `Updated ${play.updatedAt}` : "ScoresAndOdds split history"}</span>
         </div>
       </div>
     </details>
@@ -4660,13 +4668,13 @@ function TrendGameCard({
       <div className="trendGameLeader">
         <div>
           <span className="trendGameLeaderLabel">
-            {leader ? "Top trend in this game" : "Trend status"}
+            {leader ? "Top split signal in this game" : "Split signal status"}
           </span>
-          <strong>{leader ? topPick : "No graded trend plays"}</strong>
-          <small>{leader?.tier || "No current side qualifies"}</small>
+          <strong>{leader ? topPick : "No graded split signals"}</strong>
+          <small>{leader ? publicSplitTierLabel(leader.tier) : "No current side qualifies"}</small>
         </div>
         <div className="trendGameLeaderScore">
-          <span>TREND</span>
+          <span>SPLIT</span>
           <strong>{leader ? group.topScore : "—"}</strong>
         </div>
       </div>
@@ -5065,6 +5073,13 @@ function cleanAiDisplayText(value: unknown) {
     .replace(/\s+([,.;:])/g, "$1")
     .replace(/\s{2,}/g, " ")
     .replace(/^[•\-–—]+\s*/, "")
+    .replace(/\bStrong Trend\b/gi, "Strong Split")
+    .replace(/\bPositive Trend\b/gi, "Positive Split")
+    .replace(/\bTrend Plays\b/gi, "Betting Split signals")
+    .replace(/\bTrend Play\b/gi, "Betting Split signal")
+    .replace(/\btrend signals\b/gi, "betting split signals")
+    .replace(/\btrend signal\b/gi, "betting split signal")
+    .replace(/\btrend history\b/gi, "split history")
     .trim();
 }
 
@@ -5158,7 +5173,7 @@ function aiTrendRecordKey(pick: AiPick) {
   const signals = ["PUBLIC FADE", "STRONG RLM", "SHARP"].filter((signal) =>
     tier.includes(signal),
   );
-  const signalKey = signals.length ? signals.join("+") : tier || "TREND";
+  const signalKey = signals.length ? signals.join("+") : tier || "SPLIT";
   const market = normalizeType(pick.market || "");
   const selection = normalizeType(`${pick.selection || ""} ${pick.play || ""}`);
   const direction =
@@ -5362,7 +5377,7 @@ function AiPickSelectorCard({
           <section className="aiPickDetailSection historical aiTrendEvidence">
             <div className="aiTrendEvidenceHead">
               <div>
-                <h3>Trend Qualification</h3>
+                <h3>Betting Split Qualification</h3>
                 <p>Direct ScoresAndOdds market signals that qualified this MLB EZPZ Pick.</p>
               </div>
             </div>
@@ -5389,10 +5404,10 @@ function AiPickSelectorCard({
           <section className="aiPickDetailSection historical aiTrendEvidence">
             <div className="aiTrendEvidenceHead">
               <div>
-                <h3>Trend Evidence</h3>
-                <p>Historical market-signal performance behind this Trend Play.</p>
+                <h3>Betting Split Evidence</h3>
+                <p>Historical market-signal performance behind this betting split signal.</p>
               </div>
-              {pick.trendTier ? <span className="aiTrendTierPill">{pick.trendTier}</span> : null}
+              {pick.trendTier ? <span className="aiTrendTierPill">{publicSplitTierLabel(pick.trendTier)}</span> : null}
             </div>
 
             {trendRoiSummary ? (
@@ -5450,9 +5465,9 @@ function AiPickSelectorCard({
           </section>
         ) : !pick.bestPlayType && historicalNotes.length ? (
           <section className="aiPickDetailSection historical">
-            <h3>Trend Evidence</h3>
+            <h3>Betting Split Evidence</h3>
             <p>
-              Each saved record pair is one trend signal: all-time record first, recent record second. These are not team-vs-team matchup records.
+              Each saved record pair is one betting split signal: all-time record first, recent record second. These are not team-vs-team matchup records.
             </p>
             <ul>
               {historicalNotes.map((item, index) => (
@@ -5841,7 +5856,7 @@ const DRAFTKINGS_SIGNAL_CATALOG: Array<
 
 function signalSampleLabel(totalBets: number) {
   if (totalBets < 10) return "Small sample";
-  if (totalBets < 25) return "Early trend";
+  if (totalBets < 25) return "Early sample";
   if (totalBets < 50) return "Developing";
   return "Meaningful";
 }
@@ -6004,7 +6019,7 @@ function summarizeTrendTierRecords(
   outcomes: Array<HistoricalTrendOutcome & { tier: TrendTier; score: number }>,
 ) {
   const tiers: TrendTier[] = ["Elite", "Strong", "Good"];
-  const totals = new Map(tiers.map((tier) => [tier, emptyRecord(`${tier} Trend Plays`)]));
+  const totals = new Map(tiers.map((tier) => [tier, emptyRecord(`${tier} Split Signals`)]));
 
   outcomes.forEach((outcome) => {
     const summary = totals.get(outcome.tier);
@@ -6044,7 +6059,7 @@ function TrendTierRecords({
     [filteredOutcomes],
   );
   const overallSummary = useMemo(() => {
-    const totals = emptyRecord("All Trend Plays");
+    const totals = emptyRecord("All Split Signals");
     filteredOutcomes.forEach((outcome) => {
       if (outcome.result === "W") totals.wins += 1;
       else if (outcome.result === "L") totals.losses += 1;
@@ -6057,9 +6072,9 @@ function TrendTierRecords({
     <details className="recordsDropdown trendRecordsDropdown">
       <summary className="recordsSummary">
         <div>
-          <div className="recordsSummaryTitle">Trend Play Records</div>
+          <div className="recordsSummaryTitle">Betting Split Records</div>
           <div className="recordsSummarySub">
-            Frozen pregame Trend Play results by tier, market, and time window
+            Frozen pregame betting split results by tier, market, and time window
           </div>
         </div>
         <span className="recordsCount">{historicalOutcomes.length} plays</span>
@@ -6363,10 +6378,10 @@ function calculateModelTrendCombinationRecords(
     if (!trendMatch) return;
     const tier = trendMatch.frozenTier;
 
-    addRow("Model + Trend Match", row);
-    addRow(`Model + ${tier} Trend`, row);
-    addRow(`${betType} + Any Trend`, row);
-    addRow(`${betType} + ${tier} Trend`, row);
+    addRow("Model + Split Match", row);
+    addRow(`Model + ${tier} Split`, row);
+    addRow(`${betType} + Any Split`, row);
+    addRow(`${betType} + ${tier} Split`, row);
   });
 
   const summaries = [...grouped.entries()].map(([label, totals]) =>
@@ -6374,10 +6389,10 @@ function calculateModelTrendCombinationRecords(
   );
 
   const aggregateOrder: Record<string, number> = {
-    "Model + Trend Match": 0,
-    "Model + Elite Trend": 1,
-    "Model + Strong Trend": 2,
-    "Model + Good Trend": 3,
+    "Model + Split Match": 0,
+    "Model + Elite Split": 1,
+    "Model + Strong Split": 2,
+    "Model + Good Split": 3,
   };
   const betTypeOrder = new Map(
     PUBLIC_TRACKED_RECORD_TYPES.map((type, index) => [type, index]),
@@ -6401,8 +6416,8 @@ function calculateModelTrendCombinationRecords(
       (betTypeOrder.get(bType || "") ?? 999);
     if (typeDifference) return typeDifference;
 
-    if (a.betType.includes("+ Any Trend") !== b.betType.includes("+ Any Trend")) {
-      return a.betType.includes("+ Any Trend") ? -1 : 1;
+    if (a.betType.includes("+ Any Split") !== b.betType.includes("+ Any Split")) {
+      return a.betType.includes("+ Any Split") ? -1 : 1;
     }
     if (b.totalBets !== a.totalBets) return b.totalBets - a.totalBets;
     return a.betType.localeCompare(b.betType);
@@ -6430,7 +6445,7 @@ function CombinationRecords({
     [period, trackerRows, trendRows, today],
   );
   const matchedPlays =
-    summaries.find((summary) => summary.betType === "Model + Trend Match")
+    summaries.find((summary) => summary.betType === "Model + Split Match")
       ?.totalBets || 0;
 
   return (
@@ -6439,7 +6454,7 @@ function CombinationRecords({
         <div>
           <div className="recordsSummaryTitle">Combination Records</div>
           <div className="recordsSummarySub">
-            Model + Trend matches and specific Bet Type + Trend Tier results
+            Model + Split matches and specific Bet Type + Split results
           </div>
         </div>
         <span className="recordsCount">{matchedPlays} matched plays</span>
@@ -7337,7 +7352,7 @@ export default function Home() {
           ) : null}
 
           {loadingHistorical ? (
-            <div className="empty">Loading stored MLB ScoresAndOdds trends for {activeMlbTrendDateLabel}…</div>
+            <div className="empty">Loading stored MLB ScoresAndOdds betting splits for {activeMlbTrendDateLabel}…</div>
           ) : directTrendGroups.length ? (
             <FootballTrendMarketBoard groups={directTrendGroups as any} sport="MLB" />
           ) : (
@@ -7368,8 +7383,8 @@ export default function Home() {
               <h2>EZPZ Picks</h2>
               <p className="aiSelectorStatusText">
                 {viewingToday
-                  ? data.aiSelectorStatus?.message ||
-                    "The selector is evaluating today’s Model Plays and Trend Plays with deterministic EZPZ gates."
+                  ? cleanAiDisplayText(data.aiSelectorStatus?.message) ||
+                    "The selector is evaluating today’s Model Plays and Betting Split signals with deterministic EZPZ gates."
                   : `Showing the locked EZPZ Picks saved for ${activeEzpzDateLabel}. Final grading is shown on each pick.`}
               </p>
             </div>
@@ -7625,7 +7640,7 @@ export default function Home() {
 
         <div className="sectionHead trendRecordsHead">
           <div>
-            <h2>Market Trend Records</h2>
+            <h2>Betting Split Records</h2>
           </div>
         </div>
 

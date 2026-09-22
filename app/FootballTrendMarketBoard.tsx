@@ -755,14 +755,14 @@ function GameCard({ group, sport }: { group: Group; sport: Sport }) {
         </div>
         {qualifying.length ? (
           <span className="dkSignalCount">
-            {qualifying.length} trend {qualifying.length === 1 ? "play" : "plays"}
+            {qualifying.length} split {qualifying.length === 1 ? "signal" : "signals"}
           </span>
         ) : null}
       </div>
 
       <div className="dkTrendMarketBoard">
         <div className="dkTrendMarketHeader">
-          <span>Market</span><span>Line / Odds</span><span>Bets / Money</span><span>Trend</span>
+          <span>Market</span><span>Line / Odds</span><span>Bets / Money</span><span>Split Signal</span>
         </div>
         {ordered.map((play) => (
           <MarketRow
@@ -1210,7 +1210,7 @@ export function DirectTrendRecords({
       {summaries.length ? (
         <div className="tableWrap">
           <table className="recordsTable">
-            <thead><tr><th>Trend</th><th>Record</th><th>Win %</th><th>Units</th><th>ROI</th><th>Bets</th></tr></thead>
+            <thead><tr><th>Split Signal</th><th>Record</th><th>Win %</th><th>Units</th><th>ROI</th><th>Bets</th></tr></thead>
             <tbody>
               {summaries.map(({ label, totals }) => {
                 const rowTone = tone(totals);
