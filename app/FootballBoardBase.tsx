@@ -1507,7 +1507,6 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
   const activeWeek = selectedWeek && trendWeeks.includes(selectedWeek) ? selectedWeek : fallbackWeek;
   const weekTrends = activeWeek ? trends.filter((play) => weekLabel(play) === activeWeek) : trends;
   const filteredTrends = weekTrends;
-  const storedGamesForWeek = (weeklyData?.games || []).filter((row) => !activeWeek || String(row.Week || "") === activeWeek);
 
   const trendGroups = [...filteredTrends].reduce((map, play) => {
     const key = fbTrendGameIdentity(play, sport);
@@ -1609,14 +1608,18 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
     content = data.bestPlays.length ? <div className="fbGrid">{data.bestPlays.map((play, index) => <BestPlayCard key={`${play.game}-${play.play}-${index}`} play={play} splits={splits} index={index} sport={sport} recentByType={last7Map} lastSevenBetsByType={lastSevenBetsByType} />)}</div> : <div className="empty footballEmpty">No graded {sport} Best Plays are saved for {data.today}.</div>;
   } else if (tab === "Today’s Trend Plays") {
     content = <>
-      <div className="trendWeekControls simplifiedTrendControls">
-        <label><span>View market week</span><select value={activeWeek} onChange={(event) => setSelectedWeek(event.target.value)} disabled={!trendWeeks.length}>{trendWeeks.length ? trendWeeks.map((week) => <option key={week} value={week}>{week}</option>) : <option value="">No weeks yet</option>}</select></label>
-        <div><strong>{activeWeek || "Waiting for ScoresAndOdds"}</strong><small>{storedGamesForWeek.length} games stored • Public Fade, Strong RLM, and Sharp are the only qualifying trends</small></div>
-      </div>
-      <div className="directTrendRules">
-        <span><b>Public Fade</b> {sport === "NFL" ? "fade any side with 80%+ of bets" : ">75% bets + 55+ point Bets/Money gap"}</span>
-        <span><b>Strong RLM</b> public bets rise 5+ points while spread moves 1.5+ points against that side</span>
-        <span><b>Sharp</b> money share exceeds bet share by {sport === "NFL" ? "20+" : "25+"} points</span>
+      <div className="trendTabHeader">
+        <div className="directTrendRules">
+          <span><b>Public Fade</b> {sport === "NFL" ? "Fade any side with 80%+ of bets" : "Bets exceed 75% with a 55+ point Bets/Money gap"}</span>
+          <span><b>Strong RLM</b> Public bets rise 5+ points while spread moves 1.5+ points against that side</span>
+          <span><b>Sharp</b> Money share exceeds bet share by {sport === "NFL" ? "20+" : "25+"} points</span>
+        </div>
+        <div className="trendGamesCountRow">
+          <span className="countPill">{displayedTrendGroups.length} games</span>
+        </div>
+        <div className="trendWeekControls simplifiedTrendControls">
+          <label><span>View market week</span><select value={activeWeek} onChange={(event) => setSelectedWeek(event.target.value)} disabled={!trendWeeks.length}>{trendWeeks.length ? trendWeeks.map((week) => <option key={week} value={week}>{week}</option>) : <option value="">No weeks yet</option>}</select></label>
+        </div>
       </div>
       {displayedTrendGroups.length ? <FootballTrendMarketBoard groups={displayedTrendGroups} sport={sport} /> : <div className="empty footballEmpty">No {sport} ScoresAndOdds Spread/Total markets are stored for {activeWeek || "this week"} yet.</div>}
       <div className="directTrendRecordWrap"><DirectTrendRecords rows={data.trendRecordRows || []} trendPlays={data.trendPlays || []} today={data.today} sport={sport} /></div>
@@ -1697,20 +1700,21 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
   const displayTab = tab === "Today’s Trend Plays" ? "Trend Plays" : String(tab) === "EZPZ AI Picks" ? "EZPZ Picks" : tab;
   return (
     <section className="footballBoard">
-      <div className="fbHead">
-        <div>
-          <h2>{sport === "NFL" ? "NFL" : "College Football"} {displayTab}</h2>
-          <p>Regression projections • ScoresAndOdds market tracking • Public Fade + Strong RLM + Sharp</p>
+      {tab !== "Today’s Trend Plays" ? (
+        <div className="fbHead">
+          <div>
+            <h2>{sport === "NFL" ? "NFL" : "College Football"} {displayTab}</h2>
+            <p>Regression projections • ScoresAndOdds market tracking • Public Fade + Strong RLM + Sharp</p>
+          </div>
+          <div className="fbHeadActions">
+            {tab === "Today’s Model Plays" ? <span className="countPill">{data.bestPlays.length} plays</span> : null}
+            {tab === "Full Slate" ? <span className="countPill">{slateRows.length} games</span> : null}
+            <span className={`fbStatus ${scoresAndOddsFresh ? "live" : ""}`}>
+              {scoresAndOddsStatus}
+            </span>
+          </div>
         </div>
-        <div className="fbHeadActions">
-          {tab === "Today’s Model Plays" ? <span className="countPill">{data.bestPlays.length} plays</span> : null}
-          {tab === "Today’s Trend Plays" ? <span className="countPill">{displayedTrendGroups.length} games</span> : null}
-          {tab === "Full Slate" ? <span className="countPill">{slateRows.length} games</span> : null}
-          <span className={`fbStatus ${scoresAndOddsFresh ? "live" : ""}`}>
-            {scoresAndOddsStatus}
-          </span>
-        </div>
-      </div>
+      ) : null}
       {content}
       <style jsx global>{`
         .footballBoard{display:grid;gap:18px}.fbHead{display:flex;justify-content:space-between;gap:16px;align-items:flex-end}.fbHead h2{margin:0 0 4px}.fbHead p,.fbMuted{color:var(--ez-muted);margin:0}.fbStatus{border:1px solid var(--ez-border);border-radius:999px;padding:7px 11px;color:var(--ez-muted)}.fbStatus.live{color:var(--ez-green);border-color:rgba(43,216,117,.35)}
