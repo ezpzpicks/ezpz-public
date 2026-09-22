@@ -135,18 +135,19 @@ const ALL_GAME_TRENDS_HEADERS = [
 const AI_PICK_SELECTOR_TAB = "ai_pick_selector";
 const AI_BUILDER_MATCHUP_DETAILS_TAB = "matchup_details_today";
 const AI_BUILDER_CONTEXT_KEY = "__EZPZ_BUILDER_CONTEXT_JSON";
-const AI_PICK_SELECTOR_VERSION = "ezpz-picks-pitcher-edge-gap-lean-cap165-v16";
+const AI_PICK_SELECTOR_VERSION = "ezpz-picks-total-edge-gap-v17";
 const AI_MINIMUM_ESTIMATED_ADVANTAGE = 5;
 // A durable 15-minute snapshot is allowed one short retry window after the
 // scheduled start if its selector row missed the LIVE -> FINAL_PREGAME handoff.
 // This recovery never uses ordinary live/in-game market data.
 const AI_FINAL_PREGAME_RECOVERY_GRACE_MS = 30 * 60_000;
 
-// PERMANENT EZPZ PICKS POLICY. Moneyline, totals, and first-inning Model Picks
-// require HOT Last-7-Bets form plus their market-specific quality gate.
-// Pitcher strikeouts use the authoritative edge + projection-gap tiers:
-// Strong/Regular/Lean qualify for EZPZ; Non-Edge stays model-visible only.
-// All Model Picks keep the -150 maximum favorite price.
+// PERMANENT EZPZ PICKS POLICY. Moneyline and first-inning Model Picks require
+// HOT Last-7-Bets form plus their market-specific quality gate. MLB full-game
+// totals use direction-specific Strong/Regular edge + projection-gap tiers;
+// pitcher strikeouts use Strong/Regular/Lean edge + projection-gap tiers.
+// Total Strong/Regular and Pitcher K Strong/Regular/Lean qualify for EZPZ.
+// Moneyline/Total/First Inning keep -150; Pitcher Strikeouts allow -165.
 // Trend path: every signal green plus at least +10% net ROI vs the opposing side.
 const AI_BEST_PLAY_FINAL_MARKER =
   "EZPZ Best Play is final for the full day; no separate pregame finalization is required";
@@ -311,9 +312,10 @@ type EzpzBestPlayPolicy = {
 };
 
 // MARKET-SPECIFIC EZPZ MODEL-PICK POLICY.
-// HOT means seven completed prior wagers with at least five wins. Moneyline,
-// totals, and first inning must clear HOT first. Pitcher strikeouts intentionally
-// use the Strong/Regular/Lean edge + projection-gap tiers without a HOT requirement.
+// HOT means seven completed prior wagers with at least five wins. Moneyline and
+// first inning must clear HOT first. Full-game totals intentionally use the
+// direction-specific Strong/Regular edge + projection-gap tiers without HOT.
+// Pitcher strikeouts use Strong/Regular/Lean tiers without HOT.
 // Pitcher strikeouts allow odds down to -165; every other market stays capped at -150.
 const EZPZ_BEST_PLAY_POLICIES: Record<AiPickMarket, EzpzBestPlayPolicy> = {
   Moneyline: {
@@ -327,10 +329,7 @@ const EZPZ_BEST_PLAY_POLICIES: Record<AiPickMarket, EzpzBestPlayPolicy> = {
     maxFavoritePrice: -150,
   },
   Total: {
-    requiredForm: "HOT",
     maxFavoritePrice: -150,
-    minimumSelectedProbability: 70,
-    minimumProjectionEdge: 2,
   },
   "First Inning": {
     requiredForm: "HOT",
@@ -3960,6 +3959,10 @@ const GREEN_TYPES = new Set([
   "B MONEYLINE",
   "ELITE NRFI",
   "ELITE YRFI",
+  "STRONG TOTAL OVER",
+  "TOTAL OVER",
+  "STRONG TOTAL UNDER",
+  "TOTAL UNDER",
   "STRONG OVER",
   "OVER",
   "LEAN OVER",
@@ -6868,6 +6871,126 @@ function isPitcherKType(value: unknown) {
   ].includes(normalizeType(value));
 }
 
+const MLB_TOTAL_UNDER_STRONG_EDGE_MIN = 7;
+const MLB_TOTAL_UNDER_STRONG_EDGE_MAX = 9;
+const MLB_TOTAL_UNDER_REGULAR_EDGE_MIN = 4;
+const MLB_TOTAL_UNDER_REGULAR_EDGE_MAX = 7;
+const MLB_TOTAL_UNDER_MIN_GAP = 5;
+const MLB_TOTAL_OVER_STRONG_EDGE_MIN = 18;
+const MLB_TOTAL_OVER_STRONG_EDGE_MAX = 20;
+const MLB_TOTAL_OVER_STRONG_GAP_MIN = 22.5;
+const MLB_TOTAL_OVER_STRONG_GAP_MAX = 30;
+const MLB_TOTAL_OVER_REGULAR_EDGE_MIN = 18;
+const MLB_TOTAL_OVER_REGULAR_EDGE_MAX = 22;
+const MLB_TOTAL_OVER_REGULAR_GAP_MIN = 24;
+const MLB_TOTAL_OVER_REGULAR_GAP_MAX = 35;
+
+type MlbTotalTier = "Strong" | "Regular" | "Non-Edge";
+type MlbTotalSide = "OVER" | "UNDER";
+
+type MlbTotalGrading = {
+  tier: MlbTotalTier;
+  side: MlbTotalSide;
+  grade: string;
+  probabilityEdge: number;
+  projectionGapPct: number;
+  projectionGapRuns: number;
+};
+
+function mlbTotalGradeLabel(tier: MlbTotalTier, side: MlbTotalSide) {
+  if (tier === "Strong") return `STRONG TOTAL ${side}`;
+  if (tier === "Regular") return `TOTAL ${side}`;
+  return `NON-EDGE TOTAL ${side}`;
+}
+
+function mlbTotalTierForMetrics(
+  side: MlbTotalSide,
+  probabilityEdge: number,
+  projectionGapPct: number,
+): MlbTotalTier {
+  if (side === "UNDER") {
+    if (
+      probabilityEdge >= MLB_TOTAL_UNDER_STRONG_EDGE_MIN &&
+      probabilityEdge < MLB_TOTAL_UNDER_STRONG_EDGE_MAX &&
+      projectionGapPct >= MLB_TOTAL_UNDER_MIN_GAP
+    ) return "Strong";
+    if (
+      probabilityEdge >= MLB_TOTAL_UNDER_REGULAR_EDGE_MIN &&
+      probabilityEdge < MLB_TOTAL_UNDER_REGULAR_EDGE_MAX &&
+      projectionGapPct >= MLB_TOTAL_UNDER_MIN_GAP
+    ) return "Regular";
+    return "Non-Edge";
+  }
+
+  if (
+    probabilityEdge >= MLB_TOTAL_OVER_STRONG_EDGE_MIN &&
+    probabilityEdge < MLB_TOTAL_OVER_STRONG_EDGE_MAX &&
+    projectionGapPct >= MLB_TOTAL_OVER_STRONG_GAP_MIN &&
+    projectionGapPct < MLB_TOTAL_OVER_STRONG_GAP_MAX
+  ) return "Strong";
+  if (
+    probabilityEdge >= MLB_TOTAL_OVER_REGULAR_EDGE_MIN &&
+    probabilityEdge < MLB_TOTAL_OVER_REGULAR_EDGE_MAX &&
+    projectionGapPct >= MLB_TOTAL_OVER_REGULAR_GAP_MIN &&
+    projectionGapPct < MLB_TOTAL_OVER_REGULAR_GAP_MAX
+  ) return "Regular";
+  return "Non-Edge";
+}
+
+function mlbTotalGradingFromMetrics(input: {
+  sideSource: unknown;
+  line: unknown;
+  directionalEdgeRuns: unknown;
+  odds: unknown;
+  selectedProbability: unknown;
+}): MlbTotalGrading | null {
+  const sideText = normalizeType(input.sideSource);
+  const side: MlbTotalSide | null = sideText.includes("UNDER")
+    ? "UNDER"
+    : sideText.includes("OVER")
+      ? "OVER"
+      : null;
+  const line = Number(String(input.line ?? "").replace(/[^\d.-]/g, ""));
+  const projectionGapRuns = Number(
+    String(input.directionalEdgeRuns ?? "").replace(/[^\d.-]/g, ""),
+  );
+  const selectedProbability = normalizePercentValue(input.selectedProbability || "");
+  const americanOdds = parseAmericanOdds(input.odds);
+  if (
+    !side ||
+    !Number.isFinite(line) ||
+    line <= 0 ||
+    !Number.isFinite(projectionGapRuns) ||
+    projectionGapRuns <= 0 ||
+    selectedProbability <= 0 ||
+    !americanOdds
+  ) return null;
+
+  const impliedProbability = americanOdds > 0
+    ? (100 / (americanOdds + 100)) * 100
+    : (Math.abs(americanOdds) / (Math.abs(americanOdds) + 100)) * 100;
+  const probabilityEdge = selectedProbability - impliedProbability;
+  const projectionGapPct = (projectionGapRuns / line) * 100;
+  const tier = mlbTotalTierForMetrics(side, probabilityEdge, projectionGapPct);
+  return {
+    tier,
+    side,
+    grade: mlbTotalGradeLabel(tier, side),
+    probabilityEdge,
+    projectionGapPct,
+    projectionGapRuns,
+  };
+}
+
+function mlbTotalGradingForPlay(play: Play) {
+  return mlbTotalGradingFromMetrics({
+    sideSource: play.playType,
+    line: play.altLine,
+    directionalEdgeRuns: play.projectionEdge,
+    odds: play.altOdds || play.oddsLine,
+    selectedProbability: play.selectedProbability,
+  });
+}
 
 const MLB_PITCHER_K_STRONG_EDGE = 15;
 const MLB_PITCHER_K_STRONG_GAP = 22.5;
@@ -7299,6 +7422,62 @@ function buildBestPlaysFromSlate(
       });
     }
 
+    const totalProjectionRaw = firstValue(row, [
+      "Total Runs Projection",
+      "Total Projection",
+      "Projected Total",
+      "Model Total",
+    ]);
+    const totalLineRaw = firstValue(row, [
+      "Total Runs Line",
+      "Total Line",
+      "Game Total Line",
+      "O/U Line",
+    ]);
+    const totalOddsRaw = firstValue(row, [
+      "Total Runs Odds",
+      "Total Odds",
+      "Game Total Odds",
+      "O/U Odds",
+    ]);
+    const totalSelectedProbability = firstValue(row, [
+      "Total Selected Probability",
+      "Selected Probability",
+      "Total Probability",
+      "Total Model %",
+    ]);
+    const totalProjection = toNumber(totalProjectionRaw);
+    const totalLine = toNumber(totalLineRaw);
+    if (totalProjection > 0 && totalLine > 0 && totalProjection !== totalLine) {
+      const totalSide: MlbTotalSide = totalProjection > totalLine ? "OVER" : "UNDER";
+      const totalDirectionalEdge = Math.abs(totalProjection - totalLine);
+      const totalGrading = mlbTotalGradingFromMetrics({
+        sideSource: totalSide,
+        line: totalLine,
+        directionalEdgeRuns: totalDirectionalEdge,
+        odds: totalOddsRaw,
+        selectedProbability: totalSelectedProbability,
+      });
+      if (totalGrading && totalGrading.tier !== "Non-Edge") {
+        const totalAmericanOdds = parseAmericanOdds(totalOddsRaw);
+        const totalOdds = totalAmericanOdds ? String(totalAmericanOdds) : oddsFromLineCell(totalOddsRaw);
+        plays.push({
+          playType: totalGrading.grade,
+          game,
+          play: `${totalGrading.tier === "Strong" ? "Strong " : ""}${totalSide === "OVER" ? "Over" : "Under"} ${totalLine}`,
+          oddsLine: totalOdds ? `${totalLine} / ${totalOdds}` : String(totalLine),
+          score: aiClamp(65 + totalDirectionalEdge * 8, 60, 92),
+          isGreen: true,
+          awayTeam,
+          homeTeam,
+          selectedProbability: totalSelectedProbability,
+          projectionEdge: totalDirectionalEdge,
+          altLine: totalLine,
+          altOdds: totalOdds,
+        });
+      }
+    }
+
     const nrfiGrade = normalizeType(row["NRFI Grade"] || "");
     if (isGreenType(nrfiGrade)) {
       plays.push({
@@ -7724,9 +7903,16 @@ function aiBestProbability(play: Play) {
     return aiClamp(moneyline, 40, 82);
   }
 
-  // Pitcher props already carry a model-generated selected probability.
-  // Use it directly instead of compressing a strong K score through the
-  // generic score-to-probability formula, which was suppressing valid props.
+  // Totals and pitcher props already carry model-generated selected probabilities.
+  // Use them directly instead of compressing through the generic score-to-probability
+  // formula, so the displayed probability/advantage matches the tier calculation.
+  if (market === "Total") {
+    const totalProbability = normalizePercentValue(play.selectedProbability || "");
+    if (totalProbability > 0) {
+      return aiClamp(totalProbability, 40, 82);
+    }
+  }
+
   if (market === "Pitcher Strikeouts") {
     const pitcherProbability = normalizePercentValue(play.selectedProbability || "");
     if (pitcherProbability > 0) {
@@ -8017,30 +8203,22 @@ function aiBestPlayQualification(
   }
 
   if (candidate.market === "Total") {
-    const minimumSelectedProbability = policy.minimumSelectedProbability ?? 70;
-    const minimumProjectionEdge = policy.minimumProjectionEdge ?? 2;
-    const selectedProbability = normalizePercentValue(
-      candidate.bestPlay?.selectedProbability || "",
-    );
-    const projectionEdge = toNumber(candidate.bestPlay?.projectionEdge || 0);
-    const failures: string[] = formFailure ? [formFailure] : [];
-
-    if (selectedProbability < minimumSelectedProbability) {
-      failures.push(
-        `Total selected probability ${selectedProbability.toFixed(1)}% did not reach ${minimumSelectedProbability}%+`,
-      );
-    }
-    if (projectionEdge < minimumProjectionEdge) {
-      failures.push(
-        `Total projected run edge ${projectionEdge.toFixed(2)} did not reach ${minimumProjectionEdge.toFixed(1)}+ runs`,
-      );
-    }
-
+    const grading = candidate.bestPlay ? mlbTotalGradingForPlay(candidate.bestPlay) : null;
+    const tier = grading?.tier || "Non-Edge";
+    const qualifies = tier === "Strong" || tier === "Regular";
+    const side = grading?.side || String(candidate.selection || "").toUpperCase();
+    const probabilityEdge = grading?.probabilityEdge ?? 0;
+    const projectionGapPct = grading?.projectionGapPct ?? 0;
+    const thresholdText = side === "UNDER"
+      ? "Strong Under: edge 7%–<9% / gap 5%+ • Regular Under: edge 4%–<7% / gap 5%+"
+      : "Strong Over: edge 18%–<20% / gap 22.5%–<30% • Regular Over: edge 18%–<22% / gap 24%–<35%";
     return {
-      qualifies: failures.length === 0,
-      label: `Total probability ${selectedProbability.toFixed(1)}% / run edge ${projectionEdge.toFixed(2)}`,
-      status: `${formStatus} • Total EZPZ gate: selected probability ${selectedProbability.toFixed(1)}% (min ${minimumSelectedProbability}%) • projected run edge ${projectionEdge.toFixed(2)} (min ${minimumProjectionEdge.toFixed(1)}) • odds no worse than ${policy.maxFavoritePrice}`,
-      failure: failures.join(" • "),
+      qualifies,
+      label: `Total ${tier} ${side} / edge ${probabilityEdge.toFixed(1)}% / gap ${projectionGapPct.toFixed(1)}%`,
+      status: `${formStatus} • Total tier: ${tier} ${side} • probability edge ${probabilityEdge.toFixed(1)}% • projection gap ${projectionGapPct.toFixed(1)}% • ${thresholdText} • odds no worse than ${policy.maxFavoritePrice}`,
+      failure: qualifies
+        ? ""
+        : `Total tier ${tier} is not EZPZ-eligible; Strong or Regular required (${thresholdText})`,
     };
   }
 
@@ -8158,8 +8336,8 @@ function aiRecordAdjustments(candidate: AiSelectorCandidate, completedTrackerRow
   candidate.pitcherBetTypeRecord = lastSeven.record;
 
   candidate.historicalNotes.push(
-    candidate.market === "Pitcher Strikeouts"
-      ? `${recordType} Last 7 Bets: ${lastSeven.record} • ${candidate.pitcherBetTypeForm} • informational only for Pitcher K qualification`
+    candidate.market === "Pitcher Strikeouts" || candidate.market === "Total"
+      ? `${recordType} Last 7 Bets: ${lastSeven.record} • ${candidate.pitcherBetTypeForm} • informational only for ${candidate.market} qualification`
       : `${recordType} Last 7 Bets: ${lastSeven.record} • ${candidate.pitcherBetTypeForm} • HOT required for Model Pick qualification`,
   );
 
@@ -9557,7 +9735,7 @@ MISSING INFORMATION IS NEUTRAL, NOT NEGATIVE. Failure to find or verify a reques
 
 Keep the shared fields concise, numeric, and comparison-first. Research each unique source/fact once per game, reuse it across every applicable candidate in this request, then interpret the same facts by wager type. Use the fixed checklist and exact URLs above. Show the actual comparison values and name the side with the edge even when the difference is small. Clearly distinguish SUPPORTS, OPPOSES, and NEUTRAL for grading, but never hide an available numeric edge behind phrases like 'no advantage found.' Do not award positive support for merely confirming expected starters, a normal lineup, an ordinarily rested bullpen, no material injury, or normal weather.
 
-Return candidateReviews in exactly the same order as the supplied candidates, with exactly one item for each. approved=true means the wager still deserves publication after research. approved=true means the matchup research gives enough qualitative support to publish the wager; it must not mean merely that no catastrophic veto was found. Never set approved=false solely because aiScoreBeforeResearch is below a downstream selector threshold, because the selector applies that numeric gate after research. However, for a borderline candidate near its required score/probability/advantage thresholds, neutral or ambiguous research is not sufficient for approved=true. Borderline plays should be approved only when the verified matchup context positively supports or meaningfully validates the wager. A clearly strong quantitative candidate can remain approved when research is neutral and no material contradiction is found. Use a small adjustment from -6 to +6, and use 0 when research does not change the supplied quantitative case. Each candidate needs two or three concise WHY bullets focused on the actual reason it cleared or failed—never a public risk list. For any candidate backed by a Best Play, Moneyline, Total, and First Inning use their rolling Last-7-Bets HOT requirement plus the configured market-specific quality gates and odds no worse than -150. Pitcher Strikeouts are explicitly exempt from HOT form: their Last-7 record is informational only, and qualification instead requires a Strong, Regular, or Lean edge + projection-gap tier, with odds no worse than -165. Never reject a Pitcher Strikeouts candidate solely because its Last-7 form is Neutral, Cold, or Small Sample. A Trend-Play-only candidate is not subject to the model bet-type form gate. It must be a Strong/Elite trend (Trend Score 69+), and the selector will require the final adjusted qualification score to reach 80+ after your research adjustment; there is no minimum historical bet count or small-sample veto. Do not reject a trend-only candidate solely because aiScoreBeforeResearch is below 80; the selector applies the final adjusted 80+ gate after research. But neutral research is no longer automatic approval. For trend-only candidates that are borderline—especially an qualification score within 3 points of 80, modest advantage, or a case driven mainly by the trend signal—approved=true requires verified matchup evidence that positively corroborates the wager. If the research is neutral, mixed, or fails to add meaningful matchup support to a borderline case, approved=false is appropriate even without one catastrophic conflict. For a clearly strong trend-only quantitative case comfortably above the threshold, neutral research may remain approved when no material contradiction is found. Concrete unfavorable starter, lineup, bullpen, weather, split, or matchup evidence should still produce approved=false. The AI is the qualitative filter; the selector remains the final numeric gatekeeper.
+Return candidateReviews in exactly the same order as the supplied candidates, with exactly one item for each. approved=true means the wager still deserves publication after research. approved=true means the matchup research gives enough qualitative support to publish the wager; it must not mean merely that no catastrophic veto was found. Never set approved=false solely because aiScoreBeforeResearch is below a downstream selector threshold, because the selector applies that numeric gate after research. However, for a borderline candidate near its required score/probability/advantage thresholds, neutral or ambiguous research is not sufficient for approved=true. Borderline plays should be approved only when the verified matchup context positively supports or meaningfully validates the wager. A clearly strong quantitative candidate can remain approved when research is neutral and no material contradiction is found. Use a small adjustment from -6 to +6, and use 0 when research does not change the supplied quantitative case. Each candidate needs two or three concise WHY bullets focused on the actual reason it cleared or failed—never a public risk list. For Moneyline and First Inning Best Plays, use their rolling Last-7-Bets HOT requirement plus the configured market-specific quality gates and odds no worse than -150. Full-game Totals are explicitly exempt from HOT form: their Last-7 record is informational only, and qualification instead requires a direction-specific Strong or Regular edge + projection-gap tier, with odds no worse than -150. Pitcher Strikeouts are also exempt from HOT form: their Last-7 record is informational only, and qualification requires a Strong, Regular, or Lean edge + projection-gap tier, with odds no worse than -165. Never reject a Pitcher Strikeouts candidate solely because its Last-7 form is Neutral, Cold, or Small Sample. A Trend-Play-only candidate is not subject to the model bet-type form gate. It must be a Strong/Elite trend (Trend Score 69+), and the selector will require the final adjusted qualification score to reach 80+ after your research adjustment; there is no minimum historical bet count or small-sample veto. Do not reject a trend-only candidate solely because aiScoreBeforeResearch is below 80; the selector applies the final adjusted 80+ gate after research. But neutral research is no longer automatic approval. For trend-only candidates that are borderline—especially an qualification score within 3 points of 80, modest advantage, or a case driven mainly by the trend signal—approved=true requires verified matchup evidence that positively corroborates the wager. If the research is neutral, mixed, or fails to add meaningful matchup support to a borderline case, approved=false is appropriate even without one catastrophic conflict. For a clearly strong trend-only quantitative case comfortably above the threshold, neutral research may remain approved when no material contradiction is found. Concrete unfavorable starter, lineup, bullpen, weather, split, or matchup evidence should still produce approved=false. The AI is the qualitative filter; the selector remains the final numeric gatekeeper.
 
 For Pitcher Strikeouts, treat the supplied qualification score as the strikeout model's differentiated assessment, not a win probability or automatic approval. Preserve the model's score distinctions unless verified research justifies the permitted small adjustment. For pitcher strikeouts, use the fixed RotoWire lineup source and Baseball Savant source above. Compare the EZPZ projection to the line, the actual opposing lineup's K/contact profile, the pitcher's whiff/arsenal context, and recent workload. Grade the matchup SUPPORTS, OPPOSES, or NEUTRAL; missing data is neutral and mere confirmation is not positive evidence.
 
