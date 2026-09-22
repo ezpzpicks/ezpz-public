@@ -510,6 +510,7 @@ type DraftKingsSplit = {
   snapshotStatus?: "LIVE" | "FINAL_PREGAME";
   snapshotTime?: string;
   sourceUrl?: string;
+  sourceGameOccurrence?: number;
 };
 
 type DraftKingsProp = {
@@ -754,8 +755,19 @@ function draftKingsDateET(date = new Date()) {
   return `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
 }
 
-function draftKingsMarketInstanceKey(row: { date: string; awayTeam: string; homeTeam: string; eventTime?: string }) {
-  return `${isoPublicDate(row.date)}|${normalizeTeam(row.awayTeam)}|${normalizeTeam(row.homeTeam)}|${parseEventTimeKey(row.eventTime || "")}`;
+function draftKingsMarketInstanceKey(row: {
+  date: string;
+  awayTeam: string;
+  homeTeam: string;
+  eventTime?: string;
+  sourceGameOccurrence?: number;
+}) {
+  const eventTime = parseEventTimeKey(row.eventTime || "");
+  const sourceInstance =
+    !eventTime && Number(row.sourceGameOccurrence || 0) > 0
+      ? `source-${Number(row.sourceGameOccurrence)}`
+      : "";
+  return `${isoPublicDate(row.date)}|${normalizeTeam(row.awayTeam)}|${normalizeTeam(row.homeTeam)}|${eventTime || sourceInstance}`;
 }
 
 function draftKingsSplitKey(row: DraftKingsSplit) {
@@ -1485,6 +1497,7 @@ async function buildDraftKingsPayload(): Promise<DraftKingsPayload> {
         betsPct: source.betsPct,
         ...warning,
         sourceUrl: source.sourceUrl,
+        sourceGameOccurrence: source.sourceGameOccurrence,
       }];
     });
 
@@ -1518,7 +1531,7 @@ async function buildDraftKingsPayload(): Promise<DraftKingsPayload> {
 
   const splitMap = new Map<string, DraftKingsSplit>();
   splits.forEach((row) =>
-    splitMap.set(`${row.date}|${row.game}|${parseEventTimeKey(row.eventTime || "")}|${row.market}|${textKey(row.selection)}`, row),
+    splitMap.set(`${row.date}|${row.game}|${parseEventTimeKey(row.eventTime || "")}|${row.sourceGameOccurrence || 1}|${row.market}|${textKey(row.selection)}`, row),
   );
   splits = [...splitMap.values()];
 
@@ -1858,6 +1871,88 @@ function scheduledGameTimeKey(row: SheetRow) {
     if (hour && minute) return `${hour}:${minute}`;
   }
   return parseEventTimeKey(firstValue(row, ["Game Time", "Game Start Time", "Scheduled Start", "Start Time", "Game Time ET"]));
+}
+
+function alignScoresAndOddsGameInstances(
+  payload: DraftKingsPayload,
+  slateRows: SheetRow[],
+  now = Date.now(),
+): DraftKingsPayload {
+  const occurrenceCountByMatchup = new Map<string, Set<number>>();
+  for (const split of payload.splits) {
+    if (parseEventTimeKey(split.eventTime || "")) continue;
+    const occurrence = Number(split.sourceGameOccurrence || 0);
+    if (occurrence <= 0) continue;
+    const key = `${isoPublicDate(split.date)}|${normalizeTeam(split.awayTeam)}|${normalizeTeam(split.homeTeam)}`;
+    const seen = occurrenceCountByMatchup.get(key) || new Set<number>();
+    seen.add(occurrence);
+    occurrenceCountByMatchup.set(key, seen);
+  }
+
+  const splits = payload.splits.map((split) => {
+    if (parseEventTimeKey(split.eventTime || "")) return split;
+
+    const splitDate = isoPublicDate(split.date);
+    const away = normalizeTeam(split.awayTeam);
+    const home = normalizeTeam(split.homeTeam);
+    const matchingSlateRows = slateRows
+      .filter(
+        (row) =>
+          (!splitDate || isoPublicDate(row.Date || "") === splitDate) &&
+          normalizeTeam(row["Away Team"] || "") === away &&
+          normalizeTeam(row["Home Team"] || "") === home,
+      )
+      .sort((left, right) => {
+        const leftStart = scheduledGameStart(left) ?? Number.POSITIVE_INFINITY;
+        const rightStart = scheduledGameStart(right) ?? Number.POSITIVE_INFINITY;
+        return leftStart - rightStart;
+      });
+
+    if (!matchingSlateRows.length) return split;
+
+    let matchedRow: SheetRow | null = null;
+    if (matchingSlateRows.length === 1) {
+      matchedRow = matchingSlateRows[0];
+    } else {
+      const matchupKey = `${splitDate}|${away}|${home}`;
+      const sourceOccurrences = occurrenceCountByMatchup.get(matchupKey);
+      const sourceOccurrenceCount = sourceOccurrences?.size || 0;
+      const occurrence = Number(split.sourceGameOccurrence || 0);
+
+      if (
+        sourceOccurrenceCount === matchingSlateRows.length &&
+        occurrence >= 1 &&
+        occurrence <= matchingSlateRows.length
+      ) {
+        // When ScoresAndOdds publishes both halves of a doubleheader, source
+        // order is the game occurrence. Bind each block to its own slate time.
+        matchedRow = matchingSlateRows[occurrence - 1];
+      } else if (sourceOccurrenceCount > 0 && sourceOccurrenceCount < matchingSlateRows.length) {
+        // If an earlier game has disappeared from the live source, never map
+        // the remaining time-less block back onto it. Anchor the remaining
+        // occurrence(s) at the next scheduled game, matching the live-board
+        // behavior used before occurrence-aware parsing was available.
+        const firstFutureIndex = matchingSlateRows.findIndex((row) => {
+          const start = scheduledGameStart(row);
+          return start == null || start > now;
+        });
+        const baseIndex =
+          firstFutureIndex >= 0
+            ? firstFutureIndex
+            : Math.max(0, matchingSlateRows.length - sourceOccurrenceCount);
+        const sourceIndex = Math.max(0, occurrence - 1);
+        matchedRow =
+          matchingSlateRows[Math.min(baseIndex + sourceIndex, matchingSlateRows.length - 1)] ||
+          null;
+      }
+    }
+
+    if (!matchedRow) return split;
+    const eventTime = scheduledGameTimeKey(matchedRow);
+    return eventTime ? { ...split, eventTime } : split;
+  });
+
+  return { ...payload, splits };
 }
 
 function sameDraftKingsGame(
@@ -11967,7 +12062,7 @@ async function buildUncachedPublicResponse(request: NextRequest) {
           : scheduledCapture
             ? "scheduled"
             : "live";
-    const [initialSlateTodayRaw, initialTrackerRaw, liveDraftKings, initialSavedPublicSplits, storedAiPickRows, matchupDetailsRaw] = await Promise.all([
+    const [initialSlateTodayRaw, initialTrackerRaw, rawLiveDraftKings, initialSavedPublicSplits, storedAiPickRows, matchupDetailsRaw] = await Promise.all([
       readWorksheet("daily_slate"),
       readWorksheet("bet_tracker"),
       loadDraftKingsData(),
@@ -11977,6 +12072,10 @@ async function buildUncachedPublicResponse(request: NextRequest) {
     ]);
     let slateTodayRaw = initialSlateTodayRaw;
     let savedPublicSplits = initialSavedPublicSplits;
+    const liveDraftKings = alignScoresAndOddsGameInstances(
+      rawLiveDraftKings,
+      initialSlateTodayRaw as SheetRow[],
+    );
     const savedDraftKings = snapshotPayloadFromRows(savedPublicSplits, today);
     let finalSnapshotDraftKings = finalPregameDisplayPayloadFromRows(
       savedPublicSplits,
