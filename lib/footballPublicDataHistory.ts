@@ -336,10 +336,6 @@ function settledResultForHistory(history: SheetRow, data: AnyPick, sport: Footba
   return { result: resultCode(history.Result), updated: String(history["Result Updated"] || "") };
 }
 
-function truthy(value: unknown) {
-  return ["1", "true", "yes", "y"].includes(String(value || "").trim().toLowerCase());
-}
-
 function historyPropMarket(row: SheetRow) {
   return textKey(row["Prop Market"] || row.Market || "");
 }
@@ -354,6 +350,17 @@ function historyPropLine(row: SheetRow) {
   const direct = lineNumber(row["Prop Line"]);
   if (direct != null) return direct;
   return lineNumber(row.Selection);
+}
+
+function recentUngradedProp(row: SheetRow, today: string, maxAgeDays = 14) {
+  if (resultCode(row.Result) || !String(row.Player || "").trim() || !historyPropMarket(row)) return false;
+  const date = isoDate(row.Date);
+  const current = isoDate(today);
+  if (!date || !current) return false;
+  const age = Math.round(
+    (Date.parse(`${current}T12:00:00Z`) - Date.parse(`${date}T12:00:00Z`)) / 86_400_000,
+  );
+  return Number.isFinite(age) && age >= 0 && age <= maxAgeDays;
 }
 
 function scheduleGameText(row: SheetRow) {
@@ -382,31 +389,6 @@ function summaryCompleted(summary: AnyPick) {
   return status?.completed === true ||
     textKey(status?.name).includes("final") ||
     textKey(status?.state) === "post";
-}
-
-function matchingEspnAthlete(summary: AnyPick, playerName: string) {
-  const target = textKey(playerName);
-  if (!target) return null;
-  const playerGroups = Array.isArray(summary?.boxscore?.players) ? summary.boxscore.players : [];
-  for (const teamGroup of playerGroups) {
-    const statistics = Array.isArray(teamGroup?.statistics) ? teamGroup.statistics : [];
-    for (const statGroup of statistics) {
-      const athletes = Array.isArray(statGroup?.athletes) ? statGroup.athletes : [];
-      for (const entry of athletes) {
-        const athlete = entry?.athlete || {};
-        const names = [
-          athlete?.fullName,
-          athlete?.displayName,
-          athlete?.shortName,
-          athlete?.name,
-        ].map(textKey).filter(Boolean);
-        if (names.some((name) => name === target)) {
-          return { statGroup, entry };
-        }
-      }
-    }
-  }
-  return null;
 }
 
 function espnPlayerStat(summary: AnyPick, playerName: string, propMarket: string) {
@@ -717,11 +699,7 @@ export async function buildFootballPublicData(
   let gradingChanged = false;
   const needsNflPropFallback =
     sport === "NFL" &&
-    history.some((row) =>
-      !resultCode(row.Result) &&
-      Boolean(String(row.Player || "").trim()) &&
-      Boolean(historyPropMarket(row))
-    );
+    history.some((row) => recentUngradedProp(row, today));
   const nflSchedule = needsNflPropFallback
     ? await readSportWorksheet("NFL", "schedule")
     : [];
@@ -732,8 +710,7 @@ export async function buildFootballPublicData(
     if (
       !settled.result &&
       sport === "NFL" &&
-      !resultCode(row.Result) &&
-      Boolean(String(row.Player || "").trim())
+      recentUngradedProp(row, today)
     ) {
       settled = await settledNflPropResult(row, nflSchedule, nflSummaryCache);
     }
