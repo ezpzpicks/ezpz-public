@@ -135,7 +135,7 @@ const ALL_GAME_TRENDS_HEADERS = [
 const AI_PICK_SELECTOR_TAB = "ai_pick_selector";
 const AI_BUILDER_MATCHUP_DETAILS_TAB = "matchup_details_today";
 const AI_BUILDER_CONTEXT_KEY = "__EZPZ_BUILDER_CONTEXT_JSON";
-const AI_PICK_SELECTOR_VERSION = "ezpz-picks-total-edge-gap-v17";
+const AI_PICK_SELECTOR_VERSION = "ezpz-picks-pitcher-publication-gate-v18";
 const AI_MINIMUM_ESTIMATED_ADVANTAGE = 5;
 // A durable 15-minute snapshot is allowed one short retry window after the
 // scheduled start if its selector row missed the LIVE -> FINAL_PREGAME handoff.
@@ -7782,7 +7782,12 @@ function buildBestPlaysFromSlate(
     ];
 
     for (const market of kMarkets) {
-      const legacyType = normalizeType(market.summary);
+      // The builder's saved publication decision is authoritative. Re-tiering can
+      // update Strong/Regular/Lean from the edge+gap thresholds, but it must never
+      // resurrect a projection-only PASS (opener, bulk arm, non-true starter,
+      // unsupported workload, or failed lineup eligibility).
+      const publishedType = normalizeType(market.summary);
+      if (!isPitcherKType(publishedType)) continue;
       const parsed = parseKSummary(market.summary);
       const pitcherName =
         parsed.pitcherName || cleanPitcherName(market.summary);
@@ -7815,7 +7820,7 @@ function buildBestPlaysFromSlate(
           (parsed.line ? `Line ${parsed.line}` : ""),
       );
       const pitcherGrading = mlbPitcherKGradingFromMetrics({
-        sideSource: legacyType,
+        sideSource: publishedType,
         projected: parsed.projected,
         line: parsed.line,
         odds,
@@ -11110,6 +11115,82 @@ function aiStoredBestPlayHotFormCorrection(
 }
 
 
+function aiStoredPitcherPublicationEligibility(
+  pick: AiPick,
+  slateRows: SheetRow[],
+): boolean | null {
+  if (pick.market !== "Pitcher Strikeouts") return null;
+
+  const row =
+    slateRows.find((item) => draftKingsGameKey(item) === pick.gameKey) ||
+    slateRows.find(
+      (item) =>
+        normalizeTeam(item["Away Team"] || "") === normalizeTeam(pick.awayTeam) &&
+        normalizeTeam(item["Home Team"] || "") === normalizeTeam(pick.homeTeam),
+    ) ||
+    null;
+  if (!row) return null;
+
+  const selectionPitcher = String(pick.selection || "").split("|")[0] || "";
+  const pitcher = cleanPitcherName(selectionPitcher || pick.play);
+  if (!pitcher) return null;
+
+  const summaries = [
+    { value: row["Away Pitcher K + Grade"], bulk: false },
+    { value: row["Home Pitcher K + Grade"], bulk: false },
+    { value: row["Away Bulk Pitcher K + Grade"], bulk: true },
+    { value: row["Home Bulk Pitcher K + Grade"], bulk: true },
+  ];
+
+  for (const item of summaries) {
+    const summary = String(item.value || "").trim();
+    if (!summary) continue;
+    const summaryPitcher =
+      parseKSummary(summary).pitcherName || cleanPitcherName(summary);
+    if (!namesShareAtLeastTwoTokens(pitcher, summaryPitcher)) continue;
+
+    // Dedicated bulk rows are projection-only by definition. For primary rows,
+    // only a directional published grade is eligible; PASS is authoritative.
+    if (item.bulk) return false;
+    return isPitcherKType(normalizeType(summary));
+  }
+
+  return null;
+}
+
+function aiStoredPitcherPublicationCorrection(
+  pick: AiPick,
+  slateRows: SheetRow[],
+): AiPick | null {
+  if (pick.market !== "Pitcher Strikeouts" || !pick.selected) return null;
+  if (aiStoredPitcherPublicationEligibility(pick, slateRows) !== false) return null;
+
+  return {
+    ...pick,
+    selected: false,
+    protectionStatus: "BLOCKED",
+    rejectionReason:
+      "Pitcher prop is projection-only under the current full-starter publication rules",
+    confidenceReason: [],
+    whySelected: [],
+    risks: [],
+    researchSummary: "",
+    verdict: "",
+    dataStatus: [
+      "Pitcher publication gate: current full-workload starter required",
+      ...pick.dataStatus.filter(
+        (item) =>
+          item !== AI_BEST_PLAY_FINAL_MARKER &&
+          !textKey(item).includes("ezpz best play is final"),
+      ),
+    ].slice(0, 5),
+    externalReviewStatus: "NOT_REQUIRED",
+    updatedAt: nowET(),
+    selectorVersion: AI_PICK_SELECTOR_VERSION,
+  };
+}
+
+
 function aiStoredPitcherHotBlockQualityCorrection(
   pick: AiPick,
 ): AiPick | null {
@@ -11277,6 +11358,35 @@ async function buildAiPickSelector(args: {
   let workingStoredRows = storedRows;
   let stored = workingStoredRows.map(parseAiPickRow).filter((pick): pick is AiPick => Boolean(pick));
   let storedToday = stored.filter((pick) => pick.date === isoPublicDate(today));
+
+  // PITCHER_PUBLICATION_GATE_REPAIR_V1: the daily slate's model publication
+  // decision is authoritative. Remove any same-day frozen pitcher pick that was
+  // accidentally resurrected from a PASS summary by the public edge+gap re-tier.
+  const pitcherPublicationCorrections = storedToday
+    .map((pick) => aiStoredPitcherPublicationCorrection(pick, slateRows))
+    .filter((pick): pick is AiPick => Boolean(pick));
+  if (pitcherPublicationCorrections.length) {
+    try {
+      await persistAiPickRows(pitcherPublicationCorrections);
+    } catch (error) {
+      console.error("AI pitcher publication-gate correction persistence failed", error);
+    }
+    const correctedByKey = new Map(
+      pitcherPublicationCorrections.map(
+        (pick) => [pick.date + "|" + pick.candidateId, pick] as const,
+      ),
+    );
+    workingStoredRows = workingStoredRows.map((row) => {
+      const parsed = parseAiPickRow(row);
+      if (!parsed) return row;
+      const replacement = correctedByKey.get(parsed.date + "|" + parsed.candidateId);
+      return replacement ? aiPickRow(replacement) : row;
+    });
+    stored = workingStoredRows
+      .map(parseAiPickRow)
+      .filter((pick): pick is AiPick => Boolean(pick));
+    storedToday = stored.filter((pick) => pick.date === isoPublicDate(today));
+  }
 
   // POLICY_REPAIR_HOT_MODEL_PICK_V1: remove any same-day immediate Model Pick
   // that was saved under the temporary v9 market-only rules without HOT form.
