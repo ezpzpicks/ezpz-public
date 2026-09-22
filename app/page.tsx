@@ -7203,6 +7203,7 @@ export default function Home() {
             <DirectTrendRecords
               rows={(data.trendRecordRows || []) as any}
               trendPlays={trendPlays as any}
+              aiPickRows={(data.aiPickRecordRows || []) as any}
               today={activeMlbTrendDate || data.today}
               sport="MLB"
             />
@@ -7479,6 +7480,7 @@ export default function Home() {
           <DirectTrendRecords
             rows={(data.trendRecordRows || []) as any}
             trendPlays={(data.trendPlays || []) as any}
+            aiPickRows={(data.aiPickRecordRows || []) as any}
             today={data.today}
             sport="MLB"
           />

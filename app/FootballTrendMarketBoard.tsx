@@ -948,7 +948,38 @@ function tone(record: RecordTotals) {
   return "yellow";
 }
 
-export function DirectTrendRecords({ rows, trendPlays = [], sport }: { rows: SheetRow[]; trendPlays?: TrendPlay[]; today?: string; sport: Sport }) {
+type DirectTrendPickRecord = {
+  candidateId?: string;
+  date?: string;
+  gameKey?: string;
+  gameTime?: string;
+  game?: string;
+  market?: string;
+  play?: string;
+  selection?: string;
+  line?: string;
+  odds?: string;
+  trendTier?: string;
+  confidenceReason?: string[];
+  selected?: boolean;
+  protectionStatus?: string;
+  snapshotStatus?: string;
+  result?: string;
+  selectorVersion?: string;
+};
+
+export function DirectTrendRecords({
+  rows,
+  trendPlays = [],
+  aiPickRows = [],
+  sport,
+}: {
+  rows: SheetRow[];
+  trendPlays?: TrendPlay[];
+  aiPickRows?: DirectTrendPickRecord[];
+  today?: string;
+  sport: Sport;
+}) {
   const grouped = new Map<string, SheetRow[]>();
   rows.forEach((row) => {
     if (!resultCode(row.Result || row.Status)) return;
@@ -1011,6 +1042,95 @@ export function DirectTrendRecords({ rows, trendPlays = [], sport }: { rows: She
           sameHistoricalTrendSelection(item.row, play)
         );
         if (!alreadyTracked) labeled.push({ row: recovered, signal, category: recordCategory(recovered) });
+      });
+    });
+  }
+
+  // Finalized direct-trend EZPZ picks are the durable source of truth for the
+  // new MLB Public Fade / Strong RLM / Sharp system. They are stored in
+  // aiPickRecordRows, while legacy trendRecordRows may have no row at all.
+  // Merge those finalized picks into the trend-record ledger and de-duplicate
+  // against any historical row that already represents the same decision.
+  if (aiPickRows.length) {
+    const activeSignals = ["Public Fade", "Strong RLM", "Sharp"] as const;
+    aiPickRows.forEach((pick) => {
+      if (
+        !pick.selected ||
+        pick.protectionStatus !== "PASSED" ||
+        pick.snapshotStatus !== "FINAL_PREGAME" ||
+        !resultCode(pick.result)
+      ) return;
+
+      // MLB direct records should only come from the current direct-trend
+      // selector, not the older trend scoring system.
+      if (
+        sport === "MLB" &&
+        !String(pick.selectorVersion || "").startsWith("mlb-direct-trends")
+      ) return;
+
+      const signalSources = [
+        String(pick.trendTier || ""),
+        ...(pick.confidenceReason || []).map((value) => String(value || "")),
+      ].map(textKey);
+      const signals = activeSignals.filter((signal) =>
+        signalSources.some((value) => value.includes(textKey(signal)))
+      );
+      if (!signals.length) return;
+
+      const market = String(pick.market || "");
+      const marketKey = textKey(market);
+      const selectionText = String(pick.selection || pick.play || "");
+      const totalSide =
+        marketKey === "total"
+          ? (textKey(selectionText).startsWith("under") ? "Under" : "Over")
+          : "";
+      const recovered: SheetRow = {
+        Date: String(pick.date || ""),
+        Game: String(pick.game || ""),
+        "Game Key": String(pick.gameKey || ""),
+        "Game Time": String(pick.gameTime || ""),
+        Market: market,
+        Selection: marketKey === "total" ? totalSide : selectionText,
+        Side: totalSide,
+        Line: String(pick.line || ""),
+        Odds: String(pick.odds || ""),
+        "Public Split Odds": String(pick.odds || ""),
+        Result: String(pick.result || ""),
+      };
+
+      const recoveredSelection = historicalSelectionKey(recovered);
+      signals.forEach((signal) => {
+        const alreadyTracked = labeled.some((item) => {
+          if (
+            item.signal !== signal ||
+            textKey(item.row.Date) !== textKey(recovered.Date) ||
+            textKey(item.row.Market) !== textKey(recovered.Market) ||
+            historicalSelectionKey(item.row) !== recoveredSelection
+          ) return false;
+
+          const itemGameKey = textKey(item.row["Game Key"] || item.row["Game ID"]);
+          const recoveredGameKey = textKey(recovered["Game Key"]);
+          if (itemGameKey && recoveredGameKey && itemGameKey === recoveredGameKey) return true;
+
+          const itemGameTime = textKey(item.row["Game Time"]);
+          const recoveredGameTime = textKey(recovered["Game Time"]);
+          if (itemGameTime && recoveredGameTime) {
+            return (
+              itemGameTime === recoveredGameTime &&
+              textKey(item.row.Game) === textKey(recovered.Game)
+            );
+          }
+
+          return textKey(item.row.Game) === textKey(recovered.Game);
+        });
+
+        if (!alreadyTracked) {
+          labeled.push({
+            row: recovered,
+            signal,
+            category: recordCategory(recovered),
+          });
+        }
       });
     });
   }
