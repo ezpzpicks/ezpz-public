@@ -1832,8 +1832,8 @@ function liveSplitInfoForPlay(
   return {
     kind: "split",
     source: finalSnapshot
-      ? "DraftKings Final Pregame Snapshot"
-      : "DraftKings Live",
+      ? "ScoresAndOdds Final Pregame Snapshot"
+      : "ScoresAndOdds Live",
     betsPct: match.betsPct,
     moneyPct: match.moneyPct,
     gapPct: match.gapPct,
@@ -1887,7 +1887,7 @@ function livePropInfoForSummary(
 
   return {
     kind: "prop",
-    source: "DraftKings Live",
+    source: "ScoresAndOdds Live",
     rank: prop.rank,
     market: prop.market,
     line: prop.listedLine,
@@ -3428,7 +3428,7 @@ function PublicBettingPanel({ info }: { info: PublicBettingInfo | null }) {
           {exact ? "⚠" : "ℹ"} {warningLabel}
         </div>
         <div className="publicSplitMeta">
-          {info.matchConfidence || "DraftKings popularity ranking"}
+          {info.matchConfidence || "ScoresAndOdds market tracking"}
           {info.updatedAt ? ` • ${info.updatedAt}` : ""}
         </div>
       </div>
@@ -5230,7 +5230,7 @@ function AiPickSelectorCard({
             <div className="aiTrendEvidenceHead">
               <div>
                 <h3>Trend Qualification</h3>
-                <p>Direct DraftKings market signals that qualified this MLB EZPZ Pick.</p>
+                <p>Direct ScoresAndOdds market signals that qualified this MLB EZPZ Pick.</p>
               </div>
             </div>
             <div className="directTrendRules">
