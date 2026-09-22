@@ -245,7 +245,7 @@ function nflYardagePropTier(row: SheetRow) {
   if (!metrics) return "";
   if (metrics.projectionGapPct < 30 || metrics.probabilityEdgePct < 12) return "Non-Edge";
   if (metrics.probabilityEdgePct >= 30) return "Strong";
-  if (metrics.probabilityEdgePct >= 16) return "Regular";
+  if (metrics.probabilityEdgePct >= 20) return "Regular";
   return "Lean";
 }
 
@@ -570,7 +570,7 @@ function modelPlayEzpzPick(play: any): NflEzpzPick | null {
       odds: odds == null ? String(play.marketOdds || play.oddsLine || "") : formatAmericanOdds(odds),
       score,
       tier: yardageTier,
-      qualification: `${yardageTier} yardage prop • 30%+ projection gap • ${yardageTier === "Strong" ? "30%+" : "16%+"} probability edge`,
+      qualification: `${yardageTier} yardage prop • 30%+ projection gap • ${yardageTier === "Strong" ? "30%+" : "20%+"} probability edge`,
       formStatus: play.formStatus,
       formType: play.formType,
       headshotUrl: play.headshotUrl,
