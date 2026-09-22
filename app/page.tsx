@@ -7420,7 +7420,6 @@ export default function Home() {
         <div className="sectionHead">
           <div>
             <h2>Model Play Records</h2>
-            <p>Official graded MLB model plays</p>
           </div>
         </div>
 
@@ -7442,7 +7441,6 @@ export default function Home() {
         <div className="sectionHead trendRecordsHead">
           <div>
             <h2>EZPZ Picks Records</h2>
-            <p>Results of the actual MLB EZPZ Picks stream</p>
           </div>
         </div>
 
@@ -7471,8 +7469,7 @@ export default function Home() {
 
         <div className="sectionHead trendRecordsHead">
           <div>
-            <h2>ScoresAndOdds Trend Records</h2>
-            <p>Only the three active MLB market signals: Public Fade, Strong RLM, and Sharp</p>
+            <h2>Market Trend Records</h2>
           </div>
         </div>
 
@@ -7489,7 +7486,6 @@ export default function Home() {
         <div className="sectionHead">
           <div>
             <h2>Bet Type Records</h2>
-            <p>MLB model-play records by graded bet type</p>
           </div>
         </div>
 
