@@ -1048,6 +1048,71 @@ body::after {
   margin-bottom: 10px;
 }
 
+/* MLB market-day selector parity with football week selector */
+.mlbDayControls {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 14px;
+  border: 1px solid rgba(78,145,255,.22);
+  background: linear-gradient(145deg, rgba(9,20,39,.88), rgba(5,13,26,.9));
+  border-radius: 18px;
+  padding: 13px 15px;
+}
+
+.mlbDayControls label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.mlbDayControls label span,
+.mlbDayControls small {
+  color: var(--muted);
+  font-size: .74rem;
+}
+
+.mlbDayControls select {
+  min-width: 150px;
+  border: 1px solid rgba(92,138,202,.28);
+  background: #081427;
+  color: #f3f7ff;
+  border-radius: 11px;
+  padding: 9px 12px;
+  font: inherit;
+  font-weight: 850;
+  outline: none;
+  color-scheme: dark;
+}
+
+.mlbDayControls > div {
+  display: grid;
+  justify-items: end;
+  gap: 3px;
+  text-align: right;
+}
+
+.mlbDayControls strong {
+  color: #f2f7ff;
+  font-size: 1rem;
+}
+
+@media (max-width: 620px) {
+  .mlbDayControls {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .mlbDayControls > div {
+    justify-items: start;
+    text-align: left;
+  }
+
+  .mlbDayControls select {
+    width: 100%;
+  }
+}
+
 .directTrendRules {
   display: flex;
   flex-wrap: wrap;
