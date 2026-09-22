@@ -3836,6 +3836,14 @@ function rankedTrendLabel(score: number, eligible = true): TrendTier {
   return "Good";
 }
 
+function publicSplitTierLabel(value: unknown) {
+  const label = String(value ?? "").trim();
+  if (/^strong trend$/i.test(label)) return "Strong Split";
+  if (/^positive trend$/i.test(label)) return "Positive Split";
+  return label;
+}
+
+
 function clampTrendValue(value: number) {
   return Math.max(0, Math.min(100, value));
 }
@@ -4533,7 +4541,7 @@ function TrendSelectionRow({
           </small>
         </span>
         <span className="trendSelectionMarket">
-          <small>{play.tier}</small>
+          <small>{publicSplitTierLabel(play.tier)}</small>
           <strong>{play.score}</strong>
           {v2Number(play.v2MarketGap) !== null ? (
             <small>Gap {v2PercentText(play.v2MarketGap)}</small>
@@ -4663,7 +4671,7 @@ function TrendGameCard({
             {leader ? "Top split signal in this game" : "Split signal status"}
           </span>
           <strong>{leader ? topPick : "No graded split signals"}</strong>
-          <small>{leader?.tier || "No current side qualifies"}</small>
+          <small>{leader ? publicSplitTierLabel(leader.tier) : "No current side qualifies"}</small>
         </div>
         <div className="trendGameLeaderScore">
           <span>SPLIT</span>
@@ -5065,6 +5073,13 @@ function cleanAiDisplayText(value: unknown) {
     .replace(/\s+([,.;:])/g, "$1")
     .replace(/\s{2,}/g, " ")
     .replace(/^[•\-–—]+\s*/, "")
+    .replace(/\bStrong Trend\b/gi, "Strong Split")
+    .replace(/\bPositive Trend\b/gi, "Positive Split")
+    .replace(/\bTrend Plays\b/gi, "Betting Split signals")
+    .replace(/\bTrend Play\b/gi, "Betting Split signal")
+    .replace(/\btrend signals\b/gi, "betting split signals")
+    .replace(/\btrend signal\b/gi, "betting split signal")
+    .replace(/\btrend history\b/gi, "split history")
     .trim();
 }
 
@@ -5392,7 +5407,7 @@ function AiPickSelectorCard({
                 <h3>Betting Split Evidence</h3>
                 <p>Historical market-signal performance behind this betting split signal.</p>
               </div>
-              {pick.trendTier ? <span className="aiTrendTierPill">{pick.trendTier}</span> : null}
+              {pick.trendTier ? <span className="aiTrendTierPill">{publicSplitTierLabel(pick.trendTier)}</span> : null}
             </div>
 
             {trendRoiSummary ? (
@@ -7368,7 +7383,7 @@ export default function Home() {
               <h2>EZPZ Picks</h2>
               <p className="aiSelectorStatusText">
                 {viewingToday
-                  ? data.aiSelectorStatus?.message ||
+                  ? cleanAiDisplayText(data.aiSelectorStatus?.message) ||
                     "The selector is evaluating today’s Model Plays and Betting Split signals with deterministic EZPZ gates."
                   : `Showing the locked EZPZ Picks saved for ${activeEzpzDateLabel}. Final grading is shown on each pick.`}
               </p>
