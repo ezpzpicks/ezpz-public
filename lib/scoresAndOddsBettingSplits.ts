@@ -391,20 +391,23 @@ export function parseScoresAndOddsConsensus(
     const homeTeam = contextHome || (market === "Total" ? "" : cleanSelectionTeam(descriptor.right));
     if (!awayTeam || !homeTeam || awayTeam === homeTeam) continue;
 
-    const matchupKey = `${pageDate}|${awayTeam.toLowerCase()}|${homeTeam.toLowerCase()}`;
-    let occurrenceState = matchupOccurrenceState.get(matchupKey);
-    if (!occurrenceState) {
-      occurrenceState = { occurrence: 1, seenMarkets: new Set() };
-      matchupOccurrenceState.set(matchupKey, occurrenceState);
-    } else if (occurrenceState.seenMarkets.has(market)) {
-      occurrenceState = {
-        occurrence: occurrenceState.occurrence + 1,
-        seenMarkets: new Set(),
-      };
-      matchupOccurrenceState.set(matchupKey, occurrenceState);
+    let sourceGameOccurrence = 1;
+    if (sport === "MLB") {
+      const matchupKey = `${pageDate}|${awayTeam.toLowerCase()}|${homeTeam.toLowerCase()}`;
+      let occurrenceState = matchupOccurrenceState.get(matchupKey);
+      if (!occurrenceState) {
+        occurrenceState = { occurrence: 1, seenMarkets: new Set() };
+        matchupOccurrenceState.set(matchupKey, occurrenceState);
+      } else if (occurrenceState.seenMarkets.has(market)) {
+        occurrenceState = {
+          occurrence: occurrenceState.occurrence + 1,
+          seenMarkets: new Set(),
+        };
+        matchupOccurrenceState.set(matchupKey, occurrenceState);
+      }
+      occurrenceState.seenMarkets.add(market);
+      sourceGameOccurrence = occurrenceState.occurrence;
     }
-    occurrenceState.seenMarkets.add(market);
-    const sourceGameOccurrence = occurrenceState.occurrence;
 
     const [leftLine, rightLine] = parsePairedLines(header, market);
     const leftOdds = findBestOdds(
