@@ -1742,7 +1742,7 @@ function nflYardagePropTier(row: SheetRow) {
   if (!metrics) return "";
   if (metrics.projectionGapPct < 30 || metrics.probabilityEdgePct < 12) return "Non-Edge";
   if (metrics.probabilityEdgePct >= 30) return "Strong";
-  if (metrics.probabilityEdgePct >= 20) return "Regular";
+  if (metrics.probabilityEdgePct >= 16) return "Regular";
   return "Lean";
 }
 
