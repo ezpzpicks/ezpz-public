@@ -458,13 +458,50 @@ function signalDateWithin(date: unknown, today: string, days: number) {
   const diff = Math.round((Date.parse(`${referenceDate}T12:00:00Z`) - Date.parse(`${rowDate}T12:00:00Z`)) / 86_400_000);
   return Number.isFinite(diff) && diff >= 0 && diff < days;
 }
+
+function nflSavedEzpzRecordRows(data: FootballData): SheetRow[] {
+  return (data.aiPickRecordRows || [])
+    .filter((pick: any) => resultCode(pick.result || pick.Result))
+    .filter((pick: any) => {
+      const snapshot = ezpzTextKey(pick.snapshotStatus || pick["Snapshot Status"]);
+      if (!snapshot.startsWith("final")) return false;
+
+      const market = ezpzTextKey(pick.market || pick.Market);
+      const propMarket = ezpzTextKey(pick.propMarket || pick["Prop Market"]);
+      const isYardageProp =
+        market === "player prop" &&
+        ["passing yards", "rushing yards", "receiving yards"].includes(propMarket);
+      if (!isYardageProp) return true;
+
+      // NFL yardage EZPZ records use the current locked rule:
+      // Strong + Regular only. This excludes obsolete A/B-era rows that may
+      // still exist in saved history from before the tier change.
+      const tier = ezpzTextKey(pick.tier || pick.Grade || "");
+      return tier === "strong" || tier === "regular";
+    })
+    .map((pick: any) => ({
+      Date: String(pick.date || pick.Date || ""),
+      Game: String(pick.game || pick.Game || ""),
+      Market: String(pick.market || pick.Market || ""),
+      Selection: String(pick.selection || pick.Selection || ""),
+      Odds: String(pick.odds || pick.Odds || ""),
+      Result: String(pick.result || pick.Result || ""),
+      Player: String(pick.playerName || pick.Player || ""),
+      "Prop Market": String(pick.propMarket || pick["Prop Market"] || ""),
+      "Prop Side": String(pick.propSide || pick["Prop Side"] || ""),
+      "Prop Line": String(pick.propLine || pick["Prop Line"] || ""),
+      Grade: String(pick.tier || pick.Grade || ""),
+    }));
+}
 function FootballRecords({ sport, data }: { sport: Sport; data: FootballData }) {
   const overall = data.tiles?.overallGreen || fallbackTotals();
   const last7 = data.tiles?.last7Days || fallbackTotals();
   const overallRows = data.recordSummary || [];
   const last7Rows = data.last7RecordSummary || [];
   const trackerRows = data.betTrackerRows || [];
-  const ezpzRows = footballEzpzHistoryRows(data, sport);
+  const ezpzRows = sport === "NFL"
+    ? nflSavedEzpzRecordRows(data)
+    : footballEzpzHistoryRows(data, sport);
   const ezpzOverall = recordTotalsFromRows(ezpzRows);
   const ezpzLast7 = recordTotalsFromRows(ezpzRows.filter((row) => signalDateWithin(row.Date || row["Game Date"] || "", data.today || "", 7)));
   const nflPropRecord = sport === "NFL" ? recordTotalsFromRows(trackerRows.filter(isNflPlayerPropRow)) : null;
