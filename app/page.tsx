@@ -5086,6 +5086,60 @@ function aiTrendNetRoiSummary(play: TrendPlay, trendPlays: TrendPlay[]) {
   };
 }
 
+function aiTrendRecordKey(pick: AiPick) {
+  const tier = normalizeType(pick.trendTier || "");
+  const signals = ["PUBLIC FADE", "STRONG RLM", "SHARP"].filter((signal) =>
+    tier.includes(signal),
+  );
+  const signalKey = signals.length ? signals.join("+") : tier || "TREND";
+  const market = normalizeType(pick.market || "");
+  const selection = normalizeType(`${pick.selection || ""} ${pick.play || ""}`);
+  const direction =
+    market === "TOTAL"
+      ? selection.includes("UNDER")
+        ? "UNDER"
+        : selection.includes("OVER")
+          ? "OVER"
+          : ""
+      : "";
+  return [signalKey, market, direction].filter(Boolean).join("|");
+}
+
+function aiTrendLastSevenRecord(
+  pick: AiPick,
+  rows: AiPick[] | undefined,
+  referenceDate: string,
+) {
+  const key = aiTrendRecordKey(pick);
+  const beforeDate = normalizedDateKey(pick.date || referenceDate);
+  const completed = (rows || [])
+    .map((row, index) => ({
+      row,
+      index,
+      date: normalizedDateKey(row.date),
+    }))
+    .filter(({ row, date }) =>
+      Boolean(
+        date &&
+        (!beforeDate || date < beforeDate) &&
+        row.result &&
+        aiTrendRecordKey(row) === key,
+      ),
+    )
+    .sort((a, b) => b.date.localeCompare(a.date) || b.index - a.index)
+    .slice(0, 7);
+
+  let wins = 0;
+  let losses = 0;
+  let pushes = 0;
+  completed.forEach(({ row }) => {
+    if (row.result === "W") wins += 1;
+    else if (row.result === "L") losses += 1;
+    else if (row.result === "P") pushes += 1;
+  });
+  return `${wins}-${losses}-${pushes}`;
+}
+
 function AiPickSelectorCard({
   pick,
   todaySummary,
@@ -5094,6 +5148,7 @@ function AiPickSelectorCard({
   overallSummary,
   trendPlay,
   trendPlays,
+  trendLast7Record = "",
   handpicked = false,
 }: {
   pick: AiPick;
@@ -5103,9 +5158,15 @@ function AiPickSelectorCard({
   overallSummary: Summary | null;
   trendPlay: TrendPlay | null;
   trendPlays: TrendPlay[];
+  trendLast7Record?: string;
   handpicked?: boolean;
 }) {
   const schedule = scheduleInfoFromRaw(pick.gameTime, pick.date);
+  const tileLast7Record = pick.bestPlayType
+    ? lastSevenBetsSummary
+      ? summaryRecord(lastSevenBetsSummary)
+      : ""
+    : trendLast7Record;
   const isImmediateBestPlayFinal = Boolean(
     pick.bestPlayType &&
       pick.snapshotStatus === "FINAL_PREGAME" &&
@@ -5166,6 +5227,11 @@ function AiPickSelectorCard({
             ) : null}
           </div>
           <strong><SelectionWithTeamLogo sport="MLB" selection={pick.play} game={pick.game} compact /></strong>
+          {tileLast7Record ? (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 2 }}>
+              <span className="formPill neutral">L7 {tileLast7Record}</span>
+            </div>
+          ) : null}
           {directTrendLabels.length ? (
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 2 }}>
               {directTrendLabels.map((label) => (
@@ -7067,6 +7133,20 @@ export default function Home() {
         : historicalEzpzPicks.filter(
             (pick) => normalizedDateKey(pick.date) === activeEzpzDate,
           );
+    const activeLastSevenBetsByType =
+      activeEzpzDate === currentEzpzDate
+        ? lastSevenBetsByType
+        : new Map<string, Summary>(
+            calculateTrackerLastBetsSummary(
+              (data.betTrackerRows || []).filter((row) => {
+                const rowDate = normalizedDateKey(
+                  row.Date || row.date || row["Bet Date"] || "",
+                );
+                return Boolean(rowDate && rowDate < activeEzpzDate);
+              }),
+              7,
+            ).map((row) => [normalizeType(row.betType), row]),
+          );
     const activeEzpzDateLabel = (() => {
       const [year, month, day] = activeEzpzDate.split("-").map(Number);
       if (!year || !month || !day) return activeEzpzDate || data.today;
@@ -7318,8 +7398,8 @@ export default function Home() {
                           : null
                       }
                       lastSevenBetsSummary={
-                        viewingToday && pick.bestPlayType
-                          ? lastSevenBetsByType.get(normalizeType(pick.bestPlayType)) || null
+                        pick.bestPlayType
+                          ? activeLastSevenBetsByType.get(normalizeType(pick.bestPlayType)) || null
                           : null
                       }
                       overallSummary={
@@ -7329,6 +7409,15 @@ export default function Home() {
                       }
                       trendPlay={viewingToday ? aiTrendPlayForPick(pick, trendPlays) : null}
                       trendPlays={viewingToday ? trendPlays : []}
+                      trendLast7Record={
+                        !pick.bestPlayType
+                          ? aiTrendLastSevenRecord(
+                              pick,
+                              data.aiPickRecordRows,
+                              activeEzpzDate || data.today,
+                            )
+                          : ""
+                      }
                       handpicked={
                         viewingToday &&
                         Boolean(
