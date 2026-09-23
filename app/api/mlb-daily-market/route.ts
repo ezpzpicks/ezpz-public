@@ -98,6 +98,18 @@ function eventTimeKey(value: unknown) {
   return hour && minute ? `${hour}:${minute}` : "";
 }
 
+function marketSelectionKey(market: string, value: unknown) {
+  const normalized = String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+  if (market === "Total") {
+    if (normalized.startsWith("over")) return "over";
+    if (normalized.startsWith("under")) return "under";
+  }
+  return normalized;
+}
+
 function latestCurrentSnapshotFor(
   rows: Row[],
   row: Row,
@@ -109,14 +121,14 @@ function latestCurrentSnapshotFor(
   const targetDate = isoDate(row.Date);
   const targetAway = normalized(row["Away Team"]);
   const targetHome = normalized(row["Home Team"]);
-  const targetSelection = normalized(selection);
+  const targetSelection = marketSelectionKey(market, selection);
   const targetTime = eventTimeKey(row["Game Time"]);
 
   return rows
     .filter((saved) => {
       if (isoDate(saved.Date) !== targetDate) return false;
       if (String(saved.Market || "") !== market) return false;
-      if (normalized(saved.Selection || saved.Side) !== targetSelection) return false;
+      if (marketSelectionKey(market, saved.Selection || saved.Side) !== targetSelection) return false;
       if (
         normalized(saved["Away Team"]) !== targetAway ||
         normalized(saved["Home Team"]) !== targetHome
@@ -172,14 +184,14 @@ function marketHistoryFor(
   const targetAway = normalized(row["Away Team"]);
   const targetHome = normalized(row["Home Team"]);
   const targetGame = normalized(row.Game);
-  const targetSelection = normalized(selection);
+  const targetSelection = marketSelectionKey(market, selection);
   const targetTime = eventTimeKey(row["Game Time"]);
 
   const points = rows
     .filter((saved) => {
       if (isoDate(saved.Date) !== targetDate) return false;
       if (String(saved.Market || "") !== market) return false;
-      if (normalized(saved.Selection || saved.Side) !== targetSelection) return false;
+      if (marketSelectionKey(market, saved.Selection || saved.Side) !== targetSelection) return false;
 
       const savedAway = normalized(saved["Away Team"]);
       const savedHome = normalized(saved["Home Team"]);
