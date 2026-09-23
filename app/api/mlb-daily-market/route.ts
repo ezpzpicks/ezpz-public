@@ -307,8 +307,20 @@ function historicalPlay(
   const movementHistory = [...dedupedHistory.values()].sort(
     (a, b) => snapshotEpoch(a.snapshotTime) - snapshotEpoch(b.snapshotTime),
   );
+  const latestPoint = movementHistory.at(-1);
+  const effectiveLine =
+    market === "Moneyline"
+      ? null
+      : latestPoint?.line ?? currentLine;
+  const effectiveOdds = String(latestPoint?.odds || currentOdds);
+  const effectiveBets = Number.isFinite(Number(latestPoint?.betsPct))
+    ? Number(latestPoint?.betsPct)
+    : currentBets;
+  const effectiveMoney = Number.isFinite(Number(latestPoint?.moneyPct))
+    ? Number(latestPoint?.moneyPct)
+    : currentMoney;
   const updatedAt = String(
-    movementHistory.at(-1)?.snapshotTime ||
+    latestPoint?.snapshotTime ||
     row["Public Split Snapshot Time"] ||
     row["Result Updated"] ||
     "",
@@ -330,18 +342,18 @@ function historicalPlay(
     side: market === "Total" ? selection : "",
     sideGroup: market === "Total"
       ? selection
-      : oddsNumber(currentOdds) < 0
+      : oddsNumber(effectiveOdds) < 0
         ? "Favorite"
         : "Underdog",
-    line: currentLine,
-    odds: currentOdds,
-    betsPct: currentBets,
-    moneyPct: currentMoney,
-    gapPct: Math.round((currentMoney - currentBets) * 10) / 10,
+    line: effectiveLine,
+    odds: effectiveOdds,
+    betsPct: effectiveBets,
+    moneyPct: effectiveMoney,
+    gapPct: Math.round((effectiveMoney - effectiveBets) * 10) / 10,
     openingBetsPct: openingBets,
     openingMoneyPct: openingMoney,
-    publicMovementPct: openingBets == null ? null : Math.round((currentBets - openingBets) * 10) / 10,
-    sharpMovementPct: openingMoney == null ? null : Math.round((currentMoney - openingMoney) * 10) / 10,
+    publicMovementPct: openingBets == null ? null : Math.round((effectiveBets - openingBets) * 10) / 10,
+    sharpMovementPct: openingMoney == null ? null : Math.round((effectiveMoney - openingMoney) * 10) / 10,
     openingLine,
     openingOdds,
     openingImpliedPct: n(row["Opening Implied %"]),
