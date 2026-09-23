@@ -1824,9 +1824,8 @@ function persistPublicSplitSnapshotRecords(
       // Only a tracking snapshot that is actually near the CURRENT scheduled
       // first pitch is immutable. A stale/early row that was mislabeled as a
       // 15-minute snapshot must never freeze the market for hours.
-      const incomingTracking = isValidFinalTrackingSnapshot(row, slateRows);
       const existingValidTracking = isValidFinalTrackingSnapshot(existing, slateRows);
-      if (!incomingTracking && existingValidTracking) return;
+      if (existingValidTracking) return;
       snapshotMap.set(key, row);
     });
     await writeWholeWorksheet(
@@ -2834,12 +2833,13 @@ function finalPregameDisplayPayloadFromRows(
   rows: SheetRow[],
   slateRows: SheetRow[],
   today: string,
+  historyRows: SheetRow[] = [],
 ): DraftKingsPayload {
   const todayIso = isoPublicDate(today);
   const finalSlateRows = slateRows.filter(
     (row) =>
       isoPublicDate(row.Date || "") === todayIso &&
-      slateHasFinalPregameSnapshot(row),
+      !isPregameRow(row),
   );
 
   function resolveFinalSlateGame(row: SheetRow, matchingFinalGames: SheetRow[]) {
@@ -2893,7 +2893,7 @@ function finalPregameDisplayPayloadFromRows(
     return candidates[0].slateRow;
   }
 
-  const selectedRows = rows.flatMap((row) => {
+  const selectedRows = [...rows, ...historyRows].flatMap((row) => {
     if (isoPublicDate(row.Date || "") !== todayIso) return [];
 
     // A row is FINAL only when its capture timestamp is plausibly near the
@@ -2923,6 +2923,9 @@ function finalPregameDisplayPayloadFromRows(
     // before building the public payload.
     const resolvedSlateGame = resolveFinalSlateGame(row, matchingFinalGames);
     if (resolvedSlateGame) {
+      const capturedAt = scheduledGameStart({ Date: row.Date, "Game Time": row["Snapshot Time ET"] });
+      const start = scheduledGameStart(resolvedSlateGame);
+      if (capturedAt == null || start == null || capturedAt >= start) return [];
       const resolvedTime = scheduledGameTimeKey(resolvedSlateGame);
       return resolvedTime
         ? [{ ...row, "Game Time ET": resolvedTime }]
@@ -2932,7 +2935,22 @@ function finalPregameDisplayPayloadFromRows(
     return [];
   });
 
-  const payload = snapshotPayloadFromRows(selectedRows, today);
+  const finalBySide = new Map<string, SheetRow>();
+  for (const row of selectedRows) {
+    const key = snapshotRecordKey(row);
+    const existing = finalBySide.get(key);
+    const tracking = isFifteenMinuteTrackingSnapshot(row);
+    const existingTracking = isFifteenMinuteTrackingSnapshot(existing);
+    const stamp = Date.parse(row["Snapshot Time ET"] || "");
+    const existingStamp = Date.parse(existing?.["Snapshot Time ET"] || "");
+    // Preserve the first valid lock; otherwise recover the latest actual
+    // pregame observation from durable history, never today's in-game feed.
+    if (!existing || (tracking && !existingTracking) ||
+      (tracking === existingTracking && (tracking ? stamp < existingStamp : stamp > existingStamp))) {
+      finalBySide.set(key, row);
+    }
+  }
+  const payload = snapshotPayloadFromRows([...finalBySide.values()], today);
   return {
     ...payload,
     splits: payload.splits.map((split) => ({
@@ -6254,20 +6272,38 @@ function mlbDirectTrendLabels(
 function mlbDirectSnapshotHistory(
   split: DraftKingsSplit,
   savedRows: SheetRow[],
+  slateRows: SheetRow[] = [],
 ) {
   const targetDate = isoPublicDate(split.date);
   const targetGame = textKey(split.game);
   const targetMarket = textKey(split.market);
-  const targetSelection = textKey(split.selection);
+  const selectionKey = (value: unknown) => split.market === "Total"
+    ? textKey(value).split(" ")[0]
+    : textKey(value);
+  const targetSelection = selectionKey(split.selection);
   const targetTime = parseEventTimeKey(split.eventTime || "");
+  const matchingGames = slateRows.filter((row) =>
+    isoPublicDate(row.Date) === targetDate &&
+    normalizeTeam(row["Away Team"]) === normalizeTeam(split.awayTeam) &&
+    normalizeTeam(row["Home Team"]) === normalizeTeam(split.homeTeam)
+  );
+  const gameStart = scheduledGameStart({ Date: split.date, "Game Time": split.eventTime || "" });
+  const finalAt = split.snapshotStatus === "FINAL_PREGAME"
+    ? Date.parse(String(split.snapshotTime || split.lastSeenAt || ""))
+    : NaN;
   const points = savedRows.flatMap((row) => {
     if (textKey(row["Data Type"] || "").includes("player prop")) return [];
     if (isoPublicDate(row.Date || "") !== targetDate) return [];
     if (textKey(row.Game || "") !== targetGame) return [];
     if (textKey(row.Market || "") !== targetMarket) return [];
-    if (textKey(row.Selection || "") !== targetSelection) return [];
+    if (selectionKey(row.Selection || "") !== targetSelection) return [];
     const rowTime = parseEventTimeKey(row["Game Time ET"] || "");
     if (targetTime && rowTime && rowTime !== targetTime) return [];
+    if (!rowTime && matchingGames.length > 1) return [];
+    const capturedAt = Date.parse(String(row["Snapshot Time ET"] || row["Public Split Snapshot Time"] || ""));
+    if (!Number.isFinite(capturedAt)) return [];
+    if (gameStart != null && capturedAt >= gameStart) return [];
+    if (Number.isFinite(finalAt) && capturedAt > finalAt) return [];
     const betsPct = publicPercentOrNull(row["Current Public %"] || row["Public Bets %"]);
     const moneyPct = publicPercentOrNull(row["Current Sharp %"] || row["Public Money %"]);
     if (betsPct == null || moneyPct == null) return [];
@@ -6339,7 +6375,7 @@ function buildMlbDirectTrendPlays(
         updatedAt: String(split.snapshotTime || split.lastSeenAt || updatedAt),
         snapshotStatus: split.snapshotStatus || "LIVE",
         recordDate: isoPublicDate(slateRow.Date || split.date), recordGameKey: gameKey, recordGameTime: gameTime,
-        movementHistory: mlbDirectSnapshotHistory(split, savedRows),
+        movementHistory: mlbDirectSnapshotHistory(split, savedRows, slateRows),
       }];
     });
 }
@@ -12187,11 +12223,6 @@ async function buildUncachedPublicResponse(request: NextRequest) {
       initialSlateTodayRaw as SheetRow[],
     );
     const savedDraftKings = snapshotPayloadFromRows(savedPublicSplits, today);
-    let finalSnapshotDraftKings = finalPregameDisplayPayloadFromRows(
-      savedPublicSplits,
-      initialSlateTodayRaw as SheetRow[],
-      today,
-    );
     const draftKings = mergeDraftKingsPayload(liveDraftKings, savedDraftKings);
     const persistence = await persistFinalPregameDraftKings(
       draftKings,
@@ -12214,10 +12245,12 @@ async function buildUncachedPublicResponse(request: NextRequest) {
     // Recompute after any slate/snapshot write. This is what keeps a started
     // game's frozen final pregame card visible through the end of the day even
     // when ScoresAndOdds has already removed the live event.
-    finalSnapshotDraftKings = finalPregameDisplayPayloadFromRows(
+    const savedPublicSplitHistory = await safeReadPublicSplitHistoryRows(today);
+    const finalSnapshotDraftKings = finalPregameDisplayPayloadFromRows(
       savedPublicSplits,
       slateTodayRaw as SheetRow[],
       today,
+      savedPublicSplitHistory,
     );
 
     const mlbResultSync = await syncMlbResults(today);
@@ -12302,7 +12335,6 @@ async function buildUncachedPublicResponse(request: NextRequest) {
       primaryTrendRecordRows,
       buildAiHistoricalTrendRecordRows(storedAiPickRows),
     );
-    const savedPublicSplitHistory = await safeReadPublicSplitHistoryRows(today);
     const trendPlays = buildMlbDirectTrendPlays(
       publicDraftKings.splits,
       [...savedPublicSplits, ...savedPublicSplitHistory],

@@ -302,15 +302,27 @@ function americanOddsFromText(value: string) {
   return matches?.length ? matches[matches.length - 1] : "";
 }
 
-function findBestOdds(tokens: string[], anchor: number, label: RegExp) {
+function findBestOdds(tokens: string[], anchor: number, label: RegExp, expectedLine: number | null) {
   const stop = Math.min(tokens.length, anchor + 28);
   for (let index = anchor; index < stop; index += 1) {
     const raw = String(tokens[index] || "");
     if (index > anchor && /%\s*of\s*Bets/i.test(raw)) break;
     if (!label.test(raw)) continue;
+    const quote: string[] = [];
     for (let probe = index + 1; probe < Math.min(stop, index + 7); probe += 1) {
-      const odds = americanOddsFromText(tokens[probe] || "");
-      if (odds) return odds;
+      const token = tokens[probe] || "";
+      if (/best\s+(?:away|home|over|under)|%\s*of\s*Bets/i.test(token)) break;
+      quote.push(token);
+      const odds = americanOddsFromText(token);
+      if (!odds) continue;
+      if (expectedLine != null) {
+        // The consensus line and the advertised best offer can differ. A price
+        // for Under 7.5 must never be published as the price for Under 7.
+        const lineText = quote.join(" ").replace(/\beven\b|[+-]\d{3,4}\b/gi, "");
+        const lineMatch = lineText.match(/(?:[ou]\s*)?([+-]?\d+(?:\.\d+)?)/i);
+        if (!lineMatch || Math.abs(Number(lineMatch[1]) - expectedLine) > 0.001) return "";
+      }
+      return odds;
     }
   }
   return "";
@@ -414,11 +426,13 @@ export function parseScoresAndOddsConsensus(
       tokens,
       anchor,
       market === "Total" ? /best\s+over/i : /best\s+away\s+odds/i,
+      leftLine,
     );
     const rightOdds = findBestOdds(
       tokens,
       anchor,
       market === "Total" ? /best\s+under/i : /best\s+home\s+odds/i,
+      rightLine,
     );
 
     const leftSide = market === "Total" ? "Over" as const : "" as const;

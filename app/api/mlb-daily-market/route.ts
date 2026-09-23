@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { parseGameStart } from "../../../lib/mlbTrendV2";
 import {
   readTursoDataset,
   readTursoDatasetByDateKeys,
@@ -26,6 +27,7 @@ function isoDate(value: unknown) {
 }
 
 function n(value: unknown) {
+  if (value == null || String(value).trim() === "") return null;
   const parsed = Number(String(value ?? "").replace("%", "").trim());
   return Number.isFinite(parsed) ? parsed : null;
 }
@@ -115,6 +117,7 @@ function latestCurrentSnapshotFor(
   row: Row,
   market: string,
   selection: string,
+  allowTimeless = true,
 ) {
   const normalized = (value: unknown) =>
     String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
@@ -123,6 +126,12 @@ function latestCurrentSnapshotFor(
   const targetHome = normalized(row["Home Team"]);
   const targetSelection = marketSelectionKey(market, selection);
   const targetTime = eventTimeKey(row["Game Time"]);
+  const start = parseGameStart(targetDate, targetTime);
+  const validLock = (saved: Row) => {
+    const captured = snapshotEpoch(saved["Snapshot Time ET"]);
+    return start != null && captured > 0 && captured <= start && start - captured <= 30 * 60_000 &&
+      /15.minute tracking snapshot/i.test(saved["Match Confidence"] || "");
+  };
 
   return rows
     .filter((saved) => {
@@ -134,12 +143,18 @@ function latestCurrentSnapshotFor(
         normalized(saved["Home Team"]) !== targetHome
       ) return false;
       const savedTime = eventTimeKey(saved["Game Time ET"]);
+      const captured = snapshotEpoch(saved["Snapshot Time ET"]);
+      if (!captured || (start != null && captured >= start)) return false;
+      if (!savedTime && !allowTimeless) return false;
       return !targetTime || !savedTime || targetTime === savedTime;
     })
     .sort(
-      (left, right) =>
-        snapshotEpoch(right["Snapshot Time ET"]) -
-        snapshotEpoch(left["Snapshot Time ET"]),
+      (left, right) => {
+        const leftLock = validLock(left), rightLock = validLock(right);
+        if (leftLock !== rightLock) return leftLock ? -1 : 1;
+        const delta = snapshotEpoch(left["Snapshot Time ET"]) - snapshotEpoch(right["Snapshot Time ET"]);
+        return leftLock ? delta : -delta;
+      },
     )[0] || null;
 }
 
@@ -177,6 +192,7 @@ function marketHistoryFor(
   row: Row,
   market: string,
   selection: string,
+  allowTimeless = true,
 ) {
   const normalized = (value: unknown) =>
     String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
@@ -202,6 +218,7 @@ function marketHistoryFor(
       if (!teamsMatch && !gameMatch) return false;
 
       const savedTime = eventTimeKey(saved["Game Time ET"]);
+      if (!savedTime && !allowTimeless) return false;
       return !targetTime || !savedTime || targetTime === savedTime;
     })
     .map((saved) => ({
@@ -233,6 +250,7 @@ function historicalPlay(
   v2Rows: Row[],
   marketHistoryRows: Row[],
   currentSnapshotRows: Row[] = [],
+  allowTimeless = true,
 ) {
   const market = String(row.Market || "");
   if (market !== "Moneyline" && market !== "Total") return null;
@@ -242,15 +260,22 @@ function historicalPlay(
     : String(row.Selection || row["Public Split Selection"] || "");
   const gameKey = cleanGameKey(row["Game Key"]) || `${date}|${row.Game}`;
   const currentSnapshot = latestCurrentSnapshotFor(
-    currentSnapshotRows,
+    [...currentSnapshotRows, ...marketHistoryRows],
     row,
     market,
     selection,
+    allowTimeless,
   );
+  const gameStart = parseGameStart(date, eventTimeKey(row["Game Time"]));
+  const capturedAt = snapshotEpoch(currentSnapshot?.["Snapshot Time ET"]);
+  const validLock = gameStart != null && capturedAt > 0 && capturedAt <= gameStart &&
+    gameStart - capturedAt <= 30 * 60_000 &&
+    /15.minute tracking snapshot/i.test(currentSnapshot?.["Match Confidence"] || "");
+  const final = validLock || (gameStart != null && gameStart <= Date.now()) || date < easternDateKey();
   const currentLine = market === "Moneyline"
     ? null
     : n(currentSnapshot?.Line || row["Public Split Line"] || row.Line || row["Odds/Line"]);
-  const currentOdds = String(currentSnapshot?.Odds || row["Public Split Odds"] || row.Odds || "");
+  const currentOdds = String(currentSnapshot ? currentSnapshot.Odds || "" : row["Public Split Odds"] || row.Odds || "");
   const currentBets = n(
     currentSnapshot?.["Current Public %"] ||
     currentSnapshot?.["Public Bets %"] ||
@@ -272,6 +297,7 @@ function historicalPlay(
     row,
     market,
     selection,
+    allowTimeless,
   );
   const v2History = v2HistoryFor(v2Rows, gameKey, market, selection);
   const fallbackHistory = [pointFromRow(row, true), pointFromRow(row, false)]
@@ -295,6 +321,9 @@ function historicalPlay(
     : null;
   const dedupedHistory = new Map<string, (typeof baseHistory)[number]>();
   for (const point of [...baseHistory, ...(currentPoint?.snapshotTime ? [currentPoint] : [])]) {
+    const stamp = snapshotEpoch(point.snapshotTime);
+    if (!stamp || (gameStart != null && stamp >= gameStart)) continue;
+    if (final && capturedAt > 0 && stamp > capturedAt) continue;
     const key = [
       point.snapshotTime,
       point.line == null ? "" : String(point.line),
@@ -312,7 +341,7 @@ function historicalPlay(
     market === "Moneyline"
       ? null
       : latestPoint?.line ?? currentLine;
-  const effectiveOdds = String(latestPoint?.odds || currentOdds);
+  const effectiveOdds = String(latestPoint ? latestPoint.odds : currentOdds);
   const effectiveBets = Number.isFinite(Number(latestPoint?.betsPct))
     ? Number(latestPoint?.betsPct)
     : currentBets;
@@ -370,13 +399,7 @@ function historicalPlay(
       "",
     ),
     updatedAt,
-    snapshotStatus:
-      currentSnapshot &&
-      !String(currentSnapshot["Match Confidence"] || "")
-        .toLowerCase()
-        .includes("15-minute tracking snapshot")
-        ? "LIVE"
-        : "FINAL_PREGAME",
+    snapshotStatus: final ? "FINAL_PREGAME" : "LIVE",
     movementHistory,
   };
 }
@@ -423,6 +446,14 @@ export async function GET(request: NextRequest) {
     const v2Rows = asRows(v2SnapshotRaw);
     const marketHistoryRows = asRows(marketHistoryRaw);
     const currentSnapshotRows = asRows(currentSnapshotRaw);
+    const gameInstances = new Map<string, Set<string>>();
+    const matchupKey = (row: Row) => `${row.Date}|${row["Away Team"]}|${row["Home Team"]}`;
+    for (const row of dailyTrendRows) {
+      const key = matchupKey(row);
+      const instances = gameInstances.get(key) || new Set<string>();
+      instances.add(cleanGameKey(row["Game Key"]) || eventTimeKey(row["Game Time"]));
+      gameInstances.set(key, instances);
+    }
     const trendPlays = dailyTrendRows
       .map((row) =>
         historicalPlay(
@@ -430,6 +461,7 @@ export async function GET(request: NextRequest) {
           v2Rows,
           marketHistoryRows,
           currentSnapshotRows,
+          (gameInstances.get(matchupKey(row))?.size || 0) <= 1,
         ),
       )
       .filter(Boolean);
