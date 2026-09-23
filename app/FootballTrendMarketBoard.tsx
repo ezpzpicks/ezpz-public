@@ -492,7 +492,7 @@ function MovementChart({ play }: { play: TrendPlay }) {
   const minLine = rawMin - padding;
   const maxLine = rawMax + padding;
   const latest = points[points.length - 1];
-  const lastSnapshotDisplay = compactSnapshotTime(play.updatedAt || latest?.snapshotTime);
+  const lastSnapshotDisplay = compactSnapshotTime(latest?.snapshotTime || play.updatedAt);
   const markers = movementMarkerIndexes(lines);
   const dates = dateAxis(points);
   const lineTicks = Array.from({ length: 5 }, (_, index) => maxLine - ((maxLine - minLine) / 4) * index);
