@@ -23,6 +23,7 @@ type PipelineResult = {
 
 type PipelineRequest =
   | { type: "execute"; stmt: { sql: string; args: never[] } }
+  | { type: "sequence"; sql: string }
   | { type: "close" };
 
 const URL_ENV_NAMES = [
@@ -123,15 +124,20 @@ export function isTursoConfigured() {
   return Boolean(firstEnv(URL_ENV_NAMES) && firstEnv(TOKEN_ENV_NAMES));
 }
 
-async function pipeline(sqlStatements: string[]) {
+async function pipeline(sqlStatements: string[], atomic = false) {
   const rawUrl = firstEnv(URL_ENV_NAMES);
   const token = firstEnv(TOKEN_ENV_NAMES);
   if (!rawUrl || !token) throw new Error("Turso is not configured.");
   const base = endpoint(rawUrl).replace(/\/$/, "");
-  const requests: PipelineRequest[] = sqlStatements.map((sql) => ({
-    type: "execute" as const,
-    stmt: { sql, args: [] as never[] },
-  }));
+  // Hrana sequences stop on the first SQL error. A normal execute pipeline
+  // continues to COMMIT after an error, which can persist an incomplete batch.
+  // Closing the stream rolls back a sequence that did not reach COMMIT.
+  const requests: PipelineRequest[] = atomic
+    ? [{ type: "sequence", sql: ["BEGIN IMMEDIATE", ...sqlStatements, "COMMIT"].join(";\n") }]
+    : sqlStatements.map((sql) => ({
+        type: "execute" as const,
+        stmt: { sql, args: [] as never[] },
+      }));
   requests.push({ type: "close" });
   const response = await fetch(`${base}/v2/pipeline`, {
     method: "POST",
@@ -386,21 +392,33 @@ function insertStatements(
   dataset: string,
   indexedRows: Array<{ index: number; row: TursoRow }>,
   savedAt: string,
+  append = false,
 ) {
   if (!indexedRows.length) return [];
-  const prefix = "INSERT OR REPLACE INTO dataset_rows (sport,dataset,row_index,payload_json,source_hash,date_key,game_key,game,market,selection,result,snapshot_time,imported_at) VALUES ";
+  const columns = "sport,dataset,row_index,payload_json,source_hash,date_key,game_key,game,market,selection,result,snapshot_time,imported_at";
+  // Allocate positions while holding the database write lock, never from a
+  // request-local cache or a MAX read performed before the transaction.
+  const prefix = append
+    ? `WITH append_base AS MATERIALIZED (SELECT COALESCE(MAX(row_index),0) AS max_row FROM dataset_rows WHERE sport=${sqlText(sport)} AND dataset=${sqlText(dataset)}), incoming(${columns}) AS (VALUES `
+    : `INSERT OR REPLACE INTO dataset_rows (${columns}) VALUES `;
+  const suffix = append
+    ? `) INSERT INTO dataset_rows (${columns}) SELECT sport,dataset,append_base.max_row+row_index,payload_json,source_hash,date_key,game_key,game,market,selection,result,snapshot_time,imported_at FROM incoming CROSS JOIN append_base`
+    : "";
   const statements: string[] = [];
   let tuples: string[] = [];
   let chars = prefix.length;
   const flush = () => {
     if (!tuples.length) return;
-    statements.push(prefix + tuples.join(","));
+    statements.push(prefix + tuples.join(",") + suffix);
     tuples = [];
     chars = prefix.length;
   };
   for (const item of indexedRows) {
-    const tuple = rowTuple(sport, dataset, item.row, item.index, savedAt);
-    if (tuples.length && (tuples.length >= 100 || chars + tuple.length > 350_000)) flush();
+    let tuple = rowTuple(sport, dataset, item.row, append ? tuples.length + 1 : item.index, savedAt);
+    if (tuples.length && (tuples.length >= 100 || chars + tuple.length > 350_000)) {
+      flush();
+      if (append) tuple = rowTuple(sport, dataset, item.row, 1, savedAt);
+    }
     tuples.push(tuple);
     chars += tuple.length + 1;
   }
@@ -477,51 +495,21 @@ export async function appendTursoDataset(
 ) {
   if (!rows.length) return;
 
-  const scoped = getScopedRows(sport, dataset);
-  let currentMax = 0;
-  let currentCount = 0;
-  let rowsRead = 0;
-
-  if (scoped) {
-    currentCount = scoped.length;
-    for (const item of scoped) currentMax = Math.max(currentMax, item.index);
-  } else {
-    const results = await pipeline([
-      `SELECT COALESCE(MAX(row_index),0) AS max_row, COUNT(*) AS row_count FROM dataset_rows WHERE sport=${sqlText(sport)} AND dataset=${sqlText(dataset)}`,
-    ]);
-    const aggregateRows = queryRows(results[0]);
-    const aggregate = aggregateRows[0] || {};
-    currentMax = Number(aggregate.max_row || 0);
-    currentCount = Number(aggregate.row_count || 0);
-    rowsRead += aggregateRows.length;
-  }
-
-  let targetHeaders = headers.map(String);
-  if (!headers.length) {
-    const results = await pipeline([
-      `SELECT headers_json FROM dataset_manifest WHERE sport=${sqlText(sport)} AND dataset=${sqlText(dataset)} LIMIT 1`,
-    ]);
-    const manifestRows = queryRows(results[0]);
-    targetHeaders = parseHeaders(manifestRows[0]?.headers_json);
-    rowsRead += manifestRows.length;
-  }
-
   const savedAt = new Date().toISOString();
-  const indexed = rows.map((row, offset) => ({ index: currentMax + offset + 1, row }));
+  const selector = `sport=${sqlText(sport)} AND dataset=${sqlText(dataset)}`;
+  const headersSql = headers.length
+    ? sqlText(JSON.stringify(headers.map(String)))
+    : `COALESCE((SELECT headers_json FROM dataset_manifest WHERE ${selector}),'[]')`;
+  const indexed = rows.map((row, offset) => ({ index: offset + 1, row }));
   const statements = [
-    "BEGIN IMMEDIATE",
-    ...insertStatements(sport, dataset, indexed, savedAt),
-    `INSERT OR REPLACE INTO dataset_manifest (sport,dataset,source_workbook,source_worksheet,headers_json,row_count,imported_at,source_kind) VALUES (${sqlText(sport)},${sqlText(dataset)},'turso-native',${sqlText(dataset)},${sqlText(JSON.stringify(targetHeaders))},${currentCount + rows.length},${sqlText(savedAt)},'turso')`,
-    "COMMIT",
+    ...insertStatements(sport, dataset, indexed, savedAt, true),
+    `INSERT OR REPLACE INTO dataset_manifest (sport,dataset,source_workbook,source_worksheet,headers_json,row_count,imported_at,source_kind) VALUES (${sqlText(sport)},${sqlText(dataset)},'turso-native',${sqlText(dataset)},${headersSql},(SELECT COUNT(*) FROM dataset_rows WHERE ${selector}),${sqlText(savedAt)},'turso')`,
   ];
-  await pipeline(statements);
-
-  if (scoped) {
-    setScopedRows(sport, dataset, [
-      ...scoped,
-      ...indexed.map((item) => ({ index: item.index, row: comparableRow(item.row) })),
-    ]);
-  } else {
+  try {
+    await pipeline(statements, true);
+  } finally {
+    // Another instance may have appended since our last read. Extending the
+    // old cache would hide those rows even after a successful atomic append.
     invalidateScopedRows(sport, dataset);
   }
 
@@ -529,11 +517,12 @@ export async function appendTursoDataset(
     op: "append",
     sport,
     dataset,
-    rowsRead,
+    rowsRead: 0,
     rowsWritten: rows.length + 1,
     rowsDeleted: 0,
     appendedRows: rows.length,
-    cacheExtended: Boolean(scoped),
+    cacheExtended: false,
+    atomic: true,
   });
 }
 

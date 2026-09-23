@@ -7,7 +7,7 @@ const ts = require('typescript');
 
 // Run the actual production functions with network/storage imports replaced.
 // No test makes a production write or substitutes the retrieval algorithms.
-function load(file, names = [], imports = {}, extra = '') {
+function load(file, names = [], imports = {}, extra = '', runtime = {}) {
   const source = fs.readFileSync(path.join(__dirname, '..', file), 'utf8') +
     `\nexport const testFunctions = {${names.join(',')}};\n` + extra;
   const code = ts.transpileModule(source, { compilerOptions: {
@@ -19,7 +19,7 @@ function load(file, names = [], imports = {}, extra = '') {
     static now() { return Date.parse('2026-09-23T00:50:00Z'); }
   }
   const context = { exports, require: id => imports[id] || {}, Date: Clock,
-    console, process, URL, AbortSignal, setTimeout, clearTimeout };
+    console, process, URL, AbortSignal, setTimeout, clearTimeout, ...runtime };
   vm.runInNewContext(code, context, { filename: file });
   return exports;
 }
@@ -155,4 +155,52 @@ test('football history index preserves movement results with a large slate', () 
   assert.deepEqual(JSON.parse(JSON.stringify(indexed)),JSON.parse(JSON.stringify(original)));
   assert.equal(index.get(key).length,2);
   assert.equal(indexed.lineMoveCount,1);
+});
+
+test('MLB history retains unchanged polls, ignores player props, and deduplicates retries', async () => {
+  const history=[];
+  const historyCore=load('app/api/public-data-core.ts',['appendPublicSplitHistory'],{
+    '../../lib/tursoStore':{
+      readTursoDatasetByDateKeys:async()=>history,
+      appendTursoDataset:async(_sport,_dataset,rows)=>history.push(...rows),
+    },
+  });
+  const append=historyCore.testFunctions.appendPublicSplitHistory;
+  const first=snapshot('8:10:00 PM'), second=snapshot('8:15:00 PM');
+  assert.equal(await append([first]),1);
+  assert.equal(await append([second]),1);
+  assert.equal(await append([second]),0);
+  assert.equal(await append([snapshot('8:20:00 PM',{'Data Type':'Player Prop'})]),0);
+  assert.equal(history.length,2);
+  assert.equal(history[0].Line,history[1].Line);
+  assert.notEqual(history[0]['Snapshot Time ET'],history[1]['Snapshot Time ET']);
+});
+
+function cronFor(persistence) {
+  return load('app/api/cron/mlb-live-data/route.ts',['runCron'],{
+    'next/server':{
+      NextRequest:class {},
+      NextResponse:{json:(body,options={})=>({body,status:options.status||200})},
+    },
+    '../../public-data-v2/route':{GET:async()=>({ok:true,status:200,json:async()=>({ok:true,draftKingsPersistence:persistence})})},
+  },'RETRY_DELAYS_MS.splice(0);',{
+    process:{env:{CRON_SECRET:'history-test'}},console:{error(){},warn(){},info(){}},
+  }).testFunctions.runCron;
+}
+const cronRequest={url:'https://example.test/api/cron/mlb-live-data',headers:{get:()=> 'Bearer history-test'}};
+
+test('MLB cron rejects a persistence failure even when the data response is HTTP 200', async () => {
+  const response=await cronFor({status:'ERROR',historyStatus:'ERROR',error:'History append failed'})(cronRequest);
+  assert.equal(response.status,502);
+  assert.equal(response.body.ok,false);
+  assert.match(response.body.error,/History append failed/);
+});
+
+test('MLB cron reports game-history writes separately from player-prop snapshots', async () => {
+  const persistence={status:'SAVED',historyStatus:'NO_GAME_MARKETS',historyRowsAppended:0,snapshotGameMarketRows:0,snapshotPlayerPropRows:8};
+  const response=await cronFor(persistence)(cronRequest);
+  assert.equal(response.status,200);
+  assert.equal(response.body.bettingSplitsPersistence.historyRowsAppended,0);
+  assert.equal(response.body.bettingSplitsPersistence.snapshotPlayerPropRows,8);
+  assert.equal(response.body.bettingSplitsPersistence.historyStatus,'NO_GAME_MARKETS');
 });

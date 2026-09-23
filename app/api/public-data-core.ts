@@ -538,6 +538,11 @@ type DraftKingsPersistence = {
   trackerRowsUpdated: number;
   allGameTrendRowsUpdated: number;
   finalPregameRows: number;
+  captureMode: SnapshotCaptureMode;
+  snapshotGameMarketRows: number;
+  snapshotPlayerPropRows: number;
+  historyStatus: "SAVED" | "ALREADY_SAVED" | "NO_GAME_MARKETS" | "NOT_SCHEDULED" | "ERROR";
+  historyRowsAppended: number;
   error?: string;
 };
 
@@ -1758,7 +1763,7 @@ async function appendPublicSplitHistory(snapshotRecords: SheetRow[]) {
   const marketRows = snapshotRecords.filter(
     (row) => !textKey(row["Data Type"] || "").includes("player prop"),
   );
-  if (!marketRows.length) return;
+  if (!marketRows.length) return 0;
 
   const dates = [...new Set(
     marketRows.map((row) => isoPublicDate(row.Date || "")).filter(Boolean),
@@ -1782,14 +1787,17 @@ async function appendPublicSplitHistory(snapshotRecords: SheetRow[]) {
     seen.add(key);
     return true;
   });
-  if (!appendRows.length) return;
-  await appendWorksheetRows(
-    null,
-    "turso:MLB",
+  if (!appendRows.length) return 0;
+  // The atomic append also maintains the manifest. A stale empty-table check
+  // in ensureWorksheet could erase another instance's first history save.
+  await appendTursoDataset(
+    "MLB",
     PUBLIC_SPLIT_HISTORY_TAB,
-    PUBLIC_SPLIT_HEADERS,
     appendRows,
+    PUBLIC_SPLIT_HEADERS,
   );
+  invalidateWorksheetReadCache(PUBLIC_SPLIT_HISTORY_TAB);
+  return appendRows.length;
 }
 
 function persistPublicSplitSnapshotRecords(
@@ -1799,13 +1807,14 @@ function persistPublicSplitSnapshotRecords(
   retainHistory = false,
   slateRows: SheetRow[] = [],
 ) {
-  if (!snapshotRecords.length) return Promise.resolve();
+  if (!snapshotRecords.length) return Promise.resolve(0);
   const operation = publicSplitPersistenceQueue.catch(() => undefined).then(async () => {
+    let historyRowsAppended = 0;
     if (retainHistory) {
       // Scheduled 5-minute collection is append-only here. The existing
       // public_split_snapshots table keeps its latest/final semantics for
       // downstream compatibility, while this dataset preserves every poll.
-      await appendPublicSplitHistory(snapshotRecords);
+      historyRowsAppended = await appendPublicSplitHistory(snapshotRecords);
     }
 
     const latestMatrix = await readWorksheetMatrixWithClient(
@@ -1836,8 +1845,9 @@ function persistPublicSplitSnapshotRecords(
       [...snapshotMap.values()],
       latestMatrix,
     );
+    return historyRowsAppended;
   });
-  publicSplitPersistenceQueue = operation.catch(() => undefined);
+  publicSplitPersistenceQueue = operation.then(() => undefined, () => undefined);
   return operation;
 }
 
@@ -3049,6 +3059,11 @@ async function persistFinalPregameDraftKings(
     trackerRowsUpdated: 0,
     allGameTrendRowsUpdated: 0,
     finalPregameRows: 0,
+    captureMode,
+    snapshotGameMarketRows: 0,
+    snapshotPlayerPropRows: 0,
+    historyStatus: scheduledCapture ? "NO_GAME_MARKETS" : "NOT_SCHEDULED",
+    historyRowsAppended: 0,
   };
 
   // Persist every usable current or retained pregame value. This is deliberate:
@@ -3518,13 +3533,21 @@ async function persistFinalPregameDraftKings(
     }
 
     if (snapshotRecords.length) {
-      await persistPublicSplitSnapshotRecords(
+      result.snapshotGameMarketRows = snapshotRecords.filter(
+        (row) => !textKey(row["Data Type"] || "").includes("player prop"),
+      ).length;
+      result.snapshotPlayerPropRows = snapshotRecords.length - result.snapshotGameMarketRows;
+      if (scheduledCapture && result.snapshotGameMarketRows) result.historyStatus = "ERROR";
+      result.historyRowsAppended = await persistPublicSplitSnapshotRecords(
         sheets,
         spreadsheetId,
         snapshotRecords,
         scheduledCapture,
         slateObjects,
       );
+      if (scheduledCapture && result.snapshotGameMarketRows) {
+        result.historyStatus = result.historyRowsAppended ? "SAVED" : "ALREADY_SAVED";
+      }
       result.snapshotRowsUpdated = snapshotRecords.length;
     }
 
@@ -3596,6 +3619,9 @@ async function persistFinalPregameDraftKings(
       : snapshotRecords.length || slateUpdates.length || trackerUpdates.length || trendUpdates.length
         ? "SAVED"
         : "NO_CHANGES";
+    if (scheduledCapture) {
+      console.info("[mlb-split-history]", JSON.stringify({ date: todayIso, ...result }));
+    }
     draftKingsPersistenceCache = { key: persistenceKey, savedAt: Date.now(), result };
     return result;
   } catch (error) {
@@ -3604,11 +3630,9 @@ async function persistFinalPregameDraftKings(
       status: "ERROR",
       error: error instanceof Error ? error.message : String(error),
     };
-    draftKingsPersistenceCache = {
-      key: persistenceKey,
-      savedAt: Date.now(),
-      result: failedResult,
-    };
+    // Let the cron retry the write instead of returning a cached failure.
+    draftKingsPersistenceCache = null;
+    console.error("[mlb-split-history]", JSON.stringify({ date: todayIso, ...failedResult }));
     return failedResult;
   }
 }

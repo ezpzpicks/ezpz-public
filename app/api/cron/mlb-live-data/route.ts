@@ -97,6 +97,11 @@ async function runCron(request: NextRequest) {
 
       lastStatus = response.status;
       const payload = await response.json().catch(() => null);
+      const persistence = payload?.draftKingsPersistence || payload?.draftKings?.persistence || null;
+      if (response.ok && payload?.ok && persistence?.status === "ERROR") {
+        lastStatus = 502;
+        throw new Error(`Betting splits persistence failed: ${persistence.error || "unknown storage error"}`);
+      }
       if (response.ok && payload?.ok) {
         let historicalGradeRepair = null;
         let historicalGradeRepairError = "";
@@ -122,6 +127,7 @@ async function runCron(request: NextRequest) {
             today: payload?.today || "",
             draftKingsStatus:
               payload?.draftKingsStatus || payload?.draftKings?.status || "UNKNOWN",
+            bettingSplitsPersistence: persistence,
             aiPickCount: Number(
               payload?.aiPickCount ??
                 (Array.isArray(payload?.aiPicks) ? payload.aiPicks.length : 0),
