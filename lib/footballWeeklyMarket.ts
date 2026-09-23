@@ -816,6 +816,17 @@ function marketHistoryLogicalKey(row: SheetRow) {
   return `${String(row["Game Key"] || "")}|${textKey(market)}|${textKey(selection)}`;
 }
 
+function indexMarketHistoryBySide(rows: SheetRow[]) {
+  const index = new Map<string, SheetRow[]>();
+  for (const row of rows) {
+    const key = marketHistoryLogicalKey(row);
+    const group = index.get(key) || [];
+    group.push(row);
+    index.set(key, group);
+  }
+  return index;
+}
+
 function normalizedStateNumber(value: unknown) {
   const number = Number(value);
   return Number.isFinite(number) ? String(Math.round(number * 10) / 10) : "";
@@ -2005,6 +2016,9 @@ export async function readWeeklyFootballMarket(sport: FootballSport) {
         .filter(isScoresAndOddsCutoverRow)
     : [];
   const canonicalRows = [...scheduleRows, ...slateRows, ...allGameTrends];
+  // Index once instead of rebuilding every row's normalized identity for every
+  // market side. The full history grows by hundreds of rows every five minutes.
+  const historyBySide = indexMarketHistoryBySide(marketHistoryRows);
   const trendPlays: WeeklyTrendPlay[] = [];
   for (const row of sourceRows) {
     const raw = String(row["Details JSON"] || "").trim();
@@ -2018,7 +2032,8 @@ export async function readWeeklyFootballMarket(sport: FootballSport) {
         warningKey: "", warning: "", warningTone: "neutral" as Tone, warningNegative: false,
       } as Split;
       if (!validFootballMarketSplit(storedSplit, sport, canonicalRows)) continue;
-      const correctedMove = movement(storedSplit, row, marketHistoryRows);
+      const sideHistory = historyBySide.get(splitTrendKey(storedSplit)) || [];
+      const correctedMove = movement(storedSplit, row, sideHistory);
       trendPlays.push({
         ...play,
         week: String(row.Week || play.week || storedFootballWeek(sport, play, canonicalRows)),
@@ -2040,7 +2055,7 @@ export async function readWeeklyFootballMarket(sport: FootballSport) {
         lastLineMoveAt: correctedMove.lastLineMoveAt,
         lineHistoryLabel: correctedMove.lineHistoryLabel,
         movementVersion: SELECTED_SIDE_MOVEMENT_VERSION,
-        movementHistory: movementHistoryForPlay(play, marketHistoryRows),
+        movementHistory: movementHistoryForPlay(play, sideHistory),
       });
     } catch { }
   }
