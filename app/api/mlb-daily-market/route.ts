@@ -98,6 +98,18 @@ function eventTimeKey(value: unknown) {
   return hour && minute ? `${hour}:${minute}` : "";
 }
 
+function marketSelectionKey(market: string, value: unknown) {
+  const normalized = String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+  if (market === "Total") {
+    if (normalized.startsWith("over")) return "over";
+    if (normalized.startsWith("under")) return "under";
+  }
+  return normalized;
+}
+
 function latestCurrentSnapshotFor(
   rows: Row[],
   row: Row,
@@ -109,14 +121,14 @@ function latestCurrentSnapshotFor(
   const targetDate = isoDate(row.Date);
   const targetAway = normalized(row["Away Team"]);
   const targetHome = normalized(row["Home Team"]);
-  const targetSelection = normalized(selection);
+  const targetSelection = marketSelectionKey(market, selection);
   const targetTime = eventTimeKey(row["Game Time"]);
 
   return rows
     .filter((saved) => {
       if (isoDate(saved.Date) !== targetDate) return false;
       if (String(saved.Market || "") !== market) return false;
-      if (normalized(saved.Selection || saved.Side) !== targetSelection) return false;
+      if (marketSelectionKey(market, saved.Selection || saved.Side) !== targetSelection) return false;
       if (
         normalized(saved["Away Team"]) !== targetAway ||
         normalized(saved["Home Team"]) !== targetHome
@@ -172,14 +184,14 @@ function marketHistoryFor(
   const targetAway = normalized(row["Away Team"]);
   const targetHome = normalized(row["Home Team"]);
   const targetGame = normalized(row.Game);
-  const targetSelection = normalized(selection);
+  const targetSelection = marketSelectionKey(market, selection);
   const targetTime = eventTimeKey(row["Game Time"]);
 
   const points = rows
     .filter((saved) => {
       if (isoDate(saved.Date) !== targetDate) return false;
       if (String(saved.Market || "") !== market) return false;
-      if (normalized(saved.Selection || saved.Side) !== targetSelection) return false;
+      if (marketSelectionKey(market, saved.Selection || saved.Side) !== targetSelection) return false;
 
       const savedAway = normalized(saved["Away Team"]);
       const savedHome = normalized(saved["Home Team"]);
@@ -295,8 +307,20 @@ function historicalPlay(
   const movementHistory = [...dedupedHistory.values()].sort(
     (a, b) => snapshotEpoch(a.snapshotTime) - snapshotEpoch(b.snapshotTime),
   );
+  const latestPoint = movementHistory.at(-1);
+  const effectiveLine =
+    market === "Moneyline"
+      ? null
+      : latestPoint?.line ?? currentLine;
+  const effectiveOdds = String(latestPoint?.odds || currentOdds);
+  const effectiveBets = Number.isFinite(Number(latestPoint?.betsPct))
+    ? Number(latestPoint?.betsPct)
+    : currentBets;
+  const effectiveMoney = Number.isFinite(Number(latestPoint?.moneyPct))
+    ? Number(latestPoint?.moneyPct)
+    : currentMoney;
   const updatedAt = String(
-    movementHistory.at(-1)?.snapshotTime ||
+    latestPoint?.snapshotTime ||
     row["Public Split Snapshot Time"] ||
     row["Result Updated"] ||
     "",
@@ -318,18 +342,18 @@ function historicalPlay(
     side: market === "Total" ? selection : "",
     sideGroup: market === "Total"
       ? selection
-      : oddsNumber(currentOdds) < 0
+      : oddsNumber(effectiveOdds) < 0
         ? "Favorite"
         : "Underdog",
-    line: currentLine,
-    odds: currentOdds,
-    betsPct: currentBets,
-    moneyPct: currentMoney,
-    gapPct: Math.round((currentMoney - currentBets) * 10) / 10,
+    line: effectiveLine,
+    odds: effectiveOdds,
+    betsPct: effectiveBets,
+    moneyPct: effectiveMoney,
+    gapPct: Math.round((effectiveMoney - effectiveBets) * 10) / 10,
     openingBetsPct: openingBets,
     openingMoneyPct: openingMoney,
-    publicMovementPct: openingBets == null ? null : Math.round((currentBets - openingBets) * 10) / 10,
-    sharpMovementPct: openingMoney == null ? null : Math.round((currentMoney - openingMoney) * 10) / 10,
+    publicMovementPct: openingBets == null ? null : Math.round((effectiveBets - openingBets) * 10) / 10,
+    sharpMovementPct: openingMoney == null ? null : Math.round((effectiveMoney - openingMoney) * 10) / 10,
     openingLine,
     openingOdds,
     openingImpliedPct: n(row["Opening Implied %"]),
