@@ -1797,6 +1797,7 @@ function persistPublicSplitSnapshotRecords(
   spreadsheetId: string,
   snapshotRecords: SheetRow[],
   retainHistory = false,
+  slateRows: SheetRow[] = [],
 ) {
   if (!snapshotRecords.length) return Promise.resolve();
   const operation = publicSplitPersistenceQueue.catch(() => undefined).then(async () => {
@@ -1820,10 +1821,12 @@ function persistPublicSplitSnapshotRecords(
     snapshotRecords.forEach((row) => {
       const key = snapshotRecordKey(row);
       const existing = snapshotMap.get(key);
-      // Once the dedicated tracking snapshot is captured, scheduled or live
-      // refreshes may display newer data but cannot overwrite the historical row.
-      const incomingTracking = isFifteenMinuteTrackingSnapshot(row);
-      if (!incomingTracking && isFifteenMinuteTrackingSnapshot(existing)) return;
+      // Only a tracking snapshot that is actually near the CURRENT scheduled
+      // first pitch is immutable. A stale/early row that was mislabeled as a
+      // 15-minute snapshot must never freeze the market for hours.
+      const incomingTracking = isValidFinalTrackingSnapshot(row, slateRows);
+      const existingValidTracking = isValidFinalTrackingSnapshot(existing, slateRows);
+      if (!incomingTracking && existingValidTracking) return;
       snapshotMap.set(key, row);
     });
     await writeWholeWorksheet(
@@ -2470,6 +2473,73 @@ function isFifteenMinuteTrackingSnapshot(row: SheetRow | undefined | null) {
   return textKey(row?.["Match Confidence"] || "").includes("15 minute tracking snapshot");
 }
 
+const FINAL_TRACKING_VALIDATION_WINDOW_MINUTES = 30;
+
+function trackingSnapshotSlateGame(
+  row: SheetRow | undefined | null,
+  slateRows: SheetRow[],
+): SheetRow | null {
+  if (!row || !isFifteenMinuteTrackingSnapshot(row)) return null;
+  const captureAt = scheduledGameStart({
+    Date: row.Date || "",
+    "Game Time": row["Snapshot Time ET"] || "",
+  });
+  if (captureAt == null) return null;
+
+  const rowDate = isoPublicDate(row.Date || "");
+  const away = normalizeTeam(row["Away Team"] || "");
+  const home = normalizeTeam(row["Home Team"] || "");
+  const storedTime = parseEventTimeKey(row["Game Time ET"] || "");
+  if (!rowDate || !away || !home) return null;
+
+  const candidates = slateRows
+    .filter(
+      (slateRow) =>
+        isoPublicDate(slateRow.Date || "") === rowDate &&
+        normalizeTeam(slateRow["Away Team"] || "") === away &&
+        normalizeTeam(slateRow["Home Team"] || "") === home,
+    )
+    .filter((slateRow) => {
+      if (!storedTime) return true;
+      const scheduledTime = scheduledGameTimeKey(slateRow);
+      return !scheduledTime || scheduledTime === storedTime;
+    })
+    .map((slateRow) => {
+      const start = scheduledGameStart(slateRow);
+      if (start == null) return null;
+      const minutesBeforeStart = (start - captureAt) / 60_000;
+      if (
+        minutesBeforeStart < 0 ||
+        minutesBeforeStart > FINAL_TRACKING_VALIDATION_WINDOW_MINUTES
+      ) {
+        return null;
+      }
+      return { slateRow, distance: Math.abs(start - captureAt) };
+    })
+    .filter(
+      (
+        candidate,
+      ): candidate is { slateRow: SheetRow; distance: number } => candidate != null,
+    )
+    .sort((left, right) => left.distance - right.distance);
+
+  if (!candidates.length) return null;
+  if (
+    candidates.length > 1 &&
+    candidates[0].distance === candidates[1].distance
+  ) {
+    return null;
+  }
+  return candidates[0].slateRow;
+}
+
+function isValidFinalTrackingSnapshot(
+  row: SheetRow | undefined | null,
+  slateRows: SheetRow[],
+) {
+  return Boolean(trackingSnapshotSlateGame(row, slateRows));
+}
+
 function isPregameMarketSnapshot(row: SheetRow | undefined | null) {
   const confidence = textKey(row?.["Match Confidence"] || "");
   return (
@@ -2714,7 +2784,14 @@ function publicDisplayDraftKingsPayload(
     ) {
       continue;
     }
-    splitMap.set(draftKingsSplitKey(split), {
+    const splitKey = draftKingsSplitKey(split);
+    const existing = splitMap.get(splitKey);
+    // A retained database row is only a fallback. Never let it overwrite a
+    // current ScoresAndOdds row for the same game/market/side.
+    if (existing && existing.retained !== true && split.retained === true) {
+      continue;
+    }
+    splitMap.set(splitKey, {
       ...split,
       snapshotStatus: split.snapshotStatus || "LIVE",
       snapshotTime: split.snapshotTime || split.lastSeenAt || current.updatedAt,
@@ -2819,8 +2896,18 @@ function finalPregameDisplayPayloadFromRows(
   const selectedRows = rows.flatMap((row) => {
     if (isoPublicDate(row.Date || "") !== todayIso) return [];
 
-    const trackingSnapshot = isFifteenMinuteTrackingSnapshot(row);
-    if (!trackingSnapshot && !isPregameMarketSnapshot(row)) return [];
+    // A row is FINAL only when its capture timestamp is plausibly near the
+    // current scheduled start. This protects against schedule/time bugs that
+    // previously froze an evening game several hours early.
+    const validatedTrackingGame = trackingSnapshotSlateGame(row, slateRows);
+    if (validatedTrackingGame) {
+      const resolvedTime = scheduledGameTimeKey(validatedTrackingGame);
+      return resolvedTime
+        ? [{ ...row, "Game Time ET": resolvedTime }]
+        : [row];
+    }
+    if (isFifteenMinuteTrackingSnapshot(row)) return [];
+    if (!isPregameMarketSnapshot(row)) return [];
 
     const away = normalizeTeam(row["Away Team"] || "");
     const home = normalizeTeam(row["Home Team"] || "");
@@ -2832,22 +2919,14 @@ function finalPregameDisplayPayloadFromRows(
         normalizeTeam(slateRow["Home Team"] || "") === home,
     );
 
-    // Dedicated ~15-minute rows remain authoritative. If a legacy row omitted
-    // the event time, recover the exact game instance before building the
-    // public payload so a doubleheader final is not discarded as ambiguous.
+    // For a true post-start fallback, recover the exact scheduled game instance
+    // before building the public payload.
     const resolvedSlateGame = resolveFinalSlateGame(row, matchingFinalGames);
     if (resolvedSlateGame) {
       const resolvedTime = scheduledGameTimeKey(resolvedSlateGame);
       return resolvedTime
         ? [{ ...row, "Game Time ET": resolvedTime }]
         : [row];
-    }
-
-    if (trackingSnapshot) {
-      // Preserve the prior behavior for unique/non-doubleheader matchups. The
-      // downstream display layer can still recover the time when only one game
-      // exists that day.
-      return [row];
     }
 
     return [];
@@ -2996,7 +3075,7 @@ async function persistFinalPregameDraftKings(
     const savedSnapshotObjects = snapshotMatrix.rows.map((row) => row.object);
     const capturedTrackingSnapshotKeys = new Set(
       savedSnapshotObjects
-        .filter((row) => isFifteenMinuteTrackingSnapshot(row))
+        .filter((row) => isValidFinalTrackingSnapshot(row, slateObjects))
         .map(snapshotRecordKey),
     );
     const alreadyCapturedGameKeys = new Set(
@@ -3421,7 +3500,13 @@ async function persistFinalPregameDraftKings(
     }
 
     if (snapshotRecords.length) {
-      await persistPublicSplitSnapshotRecords(sheets, spreadsheetId, snapshotRecords, scheduledCapture);
+      await persistPublicSplitSnapshotRecords(
+        sheets,
+        spreadsheetId,
+        snapshotRecords,
+        scheduledCapture,
+        slateObjects,
+      );
       result.snapshotRowsUpdated = snapshotRecords.length;
     }
 
