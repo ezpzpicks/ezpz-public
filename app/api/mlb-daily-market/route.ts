@@ -66,6 +66,71 @@ function snapshotEpoch(value: unknown) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function easternDateKey(date = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const value = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((part) => part.type === type)?.value || "";
+  return `${value("year")}-${value("month")}-${value("day")}`;
+}
+
+function eventTimeKey(value: unknown) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const simple = raw.match(/(?:^|T|\s)([01]?\d|2[0-3]):([0-5]\d)(?::\d{2})?(?:Z|\s*(?:ET|EST|EDT))?$/i);
+  if (simple && !raw.endsWith("Z")) {
+    return `${String(Number(simple[1])).padStart(2, "0")}:${simple[2]}`;
+  }
+  const stamp = Date.parse(raw);
+  if (!Number.isFinite(stamp)) return "";
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date(stamp));
+  const hour = parts.find((part) => part.type === "hour")?.value || "";
+  const minute = parts.find((part) => part.type === "minute")?.value || "";
+  return hour && minute ? `${hour}:${minute}` : "";
+}
+
+function latestCurrentSnapshotFor(
+  rows: Row[],
+  row: Row,
+  market: string,
+  selection: string,
+) {
+  const normalized = (value: unknown) =>
+    String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const targetDate = isoDate(row.Date);
+  const targetAway = normalized(row["Away Team"]);
+  const targetHome = normalized(row["Home Team"]);
+  const targetSelection = normalized(selection);
+  const targetTime = eventTimeKey(row["Game Time"]);
+
+  return rows
+    .filter((saved) => {
+      if (isoDate(saved.Date) !== targetDate) return false;
+      if (String(saved.Market || "") !== market) return false;
+      if (normalized(saved.Selection || saved.Side) !== targetSelection) return false;
+      if (
+        normalized(saved["Away Team"]) !== targetAway ||
+        normalized(saved["Home Team"]) !== targetHome
+      ) return false;
+      const savedTime = eventTimeKey(saved["Game Time ET"]);
+      return !targetTime || !savedTime || targetTime === savedTime;
+    })
+    .sort(
+      (left, right) =>
+        snapshotEpoch(right["Snapshot Time ET"]) -
+        snapshotEpoch(left["Snapshot Time ET"]),
+    )[0] || null;
+}
+
 function v2HistoryFor(
   rows: Row[],
   gameKey: string,
@@ -108,7 +173,7 @@ function marketHistoryFor(
   const targetHome = normalized(row["Home Team"]);
   const targetGame = normalized(row.Game);
   const targetSelection = normalized(selection);
-  const targetTime = String(row["Game Time"] || "").trim();
+  const targetTime = eventTimeKey(row["Game Time"]);
 
   const points = rows
     .filter((saved) => {
@@ -124,8 +189,8 @@ function marketHistoryFor(
       const gameMatch = targetGame && savedGame === targetGame;
       if (!teamsMatch && !gameMatch) return false;
 
-      const savedTime = String(saved["Game Time ET"] || "").trim();
-      return !targetTime || !savedTime || targetTime.includes(savedTime) || savedTime.includes(targetTime);
+      const savedTime = eventTimeKey(saved["Game Time ET"]);
+      return !targetTime || !savedTime || targetTime === savedTime;
     })
     .map((saved) => ({
       snapshotTime: String(saved["Snapshot Time ET"] || ""),
@@ -151,7 +216,12 @@ function marketHistoryFor(
   return [...deduped.values()];
 }
 
-function historicalPlay(row: Row, v2Rows: Row[], marketHistoryRows: Row[]) {
+function historicalPlay(
+  row: Row,
+  v2Rows: Row[],
+  marketHistoryRows: Row[],
+  currentSnapshotRows: Row[] = [],
+) {
   const market = String(row.Market || "");
   if (market !== "Moneyline" && market !== "Total") return null;
   const date = isoDate(row.Date);
@@ -159,12 +229,28 @@ function historicalPlay(row: Row, v2Rows: Row[], marketHistoryRows: Row[]) {
     ? String(row.Side || row.Selection || "")
     : String(row.Selection || row["Public Split Selection"] || "");
   const gameKey = cleanGameKey(row["Game Key"]) || `${date}|${row.Game}`;
+  const currentSnapshot = latestCurrentSnapshotFor(
+    currentSnapshotRows,
+    row,
+    market,
+    selection,
+  );
   const currentLine = market === "Moneyline"
     ? null
-    : n(row["Public Split Line"] || row.Line || row["Odds/Line"]);
-  const currentOdds = String(row["Public Split Odds"] || row.Odds || "");
-  const currentBets = n(row["Current Public %"] || row["Public Bets %"]) ?? 0;
-  const currentMoney = n(row["Current Sharp %"] || row["Public Money %"]) ?? 0;
+    : n(currentSnapshot?.Line || row["Public Split Line"] || row.Line || row["Odds/Line"]);
+  const currentOdds = String(currentSnapshot?.Odds || row["Public Split Odds"] || row.Odds || "");
+  const currentBets = n(
+    currentSnapshot?.["Current Public %"] ||
+    currentSnapshot?.["Public Bets %"] ||
+    row["Current Public %"] ||
+    row["Public Bets %"],
+  ) ?? 0;
+  const currentMoney = n(
+    currentSnapshot?.["Current Sharp %"] ||
+    currentSnapshot?.["Public Money %"] ||
+    row["Current Sharp %"] ||
+    row["Public Money %"],
+  ) ?? 0;
   const openingBets = n(row["Opening Public %"]);
   const openingMoney = n(row["Opening Sharp %"]);
   const openingLine = market === "Moneyline" ? null : n(row["Opening Public Split Line"]);
@@ -181,11 +267,34 @@ function historicalPlay(row: Row, v2Rows: Row[], marketHistoryRows: Row[]) {
       point.snapshotTime &&
       (index === 0 || point.snapshotTime !== array[index - 1]?.snapshotTime)
     );
-  const movementHistory = retainedHistory.length
+  const baseHistory = retainedHistory.length
     ? retainedHistory
     : v2History.length >= 2
       ? v2History
       : fallbackHistory;
+  const currentPoint = currentSnapshot
+    ? {
+        snapshotTime: String(currentSnapshot["Snapshot Time ET"] || ""),
+        line: market === "Moneyline" ? null : n(currentSnapshot.Line),
+        odds: String(currentSnapshot.Odds || ""),
+        betsPct: n(currentSnapshot["Current Public %"] || currentSnapshot["Public Bets %"]) ?? 0,
+        moneyPct: n(currentSnapshot["Current Sharp %"] || currentSnapshot["Public Money %"]) ?? 0,
+      }
+    : null;
+  const dedupedHistory = new Map<string, (typeof baseHistory)[number]>();
+  for (const point of [...baseHistory, ...(currentPoint?.snapshotTime ? [currentPoint] : [])]) {
+    const key = [
+      point.snapshotTime,
+      point.line == null ? "" : String(point.line),
+      point.odds,
+      point.betsPct,
+      point.moneyPct,
+    ].join("|");
+    dedupedHistory.set(key, point);
+  }
+  const movementHistory = [...dedupedHistory.values()].sort(
+    (a, b) => snapshotEpoch(a.snapshotTime) - snapshotEpoch(b.snapshotTime),
+  );
   const updatedAt = String(
     movementHistory.at(-1)?.snapshotTime ||
     row["Public Split Snapshot Time"] ||
@@ -237,7 +346,13 @@ function historicalPlay(row: Row, v2Rows: Row[], marketHistoryRows: Row[]) {
       "",
     ),
     updatedAt,
-    snapshotStatus: "FINAL_PREGAME",
+    snapshotStatus:
+      currentSnapshot &&
+      !String(currentSnapshot["Match Confidence"] || "")
+        .toLowerCase()
+        .includes("15-minute tracking snapshot")
+        ? "LIVE"
+        : "FINAL_PREGAME",
     movementHistory,
   };
 }
@@ -271,16 +386,28 @@ export async function GET(request: NextRequest) {
       }, { headers: { "Cache-Control": "no-store, max-age=0" } });
     }
 
-    const [dailyTrendRaw, v2SnapshotRaw, marketHistoryRaw] = await Promise.all([
+    const currentDate = easternDateKey();
+    const [dailyTrendRaw, v2SnapshotRaw, marketHistoryRaw, currentSnapshotRaw] = await Promise.all([
       readTursoDatasetByDateKeys("MLB", "all_game_trends", [selectedDate]),
       readTursoDatasetByDateKeys("MLB", "trend_v2_snapshots", [selectedDate]),
       readTursoDatasetByDateKeys("MLB", "public_split_history", [selectedDate]),
+      selectedDate === currentDate
+        ? readTursoDatasetByDateKeys("MLB", "public_split_snapshots", [selectedDate])
+        : Promise.resolve([]),
     ]);
     const dailyTrendRows = asRows(dailyTrendRaw);
     const v2Rows = asRows(v2SnapshotRaw);
     const marketHistoryRows = asRows(marketHistoryRaw);
+    const currentSnapshotRows = asRows(currentSnapshotRaw);
     const trendPlays = dailyTrendRows
-      .map((row) => historicalPlay(row, v2Rows, marketHistoryRows))
+      .map((row) =>
+        historicalPlay(
+          row,
+          v2Rows,
+          marketHistoryRows,
+          currentSnapshotRows,
+        ),
+      )
       .filter(Boolean);
 
     const gamesMap = new Map<string, Row>();
@@ -303,7 +430,10 @@ export async function GET(request: NextRequest) {
       availableDates,
       games: [...gamesMap.values()],
       trendPlays,
-      source: "stored-all_game_trends+public_split_history",
+      source:
+        selectedDate === currentDate
+          ? "stored-all_game_trends+public_split_history+current_public_split_snapshots"
+          : "stored-all_game_trends+public_split_history",
     }, { headers: { "Cache-Control": "no-store, max-age=0" } });
   } catch (error) {
     console.error("MLB daily market history read failed", error);
