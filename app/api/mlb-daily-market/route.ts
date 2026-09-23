@@ -173,7 +173,7 @@ function marketHistoryFor(
   const targetHome = normalized(row["Home Team"]);
   const targetGame = normalized(row.Game);
   const targetSelection = normalized(selection);
-  const targetTime = String(row["Game Time"] || "").trim();
+  const targetTime = eventTimeKey(row["Game Time"]);
 
   const points = rows
     .filter((saved) => {
@@ -189,8 +189,8 @@ function marketHistoryFor(
       const gameMatch = targetGame && savedGame === targetGame;
       if (!teamsMatch && !gameMatch) return false;
 
-      const savedTime = String(saved["Game Time ET"] || "").trim();
-      return !targetTime || !savedTime || targetTime.includes(savedTime) || savedTime.includes(targetTime);
+      const savedTime = eventTimeKey(saved["Game Time ET"]);
+      return !targetTime || !savedTime || targetTime === savedTime;
     })
     .map((saved) => ({
       snapshotTime: String(saved["Snapshot Time ET"] || ""),
