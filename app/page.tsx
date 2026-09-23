@@ -7207,11 +7207,32 @@ export default function Home() {
     )
       .filter((date): date is string => Boolean(date))
       .sort((a, b) => b.localeCompare(a));
+    const currentEzpzPicks = (data.aiPicks || []).filter(
+      (pick) => pick.selected && pick.protectionStatus === "PASSED",
+    );
+    const savedTodayEzpzPicks = historicalEzpzPicks.filter(
+      (pick) => normalizedDateKey(pick.date) === currentEzpzDate,
+    );
+    const savedTodayEzpzPickMap = new Map(
+      savedTodayEzpzPicks.map((pick) => [pick.candidateId, pick] as const),
+    );
+    const currentEzpzPickIds = new Set(currentEzpzPicks.map((pick) => pick.candidateId));
+    const currentEzpzPicksWithResults = currentEzpzPicks.map((pick) => {
+      const saved = savedTodayEzpzPickMap.get(pick.candidateId);
+      if (!saved?.result || pick.result) return pick;
+      return {
+        ...pick,
+        result: saved.result,
+        units: saved.units,
+        resultUpdated: saved.resultUpdated,
+      };
+    });
+    const retainedTodayEzpzPicks = savedTodayEzpzPicks.filter(
+      (pick) => !currentEzpzPickIds.has(pick.candidateId),
+    );
     const aiPicks =
       activeEzpzDate === currentEzpzDate
-        ? (data.aiPicks || []).filter(
-            (pick) => pick.selected && pick.protectionStatus === "PASSED",
-          )
+        ? [...currentEzpzPicksWithResults, ...retainedTodayEzpzPicks]
         : historicalEzpzPicks.filter(
             (pick) => normalizedDateKey(pick.date) === activeEzpzDate,
           );
