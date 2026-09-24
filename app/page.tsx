@@ -211,6 +211,7 @@ type AiPick = {
   source: AiPickSource;
   bestPlayType: string;
   trendTier: string;
+  tier?: string;
   modelScore: number;
   trendScore: number;
   aiScore: number;
@@ -5180,7 +5181,7 @@ function aiTrendNetRoiSummary(play: TrendPlay, trendPlays: TrendPlay[]) {
 }
 
 function aiTrendRecordKey(pick: AiPick) {
-  const tier = normalizeType(pick.trendTier || "");
+  const tier = normalizeType(pick.trendTier || pick.tier || "");
   const signals = ["PUBLIC FADE", "RLM", "SHARP"].filter((signal) =>
     signal === "RLM" ? tier.includes("RLM") : tier.includes(signal),
   );
@@ -5276,12 +5277,13 @@ function AiPickSelectorCard({
   const isMlbTrendV2Pick =
     String(pick.selectorVersion || "").startsWith("mlb-trend-v2") ||
     String(pick.candidateId || "").startsWith("v2|");
+  const effectiveTrendTier = String(pick.trendTier || pick.tier || "");
   const isDirectTrendPick =
     String(pick.selectorVersion || "").includes("mlb-direct-trends-moneyline-v2") ||
     (pick.source !== "Best Play" &&
-      /(?:Public Fade|RLM|Sharp)/i.test(String(pick.trendTier || "")));
+      /(?:Public Fade|RLM|Sharp)/i.test(effectiveTrendTier));
   const directTrendLabels = isDirectTrendPick
-    ? String(pick.trendTier || "")
+    ? effectiveTrendTier
         .split(" + ")
         .map((label) => label.trim().toLowerCase() === "strong rlm" ? "RLM" : label.trim())
         .filter(Boolean)
