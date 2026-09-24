@@ -2068,8 +2068,8 @@ function footballBestPlayRecordType(play: any, split: DraftKingsSplit | undefine
 
 const PUBLIC_FADE_MIN_BETS_PCT = 75;
 const PUBLIC_FADE_MIN_TICKET_MONEY_GAP_PCT = 55;
-const STRONG_RLM_MIN_PUBLIC_MOVE_PCT = 5;
-const STRONG_RLM_MIN_SPREAD_MOVE_POINTS = 1.5;
+const RLM_MIN_PUBLIC_MOVE_PCT = 5;
+const RLM_MIN_MARKET_MOVE_POINTS = 1.5;
 const EZPZ_SHARP_MIN_MONEY_OVER_BETS_PCT: Record<FootballSport, number> = { NFL: 25, NCAAF: 40 };
 
 function sameTrendSplitGame(play: TrendPlay, split: DraftKingsSplit, sport: FootballSport) {
@@ -2100,19 +2100,22 @@ function isPublicFadeSource(play: DraftKingsSplit, sport: FootballSport) {
     && bets - money >= PUBLIC_FADE_MIN_TICKET_MONEY_GAP_PCT;
 }
 
-function isStrongRlmSource(play: DraftKingsSplit) {
+function isRlmSource(play: DraftKingsSplit) {
   const openingBets = Number(play.openingBetsPct);
   const publicMove = Number(play.publicMovementPct);
   const lineMove = Number(play.lineMovementValue);
   const basis = String(play.lineMovementBasis || "");
-  return play.market === "Spread"
+  const marketMatches =
+    (play.market === "Spread" && basis.includes("Spread")) ||
+    (play.market === "Total" && basis.includes("Total"));
+
+  return marketMatches
     && openingBets > 0
     && openingBets < 100
-    && basis.includes("Spread")
     && Number.isFinite(publicMove)
-    && publicMove >= STRONG_RLM_MIN_PUBLIC_MOVE_PCT
+    && publicMove >= RLM_MIN_PUBLIC_MOVE_PCT
     && Number.isFinite(lineMove)
-    && lineMove <= -STRONG_RLM_MIN_SPREAD_MOVE_POINTS;
+    && lineMove <= -RLM_MIN_MARKET_MOVE_POINTS;
 }
 
 function isSharpSource(play: Pick<TrendPlay, "betsPct" | "moneyPct">, sport: FootballSport) {
@@ -2134,7 +2137,7 @@ function directTrendQualification(
   const publicSide = oppositeDraftKingsSplit(play, splits, sport);
   if (publicSide) {
     if (isPublicFadeSource(publicSide, sport)) labels.push("Public Fade");
-    if (isStrongRlmSource(publicSide)) labels.push("Strong RLM");
+    if (isRlmSource(publicSide)) labels.push("RLM");
   }
   return { labels, publicSide };
 }
@@ -2359,14 +2362,14 @@ function buildFootballEzpzRecordRows(
       );
       const result = resultCode(row?.Result || row?.Status);
       if (!result) continue;
-      const strengthScore = direct.labels.includes("Strong RLM")
+      const strengthScore = direct.labels.includes("RLM")
         ? Math.min(
             100,
             85 +
               Math.max(
                 0,
                 Math.abs(Number(direct.publicSide?.lineMovementValue || 0)) -
-                  STRONG_RLM_MIN_SPREAD_MOVE_POINTS,
+                  RLM_MIN_MARKET_MOVE_POINTS,
               ) *
                 5,
           )
@@ -2461,8 +2464,8 @@ function buildFootballEzpzPicks(
     const odds = americanOddsText(play.odds);
     if (!odds || Number(odds) < -150) continue;
 
-    const strengthScore = direct.labels.includes("Strong RLM")
-      ? Math.min(100, 85 + Math.max(0, Math.abs(Number(direct.publicSide?.lineMovementValue || 0)) - STRONG_RLM_MIN_SPREAD_MOVE_POINTS) * 5)
+    const strengthScore = direct.labels.includes("RLM")
+      ? Math.min(100, 85 + Math.max(0, Math.abs(Number(direct.publicSide?.lineMovementValue || 0)) - RLM_MIN_MARKET_MOVE_POINTS) * 5)
       : 85;
 
     picks.push({
@@ -2632,7 +2635,7 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
   // all_game_trends can contain an older 0%/100% opening snapshot even when the
   // append-only weekly market history has a later real first snapshot. Overlay
   // the corrected weekly movement state for public record classification so a
-  // placeholder opening can neither create nor erase a Strong RLM result.
+  // placeholder opening can neither create nor erase an RLM result.
   const publicTrendKey = (
     date: unknown,
     _gameKey: unknown,
@@ -2800,7 +2803,7 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
   const recordSummary = buildRecordSummary();
   const last7RecordSummary = buildRecordSummary(7);
   const aiPickRecordRows = buildFootballEzpzRecordRows(effectiveTracker, publicTrendRows, sport);
-  return {ok:true,sport,database:sportDatabaseLabel(sport),today,lastUpdated:nowET(),tiles:{last7Days:last7,overallGreen:overall,handpickedLast7:last7,handpickedOverall:overall,pendingGreen:pending,bestPlaysToday:best.length},bestPlays:best,slateToday:todaySlate,betTrackerRows:effectiveTracker,draftKings:{ok:enriched.length>0,status:enriched.length?"LIVE":"UNAVAILABLE",updatedAt:nowET(),stale:usingStoredDraftKingsFallback,splits:enriched,props:[],errors:dk.errors,source:SCORES_AND_ODDS_SOURCE,filter:dk.filter,coverage:dk.coverage,displayMode:usingStoredDraftKingsFallback?"STALE_FALLBACK":"LIVE",trackingMode:"WEEKLY",trackingWeekStart:trackingWeek.start,trackingWeekEnd:trackingWeek.end,trackedGames:trackingSlate.length},draftKingsSignalRows:history,trendRecordRows:publicTrendRows.filter(r=>resultCode(r.Result)),trendPlays:displayTrendPlays,aiPicks,aiPickRecordRows,aiSelectorStatus:{mode:"LIVE",externalResearchConfigured:false,message:aiPicks.length?`${sport} EZPZ Picks are live for ${today}: ${sport === "NFL" ? "yardage props qualify directly at Strong or Regular; Lean is tracked but excluded from EZPZ Picks. " : ""}HOT game Best Plays remain FINAL immediately; Trend Plays qualify only through Public Fade, Strong RLM, or Sharp. NFL Public Fade uses 80%+ bets; CFB Public Fade uses >75% bets with a 55+ point Bets%-Money% gap. Strong RLM requires public bet share to rise at least 5 points while the spread moves 1.5+ points against that side. EZPZ Sharp requires money share over bet share by ${sport === "NFL" ? 25 : 40}+ points. Qualifying Trend Plays remain tied to the saved pregame market snapshot.`:`No ${sport} EZPZ Picks for ${today} currently qualify under the active game, prop, or trend rules.`,updatedAt:nowET(),candidateCount:modelBest.length+todayTrendPlays.length+propBest.length,selectedCount:aiPicks.length},recordSummary,last7RecordSummary,handpickedRecordSummary:recordSummary,handpickedLast7RecordSummary:last7RecordSummary};
+  return {ok:true,sport,database:sportDatabaseLabel(sport),today,lastUpdated:nowET(),tiles:{last7Days:last7,overallGreen:overall,handpickedLast7:last7,handpickedOverall:overall,pendingGreen:pending,bestPlaysToday:best.length},bestPlays:best,slateToday:todaySlate,betTrackerRows:effectiveTracker,draftKings:{ok:enriched.length>0,status:enriched.length?"LIVE":"UNAVAILABLE",updatedAt:nowET(),stale:usingStoredDraftKingsFallback,splits:enriched,props:[],errors:dk.errors,source:SCORES_AND_ODDS_SOURCE,filter:dk.filter,coverage:dk.coverage,displayMode:usingStoredDraftKingsFallback?"STALE_FALLBACK":"LIVE",trackingMode:"WEEKLY",trackingWeekStart:trackingWeek.start,trackingWeekEnd:trackingWeek.end,trackedGames:trackingSlate.length},draftKingsSignalRows:history,trendRecordRows:publicTrendRows.filter(r=>resultCode(r.Result)),trendPlays:displayTrendPlays,aiPicks,aiPickRecordRows,aiSelectorStatus:{mode:"LIVE",externalResearchConfigured:false,message:aiPicks.length?`${sport} EZPZ Picks are live for ${today}: ${sport === "NFL" ? "yardage props qualify directly at Strong or Regular; Lean is tracked but excluded from EZPZ Picks. " : ""}HOT game Best Plays remain FINAL immediately; Trend Plays qualify only through Public Fade, RLM, or Sharp. NFL Public Fade uses 80%+ bets; CFB Public Fade uses >75% bets with a 55+ point Bets%-Money% gap. RLM requires public bet share to rise at least 5 points while the market line moves 1.5+ points against that side. EZPZ Sharp requires money share over bet share by ${sport === "NFL" ? 25 : 40}+ points. Qualifying Trend Plays remain tied to the saved pregame market snapshot.`:`No ${sport} EZPZ Picks for ${today} currently qualify under the active game, prop, or trend rules.`,updatedAt:nowET(),candidateCount:modelBest.length+todayTrendPlays.length+propBest.length,selectedCount:aiPicks.length},recordSummary,last7RecordSummary,handpickedRecordSummary:recordSummary,handpickedLast7RecordSummary:last7RecordSummary};
 }
 
 const FOOTBALL_PUBLIC_DATA_CACHE_TTL_MS = 60_000;
