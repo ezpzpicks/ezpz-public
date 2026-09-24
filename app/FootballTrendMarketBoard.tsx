@@ -366,6 +366,28 @@ function historyPoints(play: TrendPlay) {
   ];
 
   const base = [...(saved.length >= 2 ? saved : fallback)];
+  // Some retained games store the opening snapshot separately from the series.
+  // Include that recorded point without filling missing opening values from now.
+  const openingEpoch = snapshotEpoch(play.firstTrackedAt);
+  const firstSavedEpoch = saved.reduce((earliest, point) => {
+    const epoch = snapshotEpoch(point.snapshotTime);
+    return Number.isFinite(epoch) ? Math.min(earliest, epoch) : earliest;
+  }, Number.POSITIVE_INFINITY);
+  const hasOpeningValues =
+    play.openingBetsPct != null && Number.isFinite(Number(play.openingBetsPct)) &&
+    play.openingMoneyPct != null && Number.isFinite(Number(play.openingMoneyPct)) &&
+    (play.market === "Moneyline"
+      ? americanImpliedProbabilityPct(play.openingOdds) != null
+      : play.openingLine != null && Number.isFinite(Number(play.openingLine)));
+  if (saved.length >= 2 && hasOpeningValues && Number.isFinite(openingEpoch) && openingEpoch < firstSavedEpoch) {
+    base.unshift({
+      snapshotTime: play.firstTrackedAt!,
+      line: play.openingLine ?? null,
+      odds: play.openingOdds || "",
+      betsPct: Number(play.openingBetsPct),
+      moneyPct: Number(play.openingMoneyPct),
+    });
+  }
   const heartbeatTime = String(play.updatedAt || "").trim();
   if (heartbeatTime) {
     const heartbeatEpoch = snapshotEpoch(heartbeatTime);
