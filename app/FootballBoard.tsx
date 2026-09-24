@@ -298,7 +298,7 @@ function directTrendTypes(pick: EzpzPick): DirectTrendSignal[] {
   if (pick.source !== "Trend Play" && pick.source !== "Best + Trend") return [];
   const key = textKey(`${pick.tier || ""} ${pick.qualification || ""}`);
   const types: DirectTrendSignal[] = [];
-  if (key.includes("strong rlm")) types.push("RLM");
+  if (key.includes("rlm")) types.push("RLM");
   if (key.includes("public fade")) types.push("Public Fade");
   if (key.includes("sharp")) types.push("Sharp");
   return types;
