@@ -5181,8 +5181,8 @@ function aiTrendNetRoiSummary(play: TrendPlay, trendPlays: TrendPlay[]) {
 
 function aiTrendRecordKey(pick: AiPick) {
   const tier = normalizeType(pick.trendTier || "");
-  const signals = ["PUBLIC FADE", "STRONG RLM", "SHARP"].filter((signal) =>
-    tier.includes(signal),
+  const signals = ["PUBLIC FADE", "RLM", "SHARP"].filter((signal) =>
+    signal === "RLM" ? tier.includes("RLM") : tier.includes(signal),
   );
   const signalKey = signals.length ? signals.join("+") : tier || "SPLIT";
   const market = normalizeType(pick.market || "");
