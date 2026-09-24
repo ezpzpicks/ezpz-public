@@ -2118,6 +2118,28 @@ function isRlmSource(play: DraftKingsSplit) {
     && lineMove <= -RLM_MIN_MARKET_MOVE_POINTS;
 }
 
+function isRlmSelectedSide(play: TrendPlay) {
+  const openingBets = Number(play.openingBetsPct);
+  const publicMove = Number(play.publicMovementPct);
+  const lineMove = Number(play.lineMovementValue);
+  const basis = String(play.lineMovementBasis || "");
+  const marketMatches =
+    (play.market === "Spread" && basis.includes("Spread")) ||
+    (play.market === "Total" && basis.includes("Total"));
+
+  // Selected-side form of the same RLM rule: public bet share moved away from
+  // this side by 5+ points while the market moved 1.5+ points toward it.
+  // This is equivalent to evaluating the opposite public side, and lets saved
+  // FINAL_PREGAME trend snapshots qualify even when the live paired split is absent.
+  return marketMatches
+    && openingBets > 0
+    && openingBets < 100
+    && Number.isFinite(publicMove)
+    && publicMove <= -RLM_MIN_PUBLIC_MOVE_PCT
+    && Number.isFinite(lineMove)
+    && lineMove >= RLM_MIN_MARKET_MOVE_POINTS;
+}
+
 function isSharpSource(play: Pick<TrendPlay, "betsPct" | "moneyPct">, sport: FootballSport) {
   const bets = Number(play.betsPct);
   const money = Number(play.moneyPct);
@@ -2135,9 +2157,12 @@ function directTrendQualification(
   if (isSharpSource(play, sport)) labels.push("Sharp");
 
   const publicSide = oppositeDraftKingsSplit(play, splits, sport);
-  if (publicSide) {
-    if (isPublicFadeSource(publicSide, sport)) labels.push("Public Fade");
-    if (isRlmSource(publicSide)) labels.push("RLM");
+  if (publicSide && isPublicFadeSource(publicSide, sport)) labels.push("Public Fade");
+  if (
+    isRlmSelectedSide(play) ||
+    (publicSide && isRlmSource(publicSide))
+  ) {
+    labels.push("RLM");
   }
   return { labels, publicSide };
 }
