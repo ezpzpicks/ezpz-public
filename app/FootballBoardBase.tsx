@@ -789,8 +789,9 @@ function fbPreferTrendPlay(current: TrendPlay, candidate: TrendPlay) {
   const currentStamp = fbTrendFreshness(current);
   const candidateStamp = fbTrendFreshness(candidate);
   if (candidateStamp !== currentStamp) return candidateStamp > currentStamp ? candidate : current;
-  const currentHistory = current.movementHistory?.length || 0;
-  const candidateHistory = candidate.movementHistory?.length || 0;
+  // Preserve the existing tie-break weight now that chart history is uncapped.
+  const currentHistory = Math.min(80, current.movementHistory?.length || 0);
+  const candidateHistory = Math.min(80, candidate.movementHistory?.length || 0);
   return candidateHistory > currentHistory ? candidate : current;
 }
 
