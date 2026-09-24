@@ -1990,7 +1990,8 @@ function movementHistoryForPlay(play: WeeklyTrendPlay, rows: SheetRow[]) {
     .filter((row) => Number.isFinite(row.betsPct) && Number.isFinite(row.moneyPct));
 
   const firstRealIndex = points.findIndex((point) => point.betsPct > 0 && point.betsPct < 100);
-  return firstRealIndex >= 0 ? points.slice(firstRealIndex).slice(-80) : [];
+  // Charts should retain the full path from the first valid saved snapshot.
+  return firstRealIndex >= 0 ? points.slice(firstRealIndex) : [];
 }
 
 export async function readWeeklyFootballMarket(sport: FootballSport) {
@@ -2075,7 +2076,8 @@ export async function readWeeklyFootballMarket(sport: FootballSport) {
 
     function fallbackPriority(play: WeeklyTrendPlay) {
       const finalBonus = play.snapshotStatus === "FINAL_PREGAME" ? 1_000_000 : 0;
-      const historyBonus = (play.movementHistory?.length || 0) * 1_000;
+      // Preserve the existing tie-break weight now that chart history is uncapped.
+      const historyBonus = Math.min(80, play.movementHistory?.length || 0) * 1_000;
       const normalized = String(play.updatedAt || "")
         .replace(/ EDT$/, " -0400")
         .replace(/ EST$/, " -0500");
