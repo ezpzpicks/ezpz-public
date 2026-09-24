@@ -1358,6 +1358,17 @@ type PlayDiagnostics = {
 };
 
 function isPitcherPlay(play: Play) {
+  // Explicit market identity wins over words in the display label. A game total
+  // such as "Strong Over 6.5" contains pitcher-like OVER wording, but must never
+  // be routed through the pitcher-prop card or diagnostics.
+  if (
+    isTotalType(play.playType) ||
+    isMoneylineType(play.playType) ||
+    isNRFIType(play.playType)
+  ) {
+    return false;
+  }
+
   return isKType(play.playType) || isKType(play.play);
 }
 
