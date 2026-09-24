@@ -1816,11 +1816,11 @@ function fullSlateTrendLabels(
   const ownBets = Number(split.betsPct);
   const ownMoney = Number(split.moneyPct);
 
-  // MLB Sharp badge: selected-side handle exceeds selected-side bets by 20+ pts.
+  // MLB Sharp badge: selected-side handle exceeds selected-side bets by 25+ pts.
   if (
     Number.isFinite(ownBets) &&
     Number.isFinite(ownMoney) &&
-    ownMoney - ownBets >= 20
+    ownMoney - ownBets >= 25
   ) {
     labels.push("Sharp");
   }
@@ -7331,7 +7331,7 @@ export default function Home() {
             <div className="directTrendRules">
               <span><b>Public Fade</b> Fade the opposite side when 80%+ of bets are on one side.</span>
               <span><b>RLM</b> Public bets rise 5+ points while the market moves 1.5+ points against that side (implied probability for moneylines, total line for totals).</span>
-              <span><b>Sharp</b> Money share is 20+ points higher than bet share.</span>
+              <span><b>Sharp</b> Money share is 25+ points higher than bet share.</span>
             </div>
             <div className="trendGamesCountRow">
               <span className="countPill">{directTrendGroups.length} games</span>
