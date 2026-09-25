@@ -514,14 +514,9 @@ function HistoryPickCard({ pick, sport, viewingToday, data }: { pick: EzpzPick; 
         <div className="footballHistoryTrendPickRow">
           <div>
             <h3>{pick.selection}</h3>
-            <p>{pick.market || "Betting Split"} <span>•</span> ScoresAndOdds split</p>
+            <p>{pick.market || "Betting Split"}</p>
           </div>
           <strong className="footballHistoryTrendOdds">{displayOdds(pick.odds)}</strong>
-        </div>
-
-        <div className="footballHistoryTrendMeta">
-          <span className="footballHistoryTrendSignal">{trendSignalDetail(pick, primaryTrend)}</span>
-          <span className="footballHistoryTrendSource">ScoresAndOdds split signal</span>
         </div>
 
         <div className="footballHistoryTrendRecordInline">
