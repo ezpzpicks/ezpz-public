@@ -271,8 +271,8 @@ export async function GET(request: NextRequest) {
     const classGroup = classification(sched || row);
     const base = {
       date,
-      week: text(row.Week || sched.Week),
-      gameId: id || cleanGameId(sched["Game ID"] || sched["Game Key"]),
+      week: text(row.Week || sched?.Week),
+      gameId: id || cleanGameId(sched?.["Game ID"] || sched?.["Game Key"]),
       game: text(row.Game) || `${text(row["Away Team"])} @ ${text(row["Home Team"])}`,
       away: text(row["Away Team"]),
       home: text(row["Home Team"]),
