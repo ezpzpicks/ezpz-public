@@ -573,6 +573,7 @@ function modelPlayEzpzPick(play: any): NflEzpzPick | null {
       qualification: `${yardageTier} yardage prop • 30%+ projection gap • ${yardageTier === "Strong" ? "30%+" : "16%+"} probability edge`,
       formStatus: play.formStatus,
       formType: play.formType,
+      record: play.formRecord,
       headshotUrl: play.headshotUrl,
       playerName: play.playerName,
       playerTeam: play.playerTeam,
