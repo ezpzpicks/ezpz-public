@@ -44,7 +44,7 @@ function gameKey(row: Row) {
 function scheduleCompleted(row: Row) {
   return truthy(row.Completed) || (text(row["Away Score"]) !== "" && text(row["Home Score"]) !== "");
 }
-function classification(row: Row) {
+function classification(row: Row): "FBS_ONLY" | "FCS_OR_NON_FBS" {
   const away = key(row["Away Classification"]);
   const home = key(row["Home Classification"]);
   return away === "fbs" && home === "fbs" ? "FBS_ONLY" : "FCS_OR_NON_FBS";
