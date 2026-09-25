@@ -44,10 +44,32 @@ function gameKey(row: Row) {
 function scheduleCompleted(row: Row) {
   return truthy(row.Completed) || (text(row["Away Score"]) !== "" && text(row["Home Score"]) !== "");
 }
+const FBS_CONFERENCES = new Set([
+  "acc", "atlantic coast", "atlantic coast conference",
+  "american", "aac", "american athletic", "american athletic conference",
+  "big 12", "big 12 conference", "big ten", "big ten conference",
+  "conference usa", "c usa", "cusa",
+  "mid american", "mid american conference", "mac",
+  "mountain west", "mountain west conference", "mwc",
+  "pac 12", "pac 12 conference", "pac12",
+  "sec", "southeastern", "southeastern conference",
+  "sun belt", "sun belt conference",
+  "fbs independents", "independent", "independents",
+]);
 function classification(row: Row): "FBS_ONLY" | "FCS_OR_NON_FBS" {
-  const away = key(row["Away Classification"]);
-  const home = key(row["Home Classification"]);
-  return away === "fbs" && home === "fbs" ? "FBS_ONLY" : "FCS_OR_NON_FBS";
+  const awayClass = key(row["Away Classification"]);
+  const homeClass = key(row["Home Classification"]);
+  const awayConference = key(row["Away Conference"]);
+  const homeConference = key(row["Home Conference"]);
+  const explicitFcs = [awayClass, homeClass].some((value) =>
+    value.includes("fcs") || value.includes("non fbs")
+  );
+  if (explicitFcs) return "FCS_OR_NON_FBS";
+  const conferencesKnown = Boolean(awayConference && homeConference);
+  if (conferencesKnown && (!FBS_CONFERENCES.has(awayConference) || !FBS_CONFERENCES.has(homeConference))) {
+    return "FCS_OR_NON_FBS";
+  }
+  return awayClass === "fbs" && homeClass === "fbs" ? "FBS_ONLY" : "FCS_OR_NON_FBS";
 }
 function gradeSpread(actualMargin: number, homeSpread: number, side: "HOME" | "AWAY"): Result {
   const homeCover = actualMargin + homeSpread;
