@@ -7,7 +7,9 @@ export const revalidate = 0;
 export const maxDuration = 120;
 
 function num(value: unknown): number | null {
-  const n = Number(String(value ?? "").replace(/,/g, "").trim());
+  const raw = String(value ?? "").replace(/,/g, "").trim();
+  if (!raw) return null;
+  const n = Number(raw);
   return Number.isFinite(n) ? n : null;
 }
 function text(value: unknown) { return String(value ?? "").trim(); }
