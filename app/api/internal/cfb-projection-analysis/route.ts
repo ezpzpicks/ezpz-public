@@ -44,6 +44,45 @@ function gameKey(row: Row) {
 function scheduleCompleted(row: Row) {
   return truthy(row.Completed) || (text(row["Away Score"]) !== "" && text(row["Home Score"]) !== "");
 }
+
+type EspnFinal = { awayScore: number; homeScore: number };
+
+async function espnFinalsForDate(dateIso: string): Promise<Map<string, EspnFinal>> {
+  const out = new Map<string, EspnFinal>();
+  const dates = dateIso.replace(/-/g, "");
+  try {
+    const response = await fetch(
+      `https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard?dates=${dates}&limit=1000`,
+      { cache: "no-store", signal: AbortSignal.timeout(15000) },
+    );
+    if (!response.ok) return out;
+    const payload = await response.json();
+    for (const event of Array.isArray(payload?.events) ? payload.events : []) {
+      const competition = event?.competitions?.[0] || {};
+      const status = competition?.status?.type || event?.status?.type || {};
+      const completed =
+        status?.completed === true ||
+        key(status?.name).includes("final") ||
+        key(status?.state) === "post";
+      if (!completed) continue;
+      const competitors = Array.isArray(competition?.competitors) ? competition.competitors : [];
+      const away = competitors.find((team: any) => key(team?.homeAway) === "away");
+      const home = competitors.find((team: any) => key(team?.homeAway) === "home");
+      const awayScore = num(away?.score);
+      const homeScore = num(home?.score);
+      const id = cleanGameId(event?.id || competition?.id);
+      if (id && awayScore != null && homeScore != null) out.set(id, { awayScore, homeScore });
+    }
+  } catch {}
+  return out;
+}
+
+async function espnFinalsForDates(dates: string[]) {
+  const combined = new Map<string, EspnFinal>();
+  const results = await Promise.all(dates.map(async (date) => [date, await espnFinalsForDate(date)] as const));
+  for (const [, games] of results) for (const [id, score] of games) combined.set(id, score);
+  return combined;
+}
 const FBS_CONFERENCES = new Set([
   "acc", "atlantic coast", "atlantic coast conference",
   "american", "aac", "american athletic", "american athletic conference",
@@ -178,9 +217,14 @@ export async function GET(request: NextRequest) {
     uniqueSlate.set(gameKey(row), row);
   }
 
+  const slateDates = [...new Set([...uniqueSlate.values()].map((row) => isoDate(row.Date || row["Game Date"])).filter(Boolean))];
+  const espnFinals = await espnFinalsForDates(slateDates);
+
   const spread: Play[] = [];
   const total: Play[] = [];
   let matched = 0;
+  let matchedFromSchedule = 0;
+  let matchedFromEspn = 0;
   let unmatched = 0;
   let unmatchedNoSchedule = 0;
   let unmatchedNoScore = 0;
@@ -194,38 +238,37 @@ export async function GET(request: NextRequest) {
     const id = cleanGameId(row["Game ID"] || row["Game Key"]);
     const sched = (id && scheduleById.get(id)) ||
       scheduleByTeams.get(`${date}|${key(row["Away Team"])}|${key(row["Home Team"])}`);
-    if (!sched) {
-      unmatched += 1;
-      unmatchedNoSchedule += 1;
-      const counts = unmatchedByDate.get(date) || { noSchedule: 0, noScore: 0 };
-      counts.noSchedule += 1;
-      unmatchedByDate.set(date, counts);
-      if (unmatchedSamples.length < 30) unmatchedSamples.push({
-        date,
-        gameId: id,
-        game: text(row.Game) || `${text(row["Away Team"])} @ ${text(row["Home Team"])}`,
-        reason: "NO_SCHEDULE_MATCH",
-      });
-      continue;
+    const espn = id ? espnFinals.get(id) : undefined;
+    let awayScore: number | null = null;
+    let homeScore: number | null = null;
+    if (sched) {
+      awayScore = num(sched["Away Score"]);
+      homeScore = num(sched["Home Score"]);
+      if (awayScore != null && homeScore != null) matchedFromSchedule += 1;
     }
-    const awayScore = num(sched["Away Score"]);
-    const homeScore = num(sched["Home Score"]);
+    if ((awayScore == null || homeScore == null) && espn) {
+      awayScore = espn.awayScore;
+      homeScore = espn.homeScore;
+      matchedFromEspn += 1;
+    }
     if (awayScore == null || homeScore == null) {
       unmatched += 1;
-      unmatchedNoScore += 1;
+      if (!sched) unmatchedNoSchedule += 1;
+      else unmatchedNoScore += 1;
       const counts = unmatchedByDate.get(date) || { noSchedule: 0, noScore: 0 };
-      counts.noScore += 1;
+      if (!sched) counts.noSchedule += 1;
+      else counts.noScore += 1;
       unmatchedByDate.set(date, counts);
       if (unmatchedSamples.length < 30) unmatchedSamples.push({
         date,
-        gameId: id || cleanGameId(sched["Game ID"] || sched["Game Key"]),
+        gameId: id || cleanGameId(sched?.["Game ID"] || sched?.["Game Key"]),
         game: text(row.Game) || `${text(row["Away Team"])} @ ${text(row["Home Team"])}`,
-        reason: "SCHEDULE_SCORE_MISSING",
+        reason: !sched ? "NO_SCHEDULE_OR_ESPN_FINAL" : "SCHEDULE_AND_ESPN_SCORE_MISSING",
       });
       continue;
     }
     matched += 1;
-    const classGroup = classification(sched);
+    const classGroup = classification(sched || row);
     const base = {
       date,
       week: text(row.Week || sched.Week),
@@ -301,6 +344,9 @@ export async function GET(request: NextRequest) {
       scheduleRows: schedule.length,
       uniqueSlateRowsInRange: uniqueSlate.size,
       matchedCompletedGames: matched,
+      matchedFromSchedule,
+      matchedFromEspn,
+      espnFinalRows: espnFinals.size,
       unmatchedSlateRows: unmatched,
       unmatchedNoSchedule,
       unmatchedNoScore,
