@@ -63,6 +63,7 @@ export async function GET(request: NextRequest) {
   const sport: FootballSport = requested === "NFL" ? "NFL" : "NCAAF";
   const debugDate = String(request.nextUrl.searchParams.get("date") || "").trim();
   const debugPlayer = textKey(request.nextUrl.searchParams.get("player") || "");
+  const debugWeek = String(request.nextUrl.searchParams.get("week") || "").trim();
   const worksheetNames = sport === "NFL"
     ? ["all_game_trends", "bet_tracker", "schedule", "public_split_snapshots", "prop_projections", "prop_tracker", "ezpz_pick_history"] as const
     : ["all_game_trends", "bet_tracker", "schedule", "public_split_snapshots"] as const;
@@ -74,6 +75,7 @@ export async function GET(request: NextRequest) {
   const propProjections = sport === "NFL" ? worksheetRows[4] : [];
   const propTracker = sport === "NFL" ? worksheetRows[5] : [];
   const ezpzPickHistory = sport === "NFL" ? worksheetRows[6] : [];
+  const ncaafDailySlate = sport === "NCAAF" ? await readSportWorksheet("NCAAF", "daily_slate") : [];
 
   const completedTrends = trends.filter((row) => code(row.Result));
   const qualified = trends.filter((row) => truthy(row["Trend Play"]) && String(row["Trend Tier"] || "").trim() && String(row["Trend Tier"] || "").toUpperCase() !== "PASS");
@@ -191,11 +193,59 @@ export async function GET(request: NextRequest) {
     };
   }
 
+  const ncaafProjectionRows = sport === "NCAAF"
+    ? ncaafDailySlate
+        .filter((row) => !debugDate || isoDate(row.Date || row["Game Date"]) === debugDate)
+        .filter((row) => !debugWeek || String(row.Week || "").trim() === debugWeek)
+        .map((row) => ({
+          date: isoDate(row.Date || row["Game Date"]),
+          week: row.Week,
+          gameId: row["Game ID"] || row["Game Key"],
+          game: row.Game,
+          away: row["Away Team"],
+          home: row["Home Team"],
+          projectedAway: row["Projected Away"],
+          projectedHome: row["Projected Home"],
+          projectedMargin: row["Projected Margin"],
+          projectedTotal: row["Projected Total"],
+          marketHomeSpread: row["Market Home Spread"],
+          marketTotal: row["Market Total"],
+          spreadPick: row["Spread Pick"],
+          spreadEdge: row["Spread Edge"],
+          totalPick: row["Total Pick"],
+          totalEdge: row["Total Edge"],
+          modelVersion: row["Model Version"],
+          notes: row.Notes,
+        }))
+    : [];
+  const ncaafScheduleRows = sport === "NCAAF"
+    ? schedule
+        .filter((row) => !debugDate || isoDate(row["Game Date"] || row.Date) === debugDate)
+        .filter((row) => !debugWeek || String(row.Week || "").trim() === debugWeek)
+        .map((row) => ({
+          date: isoDate(row["Game Date"] || row.Date),
+          week: row.Week,
+          gameId: row["Game ID"] || row["Game Key"],
+          game: row.Game || `${row["Away Team"] || ""} @ ${row["Home Team"] || ""}`,
+          away: row["Away Team"],
+          home: row["Home Team"],
+          awayClassification: row["Away Classification"],
+          homeClassification: row["Home Classification"],
+          homeSpread: row["Home Spread"],
+          total: row.Total,
+          completed: row.Completed,
+          awayScore: row["Away Score"],
+          homeScore: row["Home Score"],
+        }))
+    : [];
+
   return NextResponse.json({
     sport,
     totals:{trendRows:trends.length,completedTrendRows:completedTrends.length,qualifiedTrendRows:qualified.length,qualifiedCompletedTrendRows:qualified.filter((row)=>code(row.Result)).length,pendingQualifiedTrendRows:qualified.filter((row)=>!code(row.Result)).length,frozenTrendRows:frozen.length,rowsWithTrendDetails:trends.filter((r)=>String(r["Trend Score Details"]||"").trim()).length,trackerRows:tracker.length,completedTrackerRows:tracker.filter((row)=>code(row.Result||row.Status)).length,scheduleRows:schedule.length,completedScheduleRows:schedule.filter((row)=>truthy(row.Completed)||(String(row["Away Score"]??"")!==""&&String(row["Home Score"]??"")!=="")).length,snapshotRows:snapshots.length},
     byDate:byDate.slice(-14),
     propDiagnostics,
+    ncaafProjectionRows,
+    ncaafScheduleRows,
     trendRows:trends.slice(0,40).map(detail),
     snapshots:snapshots.slice(-20).map((row)=>({date:row.Date,game:row.Game,market:row.Market,selection:row.Selection,line:row.Line,odds:row.Odds,snapshotTime:row["Snapshot Time ET"],openingTime:row["Opening Snapshot Time ET"]})),
   });
