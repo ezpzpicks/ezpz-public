@@ -182,6 +182,10 @@ export async function GET(request: NextRequest) {
   const total: Play[] = [];
   let matched = 0;
   let unmatched = 0;
+  let unmatchedNoSchedule = 0;
+  let unmatchedNoScore = 0;
+  const unmatchedByDate = new Map<string, { noSchedule: number; noScore: number }>();
+  const unmatchedSamples: Array<{ date: string; gameId: string; game: string; reason: string }> = [];
   let missingSpreadData = 0;
   let missingTotalData = 0;
 
@@ -192,12 +196,32 @@ export async function GET(request: NextRequest) {
       scheduleByTeams.get(`${date}|${key(row["Away Team"])}|${key(row["Home Team"])}`);
     if (!sched) {
       unmatched += 1;
+      unmatchedNoSchedule += 1;
+      const counts = unmatchedByDate.get(date) || { noSchedule: 0, noScore: 0 };
+      counts.noSchedule += 1;
+      unmatchedByDate.set(date, counts);
+      if (unmatchedSamples.length < 30) unmatchedSamples.push({
+        date,
+        gameId: id,
+        game: text(row.Game) || `${text(row["Away Team"])} @ ${text(row["Home Team"])}`,
+        reason: "NO_SCHEDULE_MATCH",
+      });
       continue;
     }
     const awayScore = num(sched["Away Score"]);
     const homeScore = num(sched["Home Score"]);
     if (awayScore == null || homeScore == null) {
       unmatched += 1;
+      unmatchedNoScore += 1;
+      const counts = unmatchedByDate.get(date) || { noSchedule: 0, noScore: 0 };
+      counts.noScore += 1;
+      unmatchedByDate.set(date, counts);
+      if (unmatchedSamples.length < 30) unmatchedSamples.push({
+        date,
+        gameId: id || cleanGameId(sched["Game ID"] || sched["Game Key"]),
+        game: text(row.Game) || `${text(row["Away Team"])} @ ${text(row["Home Team"])}`,
+        reason: "SCHEDULE_SCORE_MISSING",
+      });
       continue;
     }
     matched += 1;
@@ -278,6 +302,8 @@ export async function GET(request: NextRequest) {
       uniqueSlateRowsInRange: uniqueSlate.size,
       matchedCompletedGames: matched,
       unmatchedSlateRows: unmatched,
+      unmatchedNoSchedule,
+      unmatchedNoScore,
       missingSpreadData,
       missingTotalData,
       spreadPlays: spread.length,
@@ -286,6 +312,8 @@ export async function GET(request: NextRequest) {
     spread: summarize(spread),
     total: summarize(total),
     byDate,
+    unmatchedByDate: [...unmatchedByDate.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([date, value]) => ({ date, ...value })),
+    unmatchedSamples,
     topSpreadEdges,
     topTotalEdges,
   });
