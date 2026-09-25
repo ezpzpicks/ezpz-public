@@ -83,6 +83,43 @@ async function espnFinalsForDates(dates: string[]) {
   for (const [, games] of results) for (const [id, score] of games) combined.set(id, score);
   return combined;
 }
+
+async function espnFinalForGame(id: string): Promise<EspnFinal | null> {
+  try {
+    const response = await fetch(
+      `https://site.api.espn.com/apis/site/v2/sports/football/college-football/summary?event=${encodeURIComponent(id)}`,
+      { cache: "no-store", signal: AbortSignal.timeout(12000) },
+    );
+    if (!response.ok) return null;
+    const payload = await response.json();
+    const competition = payload?.header?.competitions?.[0] || {};
+    const status = competition?.status?.type || {};
+    const completed =
+      status?.completed === true ||
+      key(status?.name).includes("final") ||
+      key(status?.state) === "post";
+    if (!completed) return null;
+    const competitors = Array.isArray(competition?.competitors) ? competition.competitors : [];
+    const away = competitors.find((team: any) => key(team?.homeAway) === "away");
+    const home = competitors.find((team: any) => key(team?.homeAway) === "home");
+    const awayScore = num(away?.score);
+    const homeScore = num(home?.score);
+    return awayScore != null && homeScore != null ? { awayScore, homeScore } : null;
+  } catch {
+    return null;
+  }
+}
+
+async function espnFinalsForIds(ids: string[]) {
+  const combined = new Map<string, EspnFinal>();
+  const batchSize = 10;
+  for (let start = 0; start < ids.length; start += batchSize) {
+    const batch = ids.slice(start, start + batchSize);
+    const results = await Promise.all(batch.map(async (id) => [id, await espnFinalForGame(id)] as const));
+    for (const [id, score] of results) if (score) combined.set(id, score);
+  }
+  return combined;
+}
 const FBS_CONFERENCES = new Set([
   "acc", "atlantic coast", "atlantic coast conference",
   "american", "aac", "american athletic", "american athletic conference",
@@ -219,6 +256,11 @@ export async function GET(request: NextRequest) {
 
   const slateDates = [...new Set([...uniqueSlate.values()].map((row) => isoDate(row.Date || row["Game Date"])).filter(Boolean))];
   const espnFinals = await espnFinalsForDates(slateDates);
+  const missingEspnIds = [...uniqueSlate.values()]
+    .map((row) => cleanGameId(row["Game ID"] || row["Game Key"]))
+    .filter((id) => Boolean(id) && !scheduleById.has(id) && !espnFinals.has(id));
+  const perGameFinals = await espnFinalsForIds([...new Set(missingEspnIds)]);
+  for (const [id, score] of perGameFinals) espnFinals.set(id, score);
 
   const spread: Play[] = [];
   const total: Play[] = [];
@@ -347,6 +389,7 @@ export async function GET(request: NextRequest) {
       matchedFromSchedule,
       matchedFromEspn,
       espnFinalRows: espnFinals.size,
+      espnPerGameRecovered: perGameFinals.size,
       unmatchedSlateRows: unmatched,
       unmatchedNoSchedule,
       unmatchedNoScore,
