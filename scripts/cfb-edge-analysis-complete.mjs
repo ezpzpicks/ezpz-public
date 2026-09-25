@@ -25,6 +25,25 @@ const thresholds=[10,7,5,3,0];
 function buckets(rows,e,r,m){return defs.map(([label,lo,hi])=>({label,...record(rows.filter(x=>Number.isFinite(x[e])&&x[e]>=lo&&(hi==null||x[e]<hi)),r,m)}))}
 function cumulative(rows,e,r,m){return thresholds.map(t=>({edge:t===0?"Any":`>=${t}`,...record(rows.filter(x=>Number.isFinite(x[e])&&x[e]>=t),r,m)}))}
 function byWeek(rows,r,m){return ["1","2","3"].map(week=>({week,...record(rows.filter(x=>x.week===week),r,m)}))}
+async function espnScoresById(ids){
+  const map=new Map();
+  for(let i=0;i<ids.length;i+=10){
+    const chunk=ids.slice(i,i+10);
+    const results=await Promise.all(chunk.map(async id=>{
+      try{
+        const res=await fetch(`https://site.api.espn.com/apis/site/v2/sports/football/college-football/summary?event=${id}`);
+        if(!res.ok)return null;
+        const json=await res.json(),comp=json?.header?.competitions?.[0]; if(!comp)return null;
+        const competitors=comp.competitors||[];
+        const away=competitors.find(c=>c.homeAway==="away"),home=competitors.find(c=>c.homeAway==="home");
+        const as=n(away?.score),hs=n(home?.score); if(as==null||hs==null)return null;
+        return {id,awayScore:as,homeScore:hs,source:"ESPN_ID"};
+      }catch{return null}
+    }));
+    for(const r of results)if(r)map.set(`id:${r.id}`,r);
+  }
+  return map;
+}
 async function espnScores(dates){
   const map=new Map();
   for(const date of dates){
@@ -62,7 +81,18 @@ try{
  for(const r of tracker){const as=n(r["Actual Away"]),hs=n(r["Actual Home"]);if(as!=null&&hs!=null)tmap.set(key(r),{awayScore:as,homeScore:hs,source:"TRACKER"})}
  const dates=[...new Set([...dedup.values()].map(r=>iso(r.Date||r["Game Date"])).filter(Boolean))].sort();
  const emap=await espnScores(dates);
- const rows=[]; const sources={SCHEDULE:0,TRACKER:0,ESPN:0,MISSING:0}; let missingSpread=0,missingTotal=0;
+ const missingIds=[];
+ for(const s of dedup.values()){
+   const k=key(s),g=smap.get(k)||{};
+   const as=n(g["Away Score"]),hs=n(g["Home Score"]);
+   if(as!=null&&hs!=null)continue;
+   if(tmap.has(k)||emap.has(k))continue;
+   const date=iso(s.Date||g["Game Date"]),tk=`t:${date}|${norm(s["Away Team"]||g["Away Team"])}|${norm(s["Home Team"]||g["Home Team"])}`;
+   if(emap.has(tk))continue;
+   const id=gid(s); if(id)missingIds.push(id);
+ }
+ const idmap=await espnScoresById([...new Set(missingIds)]);
+ const rows=[]; const sources={SCHEDULE:0,TRACKER:0,ESPN:0,ESPN_ID:0,MISSING:0}; let missingSpread=0,missingTotal=0;
  for(const s of dedup.values()){
   const k=key(s),g=smap.get(k)||{};
   let as=n(g["Away Score"]),hs=n(g["Home Score"]),source="";
@@ -70,7 +100,7 @@ try{
   else if(tmap.has(k)){({awayScore:as,homeScore:hs,source}=tmap.get(k))}
   else {
     const date=iso(s.Date||g["Game Date"]),tk=`t:${date}|${norm(s["Away Team"]||g["Away Team"])}|${norm(s["Home Team"]||g["Home Team"])}`;
-    const e=emap.get(k)||emap.get(tk); if(e){as=e.awayScore;hs=e.homeScore;source=e.source}
+    const e=emap.get(k)||emap.get(tk)||idmap.get(k); if(e){as=e.awayScore;hs=e.homeScore;source=e.source}
   }
   if(as==null||hs==null){sources.MISSING++;continue} sources[source]++;
   const pm=n(s["Projected Margin"]),line=n(s["Market Home Spread"]),pt=n(s["Projected Total"]),tl=n(s["Market Total"]);
