@@ -82,6 +82,12 @@ try{
   const totalFbs=totals.filter(r=>r.classGroup==="FBS_ONLY");
   const weeks=[...new Set(rows.map(r=>r.week))].sort((a,b)=>Number(a)-Number(b));
   const byWeek=weeks.map(week=>({week,spread:rec(spreads.filter(r=>r.week===week),"spreadResult"),spreadUnder20:rec(spreadUnder20.filter(r=>r.week===week),"spreadResult"),total:rec(totals.filter(r=>r.week===week),"totalResult")}));
+  const spread20Plus=spreads.filter(r=>r.absSpread>=20);
+  const models=[...new Set(rows.map(r=>r.modelVersion))];
+  const byModel=models.map(model=>{
+    const sr=spreads.filter(r=>r.modelVersion===model),su=sr.filter(r=>r.absSpread<20),tr=totals.filter(r=>r.modelVersion===model);
+    return {model,games:rows.filter(r=>r.modelVersion===model).length,spread:summarize(sr,"spreadEdge","spreadResult"),spreadUnder20:summarize(su,"spreadEdge","spreadResult"),total:summarize(tr,"totalEdge","totalResult")};
+  });
   const topSpread=[...spreads].sort((a,b)=>b.spreadEdge-a.spreadEdge).slice(0,20).map(r=>({date:r.date,week:r.week,game:r.game,edge:+r.spreadEdge.toFixed(2),marketSpread:r.homeSpread,class:r.classGroup,result:r.spreadResult}));
   const out={
     counts:{slate:slate.length,uniqueSlate:dedup.size,schedule:schedule.length,gradedGames:rows.length,scoreFromDb,scoreFromEspn,incomplete,unmatched,spreadPlays:spreads.length,totalPlays:totals.length,spreadUnder20:spreadUnder20.length,fbsSpread:spreadFbs.length},
@@ -103,5 +109,7 @@ try{
   console.log("CFB_TOTAL_ALL="+JSON.stringify(out.totalAll));
   console.log("CFB_TOTAL_FBS="+JSON.stringify(out.totalFbs));
   console.log("CFB_BY_WEEK="+JSON.stringify(out.byWeek));
+  console.log("CFB_SPREAD_20PLUS="+JSON.stringify(summarize(spread20Plus,"spreadEdge","spreadResult")));
+  console.log("CFB_BY_MODEL="+JSON.stringify(byModel));
   console.log("CFB_TOP_SPREAD="+JSON.stringify(out.topSpread));
 }catch(err){console.log("CFB_EDGE_ANALYSIS_ERROR="+String(err?.stack||err));}
