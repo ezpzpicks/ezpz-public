@@ -477,15 +477,31 @@ function normalizeCollegeMarketTeam(value: unknown) {
   return NCAAF_MARKET_TEAM_ALIASES[key] || key;
 }
 
-function collegeMarketTeamMatch(leftValue: unknown, rightValue: unknown) {
+function collegeCanonicalTeamMatch(leftValue: unknown, rightValue: unknown) {
   const left = normalizeCollegeMarketTeam(leftValue);
   const right = normalizeCollegeMarketTeam(rightValue);
   if (!left || !right) return false;
 
-  // College names must resolve to the same canonical school. Token overlap and
-  // suffix matching are unsafe here: Virginia/West Virginia, Utah/Utah State,
-  // Georgia/Georgia State, Delaware/Delaware State, etc. are distinct teams.
+  // Use this for live source/schedule identity. Similar school names must never
+  // collapse here: Virginia/West Virginia, Utah/Utah State, Georgia/Georgia
+  // State, Delaware/Delaware State, etc. are distinct teams.
   return left === right || left.replace(/\s+/g, "") === right.replace(/\s+/g, "");
+}
+
+function collegeMarketTeamMatch(leftValue: unknown, rightValue: unknown) {
+  const left = normalizeCollegeMarketTeam(leftValue);
+  const right = normalizeCollegeMarketTeam(rightValue);
+  if (!left || !right) return false;
+  if (collegeCanonicalTeamMatch(left, right)) return true;
+
+  // Historical odds rows from earlier versions may contain mascot-bearing ESPN
+  // labels. Keep the broader matcher only for reconnecting those persisted
+  // aliases; live source-to-game identity uses collegeCanonicalTeamMatch above.
+  if (left.endsWith(` ${right}`) || right.endsWith(` ${left}`)) return true;
+  const l = new Set(left.split(" ").filter((token) => token.length > 2));
+  const r = new Set(right.split(" ").filter((token) => token.length > 2));
+  const overlap = [...l].filter((token) => r.has(token)).length;
+  return overlap >= Math.min(2, Math.max(1, Math.min(l.size, r.size)));
 }
 
 function canonicalGameRow(split: Pick<Split, "date" | "awayTeam" | "homeTeam">, sport: FootballSport, rows: SheetRow[]) {
@@ -672,8 +688,8 @@ async function loadPostedSplits(
       return !!rowAway && !!rowHome && !!sourceAway && !!sourceHome &&
         rowAway === sourceAway && rowHome === sourceHome;
     }
-    return collegeMarketTeamMatch(row["Away Team"], away) &&
-      collegeMarketTeamMatch(row["Home Team"], home);
+    return collegeCanonicalTeamMatch(row["Away Team"], away) &&
+      collegeCanonicalTeamMatch(row["Home Team"], home);
   }
 
   const sourceMatchRows = sport === "NCAAF" ? kickoffAuthorityRows : canonicalRows;
@@ -724,9 +740,9 @@ async function loadPostedSplits(
           : nflMarketTeamCode(source.selectionTeam) === nflMarketTeamCode(source.homeTeam)
             ? homeTeam
             : source.selectionTeam
-        : collegeMarketTeamMatch(source.selectionTeam, source.awayTeam)
+        : collegeCanonicalTeamMatch(source.selectionTeam, source.awayTeam)
           ? awayTeam
-          : collegeMarketTeamMatch(source.selectionTeam, source.homeTeam)
+          : collegeCanonicalTeamMatch(source.selectionTeam, source.homeTeam)
             ? homeTeam
             : source.selectionTeam
       : "";
@@ -1319,8 +1335,15 @@ function ncaafAuthoritativeGameTime(
   play: Pick<WeeklyTrendPlay, "date" | "gameTime" | "awayTeam" | "homeTeam">,
   rows: SheetRow[],
 ) {
-  const matches = rows.filter((row) =>
-    canonicalScheduleDate(row) === play.date &&
+  const sameDate = rows.filter((row) => canonicalScheduleDate(row) === play.date);
+  const strictMatches = sameDate.filter((row) =>
+    collegeCanonicalTeamMatch(row["Away Team"], play.awayTeam) &&
+    collegeCanonicalTeamMatch(row["Home Team"], play.homeTeam)
+  );
+  // Older persisted rows can carry mascot-bearing labels. Only fall back to the
+  // broad historical alias matcher when the strict canonical identity has no
+  // match at all.
+  const matches = strictMatches.length ? strictMatches : sameDate.filter((row) =>
     collegeMarketTeamMatch(row["Away Team"], play.awayTeam) &&
     collegeMarketTeamMatch(row["Home Team"], play.homeTeam)
   );
