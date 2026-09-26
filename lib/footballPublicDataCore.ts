@@ -518,6 +518,53 @@ async function loadFootballWeekSchedule(sport: FootballSport, start: string, end
 function mergeFootballSchedules(saved: SheetRow[], live: SheetRow[], sport: FootballSport) {
   const merged = new Map<string, SheetRow>();
 
+  if (sport === "NCAAF" && live.length) {
+    // ESPN's current scoreboard is authoritative for kickoff metadata when it
+    // contains the same physical matchup. Saved CFB rows can carry a stale
+    // Game ID and a midnight/TBD placeholder; keying only by Game ID lets that
+    // stale row survive beside the live row and get selected first downstream.
+    // Reconcile by date + teams so the live kickoff replaces the placeholder.
+    for (const row of live) {
+      merged.set(footballScheduleKey(row, sport), row);
+    }
+
+    for (const row of saved) {
+      const date = isoDate(row.Date || row["Game Date"] || "");
+      const liveMatch = date
+        ? live.find((candidate) => {
+            const candidateDate = isoDate(candidate.Date || candidate["Game Date"] || "");
+            return (
+              candidateDate === date &&
+              sameTeam(candidate["Away Team"], row["Away Team"], sport) &&
+              sameTeam(candidate["Home Team"], row["Home Team"], sport)
+            );
+          })
+        : undefined;
+
+      if (liveMatch) {
+        const liveKey = footballScheduleKey(liveMatch, sport);
+        const enriched = nonEmptyMerge(row, liveMatch);
+        merged.set(liveKey, {
+          ...enriched,
+          Date: liveMatch.Date || enriched.Date || "",
+          "Game Date": liveMatch["Game Date"] || liveMatch.Date || enriched["Game Date"] || "",
+          "Game Time": liveMatch["Game Time"] || enriched["Game Time"] || "",
+          "Game ID": liveMatch["Game ID"] || enriched["Game ID"] || "",
+          Game: liveMatch.Game || enriched.Game || "",
+          "Away Team": liveMatch["Away Team"] || enriched["Away Team"] || "",
+          "Home Team": liveMatch["Home Team"] || enriched["Home Team"] || "",
+        });
+        continue;
+      }
+
+      // ESPN group 80 does not necessarily contain every stored college game,
+      // so retain unmatched saved rows rather than dropping them.
+      merged.set(footballScheduleKey(row, sport), row);
+    }
+
+    return [...merged.values()];
+  }
+
   if (sport === "NFL" && live.length) {
     const liveDates = new Set(
       live.map((row) => isoDate(row.Date || row["Game Date"] || "")).filter(Boolean),
