@@ -2411,8 +2411,25 @@ function indexNcaafMarketHistoryByCanonicalSide(
   canonicalRows: SheetRow[],
 ) {
   const index = new Map<string, SheetRow[]>();
+  // odds_snapshot contains hundreds of thousands of five-minute rows, but only
+  // a few hundred distinct game/market/side identities. Canonical game matching
+  // is comparatively expensive, so resolve each stored identity once instead
+  // of rescanning the schedule for every historical snapshot.
+  const identityCache = new Map<string, string>();
   for (const row of rows) {
-    const key = ncaafCanonicalMarketHistoryIdentity(row, canonicalRows);
+    const lookupKey = [
+      canonicalScheduleDate(row) || String(row.Date || "").trim(),
+      textKey(row["Away Team"]),
+      textKey(row["Home Team"]),
+      textKey(row.Market),
+      textKey(row.Selection),
+      textKey(row.Side),
+    ].join("|");
+    let key = identityCache.get(lookupKey);
+    if (key === undefined) {
+      key = ncaafCanonicalMarketHistoryIdentity(row, canonicalRows);
+      identityCache.set(lookupKey, key);
+    }
     if (!key) continue;
     const group = index.get(key) || [];
     group.push(row);
