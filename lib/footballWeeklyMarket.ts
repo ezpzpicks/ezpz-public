@@ -642,7 +642,14 @@ async function loadPostedSplits(
         };
       })
       .filter((candidate) => candidate.date)
-      .sort((left, right) => left.distance - right.distance);
+      .sort((left, right) => {
+        if (sport === "NCAAF") {
+          const leftReliable = Number.isFinite(ncaafKickoffEpoch(left.date, rowEventTime(left.row)));
+          const rightReliable = Number.isFinite(ncaafKickoffEpoch(right.date, rowEventTime(right.row)));
+          if (leftReliable !== rightReliable) return rightReliable ? 1 : -1;
+        }
+        return left.distance - right.distance;
+      });
     const matched = candidates[0]?.row;
     if (!matched) continue;
 
@@ -1219,8 +1226,13 @@ function ncaafKickoffEpoch(date: string, eventTime: string) {
     }).formatToParts(new Date(parsed));
     const get = (type: string) => Number(parts.find((part) => part.type === type)?.value);
     const sourceDate = `${get("year")}-${String(get("month")).padStart(2, "0")}-${String(get("day")).padStart(2, "0")}`;
+    const hour = get("hour");
+    const minute = get("minute");
+    // 00:00 is the builder's unknown-time placeholder for many CFB rows.
+    // It must never be interpreted as a real kickoff or trigger a final lock.
+    if (hour === 0 && minute === 0) return Number.NaN;
     if (sourceDate === date) return parsed;
-    return ncaafWallClockEpoch(date, get("hour"), get("minute"));
+    return ncaafWallClockEpoch(date, hour, minute);
   }
 
   const twelve = raw.match(/^(\d{1,2}):([0-5]\d)(?::[0-5]\d)?\s*(AM|PM)(?:\s+(?:ET|EDT|EST))?$/i);
@@ -1229,6 +1241,7 @@ function ncaafKickoffEpoch(date: string, eventTime: string) {
   if (twelve && (Number(twelve[1]) < 1 || Number(twelve[1]) > 12)) return Number.NaN;
   const hour = twelve ? Number(twelve[1]) % 12 + (twelve[3].toUpperCase() === "PM" ? 12 : 0) : Number(clock![1]);
   const minute = Number((twelve || clock)![2]);
+  if (hour === 0 && minute === 0) return Number.NaN;
   return ncaafWallClockEpoch(date, hour, minute);
 }
 function ncaafMinutesUntilEvent(date: string, eventTime: string) {
@@ -1248,7 +1261,49 @@ function resolveNcaafSnapshot(play: WeeklyTrendPlay, rows: SheetRow[], history: 
   if (play.date < SCORES_AND_ODDS_CUTOVER_DATE) return play;
   const kickoff = ncaafKickoffEpoch(play.date, play.gameTime);
   if (!Number.isFinite(kickoff)) {
-    return { ...play, snapshotStatus: "MISSED_LOCK", frozenAt: undefined, lockWarning: "Kickoff time unavailable; final snapshot cannot be verified." };
+    if (play.date < todayET()) {
+      return play.snapshotStatus === "FINAL_PREGAME"
+        ? play
+        : { ...play, snapshotStatus: "MISSED_LOCK", frozenAt: undefined, lockWarning: "Kickoff time unavailable; final snapshot cannot be verified." };
+    }
+    const candidates = rows.filter((row) => {
+      const rowDate = canonicalScheduleDate(row) || String(row.Date || "").trim();
+      const stamp = storedSnapshotEpoch(row["Snapshot Time ET"]);
+      return rowDate === play.date && Number.isFinite(stamp) && stamp <= Date.now() &&
+        String(row["Bets %"] ?? "").trim() !== "" && String(row["Handle %"] ?? "").trim() !== "" &&
+        Number.isFinite(Number(row["Bets %"])) && Number.isFinite(Number(row["Handle %"]));
+    }).sort((a, b) => storedSnapshotEpoch(a["Snapshot Time ET"]) - storedSnapshotEpoch(b["Snapshot Time ET"]));
+    const latest = candidates[candidates.length - 1];
+    if (!latest) {
+      return {
+        ...play,
+        snapshotStatus: "LIVE",
+        frozenAt: undefined,
+        lockWarning: "Kickoff time is not verified yet; snapshot remains live.",
+      };
+    }
+    const line = numericLine(latest.Line);
+    const betsPct = Number(latest["Bets %"]);
+    const moneyPct = Number(latest["Handle %"]);
+    const split: Split = {
+      ...play,
+      eventTime: play.gameTime,
+      line,
+      odds: String(latest.Odds || ""),
+      betsPct,
+      moneyPct,
+      sideGroup: play.market === "Total" ? play.side : line != null && line < 0 ? "Favorite" : line != null && line > 0 ? "Underdog" : "",
+      ...warningFor(betsPct, moneyPct),
+    };
+    const rebuilt = buildPlay(split, undefined, history, candidates);
+    return {
+      ...rebuilt,
+      week: play.week,
+      updatedAt: String(latest["Snapshot Time ET"]),
+      snapshotStatus: "LIVE",
+      frozenAt: undefined,
+      lockWarning: "Kickoff time is not verified yet; snapshot remains live.",
+    };
   }
   const cutoff = kickoff - 15 * 60_000;
   const locked = Date.now() >= cutoff;
@@ -1976,8 +2031,9 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
   for (const split of activeSourceSplits) {
     if (sport === "NCAAF") {
       const minutes = ncaafMinutesUntilEvent(split.date, split.eventTime);
-      // Freeze each game at T-15; later polls must not enter its chart history.
-      if (minutes == null || minutes <= 15) continue;
+      // Freeze only when a verified kickoff reaches T-15. Unknown/placeholder
+      // kickoff times must keep collecting live snapshots until a real time is available.
+      if (minutes != null && minutes <= 15) continue;
     }
     const current = marketHistoryRowForSplit(split, sport, canonicalRows, now);
     marketHistoryRows.push(current);
