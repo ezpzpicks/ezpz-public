@@ -2698,7 +2698,13 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
   if(persist) await upsertSportRows(sport,"all_game_trends",ALL_GAME_TRENDS_HEADERS,trendRows,trendRowKey);
   // The weekly market worksheet is the sole public trend source. It stores
   // the scored object and its immutable FINAL_PREGAME state.
-  const weeklyMarket = await readWeeklyFootballMarket(sport);
+  // The public NCAAF board only renders the current day's market. Keep the
+  // archive/discovery reader unchanged, but avoid loading hundreds of thousands
+  // of prior odds snapshots during every public refresh.
+  const weeklyMarket = await readWeeklyFootballMarket(
+    sport,
+    sport === "NCAAF" ? { dateKeys: [today] } : {},
+  );
   const displayTrendPlays = Array.isArray(weeklyMarket.trendPlays)
     ? weeklyMarket.trendPlays as unknown as TrendPlay[]
     : [];
