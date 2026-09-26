@@ -470,7 +470,7 @@ function normalizeCollegeMarketTeam(value: unknown) {
     .replace(/\bthe\b/g, "")
     .replace(/\baandm\b/g, "am")
     .replace(/\ba\s+m\b/g, "am")
-    .replace(/\bst\b/g, "state")
+    .replace(/\bst$/g, "state")
     .replace(/\s+/g, " ")
     .trim();
   return NCAAF_MARKET_TEAM_ALIASES[key] || key;
