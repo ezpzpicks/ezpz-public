@@ -2501,7 +2501,26 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
   }
   const scored = headToHead(liveCandidates);
   const rows = scored.map(weeklyRow);
-  if (rows.length) await upsertSportRows(sport, WEEKLY_TRENDS_TAB, WEEKLY_TREND_HEADERS, rows, trendKey);
+  const weeklyStorageKey = (row: SheetRow) => {
+    if (sport !== "NCAAF") return trendKey(row);
+    const raw = String(row["Details JSON"] || "").trim();
+    if (!raw) return trendKey(row);
+    try {
+      const play = JSON.parse(raw) as WeeklyTrendPlay;
+      return ncaafCanonicalMarketSideIdentity(play, canonicalRows) || trendKey(row);
+    } catch {
+      return trendKey(row);
+    }
+  };
+  if (rows.length) {
+    await upsertSportRows(
+      sport,
+      WEEKLY_TRENDS_TAB,
+      WEEKLY_TREND_HEADERS,
+      rows,
+      weeklyStorageKey,
+    );
+  }
 
   return {
     ok: true,
