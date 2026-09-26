@@ -599,6 +599,32 @@ function mergeFootballTrackingSlate(projected: SheetRow[], schedule: SheetRow[],
       continue;
     }
 
+    if (sport === "NCAAF" && date && authoritativeDates.has(date)) {
+      const scheduleMatch = authoritativeSchedule.find((candidate) => {
+        const candidateDate = isoDate(candidate.Date || candidate["Game Date"] || "");
+        return (
+          candidateDate === date &&
+          sameTeam(candidate["Away Team"], row["Away Team"], sport) &&
+          sameTeam(candidate["Home Team"], row["Home Team"], sport)
+        );
+      });
+      if (scheduleMatch) {
+        const scheduleKey = footballScheduleKey(scheduleMatch, sport);
+        const enriched = nonEmptyMerge(scheduleMatch, row);
+        merged.set(scheduleKey, {
+          ...enriched,
+          Date: scheduleMatch.Date || enriched.Date || "",
+          "Game Date": scheduleMatch["Game Date"] || scheduleMatch.Date || enriched["Game Date"] || "",
+          "Game Time": scheduleMatch["Game Time"] || enriched["Game Time"] || "",
+          "Game ID": scheduleMatch["Game ID"] || enriched["Game ID"] || "",
+          Game: scheduleMatch.Game || enriched.Game || "",
+          "Away Team": scheduleMatch["Away Team"] || enriched["Away Team"] || "",
+          "Home Team": scheduleMatch["Home Team"] || enriched["Home Team"] || "",
+        });
+        continue;
+      }
+    }
+
     const authoritative = merged.get(key);
     if (sport === "NFL" && authoritative && authoritativeKeys.has(key)) {
       const enriched = nonEmptyMerge(authoritative, row);
