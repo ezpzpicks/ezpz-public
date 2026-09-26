@@ -427,4 +427,23 @@ test('NCAAF read path collapses short-name and full-name duplicates onto the ver
       '09/26/2026, 12:44:00 PM EDT',
     ],
   );
+
+  // The scheduled tracker must persist that complete path into Details JSON so
+  // the public NCAAF route can remain on its fast no-hydration read.
+  h.setFeed([]);
+  await h.syncPostedFootballMarkets('NCAAF');
+  const fast = await h.readWeeklyFootballMarket('NCAAF', {
+    dateKeys: ['2026-09-26'],
+    hydrateHistory: false,
+  });
+  assert.equal(fast.trendPlays.length, 1);
+  assert.deepEqual(
+    fast.trendPlays[0].movementHistory.map((point) => point.snapshotTime),
+    [
+      '09/26/2026, 10:00:00 AM EDT',
+      '09/26/2026, 11:00:00 AM EDT',
+      '09/26/2026, 12:00:00 PM EDT',
+      '09/26/2026, 12:44:00 PM EDT',
+    ],
+  );
 });
