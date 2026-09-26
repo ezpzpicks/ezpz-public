@@ -669,7 +669,6 @@ async function loadPostedSplits(
   sport: FootballSport,
   canonicalRows: SheetRow[],
   existingGames: SheetRow[] = [],
-  _kickoffAuthorityRows: SheetRow[] = canonicalRows,
 ): Promise<LoadedPostedSplits> {
   const sourceSport = sport === "NCAAF" ? "NCAAF" : "NFL";
   const loaded = await loadScoresAndOddsConsensus(sourceSport);
@@ -1320,115 +1319,6 @@ function ncaafKickoffEpoch(date: string, eventTime: string) {
 function ncaafMinutesUntilEvent(date: string, eventTime: string) {
   const kickoff = ncaafKickoffEpoch(date, eventTime);
   return Number.isFinite(kickoff) ? (kickoff - Date.now()) / 60_000 : null;
-}
-
-function ncaafAuthoritativeGameTime(
-  play: Pick<WeeklyTrendPlay, "date" | "gameTime" | "awayTeam" | "homeTeam">,
-  rows: SheetRow[],
-) {
-  const sameDate = rows.filter((row) => canonicalScheduleDate(row) === play.date);
-  const strictMatches = sameDate.filter((row) =>
-    collegeCanonicalTeamMatch(row["Away Team"], play.awayTeam) &&
-    collegeCanonicalTeamMatch(row["Home Team"], play.homeTeam)
-  );
-  // Older persisted rows can carry mascot-bearing labels. Only fall back to the
-  // broad historical alias matcher when the strict canonical identity has no
-  // match at all.
-  const matches = strictMatches.length ? strictMatches : sameDate.filter((row) =>
-    collegeMarketTeamMatch(row["Away Team"], play.awayTeam) &&
-    collegeMarketTeamMatch(row["Home Team"], play.homeTeam)
-  );
-  for (const row of matches) {
-    const eventTime = rowEventTime(row);
-    if (Number.isFinite(ncaafKickoffEpoch(play.date, eventTime))) return eventTime;
-  }
-  // A current/future game without a verified canonical kickoff must remain
-  // live. Never fall back to a stale kickoff saved on an older market row.
-  return play.date >= todayET() ? "" : play.gameTime;
-}
-
-async function loadNcaafLiveKickoffAuthorityRows(): Promise<SheetRow[]> {
-  if (typeof fetch !== "function") return [];
-  const targetDate = todayET();
-  const url = new URL("https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard");
-  url.searchParams.set("dates", targetDate.replace(/-/g, ""));
-  url.searchParams.set("groups", "80");
-  url.searchParams.set("limit", "1000");
-
-  try {
-    const response = await fetch(url, {
-      cache: "no-store",
-      headers: { Accept: "application/json" },
-      signal: AbortSignal.timeout(8_000),
-    });
-    if (!response.ok) return [];
-    const payload = await response.json() as any;
-    const rows: SheetRow[] = [];
-    for (const event of Array.isArray(payload?.events) ? payload.events : []) {
-      const competition = Array.isArray(event?.competitions) ? event.competitions[0] : null;
-      if (!competition) continue;
-      const rawKickoff = String(competition?.date || event?.date || "").trim();
-      const parsed = Date.parse(rawKickoff);
-      if (!Number.isFinite(parsed)) continue;
-      const dateParts = new Intl.DateTimeFormat("en-US", {
-        timeZone: "America/New_York",
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-      }).formatToParts(new Date(parsed));
-      const get = (type: string) => dateParts.find((part) => part.type === type)?.value || "";
-      const eventDate = `${get("year")}-${get("month")}-${get("day")}`;
-      if (eventDate !== targetDate) continue;
-
-      const competitors = Array.isArray(competition?.competitors) ? competition.competitors : [];
-      const away = competitors.find((entry: any) => String(entry?.homeAway || "").toLowerCase() === "away");
-      const home = competitors.find((entry: any) => String(entry?.homeAway || "").toLowerCase() === "home");
-      const teamName = (entry: any) => String(
-        // shortDisplayName is the school identity (for example "Virginia" or
-        // "West Virginia"). displayName often includes a mascot and previously
-        // forced the matcher to rely on unsafe token overlap.
-        entry?.team?.shortDisplayName || entry?.team?.name || entry?.team?.displayName || "",
-      ).trim();
-      const awayTeam = teamName(away);
-      const homeTeam = teamName(home);
-      if (!awayTeam || !homeTeam) continue;
-
-      rows.push({
-        Date: eventDate,
-        "Game Time": rawKickoff,
-        Game: `${awayTeam} @ ${homeTeam}`,
-        "Away Team": awayTeam,
-        "Home Team": homeTeam,
-      });
-    }
-    return rows;
-  } catch {
-    return [];
-  }
-}
-
-function ncaafDisplayGameTime(
-  play: Pick<WeeklyTrendPlay, "date" | "gameTime" | "awayTeam" | "homeTeam">,
-  authorityRows: SheetRow[],
-  fallbackRows: SheetRow[] = [],
-) {
-  const authoritative = ncaafAuthoritativeGameTime(play, authorityRows);
-  if (authoritative) return authoritative;
-
-  // Lock/finalization must only trust schedule/slate rows, but the UI can still
-  // show a same-day kickoff recovered from stored market/model rows. This keeps
-  // display metadata intact without letting a stale display time finalize a game.
-  const matches = fallbackRows.filter((row) =>
-    canonicalScheduleDate(row) === play.date &&
-    collegeMarketTeamMatch(row["Away Team"], play.awayTeam) &&
-    collegeMarketTeamMatch(row["Home Team"], play.homeTeam)
-  ).reverse();
-  for (const row of matches) {
-    const eventTime = rowEventTime(row);
-    if (Number.isFinite(ncaafKickoffEpoch(play.date, eventTime))) return eventTime;
-  }
-
-  return play.gameTime;
 }
 
 function ncaafHistoryForPlay(play: WeeklyTrendPlay, rows: SheetRow[]) {
