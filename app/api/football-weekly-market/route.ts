@@ -17,7 +17,14 @@ async function readMarket(request: NextRequest) {
   }
   try {
     const sport = raw as FootballSport;
-    const result = await readWeeklyFootballMarket(sport);
+    // NCAAF's background tracker owns raw odds_snapshot hydration and persists
+    // the complete movementHistory on weekly_market_trends. Public reads should
+    // use that persisted history instead of reloading hundreds of thousands of
+    // archive rows on every page refresh.
+    const result = await readWeeklyFootballMarket(
+      sport,
+      sport === "NCAAF" ? { hydrateHistory: false } : {},
+    );
     const rescored = await rescoreNcaafWeeklyMarket(sport, result);
     const scored = await applyFootballTrendV2(sport, rescored);
     return NextResponse.json(scored, { headers: { "Cache-Control": "no-store, max-age=0" } });
