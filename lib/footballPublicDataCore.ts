@@ -403,6 +403,28 @@ function minutesUntilDraftKingsKickoff(split: DraftKingsSplit, now = new Date())
   return (kickoffStamp - nowEtMinuteStamp(now)) / 60_000;
 }
 
+function footballMarketMinutesToKickoff(
+  split: DraftKingsSplit,
+  trackingSlate: SheetRow[],
+  canonicalSchedule: SheetRow[],
+  sport: FootballSport,
+) {
+  const trackedRow = findSlateForSplit(split, trackingSlate, sport);
+
+  if (sport === "NCAAF") {
+    // CFB lock timing must come from the canonical schedule first. A stale or
+    // differently encoded market timestamp must never keep a game live after
+    // its real T-15 cutoff.
+    const scheduleRow = findSlateForSplit(split, canonicalSchedule, sport);
+    return (scheduleRow ? minutesUntilKickoff(scheduleRow) : null)
+      ?? (trackedRow ? minutesUntilKickoff(trackedRow) : null)
+      ?? minutesUntilDraftKingsKickoff(split);
+  }
+
+  return minutesUntilDraftKingsKickoff(split)
+    ?? (trackedRow ? minutesUntilKickoff(trackedRow) : null);
+}
+
 function etKickoffParts(value: unknown) {
   const date = new Date(String(value || ""));
   if (!Number.isFinite(date.getTime())) return { date: "", time: "" };
@@ -2685,9 +2707,8 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
   // A scheduled run can drift a few minutes. Once it is past T-15, do not
   // use the new scrape: reconstruct the market from the last stored snapshot.
   const enrichedTracking=enrichedTrackingLive.flatMap((split)=>{
-    const slateRow=findSlateForSplit(split,trackingSlate,sport);
-    const minutesToKickoff=minutesUntilDraftKingsKickoff(split) ?? (slateRow?minutesUntilKickoff(slateRow):null);
-    if(minutesToKickoff!=null&&minutesToKickoff<15){
+    const minutesToKickoff=footballMarketMinutesToKickoff(split,trackingSlate,footballSchedule,sport);
+    if(minutesToKickoff!=null&&minutesToKickoff<=15){
       const persisted=splitFromPersistedSnapshot(split,snapshotMap.get(splitSnapshotKey(split)));
       return persisted?[persisted]:[];
     }
@@ -2695,13 +2716,12 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
   });
   const snapshotStamp=nowET();
   const currentSnapshots=usingStoredDraftKingsFallback?[]:enrichedTrackingLive.flatMap((split)=>{
-    const slateRow=findSlateForSplit(split,trackingSlate,sport);
-    const minutesToKickoff=minutesUntilDraftKingsKickoff(split) ?? (slateRow?minutesUntilKickoff(slateRow):null);
+    const minutesToKickoff=footballMarketMinutesToKickoff(split,trackingSlate,footballSchedule,sport);
     // Once a side has an authoritative FINAL_PREGAME trend, its persisted
-    // market row is immutable. We never write new market snapshots after T-15;
-    // delayed finalization uses only the saved pregame market state.
+    // market row is immutable. We never write new market snapshots at or after
+    // T-15; delayed finalization uses only the saved pregame market state.
     if(splitHasAuthoritativeFinalTrend(trendExisting,split,sport)) return [];
-    if(minutesToKickoff!=null&&minutesToKickoff<15) return [];
+    if(minutesToKickoff!=null&&minutesToKickoff<=15) return [];
     return [snapshotRow({...split,snapshotTime:snapshotStamp})];
   });
   if(persist&&currentSnapshots.length) await upsertSportRows(sport,"public_split_snapshots",PUBLIC_SPLIT_HEADERS,currentSnapshots,snapshotKey);
@@ -2712,9 +2732,9 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
     if(!inFootballTrackingWeek(row,sport,today))return row;
     if(authoritativeFinalTrend(row)) return row;
     const split=findSplitForSide(row,enriched,sport,row.Market as FootballMarket,String(row.Market==="Total"?row.Side||row.Selection:row.Selection));if(!split)return row;
-    // The canonical schedule time is the lock clock for ScoresAndOdds. Fall back to
-    // the saved slate time only when the feed does not provide one.
-    const minutesToKickoff=minutesUntilDraftKingsKickoff(split) ?? minutesUntilKickoff(row);
+    // CFB uses the canonical schedule as the lock clock. NFL retains its
+    // existing market-time-first behavior.
+    const minutesToKickoff=footballMarketMinutesToKickoff(split,trackingSlate,footballSchedule,sport);
     const play=playMap.get(`${String(row["Game Key"]||"")}|${row.Market}|${textKey(row.Market==="Total"?row.Side||row.Selection:row.Selection)}`);const primary=play?.signals[0];
     const locked=minutesToKickoff!=null&&minutesToKickoff<=15;
     const stamp=nowET();
