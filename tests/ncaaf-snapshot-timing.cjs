@@ -157,6 +157,104 @@ test('scheduled NCAAF capture keeps polling when kickoff is still a midnight pla
   assert.equal(stored.frozenAt, undefined);
 });
 
+test('active NCAAF source kickoff replaces a stale stored kickoff before lock resolution', async () => {
+  const h = harness('2026-09-26T15:30:00Z'); // 11:30 AM ET.
+  const original = play('2026-09-26T10:00:00-04:00');
+  const p = {
+    ...original,
+    date: '2026-09-26',
+    gameKey: '2026-09-26|army|temple',
+    gameTime: '2026-09-26T10:00:00-04:00',
+    snapshotStatus: 'FINAL_PREGAME',
+    updatedAt: '09/26/2026, 9:44:00 AM EDT',
+    frozenAt: '09/26/2026, 9:44:00 AM EDT',
+  };
+  const rows = [
+    observation(p, '09/26/2026, 9:44:00 AM EDT'),
+    observation(p, '09/26/2026, 11:20:00 AM EDT', { Line: '49.5', 'Bets %': '61' }),
+  ];
+  seed(h, p, rows);
+  h.setFeed([{
+    ...p,
+    eventTime: '2026-09-26T19:30:00-04:00',
+    line: 49.5,
+    betsPct: 61,
+    moneyPct: 50,
+    warningKey: '',
+    warning: '',
+    warningTone: 'neutral',
+    warningNegative: false,
+  }]);
+  await h.syncPostedFootballMarkets('NCAAF');
+  const stored = JSON.parse(h.tables.weekly_market_trends[0]['Details JSON']);
+  assert.equal(stored.gameTime, '2026-09-26T19:30:00-04:00');
+  assert.equal(stored.snapshotStatus, 'LIVE');
+  assert.equal(stored.frozenAt, undefined);
+  assert.equal(stored.updatedAt, '09/26/2026, 11:20:00 AM EDT');
+});
+
+test('NCAAF read path repairs a stale stored kickoff from the canonical schedule', async () => {
+  const h = harness('2026-09-26T15:30:00Z');
+  const original = play('2026-09-26T10:00:00-04:00');
+  const p = {
+    ...original,
+    date: '2026-09-26',
+    gameKey: '2026-09-26|army|temple',
+    gameTime: '2026-09-26T10:00:00-04:00',
+    snapshotStatus: 'FINAL_PREGAME',
+    updatedAt: '09/26/2026, 9:44:00 AM EDT',
+    frozenAt: '09/26/2026, 9:44:00 AM EDT',
+  };
+  h.tables.weekly_market_trends = [h.timing.weeklyRow(p)];
+  h.tables.odds_snapshot = [
+    observation(p, '09/26/2026, 9:44:00 AM EDT'),
+    observation(p, '09/26/2026, 11:20:00 AM EDT', { Line: '49.5', 'Bets %': '61' }),
+  ];
+  h.tables.schedule = [{
+    Date: p.date,
+    'Away Team': p.awayTeam,
+    'Home Team': p.homeTeam,
+    'Game Time': '2026-09-26T19:30:00-04:00',
+  }];
+  const result = await h.readWeeklyFootballMarket('NCAAF');
+  assert.equal(result.trendPlays.length, 1);
+  assert.equal(result.trendPlays[0].gameTime, '2026-09-26T19:30:00-04:00');
+  assert.equal(result.trendPlays[0].snapshotStatus, 'LIVE');
+  assert.equal(result.trendPlays[0].frozenAt, undefined);
+  assert.equal(result.trendPlays[0].updatedAt, '09/26/2026, 11:20:00 AM EDT');
+});
+
+test('NCAAF read path does not trust a stale stored kickoff when canonical time is still unknown', async () => {
+  const h = harness('2026-09-26T15:30:00Z');
+  const original = play('2026-09-26T10:00:00-04:00');
+  const p = {
+    ...original,
+    date: '2026-09-26',
+    gameKey: '2026-09-26|army|temple',
+    gameTime: '2026-09-26T10:00:00-04:00',
+    snapshotStatus: 'FINAL_PREGAME',
+    updatedAt: '09/26/2026, 9:44:00 AM EDT',
+    frozenAt: '09/26/2026, 9:44:00 AM EDT',
+  };
+  h.tables.weekly_market_trends = [h.timing.weeklyRow(p)];
+  h.tables.odds_snapshot = [
+    observation(p, '09/26/2026, 9:44:00 AM EDT'),
+    observation(p, '09/26/2026, 11:20:00 AM EDT', { Line: '49.5', 'Bets %': '61' }),
+  ];
+  h.tables.schedule = [{
+    Date: p.date,
+    'Away Team': p.awayTeam,
+    'Home Team': p.homeTeam,
+    'Game Time': '2026-09-26T00:00:00-04:00',
+  }];
+  const result = await h.readWeeklyFootballMarket('NCAAF');
+  assert.equal(result.trendPlays.length, 1);
+  assert.equal(result.trendPlays[0].gameTime, '');
+  assert.equal(result.trendPlays[0].snapshotStatus, 'LIVE');
+  assert.equal(result.trendPlays[0].frozenAt, undefined);
+  assert.equal(result.trendPlays[0].updatedAt, '09/26/2026, 11:20:00 AM EDT');
+});
+
 test('premature lock recovers actual T-15 observation, market values and bounded history', () => {
   const h = harness(); const p = play();
   const rows = [
