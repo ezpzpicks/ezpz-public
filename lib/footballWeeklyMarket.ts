@@ -1343,7 +1343,7 @@ function ncaafDisplayGameTime(
     canonicalScheduleDate(row) === play.date &&
     collegeMarketTeamMatch(row["Away Team"], play.awayTeam) &&
     collegeMarketTeamMatch(row["Home Team"], play.homeTeam)
-  );
+  ).reverse();
   for (const row of matches) {
     const eventTime = rowEventTime(row);
     if (Number.isFinite(ncaafKickoffEpoch(play.date, eventTime))) return eventTime;
@@ -2237,7 +2237,7 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
         const displayGameTime = ncaafDisplayGameTime(
           saved,
           kickoffAuthorityRows,
-          [...effectiveAllGameTrends, ...sourceFilteredExistingGames],
+          [...effectiveAllGameTrends, ...sourceFilteredExistingGames, ...marketHistoryRows],
         );
         const resolved = resolveNcaafSnapshot(
           { ...saved, gameTime: authoritativeGameTime },
@@ -2352,7 +2352,7 @@ export async function readWeeklyFootballMarket(sport: FootballSport) {
         ncaafDisplayTime = ncaafDisplayGameTime(
           play,
           kickoffAuthorityRows,
-          [...allGameTrends, ...sourceGames],
+          [...allGameTrends, ...sourceGames, ...marketHistoryRows],
         );
         play = {
           ...play,
