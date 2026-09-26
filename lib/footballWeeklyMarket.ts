@@ -2209,9 +2209,12 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
   );
   const activeMarketDates = [...new Set([
     ...activeSourceSplits.map((split) => split.date),
-    // Retained NCAAF games need their own history even after leaving the feed.
+    // Retained NCAAF games need raw history only on the current game date so
+    // games that have just left the live feed can still finalize. Older dates
+    // already have their full movementHistory persisted in weekly_market_trends
+    // and must not force every five-minute run to reload the entire archive.
     ...(sport === "NCAAF" ? effectiveExistingTrends.map((row) => canonicalScheduleDate(row))
-      .filter((date) => date >= SCORES_AND_ODDS_CUTOVER_DATE) : []),
+      .filter((date) => date === todayET()) : []),
   ].filter(Boolean))];
   const existingMarketHistory = activeMarketDates.length
     ? (await readSportWorksheetByDateKeys(sport, MARKET_HISTORY_TAB, activeMarketDates, MARKET_HISTORY_HEADERS))
