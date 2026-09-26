@@ -406,7 +406,7 @@ function minutesUntilDraftKingsKickoff(split: DraftKingsSplit, now = new Date())
 function footballMarketMinutesToKickoff(
   split: DraftKingsSplit,
   trackingSlate: SheetRow[],
-  canonicalSchedule: SheetRow[],
+  _canonicalSchedule: SheetRow[],
   sport: FootballSport,
 ) {
   const trackedRow = findSlateForSplit(split, trackingSlate, sport);
