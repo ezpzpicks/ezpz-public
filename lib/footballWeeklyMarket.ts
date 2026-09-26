@@ -2499,7 +2499,7 @@ function dedupeNcaafReadTrendPlays(
 
 export async function readWeeklyFootballMarket(
   sport: FootballSport,
-  options: { dateKeys?: string[] } = {},
+  options: { dateKeys?: string[]; hydrateHistory?: boolean } = {},
 ) {
   await Promise.all([
     ensureSportWorksheet(sport, POSTED_GAMES_TAB, POSTED_GAME_HEADERS),
@@ -2515,6 +2515,12 @@ export async function readWeeklyFootballMarket(
   const requestedDates = new Set(
     (options.dateKeys || []).map((value) => String(value || "").trim()).filter(Boolean),
   );
+  // Public NCAAF reads can use the movement history already persisted in
+  // weekly_market_trends. Raw odds_snapshot hydration is reserved for the
+  // background market tracker/audit path, where the full archive is actually
+  // needed. This keeps the public page from downloading hundreds of thousands
+  // of snapshot rows on every refresh.
+  const hydrateHistory = options.hydrateHistory !== false;
   const sourceGames = games
     .filter(isScoresAndOddsCutoverRow)
     .filter((row) => !requestedDates.size || requestedDates.has(canonicalScheduleDate(row) || String(row.Date || "").trim()));
@@ -2525,7 +2531,7 @@ export async function readWeeklyFootballMarket(
     ...sourceRows.map((row) => String(row.Date || "")),
     ...sourceGames.map((row) => canonicalScheduleDate(row) || String(row.Date || "")),
   ].filter(Boolean))];
-  const marketHistoryRows = marketDates.length
+  const marketHistoryRows = hydrateHistory && marketDates.length
     ? (await readSportWorksheetByDateKeys(sport, MARKET_HISTORY_TAB, marketDates, MARKET_HISTORY_HEADERS))
         .filter(isScoresAndOddsCutoverRow)
     : [];
@@ -2567,6 +2573,20 @@ export async function readWeeklyFootballMarket(
         warningKey: "", warning: "", warningTone: "neutral" as Tone, warningNegative: false,
       } as Split;
       if (!validFootballMarketSplit(storedSplit, sport, canonicalRows)) continue;
+      if (!hydrateHistory) {
+        if (sport === "NCAAF") {
+          play = {
+            ...play,
+            gameTime: ncaafDisplayTime || play.gameTime,
+          };
+        }
+        trendPlays.push({
+          ...play,
+          week: String(row.Week || play.week || storedFootballWeek(sport, play, canonicalRows)),
+          movementHistory: Array.isArray(play.movementHistory) ? play.movementHistory : [],
+        });
+        continue;
+      }
       let sideHistory = historyBySide.get(splitTrendKey(storedSplit)) || [];
       if (sport === "NCAAF") {
         const canonicalHistoryKey = ncaafCanonicalMarketSideIdentity(play, canonicalRows);
