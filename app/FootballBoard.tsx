@@ -347,7 +347,9 @@ function matchupTeams(game: unknown) {
 }
 
 function directTrendTypes(pick: EzpzPick): DirectTrendSignal[] {
-  if (pick.source !== "Trend Play" && pick.source !== "Best + Trend") return [];
+  // Badge the EZPZ tile from the qualification itself rather than relying on
+  // the saved source label. This keeps the UI accurate for direct and merged
+  // RLM/Public Fade picks without changing qualification logic.
   const key = textKey(`${pick.tier || ""} ${pick.qualification || ""}`);
   const types: DirectTrendSignal[] = [];
   if (key.includes("rlm")) types.push("RLM");
