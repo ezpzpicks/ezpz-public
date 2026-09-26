@@ -73,6 +73,20 @@ test('consensus percentages survive while mismatched total prices are withheld',
   assert.equal(sao.parseScoresAndOddsConsensus(marketHtml('Over', 'o7', 'o7', '-120'), 'MLB')[0].odds, '-120');
 });
 
+test('NCAAF source parser normalizes ScoresAndOdds UTC game clock to Eastern', () => {
+  const html = `<div>September 25, 2026</div>
+    <img alt="Delaware"><span>9/26 10:00PM</span><img alt="Virginia">
+    <span>Over (o52.5)</span><span>% of Bets</span><span>Under (u52.5)</span>
+    <span>49%</span><span>51%</span><span>50%</span><span>50%</span><span>% of Money</span>
+    <div>Best over</div><span>o52.5</span><span>-108</span>
+    <div>Best under</div><span>u52.5</span><span>-110</span>`;
+  const rows = sao.parseScoresAndOddsConsensus(html, 'NCAAF');
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].date, '2026-09-26');
+  assert.equal(rows[0].eventTime, '18:00');
+  assert.equal(rows[1].eventTime, '18:00');
+});
+
 test('source parser retains separate same-team game occurrences', () => {
   const rows = sao.parseScoresAndOddsConsensus(marketHtml() + marketHtml(), 'MLB');
   assert.equal(rows.length, 4);
