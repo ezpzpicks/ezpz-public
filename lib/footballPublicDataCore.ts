@@ -1937,13 +1937,22 @@ function nflPlayerPropEzpzPicks(propRows: SheetRow[], slate: SheetRow[], today: 
 
 type FootballEzpzPick = {
   source: "Best Play" | "Trend Play" | "Best + Trend";
+  date?: string;
+  gameKey?: string;
+  gameTime?: string;
+  awayTeam?: string;
+  homeTeam?: string;
   game: string;
   market: "Spread" | "Total" | "Player Prop";
   selection: string;
+  line?: number | null;
   odds: string;
   score: number;
   tier: string;
   qualification: string;
+  snapshotStatus?: "LIVE" | "FINAL_PREGAME" | "MISSED_LOCK";
+  lockedAt?: string;
+  updatedAt?: string;
   record?: string;
   betsPct?: number;
   moneyPct?: number;
@@ -2088,6 +2097,23 @@ function oppositeDraftKingsSplit(play: TrendPlay, splits: DraftKingsSplit[], spo
   });
 }
 
+function oppositeSavedTrendPlay(play: TrendPlay, plays: TrendPlay[], sport: FootballSport) {
+  const sideKey = play.market === "Total" ? textKey(play.side) : textKey(play.selection);
+  return plays.find((candidate) => {
+    const sameGame =
+      textKey(candidate.game) === textKey(play.game) ||
+      (
+        sameTeam(candidate.awayTeam, play.awayTeam, sport) &&
+        sameTeam(candidate.homeTeam, play.homeTeam, sport)
+      );
+    if (!sameGame || candidate.market !== play.market) return false;
+    const candidateSide = candidate.market === "Total"
+      ? textKey(candidate.side)
+      : textKey(candidate.selection);
+    return Boolean(candidateSide && candidateSide !== sideKey);
+  });
+}
+
 function isPublicFadeSource(play: DraftKingsSplit, sport: FootballSport) {
   const bets = Number(play.betsPct);
   const money = Number(play.moneyPct);
@@ -2152,15 +2178,20 @@ function directTrendQualification(
   play: TrendPlay,
   splits: DraftKingsSplit[],
   sport: FootballSport,
+  savedPlays: TrendPlay[] = [],
 ) {
   const labels: string[] = [];
   if (isSharpSource(play, sport)) labels.push("Sharp");
 
-  const publicSide = oppositeDraftKingsSplit(play, splits, sport);
-  if (publicSide && isPublicFadeSource(publicSide, sport)) labels.push("Public Fade");
+  // The public Betting Splits board is rendered from the saved weekly market.
+  // Use that same paired side first so a saved RLM/Public Fade cannot disappear
+  // from EZPZ just because the latest live scrape is missing the opposite side.
+  const savedPublicSide = oppositeSavedTrendPlay(play, savedPlays, sport);
+  const publicSide = savedPublicSide || oppositeDraftKingsSplit(play, splits, sport);
+  if (publicSide && isPublicFadeSource(publicSide as DraftKingsSplit, sport)) labels.push("Public Fade");
   if (
     isRlmSelectedSide(play) ||
-    (publicSide && isRlmSource(publicSide))
+    (publicSide && isRlmSource(publicSide as DraftKingsSplit))
   ) {
     labels.push("RLM");
   }
@@ -2472,19 +2503,25 @@ function buildFootballEzpzPicks(
     const score = Number.isFinite(rawScore) ? (rawScore <= 1 ? rawScore * 100 : rawScore) : 0;
     picks.push({
       source: "Best Play",
+      date: referenceDate,
+      gameTime: String(play.gameTime || split?.eventTime || ""),
+      awayTeam: String(play.awayTeam || split?.awayTeam || ""),
+      homeTeam: String(play.homeTeam || split?.homeTeam || ""),
       game: play.game,
       market,
       selection: play.play,
+      line: split?.line ?? null,
       odds,
       score,
       tier: play.playType || "Best Play",
       qualification: `HOT Last 7 ${recordType} Best Play (${lastSeven.record})`,
       record: lastSeven.record,
+      snapshotStatus: "FINAL_PREGAME",
     });
   }
 
   for (const play of trends) {
-    const direct = directTrendQualification(play, splits, sport);
+    const direct = directTrendQualification(play, splits, sport, trends);
     if (!direct.labels.length) continue;
     const odds = americanOddsText(play.odds);
     if (!odds || Number(odds) < -150) continue;
@@ -2495,11 +2532,17 @@ function buildFootballEzpzPicks(
 
     picks.push({
       source: "Trend Play",
+      date: isoDate(play.date || play.recordDate || referenceDate) || referenceDate,
+      gameKey: String(play.gameKey || play.recordGameKey || ""),
+      gameTime: String(play.gameTime || play.recordGameTime || ""),
+      awayTeam: String(play.awayTeam || ""),
+      homeTeam: String(play.homeTeam || ""),
       game: play.game,
       market: play.market,
       selection: play.market === "Total"
         ? `${play.side} ${play.line ?? ""}`.trim()
         : `${play.selection} ${play.line == null ? "" : `${play.line > 0 ? "+" : ""}${play.line}`}`.trim(),
+      line: play.line,
       odds,
       score: Math.round(strengthScore * 10) / 10,
       tier: direct.labels.join(" + "),
@@ -2511,6 +2554,9 @@ function buildFootballEzpzPicks(
       publicSideMoneyPct: direct.publicSide ? Number(direct.publicSide.moneyPct) : undefined,
       publicMovePct: direct.publicSide ? Number(direct.publicSide.publicMovementPct) : undefined,
       lineMoveValue: direct.publicSide ? Number(direct.publicSide.lineMovementValue) : undefined,
+      snapshotStatus: play.snapshotStatus || "LIVE",
+      lockedAt: play.snapshotStatus === "FINAL_PREGAME" ? String(play.updatedAt || "") : "",
+      updatedAt: String(play.updatedAt || ""),
     });
   }
 
