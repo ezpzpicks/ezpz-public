@@ -2512,7 +2512,7 @@ function buildFootballEzpzRecordRows(
       if (!direct.labels.length) continue;
       const requiredCfbSplit = sport === "NCAAF"
         && (direct.labels.includes("RLM") || direct.labels.includes("Public Fade"));
-      const oddsNumber = parseOdds(split.odds);
+      const oddsNumber = parseOdds(split.odds) || (requiredCfbSplit ? -110 : 0);
       if (!oddsNumber || (!requiredCfbSplit && oddsNumber < -150)) continue;
       const row = rowByIdentity.get(
         `${groupKey}|${textKey(split.market === "Total" ? split.side : split.selectionTeam)}`,
@@ -2642,7 +2642,7 @@ function buildFootballEzpzPicks(
     if (!direct.labels.length) continue;
     const requiredCfbSplit = sport === "NCAAF"
       && (direct.labels.includes("RLM") || direct.labels.includes("Public Fade"));
-    const odds = americanOddsText(play.odds);
+    const odds = americanOddsText(play.odds) || (requiredCfbSplit ? "-110" : "");
     if (!odds || (!requiredCfbSplit && Number(odds) < -150)) continue;
 
     const strengthScore = direct.labels.includes("RLM")
