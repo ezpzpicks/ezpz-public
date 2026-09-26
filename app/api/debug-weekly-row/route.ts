@@ -6,34 +6,44 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 export const maxDuration = 30;
 
+function match(row: Record<string, unknown>) {
+  return /missouri state|smu/i.test(
+    String(row.Game || "") + " " + String(row["Away Team"] || "") + " " + String(row["Home Team"] || "")
+  );
+}
+
 export async function GET() {
-  const rows = await readSportWorksheet("NCAAF", "weekly_market_trends");
-  const matches = rows
-    .filter((row) => /missouri state|smu/i.test(String(row.Game || "") + " " + String(row["Away Team"] || "") + " " + String(row["Home Team"] || "")))
-    .map((row) => {
-      let details: unknown = null;
-      try { details = JSON.parse(String(row["Details JSON"] || "")); } catch {}
-      return {
-        Date: row.Date,
-        Game: row.Game,
-        GameTime: row["Game Time"],
-        Market: row.Market,
-        Selection: row.Selection,
-        Side: row.Side,
-        Line: row.Line,
-        Odds: row.Odds,
-        OpeningBets: row["Opening Bets %"],
-        CurrentBets: row["Current Bets %"],
-        BetsChange: row["Bets Change %"],
-        OpeningHandle: row["Opening Handle %"],
-        CurrentHandle: row["Current Handle %"],
-        LineMovementSignal: row["Line Movement Signal"],
-        SnapshotStatus: row["Snapshot Status"],
-        UpdatedAt: row["Updated At"],
-        details,
-      };
-    });
-  return NextResponse.json({ ok: true, count: matches.length, matches }, {
-    headers: { "Cache-Control": "no-store, max-age=0" },
+  const [weekly, snapshots, slate, schedule] = await Promise.all([
+    readSportWorksheet("NCAAF", "weekly_market_trends"),
+    readSportWorksheet("NCAAF", "public_split_snapshots"),
+    readSportWorksheet("NCAAF", "daily_slate"),
+    readSportWorksheet("NCAAF", "schedule"),
+  ]);
+  const clean = (row: Record<string, unknown>) => ({
+    Date: row.Date,
+    Game: row.Game,
+    GameTime: row["Game Time"] || row["Game Date"] || row.Time,
+    GameId: row["Game ID"] || row["Game Key"],
+    Away: row["Away Team"],
+    Home: row["Home Team"],
+    Market: row.Market,
+    Selection: row.Selection,
+    Side: row.Side,
+    Line: row.Line,
+    Odds: row.Odds,
+    SpreadOdds: row["Spread Odds"],
+    TotalOdds: row["Total Odds"],
+    OpeningOdds: row["Opening Odds"],
+    OpeningBets: row["Opening Bets %"],
+    CurrentBets: row["Current Bets %"],
+    SnapshotStatus: row["Snapshot Status"],
+    UpdatedAt: row["Updated At"] || row["Snapshot Time ET"],
   });
+  return NextResponse.json({
+    ok: true,
+    weekly: weekly.filter(match).map(clean),
+    snapshots: snapshots.filter(match).map(clean),
+    slate: slate.filter(match).map(clean),
+    schedule: schedule.filter(match).map(clean),
+  }, { headers: { "Cache-Control": "no-store, max-age=0" } });
 }
