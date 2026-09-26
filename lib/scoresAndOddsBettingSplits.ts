@@ -366,11 +366,25 @@ function ncaafSourceScheduleNearAnchor(
   tokens: string[],
   anchor: number,
   pageDate: string,
+  awayTeam = "",
+  homeTeam = "",
 ) {
   const pageYear = Number(String(pageDate || "").slice(0, 4)) || new Date().getUTCFullYear();
   const pageStamp = Date.parse(`${pageDate || `${pageYear}-07-01`}T12:00:00Z`);
-  for (let index = anchor - 1; index >= Math.max(0, anchor - 24); index -= 1) {
+  const teamKeys = new Set(
+    [awayTeam, homeTeam]
+      .map((value) => String(value || "").trim().toLowerCase())
+      .filter(Boolean),
+  );
+  const maxLookback = teamKeys.size >= 2 ? 160 : 24;
+  for (let index = anchor - 1; index >= Math.max(0, anchor - maxLookback); index -= 1) {
     const raw = String(tokens[index] || "").trim();
+    const alt = cleanAltToken(raw);
+    if (alt && !isNoiseTeamToken(alt) && teamKeys.size >= 2 && !teamKeys.has(alt.toLowerCase())) {
+      // Do not borrow a timestamp from the previous matchup when the current
+      // game itself has no posted kickoff.
+      break;
+    }
     const match = raw.match(/\b(\d{1,2})\/(\d{1,2})\s+(\d{1,2}):(\d{2})\s*(AM|PM)\b/i);
     if (!match) continue;
 
@@ -448,7 +462,7 @@ export function parseScoresAndOddsConsensus(
     const header = headerAroundAnchor(tokens, anchor);
     const market = marketFromHeader(header, sport);
     const sourceSchedule = sport === "NCAAF"
-      ? ncaafSourceScheduleNearAnchor(tokens, anchor, pageDate)
+      ? ncaafSourceScheduleNearAnchor(tokens, anchor, pageDate, contextAway, contextHome)
       : { date: "", eventTime: "" };
     const rowDate = sourceSchedule.date || pageDate;
     const rowEventTime = sourceSchedule.eventTime;
