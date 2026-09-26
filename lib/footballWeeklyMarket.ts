@@ -750,8 +750,10 @@ export async function inspectPostedFootballMarkets(sport: FootballSport) {
     readSportWorksheet(sport, "schedule"),
     readSportWorksheet(sport, "daily_slate"),
   ]);
-  const canonicalRows = [...scheduleRows, ...slateRows, ...allGameTrends];
-  const result = await loadPostedSplits(sport, canonicalRows, existingGames, [...scheduleRows, ...slateRows]);
+  const liveKickoffRows = sport === "NCAAF" ? await loadNcaafLiveKickoffAuthorityRows() : [];
+  const kickoffAuthorityRows = [...liveKickoffRows, ...scheduleRows, ...slateRows];
+  const canonicalRows = [...kickoffAuthorityRows, ...allGameTrends];
+  const result = await loadPostedSplits(sport, canonicalRows, existingGames, kickoffAuthorityRows);
   const games = [...new Set(result.splits.map((split) => split.game))].sort();
   return {
     ok: true,
@@ -1267,6 +1269,63 @@ function ncaafAuthoritativeGameTime(
   // A current/future game without a verified canonical kickoff must remain
   // live. Never fall back to a stale kickoff saved on an older market row.
   return play.date >= todayET() ? "" : play.gameTime;
+}
+
+async function loadNcaafLiveKickoffAuthorityRows(): Promise<SheetRow[]> {
+  if (typeof fetch !== "function") return [];
+  const targetDate = todayET();
+  const url = new URL("https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard");
+  url.searchParams.set("dates", targetDate.replace(/-/g, ""));
+  url.searchParams.set("groups", "80");
+  url.searchParams.set("limit", "1000");
+
+  try {
+    const response = await fetch(url, {
+      cache: "no-store",
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(8_000),
+    });
+    if (!response.ok) return [];
+    const payload = await response.json() as any;
+    const rows: SheetRow[] = [];
+    for (const event of Array.isArray(payload?.events) ? payload.events : []) {
+      const competition = Array.isArray(event?.competitions) ? event.competitions[0] : null;
+      if (!competition) continue;
+      const rawKickoff = String(competition?.date || event?.date || "").trim();
+      const parsed = Date.parse(rawKickoff);
+      if (!Number.isFinite(parsed)) continue;
+      const dateParts = new Intl.DateTimeFormat("en-US", {
+        timeZone: "America/New_York",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }).formatToParts(new Date(parsed));
+      const get = (type: string) => dateParts.find((part) => part.type === type)?.value || "";
+      const eventDate = `${get("year")}-${get("month")}-${get("day")}`;
+      if (eventDate !== targetDate) continue;
+
+      const competitors = Array.isArray(competition?.competitors) ? competition.competitors : [];
+      const away = competitors.find((entry: any) => String(entry?.homeAway || "").toLowerCase() === "away");
+      const home = competitors.find((entry: any) => String(entry?.homeAway || "").toLowerCase() === "home");
+      const teamName = (entry: any) => String(
+        entry?.team?.displayName || entry?.team?.shortDisplayName || entry?.team?.name || "",
+      ).trim();
+      const awayTeam = teamName(away);
+      const homeTeam = teamName(home);
+      if (!awayTeam || !homeTeam) continue;
+
+      rows.push({
+        Date: eventDate,
+        "Game Time": rawKickoff,
+        Game: `${awayTeam} @ ${homeTeam}`,
+        "Away Team": awayTeam,
+        "Home Team": homeTeam,
+      });
+    }
+    return rows;
+  } catch {
+    return [];
+  }
 }
 
 function ncaafDisplayGameTime(
@@ -2024,8 +2083,9 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
     await writeSportWorksheet(sport, POSTED_GAMES_TAB, POSTED_GAME_HEADERS, sourceFilteredExistingGames);
   }
 
-  const canonicalRows = [...scheduleRows, ...slateRows, ...effectiveAllGameTrends];
-  const kickoffAuthorityRows = [...scheduleRows, ...slateRows];
+  const liveKickoffRows = sport === "NCAAF" ? await loadNcaafLiveKickoffAuthorityRows() : [];
+  const kickoffAuthorityRows = [...liveKickoffRows, ...scheduleRows, ...slateRows];
+  const canonicalRows = [...kickoffAuthorityRows, ...effectiveAllGameTrends];
   // A partial ScoresAndOdds response must fail before any market/snapshot writes occur.
   const dk = await loadPostedSplits(sport, canonicalRows, sourceFilteredExistingGames, kickoffAuthorityRows);
   const activeSourceSplits = dk.splits.filter(
@@ -2274,8 +2334,9 @@ export async function readWeeklyFootballMarket(sport: FootballSport) {
     ? (await readSportWorksheetByDateKeys(sport, MARKET_HISTORY_TAB, marketDates, MARKET_HISTORY_HEADERS))
         .filter(isScoresAndOddsCutoverRow)
     : [];
-  const canonicalRows = [...scheduleRows, ...slateRows, ...allGameTrends];
-  const kickoffAuthorityRows = [...scheduleRows, ...slateRows];
+  const liveKickoffRows = sport === "NCAAF" ? await loadNcaafLiveKickoffAuthorityRows() : [];
+  const kickoffAuthorityRows = [...liveKickoffRows, ...scheduleRows, ...slateRows];
+  const canonicalRows = [...kickoffAuthorityRows, ...allGameTrends];
   // Index once instead of rebuilding every row's normalized identity for every
   // market side. The full history grows by hundreds of rows every five minutes.
   const historyBySide = indexMarketHistoryBySide(marketHistoryRows);
