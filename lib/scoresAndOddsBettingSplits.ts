@@ -362,6 +362,55 @@ function descriptorSelections(tokens: string[], anchor: number) {
   return { left, right };
 }
 
+function ncaafSourceScheduleNearAnchor(
+  tokens: string[],
+  anchor: number,
+  pageDate: string,
+) {
+  const pageYear = Number(String(pageDate || "").slice(0, 4)) || new Date().getUTCFullYear();
+  const pageStamp = Date.parse(`${pageDate || `${pageYear}-07-01`}T12:00:00Z`);
+  for (let index = anchor - 1; index >= Math.max(0, anchor - 24); index -= 1) {
+    const raw = String(tokens[index] || "").trim();
+    const match = raw.match(/\b(\d{1,2})\/(\d{1,2})\s+(\d{1,2}):(\d{2})\s*(AM|PM)\b/i);
+    if (!match) continue;
+
+    const month = Number(match[1]);
+    const day = Number(match[2]);
+    let hour = Number(match[3]) % 12;
+    if (match[5].toUpperCase() === "PM") hour += 12;
+    const minute = Number(match[4]);
+    if (![month, day, hour, minute].every(Number.isFinite)) continue;
+
+    const candidateYears = [pageYear - 1, pageYear, pageYear + 1];
+    const year = candidateYears.sort((left, right) => {
+      const leftStamp = Date.UTC(left, month - 1, day, hour, minute);
+      const rightStamp = Date.UTC(right, month - 1, day, hour, minute);
+      return Math.abs(leftStamp - pageStamp) - Math.abs(rightStamp - pageStamp);
+    })[0];
+
+    // ScoresAndOdds' server-rendered timestamp is UTC even though the browser
+    // renders the user's local clock. Normalize that instant to Eastern once,
+    // then persist the ET date/time as the sole NCAAF lock clock.
+    const instant = new Date(Date.UTC(year, month - 1, day, hour, minute));
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    }).formatToParts(instant);
+    const get = (type: string) => parts.find((part) => part.type === type)?.value || "";
+    const date = `${get("year")}-${get("month")}-${get("day")}`;
+    const eventTime = `${get("hour")}:${get("minute")}`;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(date) && /^\d{2}:\d{2}$/.test(eventTime)) {
+      return { date, eventTime };
+    }
+  }
+  return { date: "", eventTime: "" };
+}
+
 function dateFromPage(rawHtml: string) {
   const monthNames = "January|February|March|April|May|June|July|August|September|October|November|December";
   const match = decodeHtmlEntities(rawHtml).match(
@@ -398,6 +447,11 @@ export function parseScoresAndOddsConsensus(
     const descriptor = descriptorSelections(tokens, anchor);
     const header = headerAroundAnchor(tokens, anchor);
     const market = marketFromHeader(header, sport);
+    const sourceSchedule = sport === "NCAAF"
+      ? ncaafSourceScheduleNearAnchor(tokens, anchor, pageDate)
+      : { date: "", eventTime: "" };
+    const rowDate = sourceSchedule.date || pageDate;
+    const rowEventTime = sourceSchedule.eventTime;
 
     const awayTeam = contextAway || (market === "Total" ? "" : cleanSelectionTeam(descriptor.left));
     const homeTeam = contextHome || (market === "Total" ? "" : cleanSelectionTeam(descriptor.right));
@@ -451,8 +505,8 @@ export function parseScoresAndOddsConsensus(
         : `${homeTeam} ${rightLine > 0 ? "+" : ""}${rightLine}`;
 
     rows.push({
-      date: pageDate,
-      eventTime: "",
+      date: rowDate,
+      eventTime: rowEventTime,
       game: `${awayTeam} @ ${homeTeam}`,
       awayTeam,
       homeTeam,
@@ -468,8 +522,8 @@ export function parseScoresAndOddsConsensus(
       sourceGameOccurrence,
     });
     rows.push({
-      date: pageDate,
-      eventTime: "",
+      date: rowDate,
+      eventTime: rowEventTime,
       game: `${awayTeam} @ ${homeTeam}`,
       awayTeam,
       homeTeam,
