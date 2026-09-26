@@ -2121,48 +2121,41 @@ function postedGameKey(row: SheetRow) {
   return String(row["Game Key"] || "");
 }
 
-function persistedNcaafMarketHistoryRows(rows: SheetRow[]) {
+function persistedNcaafMarketHistoryRowsForPlay(play: WeeklyTrendPlay) {
   const historyRows: SheetRow[] = [];
-  for (const row of rows) {
-    const raw = String(row["Details JSON"] || "").trim();
-    if (!raw) continue;
-    try {
-      const play = JSON.parse(raw) as WeeklyTrendPlay;
-      if (play.date < SCORES_AND_ODDS_CUTOVER_DATE || !Array.isArray(play.movementHistory)) continue;
-      for (const point of play.movementHistory) {
-        if (!point?.snapshotTime) continue;
-        const selection = play.market === "Total"
-          ? play.side
-          : play.selectionTeam || play.selection;
-        historyRows.push({
-          "Snapshot Time ET": String(point.snapshotTime),
-          Date: play.date,
-          Week: play.week,
-          "Game Key": play.gameKey,
-          "Game Time": play.gameTime,
-          Game: play.game,
-          "Away Team": play.awayTeam,
-          "Home Team": play.homeTeam,
-          Market: play.market,
-          Selection: String(selection || ""),
-          Side: play.side,
-          Line: point.line == null ? "" : String(point.line),
-          Odds: String(point.odds || ""),
-          "Bets %": String(point.betsPct),
-          "Handle %": String(point.moneyPct),
-          "Public Gap %": String(Math.round((Number(point.moneyPct) - Number(point.betsPct)) * 10) / 10),
-          Warning: "",
-          Source: SCORES_AND_ODDS_SOURCE,
-          "Source URL": "https://www.scoresandodds.com",
-          "State Signature": marketHistoryStateSignatureValues(
-            point.line,
-            point.odds,
-            point.betsPct,
-            point.moneyPct,
-          ),
-        });
-      }
-    } catch {}
+  if (play.date < SCORES_AND_ODDS_CUTOVER_DATE || !Array.isArray(play.movementHistory)) return historyRows;
+  for (const point of play.movementHistory) {
+    if (!point?.snapshotTime) continue;
+    const selection = play.market === "Total"
+      ? play.side
+      : play.selectionTeam || play.selection;
+    historyRows.push({
+      "Snapshot Time ET": String(point.snapshotTime),
+      Date: play.date,
+      Week: play.week,
+      "Game Key": play.gameKey,
+      "Game Time": play.gameTime,
+      Game: play.game,
+      "Away Team": play.awayTeam,
+      "Home Team": play.homeTeam,
+      Market: play.market,
+      Selection: String(selection || ""),
+      Side: play.side,
+      Line: point.line == null ? "" : String(point.line),
+      Odds: String(point.odds || ""),
+      "Bets %": String(point.betsPct),
+      "Handle %": String(point.moneyPct),
+      "Public Gap %": String(Math.round((Number(point.moneyPct) - Number(point.betsPct)) * 10) / 10),
+      Warning: "",
+      Source: SCORES_AND_ODDS_SOURCE,
+      "Source URL": "https://www.scoresandodds.com",
+      "State Signature": marketHistoryStateSignatureValues(
+        point.line,
+        point.odds,
+        point.betsPct,
+        point.moneyPct,
+      ),
+    });
   }
   return historyRows;
 }
@@ -2262,12 +2255,11 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
     ...(sport === "NCAAF" ? effectiveExistingTrends.map((row) => canonicalScheduleDate(row))
       .filter((date) => date === todayET()) : []),
   ].filter(Boolean))];
-  // NCAAF keeps complete chart history on each weekly trend row. Rehydrate that
-  // compact persisted history in memory instead of re-reading the append-only
-  // odds_snapshot archive (which can contain hundreds of thousands of rows for
-  // a single Saturday). NFL retains the existing raw-history read.
+  // NCAAF updates each side directly from the movementHistory already persisted
+  // on that weekly trend row. Do not rebuild one giant in-memory Saturday
+  // archive here. NFL retains its existing raw-history read.
   const existingMarketHistory = sport === "NCAAF"
-    ? persistedNcaafMarketHistoryRows(effectiveExistingTrends)
+    ? []
     : activeMarketDates.length
       ? (await readSportWorksheetByDateKeys(sport, MARKET_HISTORY_TAB, activeMarketDates, MARKET_HISTORY_HEADERS))
           .filter((row) => String(row.Source || "").trim() === SCORES_AND_ODDS_SOURCE)
@@ -2298,11 +2290,42 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
 
   const existingTrendMap = new Map(effectiveExistingTrends.map((row) => [trendKey(row), row]));
   const history = repairedHistory;
+  const ncaafExistingByCanonical = new Map<string, { row: SheetRow; play: WeeklyTrendPlay }>();
+  if (sport === "NCAAF") {
+    for (const row of effectiveExistingTrends) {
+      const raw = String(row["Details JSON"] || "").trim();
+      if (!raw) continue;
+      try {
+        const play = JSON.parse(raw) as WeeklyTrendPlay;
+        const identity = ncaafCanonicalMarketSideIdentity(play, canonicalRows);
+        if (!identity) continue;
+        const previous = ncaafExistingByCanonical.get(identity);
+        if (
+          !previous ||
+          ncaafReadDuplicatePriority(play, canonicalRows) >
+            ncaafReadDuplicatePriority(previous.play, canonicalRows)
+        ) {
+          ncaafExistingByCanonical.set(identity, { row, play });
+        }
+      } catch {}
+    }
+  }
+  const ncaafCanonicalIdentityForSplit = (split: Split) => {
+    if (sport !== "NCAAF") return "";
+    return ncaafCanonicalMarketSideIdentity({
+      date: split.date,
+      awayTeam: split.awayTeam,
+      homeTeam: split.homeTeam,
+      market: split.market,
+      selection: split.selection,
+      selectionTeam: split.selectionTeam,
+      side: split.side,
+    } as WeeklyTrendPlay, canonicalRows);
+  };
 
   const marketHistoryRows = [...existingMarketHistory];
   const marketHistoryRowsToAppend: SheetRow[] = [];
-  const postedStateRows = [...sourceFilteredExistingGames, ...postedRows];
-  const firstSeenByGame = new Map(postedStateRows.map((row) => [String(row["Game Key"] || ""), String(row["First Seen"] || now)]));
+  const currentNcaafHistoryByKey = new Map<string, SheetRow>();
 
   for (const split of activeSourceSplits) {
     if (sport === "NCAAF") {
@@ -2313,7 +2336,8 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
       if (minutes != null && minutes <= 10) continue;
     }
     const current = marketHistoryRowForSplit(split, sport, canonicalRows, now);
-    marketHistoryRows.push(current);
+    if (sport === "NCAAF") currentNcaafHistoryByKey.set(splitTrendKey(split), current);
+    else marketHistoryRows.push(current);
     marketHistoryRowsToAppend.push(current);
   }
 
@@ -2329,16 +2353,6 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
 
   const liveCandidates: WeeklyTrendPlay[] = [];
   const handledLockKeys = new Set<string>();
-  const ncaafHistory = sport === "NCAAF" ? indexMarketHistoryBySide(marketHistoryRows) : new Map<string, SheetRow[]>();
-  const ncaafCanonicalHistory = sport === "NCAAF"
-    ? indexNcaafMarketHistoryByCanonicalSide(marketHistoryRows, canonicalRows)
-    : new Map<string, SheetRow[]>();
-  const canonicalNcaafSideHistory = (play: WeeklyTrendPlay, fallback: SheetRow[]) => {
-    if (sport !== "NCAAF") return fallback;
-    const canonicalKey = ncaafCanonicalMarketSideIdentity(play, canonicalRows);
-    const aliasHistory = canonicalKey ? ncaafCanonicalHistory.get(canonicalKey) || [] : [];
-    return aliasHistory.length ? normalizeNcaafHistoryForPlay(play, aliasHistory) : fallback;
-  };
   const withPersistedNcaafMovementHistory = (play: WeeklyTrendPlay, rows: SheetRow[]) => {
     if (sport !== "NCAAF") return play;
     const bounded = ncaafHistoryForPlay(play, rows);
@@ -2349,13 +2363,20 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
   };
   for (const split of activeSourceSplits) {
     const key = splitTrendKey(split);
-    const existing = existingTrendMap.get(key);
+    let existing = existingTrendMap.get(key);
     if (sport === "NCAAF") {
+      const canonicalIdentity = ncaafCanonicalIdentityForSplit(split);
+      if (!existing && canonicalIdentity) existing = ncaafExistingByCanonical.get(canonicalIdentity)?.row;
       handledLockKeys.add(key);
-      let sideHistory = ncaafHistory.get(key) || [];
+      if (existing) handledLockKeys.add(trendKey(existing));
+
       let saved: WeeklyTrendPlay | undefined;
-      try { saved = JSON.parse(String(existing?.["Details JSON"] || "")); } catch { }
+      try { saved = JSON.parse(String(existing?.["Details JSON"] || "")); } catch {}
+      let sideHistory = saved ? persistedNcaafMarketHistoryRowsForPlay(saved) : [];
+      const current = currentNcaafHistoryByKey.get(key);
+      if (current) sideHistory.push(current);
       if (!saved && !sideHistory.length) continue;
+
       const base = saved
         ? {
             ...saved,
@@ -2365,9 +2386,12 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
             game: split.game,
             awayTeam: split.awayTeam,
             homeTeam: split.homeTeam,
+            selection: split.selection,
+            selectionTeam: split.selectionTeam,
+            side: split.side,
           }
         : { ...buildPlay(split, existing, history, sideHistory), week: footballWeekLabel(sport, split.date) };
-      sideHistory = canonicalNcaafSideHistory(base, sideHistory);
+      sideHistory = normalizeNcaafHistoryForPlay(base, sideHistory);
       const resolved = resolveNcaafSnapshot(base, sideHistory, history);
       const persisted = withPersistedNcaafMovementHistory(resolved, sideHistory);
       if (JSON.stringify(persisted) !== String(existing?.["Details JSON"] || "")) liveCandidates.push(persisted);
@@ -2431,7 +2455,10 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
           [...effectiveAllGameTrends, ...sourceFilteredExistingGames, ...marketHistoryRows],
         );
         const authoritative = { ...saved, gameTime: authoritativeGameTime };
-        const sideHistory = canonicalNcaafSideHistory(authoritative, ncaafHistory.get(key) || []);
+        const sideHistory = normalizeNcaafHistoryForPlay(
+          authoritative,
+          persistedNcaafMarketHistoryRowsForPlay(saved),
+        );
         const resolved = resolveNcaafSnapshot(
           authoritative,
           sideHistory,
@@ -2479,7 +2506,16 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
     missingPages: dk.missingPages,
     trendRowsUpdated: rows.length,
     marketHistoryRowsAppended,
-    marketHistoryRowsStored: marketHistoryRows.length,
+    marketHistoryRowsStored: sport === "NCAAF"
+      ? effectiveExistingTrends.reduce((sum, row) => {
+          try {
+            const play = JSON.parse(String(row["Details JSON"] || "")) as WeeklyTrendPlay;
+            return sum + (Array.isArray(play.movementHistory) ? play.movementHistory.length : 0);
+          } catch {
+            return sum;
+          }
+        }, 0)
+      : marketHistoryRows.length,
     errors: dk.errors,
     updatedAt: now,
   };
