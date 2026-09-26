@@ -708,6 +708,14 @@ async function loadPostedSplits(
 
     const awayTeam = String(matched["Away Team"] || source.awayTeam).trim();
     const homeTeam = String(matched["Home Team"] || source.homeTeam).trim();
+    const matchedDate = canonicalScheduleDate(matched);
+    const matchedEventTime = rowEventTime(matched);
+    const authoritativeEventTime = sport === "NCAAF"
+      ? ncaafAuthoritativeGameTime(
+          { date: matchedDate, gameTime: matchedEventTime, awayTeam, homeTeam },
+          kickoffAuthorityRows,
+        )
+      : matchedEventTime;
     const selectionTeam = source.market === "Spread"
       ? sport === "NFL"
         ? nflMarketTeamCode(source.selectionTeam) === nflMarketTeamCode(source.awayTeam)
@@ -724,8 +732,8 @@ async function loadPostedSplits(
     const line = source.line;
     const warning = warningFor(source.betsPct, source.moneyPct);
     mapped.push({
-      date: canonicalScheduleDate(matched),
-      eventTime: rowEventTime(matched),
+      date: matchedDate,
+      eventTime: authoritativeEventTime,
       game: `${awayTeam} @ ${homeTeam}`,
       awayTeam,
       homeTeam,
