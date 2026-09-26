@@ -425,15 +425,66 @@ function keepStoredFootballTrackingRow(row: SheetRow) {
   return date <= todayET() || isWithinFootballTrackingWindow(date);
 }
 
+const NCAAF_MARKET_TEAM_ALIASES: Record<string, string> = {
+  "app state": "appalachian state",
+  "fiu": "florida international",
+  "florida intl": "florida international",
+  "fau": "florida atlantic",
+  "uconn": "connecticut",
+  "southern miss": "southern mississippi",
+  "mtsu": "middle tennessee",
+  "middle tennessee state": "middle tennessee",
+  "niu": "northern illinois",
+  "ul lafayette": "louisiana",
+  "louisiana lafayette": "louisiana",
+  "la lafayette": "louisiana",
+  "ul monroe": "louisiana monroe",
+  "ulm": "louisiana monroe",
+  "jax state": "jacksonville state",
+  "ndsu": "north dakota state",
+  "sac state": "sacramento state",
+  "sjsu": "san jose state",
+  "umass": "massachusetts",
+  "nc state": "north carolina state",
+  "usc": "southern california",
+  "ucf": "central florida",
+  "usf": "south florida",
+  "smu": "southern methodist",
+  "byu": "brigham young",
+  "tcu": "texas christian",
+  "utsa": "texas san antonio",
+  "utep": "texas el paso",
+  "lsu": "louisiana state",
+  "ole miss": "mississippi",
+  "cal": "california",
+  "pitt": "pittsburgh",
+  "miami oh": "miami ohio",
+  "miami ohio": "miami ohio",
+  "miami fl": "miami",
+  "la tech": "louisiana tech",
+};
+
+function normalizeCollegeMarketTeam(value: unknown) {
+  const key = textKey(value)
+    .replace(/\buniversity\b/g, "")
+    .replace(/\bthe\b/g, "")
+    .replace(/\baandm\b/g, "am")
+    .replace(/\ba\s+m\b/g, "am")
+    .replace(/\bst\b/g, "state")
+    .replace(/\s+/g, " ")
+    .trim();
+  return NCAAF_MARKET_TEAM_ALIASES[key] || key;
+}
+
 function collegeMarketTeamMatch(leftValue: unknown, rightValue: unknown) {
-  const left = textKey(leftValue).replace(/\buniversity\b/g, "").replace(/\bthe\b/g, "").replace(/\s+/g, " ").trim();
-  const right = textKey(rightValue).replace(/\buniversity\b/g, "").replace(/\bthe\b/g, "").replace(/\s+/g, " ").trim();
+  const left = normalizeCollegeMarketTeam(leftValue);
+  const right = normalizeCollegeMarketTeam(rightValue);
   if (!left || !right) return false;
-  if (left === right || left.endsWith(` ${right}`) || right.endsWith(` ${left}`)) return true;
-  const l = new Set(left.split(" ").filter((token) => token.length > 2));
-  const r = new Set(right.split(" ").filter((token) => token.length > 2));
-  const overlap = [...l].filter((token) => r.has(token)).length;
-  return overlap >= Math.min(2, Math.max(1, Math.min(l.size, r.size)));
+
+  // College names must resolve to the same canonical school. Token overlap and
+  // suffix matching are unsafe here: Virginia/West Virginia, Utah/Utah State,
+  // Georgia/Georgia State, Delaware/Delaware State, etc. are distinct teams.
+  return left === right || left.replace(/\s+/g, "") === right.replace(/\s+/g, "");
 }
 
 function canonicalGameRow(split: Pick<Split, "date" | "awayTeam" | "homeTeam">, sport: FootballSport, rows: SheetRow[]) {
@@ -1310,7 +1361,10 @@ async function loadNcaafLiveKickoffAuthorityRows(): Promise<SheetRow[]> {
       const away = competitors.find((entry: any) => String(entry?.homeAway || "").toLowerCase() === "away");
       const home = competitors.find((entry: any) => String(entry?.homeAway || "").toLowerCase() === "home");
       const teamName = (entry: any) => String(
-        entry?.team?.displayName || entry?.team?.shortDisplayName || entry?.team?.name || "",
+        // shortDisplayName is the school identity (for example "Virginia" or
+        // "West Virginia"). displayName often includes a mascot and previously
+        // forced the matcher to rely on unsafe token overlap.
+        entry?.team?.shortDisplayName || entry?.team?.name || entry?.team?.displayName || "",
       ).trim();
       const awayTeam = teamName(away);
       const homeTeam = teamName(home);
