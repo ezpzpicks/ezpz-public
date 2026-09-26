@@ -9,7 +9,7 @@ import { withTursoReadCache } from "../../../../lib/tursoStore";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-export const maxDuration = 120;
+export const maxDuration = 180;
 
 async function runCron(request: NextRequest) {
   const dryRun = request.nextUrl.searchParams.get("dryRun") === "1";
