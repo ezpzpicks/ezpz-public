@@ -1269,6 +1269,30 @@ function ncaafAuthoritativeGameTime(
   return play.date >= todayET() ? "" : play.gameTime;
 }
 
+function ncaafDisplayGameTime(
+  play: Pick<WeeklyTrendPlay, "date" | "gameTime" | "awayTeam" | "homeTeam">,
+  authorityRows: SheetRow[],
+  fallbackRows: SheetRow[] = [],
+) {
+  const authoritative = ncaafAuthoritativeGameTime(play, authorityRows);
+  if (authoritative) return authoritative;
+
+  // Lock/finalization must only trust schedule/slate rows, but the UI can still
+  // show a same-day kickoff recovered from stored market/model rows. This keeps
+  // display metadata intact without letting a stale display time finalize a game.
+  const matches = fallbackRows.filter((row) =>
+    canonicalScheduleDate(row) === play.date &&
+    collegeMarketTeamMatch(row["Away Team"], play.awayTeam) &&
+    collegeMarketTeamMatch(row["Home Team"], play.homeTeam)
+  );
+  for (const row of matches) {
+    const eventTime = rowEventTime(row);
+    if (Number.isFinite(ncaafKickoffEpoch(play.date, eventTime))) return eventTime;
+  }
+
+  return play.gameTime;
+}
+
 function ncaafHistoryForPlay(play: WeeklyTrendPlay, rows: SheetRow[]) {
   const end = storedSnapshotEpoch(play.snapshotStatus === "FINAL_PREGAME" ? play.frozenAt || play.updatedAt : play.updatedAt);
   return rows.filter((row) => {
@@ -2149,12 +2173,19 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
     try {
       const saved = JSON.parse(raw) as WeeklyTrendPlay;
       if (sport === "NCAAF") {
-        const canonicalSaved = {
-          ...saved,
-          gameTime: ncaafAuthoritativeGameTime(saved, kickoffAuthorityRows),
-        };
-        const resolved = resolveNcaafSnapshot(canonicalSaved, ncaafHistory.get(key) || [], history);
-        if (JSON.stringify(resolved) !== raw) liveCandidates.push(resolved);
+        const authoritativeGameTime = ncaafAuthoritativeGameTime(saved, kickoffAuthorityRows);
+        const displayGameTime = ncaafDisplayGameTime(
+          saved,
+          kickoffAuthorityRows,
+          [...effectiveAllGameTrends, ...sourceFilteredExistingGames],
+        );
+        const resolved = resolveNcaafSnapshot(
+          { ...saved, gameTime: authoritativeGameTime },
+          ncaafHistory.get(key) || [],
+          history,
+        );
+        const displayed = { ...resolved, gameTime: displayGameTime };
+        if (JSON.stringify(displayed) !== raw) liveCandidates.push(displayed);
         continue;
       }
       if (saved.snapshotStatus === "FINAL_PREGAME") continue;
@@ -2255,7 +2286,13 @@ export async function readWeeklyFootballMarket(sport: FootballSport) {
     if (!raw) continue;
     try {
       let play = JSON.parse(raw) as WeeklyTrendPlay;
+      let ncaafDisplayTime = "";
       if (sport === "NCAAF") {
+        ncaafDisplayTime = ncaafDisplayGameTime(
+          play,
+          kickoffAuthorityRows,
+          [...allGameTrends, ...sourceGames],
+        );
         play = {
           ...play,
           gameTime: ncaafAuthoritativeGameTime(play, kickoffAuthorityRows),
@@ -2271,7 +2308,9 @@ export async function readWeeklyFootballMarket(sport: FootballSport) {
       let sideHistory = historyBySide.get(splitTrendKey(storedSplit)) || [];
       if (sport === "NCAAF") {
         play = resolveNcaafSnapshot(play, sideHistory, ncaafRecordHistory);
+        play = { ...play, gameTime: ncaafDisplayTime };
         Object.assign(storedSplit, {
+          eventTime: play.gameTime,
           line: play.line, odds: play.odds, betsPct: play.betsPct, moneyPct: play.moneyPct,
           gapPct: play.gapPct, sideGroup: play.sideGroup,
         });
