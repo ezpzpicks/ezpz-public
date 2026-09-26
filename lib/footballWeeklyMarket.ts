@@ -2291,12 +2291,16 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
   const existingTrendMap = new Map(effectiveExistingTrends.map((row) => [trendKey(row), row]));
   const history = repairedHistory;
   const ncaafExistingByCanonical = new Map<string, { row: SheetRow; play: WeeklyTrendPlay }>();
+  const activeNcaafDates = sport === "NCAAF"
+    ? new Set(activeSourceSplits.map((split) => split.date))
+    : new Set<string>();
   if (sport === "NCAAF") {
     for (const row of effectiveExistingTrends) {
       const raw = String(row["Details JSON"] || "").trim();
       if (!raw) continue;
       try {
         const play = JSON.parse(raw) as WeeklyTrendPlay;
+        if (!activeNcaafDates.has(play.date) && play.date !== todayET()) continue;
         const identity = ncaafCanonicalMarketSideIdentity(play, canonicalRows);
         if (!identity) continue;
         const previous = ncaafExistingByCanonical.get(identity);
@@ -2448,6 +2452,11 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
     try {
       const saved = JSON.parse(raw) as WeeklyTrendPlay;
       if (sport === "NCAAF") {
+        // Completed prior dates are immutable historical rows. Only today's
+        // games and currently tracked future dates need live kickoff/snapshot
+        // reconciliation.
+        if (saved.date < todayET()) continue;
+        if (!activeNcaafDates.has(saved.date) && saved.date !== todayET()) continue;
         const authoritativeGameTime = ncaafAuthoritativeGameTime(saved, kickoffAuthorityRows);
         const displayGameTime = ncaafDisplayGameTime(
           saved,
