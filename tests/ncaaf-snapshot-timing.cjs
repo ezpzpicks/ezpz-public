@@ -86,6 +86,30 @@ test('NCAAF kickoff handles ISO offsets, UTC, ET clocks, winter and invalid time
   assert.equal(h.timing.ncaafMinutesUntilEvent('2026-09-25', 'TBD'), null);
 });
 
+test('NCAAF binds a stale timestamp clock to the canonical game date and ignores cross-day history', () => {
+  const h = harness('2026-09-26T04:45:00Z'); // 12:45 AM ET on game day.
+  const original = play('2026-09-25T16:00:00-04:00');
+  const p = {
+    ...original,
+    date: '2026-09-26',
+    gameKey: '2026-09-26|army|temple',
+    gameTime: '2026-09-25T16:00:00-04:00',
+  };
+  const rows = [
+    observation(p, '09/25/2026, 3:44:00 PM EDT', { Date: '2026-09-25' }),
+    observation(p, '09/26/2026, 12:40:00 AM EDT'),
+  ];
+  assert.equal(
+    h.timing.ncaafKickoffEpoch(p.date, p.gameTime),
+    Date.parse('2026-09-26T20:00:00Z'),
+  );
+  const repaired = h.timing.resolveNcaafSnapshot(p, rows, []);
+  assert.equal(repaired.snapshotStatus, 'LIVE');
+  assert.equal(repaired.frozenAt, undefined);
+  assert.equal(repaired.updatedAt, '09/26/2026, 12:40:00 AM EDT');
+  assert.equal(h.timing.ncaafHistoryForPlay(repaired, rows).length, 1);
+});
+
 test('premature lock recovers actual T-15 observation, market values and bounded history', () => {
   const h = harness(); const p = play();
   const rows = [
