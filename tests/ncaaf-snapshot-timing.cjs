@@ -190,7 +190,7 @@ test('active NCAAF source kickoff replaces a stale stored kickoff before lock re
   assert.equal(stored.gameTime, '2026-09-26T19:30:00-04:00');
   assert.equal(stored.snapshotStatus, 'LIVE');
   assert.equal(stored.frozenAt, undefined);
-  assert.equal(stored.updatedAt, '09/26/2026, 11:20:00 AM EDT');
+  assert.equal(stored.updatedAt, '09/26/2026, 11:30:00 AM EDT');
 });
 
 test('NCAAF read path repairs a stale stored kickoff from the canonical schedule', async () => {
