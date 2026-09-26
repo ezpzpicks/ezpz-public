@@ -2510,8 +2510,10 @@ function buildFootballEzpzRecordRows(
       };
       const direct = directTrendQualification(play, splits, sport);
       if (!direct.labels.length) continue;
+      const requiredCfbSplit = sport === "NCAAF"
+        && (direct.labels.includes("RLM") || direct.labels.includes("Public Fade"));
       const oddsNumber = parseOdds(split.odds);
-      if (!oddsNumber || oddsNumber < -150) continue;
+      if (!oddsNumber || (!requiredCfbSplit && oddsNumber < -150)) continue;
       const row = rowByIdentity.get(
         `${groupKey}|${textKey(split.market === "Total" ? split.side : split.selectionTeam)}`,
       );
@@ -2568,14 +2570,30 @@ function buildFootballEzpzRecordRows(
   );
   if (sport !== "NCAAF") return sorted;
 
-  const onePerGame = new Map<string, FootballEzpzRecordRow>();
+  // Every historical CFB split that qualified as RLM or Public Fade was an
+  // EZPZ pick, even if another market from the same game scored higher. Keep
+  // those rows during backdating; retain the old one-per-game behavior only for
+  // non-direct selections.
+  const requiredDirect = sorted.filter((candidate) =>
+    /(?:\bRLM\b|Public Fade)/i.test(candidate.qualification)
+  );
+  const requiredKeys = new Set(requiredDirect.map((candidate) =>
+    `${candidate.date}|${textKey(candidate.game)}|${candidate.market}|${textKey(candidate.selection)}`
+  ));
+  const seenGames = new Set(requiredDirect.map((candidate) =>
+    `${candidate.date}|${textKey(candidate.game)}`
+  ));
+  const onePerGame: FootballEzpzRecordRow[] = [];
   for (const candidate of sorted) {
-    const key = `${candidate.date}|${textKey(candidate.game)}`;
-    const existing = onePerGame.get(key);
-    if (!existing || candidate.score > existing.score) onePerGame.set(key, candidate);
+    const identity = `${candidate.date}|${textKey(candidate.game)}|${candidate.market}|${textKey(candidate.selection)}`;
+    if (requiredKeys.has(identity)) continue;
+    const gameKey = `${candidate.date}|${textKey(candidate.game)}`;
+    if (!textKey(candidate.game) || seenGames.has(gameKey)) continue;
+    seenGames.add(gameKey);
+    onePerGame.push(candidate);
   }
-  return [...onePerGame.values()].sort(
-    (a, b) => a.date.localeCompare(b.date) || a.game.localeCompare(b.game),
+  return [...requiredDirect, ...onePerGame].sort(
+    (a, b) => a.date.localeCompare(b.date) || a.game.localeCompare(b.game) || b.score - a.score,
   );
 }
 
@@ -2622,8 +2640,10 @@ function buildFootballEzpzPicks(
   for (const play of trends) {
     const direct = directTrendQualification(play, splits, sport, trends);
     if (!direct.labels.length) continue;
+    const requiredCfbSplit = sport === "NCAAF"
+      && (direct.labels.includes("RLM") || direct.labels.includes("Public Fade"));
     const odds = americanOddsText(play.odds);
-    if (!odds || Number(odds) < -150) continue;
+    if (!odds || (!requiredCfbSplit && Number(odds) < -150)) continue;
 
     const strengthScore = direct.labels.includes("RLM")
       ? Math.min(100, 85 + Math.max(0, Math.abs(Number(direct.publicSide?.lineMovementValue || 0)) - RLM_MIN_MARKET_MOVE_POINTS) * 5)
@@ -2677,15 +2697,28 @@ function buildFootballEzpzPicks(
   }
   const sorted = [...deduped.values()].sort((a, b) => b.score - a.score || a.game.localeCompare(b.game));
   if (sport !== "NCAAF") return sorted;
-  // One public CFB EZPZ pick per game. If multiple markets qualify, keep the
-  // strongest scored pick; same-selection Best + Trend combinations are already merged above.
-  const seenGames = new Set<string>();
-  return sorted.filter((pick) => {
+  // A visible CFB RLM/Public Fade badge is a direct EZPZ promotion. Never let
+  // the normal one-pick-per-game collapse or model-play ordering hide one of
+  // those market sides. Keep the old one-per-game behavior for all other picks.
+  const requiredDirect = sorted.filter((pick) =>
+    /(?:\bRLM\b|Public Fade)/i.test(`${pick.qualification || ""} ${pick.tier || ""}`)
+  );
+  const requiredKeys = new Set(requiredDirect.map((pick) =>
+    `${textKey(pick.game)}|${pick.market}|${textKey(pick.selection)}`
+  ));
+  const seenGames = new Set(requiredDirect.map((pick) => textKey(pick.game)).filter(Boolean));
+  const onePerGame: FootballEzpzPick[] = [];
+  for (const pick of sorted) {
+    const identity = `${textKey(pick.game)}|${pick.market}|${textKey(pick.selection)}`;
+    if (requiredKeys.has(identity)) continue;
     const gameKey = textKey(pick.game);
-    if (!gameKey || seenGames.has(gameKey)) return false;
+    if (!gameKey || seenGames.has(gameKey)) continue;
     seenGames.add(gameKey);
-    return true;
-  });
+    onePerGame.push(pick);
+  }
+  return [...requiredDirect, ...onePerGame].sort(
+    (a, b) => b.score - a.score || a.game.localeCompare(b.game),
+  );
 }
 
 
