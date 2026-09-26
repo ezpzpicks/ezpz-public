@@ -412,13 +412,10 @@ function footballMarketMinutesToKickoff(
   const trackedRow = findSlateForSplit(split, trackingSlate, sport);
 
   if (sport === "NCAAF") {
-    // CFB lock timing must come from the canonical schedule first. A stale or
-    // differently encoded market timestamp must never keep a game live after
-    // its real T-15 cutoff.
-    const scheduleRow = findSlateForSplit(split, canonicalSchedule, sport);
-    return (scheduleRow ? minutesUntilKickoff(scheduleRow) : null)
-      ?? (trackedRow ? minutesUntilKickoff(trackedRow) : null)
-      ?? minutesUntilDraftKingsKickoff(split);
+    // ScoresAndOdds is the single NCAAF kickoff clock. Its server timestamp is
+    // normalized to Eastern by the source parser before it reaches this layer.
+    return minutesUntilDraftKingsKickoff(split)
+      ?? (trackedRow ? minutesUntilKickoff(trackedRow) : null);
   }
 
   return minutesUntilDraftKingsKickoff(split)
@@ -952,7 +949,10 @@ async function loadDraftKingsSplits(
       ...warningFor(source.betsPct, source.moneyPct),
       sourceUrl: source.sourceUrl,
     };
-    const matched = slate.find((row) => sameMatchup(row, probe, sport));
+    const matched = slate.find((row) =>
+      sameMatchup(row, probe, sport) &&
+      (sport !== "NCAAF" || !source.date || isoDate(row.Date || row["Game Date"] || "") === source.date)
+    );
     if (!matched) continue;
 
     const awayTeam = String(matched["Away Team"] || source.awayTeam).trim();
@@ -971,8 +971,12 @@ async function loadDraftKingsSplits(
 
     mapped.push({
       ...probe,
-      date: isoDate(matched.Date || matched["Game Date"] || "") || source.date,
-      eventTime: gameTime(matched),
+      date: sport === "NCAAF" && source.date
+        ? source.date
+        : isoDate(matched.Date || matched["Game Date"] || "") || source.date,
+      eventTime: sport === "NCAAF" && source.eventTime
+        ? source.eventTime
+        : gameTime(matched),
       game: `${awayTeam} at ${homeTeam}`,
       awayTeam,
       homeTeam,
@@ -2798,7 +2802,7 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
   // of prior odds snapshots during every public refresh.
   const weeklyMarket = await readWeeklyFootballMarket(
     sport,
-    sport === "NCAAF" ? { dateKeys: [today], hydrateHistory: false } : {},
+    sport === "NCAAF" ? { dateKeys: [today], hydrateHistory: true } : {},
   );
   const displayTrendPlays = Array.isArray(weeklyMarket.trendPlays)
     ? weeklyMarket.trendPlays as unknown as TrendPlay[]
