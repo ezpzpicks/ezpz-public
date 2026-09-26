@@ -713,7 +713,17 @@ async function loadPostedSplits(
         };
       })
       .filter((candidate) => candidate.date)
-      .sort((left, right) => left.distance - right.distance);
+      .sort((left, right) => {
+        if (sport === "NCAAF") {
+          // Restore the known-good fallback: when ScoresAndOdds does not
+          // provide a kickoff clock, prefer a canonical row with a real
+          // non-midnight time instead of a 00:00 placeholder.
+          const leftReliable = Number.isFinite(ncaafKickoffEpoch(left.date, rowEventTime(left.row)));
+          const rightReliable = Number.isFinite(ncaafKickoffEpoch(right.date, rowEventTime(right.row)));
+          if (leftReliable !== rightReliable) return rightReliable ? 1 : -1;
+        }
+        return left.distance - right.distance;
+      });
     const matched = candidates[0]?.row;
     if (!matched) continue;
 
@@ -722,9 +732,11 @@ async function loadPostedSplits(
     const matchedDate = sport === "NCAAF" && source.date
       ? source.date
       : canonicalScheduleDate(matched);
-    const authoritativeEventTime = sport === "NCAAF" && source.eventTime
-      ? source.eventTime
-      : rowEventTime(matched);
+    const matchedEventTime = rowEventTime(matched);
+    const authoritativeEventTime = sport === "NCAAF"
+      ? source.eventTime ||
+        (Number.isFinite(ncaafKickoffEpoch(matchedDate, matchedEventTime)) ? matchedEventTime : "")
+      : matchedEventTime;
     const selectionTeam = source.market === "Spread"
       ? sport === "NFL"
         ? nflMarketTeamCode(source.selectionTeam) === nflMarketTeamCode(source.awayTeam)
