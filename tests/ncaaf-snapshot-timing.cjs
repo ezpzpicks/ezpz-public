@@ -368,3 +368,51 @@ test('scheduled NCAAF collection captures a live game then freezes the same real
   assert.equal(final.snapshotStatus, 'FINAL_PREGAME');
   assert.equal(final.frozenAt, '09/25/2026, 3:44:00 PM EDT');
 });
+
+
+test('NCAAF read path collapses short-name and full-name duplicates onto the verified canonical game', async () => {
+  const h = harness('2026-09-26T17:05:00Z'); // 1:05 PM ET, five minutes after kickoff.
+  const short = {
+    ...play('2026-09-26T13:00:00-04:00'),
+    date: '2026-09-26',
+    game: 'Sam Houston at Texas Tech',
+    gameKey: '2026-09-26|sam houston|texas tech',
+    awayTeam: 'Sam Houston',
+    homeTeam: 'Texas Tech',
+    snapshotStatus: 'LIVE',
+    updatedAt: '09/26/2026, 10:00:00 AM EDT',
+    frozenAt: undefined,
+  };
+  const full = {
+    ...short,
+    game: 'Sam Houston Bearkats at Texas Tech Red Raiders',
+    gameKey: '2026-09-26|sam houston bearkats|texas tech red raiders',
+    awayTeam: 'Sam Houston Bearkats',
+    homeTeam: 'Texas Tech Red Raiders',
+    snapshotStatus: 'FINAL_PREGAME',
+    updatedAt: '09/26/2026, 12:44:00 PM EDT',
+    frozenAt: '09/26/2026, 12:44:00 PM EDT',
+  };
+
+  h.tables.weekly_market_trends = [
+    h.timing.weeklyRow(short),
+    h.timing.weeklyRow(full),
+  ];
+  h.tables.odds_snapshot = [
+    observation(short, '09/26/2026, 10:00:00 AM EDT'),
+    observation(full, '09/26/2026, 12:44:00 PM EDT'),
+  ];
+  h.tables.schedule = [{
+    Date: '2026-09-26',
+    'Away Team': 'Sam Houston Bearkats',
+    'Home Team': 'Texas Tech Red Raiders',
+    'Game Time': '2026-09-26T13:00:00-04:00',
+  }];
+
+  const result = await h.readWeeklyFootballMarket('NCAAF');
+  assert.equal(result.trendPlays.length, 1);
+  assert.equal(result.trendPlays[0].awayTeam, 'Sam Houston Bearkats');
+  assert.equal(result.trendPlays[0].homeTeam, 'Texas Tech Red Raiders');
+  assert.equal(result.trendPlays[0].snapshotStatus, 'FINAL_PREGAME');
+  assert.equal(result.trendPlays[0].updatedAt, '09/26/2026, 12:44:00 PM EDT');
+});

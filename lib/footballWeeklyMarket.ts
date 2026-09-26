@@ -2312,6 +2312,96 @@ function movementHistoryForPlay(play: WeeklyTrendPlay, rows: SheetRow[]) {
   return firstRealIndex >= 0 ? points.slice(firstRealIndex) : [];
 }
 
+function ncaafCanonicalMarketSideIdentity(
+  play: WeeklyTrendPlay,
+  canonicalRows: SheetRow[],
+) {
+  const matched = canonicalGameRow(
+    { date: play.date, awayTeam: play.awayTeam, homeTeam: play.homeTeam },
+    "NCAAF",
+    canonicalRows,
+  );
+  const awayTeam = String(matched?.["Away Team"] || play.awayTeam || "").trim();
+  const homeTeam = String(matched?.["Home Team"] || play.homeTeam || "").trim();
+  if (!play.date || !awayTeam || !homeTeam) return "";
+
+  const selected = play.market === "Total"
+    ? textKey(play.side || play.selection)
+    : collegeMarketTeamMatch(play.selectionTeam || play.selection, awayTeam)
+      ? "away"
+      : collegeMarketTeamMatch(play.selectionTeam || play.selection, homeTeam)
+        ? "home"
+        : textKey(play.selectionTeam || play.selection);
+  if (!selected) return "";
+
+  return [
+    play.date,
+    textKey(awayTeam),
+    textKey(homeTeam),
+    play.market,
+    selected,
+  ].join("|");
+}
+
+function ncaafReadDuplicatePriority(
+  play: WeeklyTrendPlay,
+  canonicalRows: SheetRow[],
+) {
+  const matched = canonicalGameRow(
+    { date: play.date, awayTeam: play.awayTeam, homeTeam: play.homeTeam },
+    "NCAAF",
+    canonicalRows,
+  );
+  const canonicalAway = textKey(matched?.["Away Team"]);
+  const canonicalHome = textKey(matched?.["Home Team"]);
+  const exactCanonicalNames =
+    !!canonicalAway &&
+    !!canonicalHome &&
+    textKey(play.awayTeam) === canonicalAway &&
+    textKey(play.homeTeam) === canonicalHome;
+  const teamLabelDetail =
+    textKey(play.awayTeam).split(" ").filter(Boolean).length +
+    textKey(play.homeTeam).split(" ").filter(Boolean).length;
+  const normalizedUpdatedAt = String(play.updatedAt || "")
+    .replace(/ EDT$/, " -0400")
+    .replace(/ EST$/, " -0500");
+  const updatedAt = Date.parse(normalizedUpdatedAt);
+
+  return (
+    (play.snapshotStatus === "FINAL_PREGAME" ? 1_000_000_000_000_000 : 0) +
+    (exactCanonicalNames ? 1_000_000_000_000 : 0) +
+    teamLabelDetail * 1_000_000_000 +
+    Math.min(500, play.movementHistory?.length || 0) * 1_000_000 +
+    (Number.isFinite(updatedAt) ? updatedAt / 1e9 : 0)
+  );
+}
+
+function dedupeNcaafReadTrendPlays(
+  plays: WeeklyTrendPlay[],
+  canonicalRows: SheetRow[],
+) {
+  const deduped = new Map<string, WeeklyTrendPlay>();
+  for (const play of plays) {
+    const identity = ncaafCanonicalMarketSideIdentity(play, canonicalRows);
+    if (!identity) {
+      deduped.set(
+        `fallback|${play.gameKey}|${play.market}|${textKey(play.market === "Total" ? play.side : play.selectionTeam || play.selection)}`,
+        play,
+      );
+      continue;
+    }
+    const existing = deduped.get(identity);
+    if (
+      !existing ||
+      ncaafReadDuplicatePriority(play, canonicalRows) >
+        ncaafReadDuplicatePriority(existing, canonicalRows)
+    ) {
+      deduped.set(identity, play);
+    }
+  }
+  return [...deduped.values()];
+}
+
 export async function readWeeklyFootballMarket(
   sport: FootballSport,
   options: { dateKeys?: string[] } = {},
@@ -2610,7 +2700,16 @@ export async function readWeeklyFootballMarket(
     }
   }
 
-  const splits = trendPlays.map((play) => ({
+  // Old NCAAF rows can survive under a short team label while a newer canonical
+  // row uses the full ESPN/schedule name for the same physical market side.
+  // Collapse those storage aliases at read time so the public board never renders
+  // duplicate games. Prefer the verified final snapshot, then the canonical/full
+  // team-name row and the richer/newer movement history.
+  const displayTrendPlays = sport === "NCAAF"
+    ? dedupeNcaafReadTrendPlays(trendPlays, canonicalRows)
+    : trendPlays;
+
+  const splits = displayTrendPlays.map((play) => ({
     game: play.game,
     market: play.market,
     selection: play.selection,
@@ -2630,7 +2729,7 @@ export async function readWeeklyFootballMarket(
     };
     return !!probe.date && !!canonicalGameRow(probe, sport, canonicalRows);
   });
-  return { ok: true, sport, games: validGames, trendPlays, splits, updatedAt: nowET() };
+  return { ok: true, sport, games: validGames, trendPlays: displayTrendPlays, splits, updatedAt: nowET() };
 }
 
 
