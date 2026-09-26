@@ -2704,11 +2704,12 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
       .map((row)=>[snapshotKey(row),row]),
   );
   const enrichedTrackingLive=dk.splits.map((split)=>movementForSplit(split,snapshotMap.get(splitSnapshotKey(split))));
-  // A scheduled run can drift a few minutes. Once it is past T-15, do not
-  // use the new scrape: reconstruct the market from the last stored snapshot.
+  // CFB targets T-15 with a ±5-minute tolerance, so keep the live scrape
+  // available through T-10. NFL keeps its existing T-15 behavior.
   const enrichedTracking=enrichedTrackingLive.flatMap((split)=>{
     const minutesToKickoff=footballMarketMinutesToKickoff(split,trackingSlate,footballSchedule,sport);
-    if(minutesToKickoff!=null&&minutesToKickoff<=15){
+    const lockThreshold=sport==="NCAAF"?10:15;
+    if(minutesToKickoff!=null&&minutesToKickoff<=lockThreshold){
       const persisted=splitFromPersistedSnapshot(split,snapshotMap.get(splitSnapshotKey(split)));
       return persisted?[persisted]:[];
     }
@@ -2717,11 +2718,12 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
   const snapshotStamp=nowET();
   const currentSnapshots=usingStoredDraftKingsFallback?[]:enrichedTrackingLive.flatMap((split)=>{
     const minutesToKickoff=footballMarketMinutesToKickoff(split,trackingSlate,footballSchedule,sport);
+    const lockThreshold=sport==="NCAAF"?10:15;
     // Once a side has an authoritative FINAL_PREGAME trend, its persisted
-    // market row is immutable. We never write new market snapshots at or after
-    // T-15; delayed finalization uses only the saved pregame market state.
+    // market row is immutable. CFB keeps collecting through T-10 so the final
+    // snapshot can fall anywhere in the accepted 10-20 minute window.
     if(splitHasAuthoritativeFinalTrend(trendExisting,split,sport)) return [];
-    if(minutesToKickoff!=null&&minutesToKickoff<=15) return [];
+    if(minutesToKickoff!=null&&minutesToKickoff<=lockThreshold) return [];
     return [snapshotRow({...split,snapshotTime:snapshotStamp})];
   });
   if(persist&&currentSnapshots.length) await upsertSportRows(sport,"public_split_snapshots",PUBLIC_SPLIT_HEADERS,currentSnapshots,snapshotKey);
@@ -2736,10 +2738,10 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
     // existing market-time-first behavior.
     const minutesToKickoff=footballMarketMinutesToKickoff(split,trackingSlate,footballSchedule,sport);
     const play=playMap.get(`${String(row["Game Key"]||"")}|${row.Market}|${textKey(row.Market==="Total"?row.Side||row.Selection:row.Selection)}`);const primary=play?.signals[0];
-    const locked=minutesToKickoff!=null&&minutesToKickoff<=15;
+    const locked=minutesToKickoff!=null&&minutesToKickoff<=(sport==="NCAAF"?10:15);
     const stamp=nowET();
     const marketStamp=(usingStoredDraftKingsFallback||locked)&&split.snapshotTime?split.snapshotTime:stamp;
-    return{...row,"Public Bets %":String(split.betsPct),"Public Money %":String(split.moneyPct),"Public Gap %":String(split.gapPct),"Public Warning":split.warning,"Public Warning Negative":split.warningNegative?"TRUE":"FALSE","Public Split Source":SCORES_AND_ODDS_SOURCE,"Public Split Market":split.market,"Public Split Selection":split.market==="Total"?split.side:split.selectionTeam,"Public Split Line":split.line==null?"":String(split.line),"Public Split Odds":split.odds,"Public Split Match Confidence":locked?"Final 15-minute football market lock":"Live weekly football market","Public Split Snapshot Time":marketStamp,"Opening Public %":String(split.openingBetsPct??split.betsPct),"Current Public %":String(split.betsPct),"Public Change %":String(split.publicMovementPct??0),"Opening Sharp %":String(split.openingMoneyPct??split.moneyPct),"Current Sharp %":String(split.moneyPct),"Sharp Change %":String(split.sharpMovementPct??0),"Opening Public Split Line":split.openingLine==null?"":String(split.openingLine),"Opening Public Split Odds":split.openingOdds||split.odds,"Opening Public Split Snapshot Time":split.openingSnapshotTime||String(snapshotMap.get(splitSnapshotKey(split))?.["Opening Snapshot Time ET"]||marketStamp),"Opening Implied %":split.openingImpliedPct==null?"":String(split.openingImpliedPct),"Current Implied %":split.currentImpliedPct==null?"":String(split.currentImpliedPct),"Line Movement Signal":split.lineMovementSignal||"","Line Movement Tone":split.lineMovementTone||"","Line Movement Basis":split.lineMovementBasis||"","Line Movement Value":split.lineMovementValue==null?"":String(split.lineMovementValue),"Trend Play":play?"TRUE":"FALSE","Trend Score":play?String(Math.round(play.score)):"","Trend Tier":play?.tier||"","Trend Signals":play?.signals.map(s=>s.signal).join(" | ")||"","Trend All Time Record":primary?.records.allTime.record||"","Trend Last 30 Record":primary?.records.last30.record||"","Trend Last 7 Record":primary?.records.last7.record||"","Trend Exact Sample":play?.signals.map(s=>s.exactSample).join(" | ")||"","Trend Sample Size":play?String(play.TrendSampleSize):"","History Source":play?.HistorySource||"","Fallback Reason":play?.FallbackReason||"","Trend Score Details":play?JSON.stringify({...play,frozenAt:locked?marketStamp:undefined,snapshotStatus:locked?"FINAL_PREGAME":"LIVE",gradingVersion:locked?FROZEN_TREND_GRADING_VERSION:undefined}):""};
+    return{...row,"Public Bets %":String(split.betsPct),"Public Money %":String(split.moneyPct),"Public Gap %":String(split.gapPct),"Public Warning":split.warning,"Public Warning Negative":split.warningNegative?"TRUE":"FALSE","Public Split Source":SCORES_AND_ODDS_SOURCE,"Public Split Market":split.market,"Public Split Selection":split.market==="Total"?split.side:split.selectionTeam,"Public Split Line":split.line==null?"":String(split.line),"Public Split Odds":split.odds,"Public Split Match Confidence":locked?(sport==="NCAAF"?"Final pregame snapshot (10-20 minute window)":"Final 15-minute football market lock"):"Live weekly football market","Public Split Snapshot Time":marketStamp,"Opening Public %":String(split.openingBetsPct??split.betsPct),"Current Public %":String(split.betsPct),"Public Change %":String(split.publicMovementPct??0),"Opening Sharp %":String(split.openingMoneyPct??split.moneyPct),"Current Sharp %":String(split.moneyPct),"Sharp Change %":String(split.sharpMovementPct??0),"Opening Public Split Line":split.openingLine==null?"":String(split.openingLine),"Opening Public Split Odds":split.openingOdds||split.odds,"Opening Public Split Snapshot Time":split.openingSnapshotTime||String(snapshotMap.get(splitSnapshotKey(split))?.["Opening Snapshot Time ET"]||marketStamp),"Opening Implied %":split.openingImpliedPct==null?"":String(split.openingImpliedPct),"Current Implied %":split.currentImpliedPct==null?"":String(split.currentImpliedPct),"Line Movement Signal":split.lineMovementSignal||"","Line Movement Tone":split.lineMovementTone||"","Line Movement Basis":split.lineMovementBasis||"","Line Movement Value":split.lineMovementValue==null?"":String(split.lineMovementValue),"Trend Play":play?"TRUE":"FALSE","Trend Score":play?String(Math.round(play.score)):"","Trend Tier":play?.tier||"","Trend Signals":play?.signals.map(s=>s.signal).join(" | ")||"","Trend All Time Record":primary?.records.allTime.record||"","Trend Last 30 Record":primary?.records.last30.record||"","Trend Last 7 Record":primary?.records.last7.record||"","Trend Exact Sample":play?.signals.map(s=>s.exactSample).join(" | ")||"","Trend Sample Size":play?String(play.TrendSampleSize):"","History Source":play?.HistorySource||"","Fallback Reason":play?.FallbackReason||"","Trend Score Details":play?JSON.stringify({...play,frozenAt:locked?marketStamp:undefined,snapshotStatus:locked?"FINAL_PREGAME":"LIVE",gradingVersion:locked?FROZEN_TREND_GRADING_VERSION:undefined}):""};
   });
   if(persist) await upsertSportRows(sport,"all_game_trends",ALL_GAME_TRENDS_HEADERS,trendRows,trendRowKey);
   // The weekly market worksheet is the sole public trend source. It stores
