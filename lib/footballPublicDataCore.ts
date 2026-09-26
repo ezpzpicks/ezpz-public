@@ -2532,9 +2532,9 @@ function buildFootballEzpzPicks(
 
     picks.push({
       source: "Trend Play",
-      date: isoDate(play.date || play.recordDate || referenceDate) || referenceDate,
-      gameKey: String(play.gameKey || play.recordGameKey || ""),
-      gameTime: String(play.gameTime || play.recordGameTime || ""),
+      date: isoDate(play.date || referenceDate) || referenceDate,
+      gameKey: String(play.gameKey || ""),
+      gameTime: String(play.gameTime || ""),
       awayTeam: String(play.awayTeam || ""),
       homeTeam: String(play.homeTeam || ""),
       game: play.game,
