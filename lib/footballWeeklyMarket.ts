@@ -1186,20 +1186,7 @@ function storedSnapshotEpoch(value: unknown) {
   return Date.parse(String(value || "").trim().replace(/ EDT$/, " -0400").replace(/ EST$/, " -0500"));
 }
 
-function ncaafKickoffEpoch(date: string, eventTime: string) {
-  const raw = String(eventTime || "").trim();
-  // A full timestamp is an instant. Searching it for a bare clock can match
-  // minutes/seconds or the UTC offset instead of the actual kickoff hour.
-  if (/^\d{4}-\d{2}-\d{2}T.*(?:Z|[+-]\d{2}:?\d{2})$/i.test(raw)) {
-    return Date.parse(raw);
-  }
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return Number.NaN;
-  const twelve = raw.match(/^(\d{1,2}):([0-5]\d)(?::[0-5]\d)?\s*(AM|PM)(?:\s+(?:ET|EDT|EST))?$/i);
-  const clock = raw.match(/^(?:\d{4}-\d{2}-\d{2}T)?([01]?\d|2[0-3]):([0-5]\d)(?::[0-5]\d)?(?:\s+(?:ET|EDT|EST))?$/i);
-  if (!twelve && !clock) return Number.NaN;
-  if (twelve && (Number(twelve[1]) < 1 || Number(twelve[1]) > 12)) return Number.NaN;
-  const hour = twelve ? Number(twelve[1]) % 12 + (twelve[3].toUpperCase() === "PM" ? 12 : 0) : Number(clock![1]);
-  const minute = Number((twelve || clock)![2]);
+function ncaafWallClockEpoch(date: string, hour: number, minute: number) {
   const [year, month, day] = date.split("-").map(Number);
   const wallClock = Date.UTC(year, month - 1, day, hour, minute);
   let epoch = wallClock;
@@ -1216,6 +1203,34 @@ function ncaafKickoffEpoch(date: string, eventTime: string) {
   return epoch;
 }
 
+function ncaafKickoffEpoch(date: string, eventTime: string) {
+  const raw = String(eventTime || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return Number.NaN;
+
+  // Full source timestamps sometimes carry the prior slate's calendar date.
+  // Keep the ET kickoff clock, but bind it to the canonical stored game date so
+  // a future game can never be finalized from yesterday's timestamp.
+  if (/^\d{4}-\d{2}-\d{2}T.*(?:Z|[+-]\d{2}:?\d{2})$/i.test(raw)) {
+    const parsed = Date.parse(raw);
+    if (!Number.isFinite(parsed)) return Number.NaN;
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+    }).formatToParts(new Date(parsed));
+    const get = (type: string) => Number(parts.find((part) => part.type === type)?.value);
+    const sourceDate = `${get("year")}-${String(get("month")).padStart(2, "0")}-${String(get("day")).padStart(2, "0")}`;
+    if (sourceDate === date) return parsed;
+    return ncaafWallClockEpoch(date, get("hour"), get("minute"));
+  }
+
+  const twelve = raw.match(/^(\d{1,2}):([0-5]\d)(?::[0-5]\d)?\s*(AM|PM)(?:\s+(?:ET|EDT|EST))?$/i);
+  const clock = raw.match(/^(?:\d{4}-\d{2}-\d{2}T)?([01]?\d|2[0-3]):([0-5]\d)(?::[0-5]\d)?(?:\s+(?:ET|EDT|EST))?$/i);
+  if (!twelve && !clock) return Number.NaN;
+  if (twelve && (Number(twelve[1]) < 1 || Number(twelve[1]) > 12)) return Number.NaN;
+  const hour = twelve ? Number(twelve[1]) % 12 + (twelve[3].toUpperCase() === "PM" ? 12 : 0) : Number(clock![1]);
+  const minute = Number((twelve || clock)![2]);
+  return ncaafWallClockEpoch(date, hour, minute);
+}
 function ncaafMinutesUntilEvent(date: string, eventTime: string) {
   const kickoff = ncaafKickoffEpoch(date, eventTime);
   return Number.isFinite(kickoff) ? (kickoff - Date.now()) / 60_000 : null;
@@ -1224,11 +1239,11 @@ function ncaafMinutesUntilEvent(date: string, eventTime: string) {
 function ncaafHistoryForPlay(play: WeeklyTrendPlay, rows: SheetRow[]) {
   const end = storedSnapshotEpoch(play.snapshotStatus === "FINAL_PREGAME" ? play.frozenAt || play.updatedAt : play.updatedAt);
   return rows.filter((row) => {
+    const rowDate = canonicalScheduleDate(row) || String(row.Date || "").trim();
     const stamp = storedSnapshotEpoch(row["Snapshot Time ET"]);
-    return Number.isFinite(stamp) && Number.isFinite(end) && stamp <= end;
+    return rowDate === play.date && Number.isFinite(stamp) && Number.isFinite(end) && stamp <= end;
   }).sort((a, b) => storedSnapshotEpoch(a["Snapshot Time ET"]) - storedSnapshotEpoch(b["Snapshot Time ET"]));
 }
-
 function resolveNcaafSnapshot(play: WeeklyTrendPlay, rows: SheetRow[], history: HistoryRow[]): WeeklyTrendPlay {
   if (play.date < SCORES_AND_ODDS_CUTOVER_DATE) return play;
   const kickoff = ncaafKickoffEpoch(play.date, play.gameTime);
@@ -1245,8 +1260,9 @@ function resolveNcaafSnapshot(play: WeeklyTrendPlay, rows: SheetRow[], history: 
   }
   const end = locked ? cutoff : Date.now();
   const candidates = rows.filter((row) => {
+    const rowDate = canonicalScheduleDate(row) || String(row.Date || "").trim();
     const stamp = storedSnapshotEpoch(row["Snapshot Time ET"]);
-    return Number.isFinite(stamp) && stamp <= end &&
+    return rowDate === play.date && Number.isFinite(stamp) && stamp <= end &&
       String(row["Bets %"] ?? "").trim() !== "" && String(row["Handle %"] ?? "").trim() !== "" &&
       Number.isFinite(Number(row["Bets %"])) && Number.isFinite(Number(row["Handle %"]));
   }).sort((a, b) => storedSnapshotEpoch(a["Snapshot Time ET"]) - storedSnapshotEpoch(b["Snapshot Time ET"]));
