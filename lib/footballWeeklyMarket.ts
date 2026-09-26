@@ -2121,6 +2121,52 @@ function postedGameKey(row: SheetRow) {
   return String(row["Game Key"] || "");
 }
 
+function persistedNcaafMarketHistoryRows(rows: SheetRow[]) {
+  const historyRows: SheetRow[] = [];
+  for (const row of rows) {
+    const raw = String(row["Details JSON"] || "").trim();
+    if (!raw) continue;
+    try {
+      const play = JSON.parse(raw) as WeeklyTrendPlay;
+      if (play.date < SCORES_AND_ODDS_CUTOVER_DATE || !Array.isArray(play.movementHistory)) continue;
+      for (const point of play.movementHistory) {
+        if (!point?.snapshotTime) continue;
+        const selection = play.market === "Total"
+          ? play.side
+          : play.selectionTeam || play.selection;
+        historyRows.push({
+          "Snapshot Time ET": String(point.snapshotTime),
+          Date: play.date,
+          Week: play.week,
+          "Game Key": play.gameKey,
+          "Game Time": play.gameTime,
+          Game: play.game,
+          "Away Team": play.awayTeam,
+          "Home Team": play.homeTeam,
+          Market: play.market,
+          Selection: String(selection || ""),
+          Side: play.side,
+          Line: point.line == null ? "" : String(point.line),
+          Odds: String(point.odds || ""),
+          "Bets %": String(point.betsPct),
+          "Handle %": String(point.moneyPct),
+          "Public Gap %": String(Math.round((Number(point.moneyPct) - Number(point.betsPct)) * 10) / 10),
+          Warning: "",
+          Source: SCORES_AND_ODDS_SOURCE,
+          "Source URL": "https://www.scoresandodds.com",
+          "State Signature": marketHistoryStateSignatureValues(
+            point.line,
+            point.odds,
+            point.betsPct,
+            point.moneyPct,
+          ),
+        });
+      }
+    } catch {}
+  }
+  return historyRows;
+}
+
 function weeklyRow(play: WeeklyTrendPlay): SheetRow {
   return {
     Date: play.date,
@@ -2216,10 +2262,16 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
     ...(sport === "NCAAF" ? effectiveExistingTrends.map((row) => canonicalScheduleDate(row))
       .filter((date) => date === todayET()) : []),
   ].filter(Boolean))];
-  const existingMarketHistory = activeMarketDates.length
-    ? (await readSportWorksheetByDateKeys(sport, MARKET_HISTORY_TAB, activeMarketDates, MARKET_HISTORY_HEADERS))
-        .filter((row) => String(row.Source || "").trim() === SCORES_AND_ODDS_SOURCE)
-    : [];
+  // NCAAF keeps complete chart history on each weekly trend row. Rehydrate that
+  // compact persisted history in memory instead of re-reading the append-only
+  // odds_snapshot archive (which can contain hundreds of thousands of rows for
+  // a single Saturday). NFL retains the existing raw-history read.
+  const existingMarketHistory = sport === "NCAAF"
+    ? persistedNcaafMarketHistoryRows(effectiveExistingTrends)
+    : activeMarketDates.length
+      ? (await readSportWorksheetByDateKeys(sport, MARKET_HISTORY_TAB, activeMarketDates, MARKET_HISTORY_HEADERS))
+          .filter((row) => String(row.Source || "").trim() === SCORES_AND_ODDS_SOURCE)
+      : [];
   const now = nowET();
   const gameMap = new Map(sourceFilteredExistingGames.map((row) => [postedGameKey(row), row]));
   const postedRows: SheetRow[] = [];
