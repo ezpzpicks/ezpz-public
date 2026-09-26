@@ -9,7 +9,7 @@ import { persistEzpzCurrentPicks } from "../../../../lib/ezpzCurrentPicks";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-export const maxDuration = 120;
+export const maxDuration = 180;
 
 function requestedSport(request: NextRequest): FootballSport | null {
   const sport = String(request.nextUrl.searchParams.get("sport") || "")
