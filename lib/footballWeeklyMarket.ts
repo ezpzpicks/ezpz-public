@@ -545,7 +545,9 @@ function expectedActiveGames(
     const homeTeam = String(row["Home Team"] || "").trim();
     const key = coverageGameKey(sport, date, awayTeam, homeTeam);
     if (!key || !date || date < today || !isWithinFootballTrackingWindow(date)) continue;
-    const minutes = minutesUntilEvent(date, rowEventTime(row));
+    const minutes = sport === "NCAAF"
+      ? ncaafMinutesUntilEvent(date, rowEventTime(row))
+      : minutesUntilEvent(date, rowEventTime(row));
     // Missing same-day kickoff times cannot safely prove that a game is still pregame.
     if (date === today && (minutes == null || minutes <= 15)) continue;
     if (minutes != null && minutes <= 15) continue;
@@ -1179,6 +1181,97 @@ const MAX_MISSED_LOCK_FRESHNESS_MINUTES = 20;
 const MAX_LOCK_FALLBACK_AGE_MINUTES = 18 * 60;
 // DraftKings can remove a game from the splits table hours before kickoff.
 // At lock, preserve the last real pregame snapshot instead of discarding it solely because DK stopped publishing it.
+
+function storedSnapshotEpoch(value: unknown) {
+  return Date.parse(String(value || "").trim().replace(/ EDT$/, " -0400").replace(/ EST$/, " -0500"));
+}
+
+function ncaafKickoffEpoch(date: string, eventTime: string) {
+  const raw = String(eventTime || "").trim();
+  // A full timestamp is an instant. Searching it for a bare clock can match
+  // minutes/seconds or the UTC offset instead of the actual kickoff hour.
+  if (/^\d{4}-\d{2}-\d{2}T.*(?:Z|[+-]\d{2}:?\d{2})$/i.test(raw)) {
+    return Date.parse(raw);
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return Number.NaN;
+  const twelve = raw.match(/^(\d{1,2}):([0-5]\d)(?::[0-5]\d)?\s*(AM|PM)(?:\s+(?:ET|EDT|EST))?$/i);
+  const clock = raw.match(/^(?:\d{4}-\d{2}-\d{2}T)?([01]?\d|2[0-3]):([0-5]\d)(?::[0-5]\d)?(?:\s+(?:ET|EDT|EST))?$/i);
+  if (!twelve && !clock) return Number.NaN;
+  if (twelve && (Number(twelve[1]) < 1 || Number(twelve[1]) > 12)) return Number.NaN;
+  const hour = twelve ? Number(twelve[1]) % 12 + (twelve[3].toUpperCase() === "PM" ? 12 : 0) : Number(clock![1]);
+  const minute = Number((twelve || clock)![2]);
+  const [year, month, day] = date.split("-").map(Number);
+  const wallClock = Date.UTC(year, month - 1, day, hour, minute);
+  let epoch = wallClock;
+  // Resolve an ET wall clock using the offset on the game date, including DST.
+  for (let pass = 0; pass < 2; pass++) {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+    }).formatToParts(new Date(epoch));
+    const get = (type: string) => Number(parts.find((part) => part.type === type)?.value);
+    const local = Date.UTC(get("year"), get("month") - 1, get("day"), get("hour"), get("minute"));
+    epoch += wallClock - local;
+  }
+  return epoch;
+}
+
+function ncaafMinutesUntilEvent(date: string, eventTime: string) {
+  const kickoff = ncaafKickoffEpoch(date, eventTime);
+  return Number.isFinite(kickoff) ? (kickoff - Date.now()) / 60_000 : null;
+}
+
+function ncaafHistoryForPlay(play: WeeklyTrendPlay, rows: SheetRow[]) {
+  const end = storedSnapshotEpoch(play.snapshotStatus === "FINAL_PREGAME" ? play.frozenAt || play.updatedAt : play.updatedAt);
+  return rows.filter((row) => {
+    const stamp = storedSnapshotEpoch(row["Snapshot Time ET"]);
+    return Number.isFinite(stamp) && Number.isFinite(end) && stamp <= end;
+  }).sort((a, b) => storedSnapshotEpoch(a["Snapshot Time ET"]) - storedSnapshotEpoch(b["Snapshot Time ET"]));
+}
+
+function resolveNcaafSnapshot(play: WeeklyTrendPlay, rows: SheetRow[], history: HistoryRow[]): WeeklyTrendPlay {
+  if (play.date < SCORES_AND_ODDS_CUTOVER_DATE) return play;
+  const kickoff = ncaafKickoffEpoch(play.date, play.gameTime);
+  if (!Number.isFinite(kickoff)) {
+    return { ...play, snapshotStatus: "MISSED_LOCK", frozenAt: undefined, lockWarning: "Kickoff time unavailable; final snapshot cannot be verified." };
+  }
+  const cutoff = kickoff - 15 * 60_000;
+  const locked = Date.now() >= cutoff;
+  const frozen = storedSnapshotEpoch(play.frozenAt || play.updatedAt);
+  // Preserve genuine pregame locks, but repair the old midnight/UTC-offset locks.
+  if (locked && play.snapshotStatus === "FINAL_PREGAME" &&
+      frozen >= kickoff - MAX_MISSED_LOCK_FRESHNESS_MINUTES * 60_000 && frozen < kickoff) {
+    return { ...play, updatedAt: play.frozenAt || play.updatedAt };
+  }
+  const end = locked ? cutoff : Date.now();
+  const candidates = rows.filter((row) => {
+    const stamp = storedSnapshotEpoch(row["Snapshot Time ET"]);
+    return Number.isFinite(stamp) && stamp <= end &&
+      String(row["Bets %"] ?? "").trim() !== "" && String(row["Handle %"] ?? "").trim() !== "" &&
+      Number.isFinite(Number(row["Bets %"])) && Number.isFinite(Number(row["Handle %"]));
+  }).sort((a, b) => storedSnapshotEpoch(a["Snapshot Time ET"]) - storedSnapshotEpoch(b["Snapshot Time ET"]));
+  const latest = candidates[candidates.length - 1];
+  if (!latest) {
+    return { ...play, snapshotStatus: "MISSED_LOCK", frozenAt: undefined, lockWarning: "No verified snapshot available before the pregame cutoff." };
+  }
+  const line = numericLine(latest.Line);
+  const betsPct = Number(latest["Bets %"]);
+  const moneyPct = Number(latest["Handle %"]);
+  const split: Split = {
+    ...play, eventTime: play.gameTime, line, odds: String(latest.Odds || ""), betsPct, moneyPct,
+    sideGroup: play.market === "Total" ? play.side : line != null && line < 0 ? "Favorite" : line != null && line > 0 ? "Underdog" : "",
+    ...warningFor(betsPct, moneyPct),
+  };
+  const rebuilt = buildPlay(split, undefined, history, candidates);
+  const updatedAt = String(latest["Snapshot Time ET"]);
+  const missed = locked && storedSnapshotEpoch(updatedAt) < kickoff - MAX_MISSED_LOCK_FRESHNESS_MINUTES * 60_000;
+  return {
+    ...rebuilt, week: play.week, updatedAt,
+    snapshotStatus: !locked ? "LIVE" : missed ? "MISSED_LOCK" : "FINAL_PREGAME",
+    frozenAt: locked && !missed ? updatedAt : undefined,
+    lockWarning: missed ? `Lock capture missed — last verified ${updatedAt}.` : undefined,
+  };
+}
 
 function minutesUntilEvent(date: string, eventTime: string) {
   if (!date || !eventTime) return null;
@@ -1822,7 +1915,12 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
   const activeSourceSplits = dk.splits.filter(
     (split) => split.date >= SCORES_AND_ODDS_CUTOVER_DATE,
   );
-  const activeMarketDates = [...new Set(activeSourceSplits.map((split) => split.date).filter(Boolean))];
+  const activeMarketDates = [...new Set([
+    ...activeSourceSplits.map((split) => split.date),
+    // Retained NCAAF games need their own history even after leaving the feed.
+    ...(sport === "NCAAF" ? effectiveExistingTrends.map((row) => canonicalScheduleDate(row))
+      .filter((date) => date >= SCORES_AND_ODDS_CUTOVER_DATE) : []),
+  ].filter(Boolean))];
   const existingMarketHistory = activeMarketDates.length
     ? (await readSportWorksheetByDateKeys(sport, MARKET_HISTORY_TAB, activeMarketDates, MARKET_HISTORY_HEADERS))
         .filter((row) => String(row.Source || "").trim() === SCORES_AND_ODDS_SOURCE)
@@ -1860,6 +1958,11 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
   const firstSeenByGame = new Map(postedStateRows.map((row) => [String(row["Game Key"] || ""), String(row["First Seen"] || now)]));
 
   for (const split of activeSourceSplits) {
+    if (sport === "NCAAF") {
+      const minutes = ncaafMinutesUntilEvent(split.date, split.eventTime);
+      // Freeze each game at T-15; later polls must not enter its chart history.
+      if (minutes == null || minutes <= 15) continue;
+    }
     const current = marketHistoryRowForSplit(split, sport, canonicalRows, now);
     marketHistoryRows.push(current);
     marketHistoryRowsToAppend.push(current);
@@ -1877,9 +1980,21 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
 
   const liveCandidates: WeeklyTrendPlay[] = [];
   const handledLockKeys = new Set<string>();
+  const ncaafHistory = sport === "NCAAF" ? indexMarketHistoryBySide(marketHistoryRows) : new Map<string, SheetRow[]>();
   for (const split of activeSourceSplits) {
     const key = splitTrendKey(split);
     const existing = existingTrendMap.get(key);
+    if (sport === "NCAAF") {
+      handledLockKeys.add(key);
+      const sideHistory = ncaafHistory.get(key) || [];
+      let saved: WeeklyTrendPlay | undefined;
+      try { saved = JSON.parse(String(existing?.["Details JSON"] || "")); } catch { }
+      if (!saved && !sideHistory.length) continue;
+      const base = saved || { ...buildPlay(split, existing, history, sideHistory), week: footballWeekLabel(sport, split.date) };
+      const resolved = resolveNcaafSnapshot(base, sideHistory, history);
+      if (JSON.stringify(resolved) !== String(existing?.["Details JSON"] || "")) liveCandidates.push(resolved);
+      continue;
+    }
     const minutes = minutesUntil(split);
     if (minutes != null && minutes <= 15) {
       handledLockKeys.add(key);
@@ -1930,6 +2045,11 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
     if (!raw) continue;
     try {
       const saved = JSON.parse(raw) as WeeklyTrendPlay;
+      if (sport === "NCAAF") {
+        const resolved = resolveNcaafSnapshot(saved, ncaafHistory.get(key) || [], history);
+        if (JSON.stringify(resolved) !== raw) liveCandidates.push(resolved);
+        continue;
+      }
       if (saved.snapshotStatus === "FINAL_PREGAME") continue;
       // Re-check today's NFL MISSED_LOCK rows too so a source-dropout fallback can repair them.
       if (saved.snapshotStatus === "MISSED_LOCK" && sport !== "NFL") continue;
@@ -2020,12 +2140,13 @@ export async function readWeeklyFootballMarket(sport: FootballSport) {
   // Index once instead of rebuilding every row's normalized identity for every
   // market side. The full history grows by hundreds of rows every five minutes.
   const historyBySide = indexMarketHistoryBySide(marketHistoryRows);
+  const ncaafRecordHistory = sport === "NCAAF" ? historyFromAllGameTrends(allGameTrends) : [];
   const trendPlays: WeeklyTrendPlay[] = [];
   for (const row of sourceRows) {
     const raw = String(row["Details JSON"] || "").trim();
     if (!raw) continue;
     try {
-      const play = JSON.parse(raw) as WeeklyTrendPlay;
+      let play = JSON.parse(raw) as WeeklyTrendPlay;
       const storedSplit = {
         date: play.date, eventTime: play.gameTime, game: play.game, awayTeam: play.awayTeam, homeTeam: play.homeTeam,
         market: play.market, selection: play.selection, selectionTeam: play.selectionTeam, side: play.side, sideGroup: play.sideGroup,
@@ -2033,7 +2154,15 @@ export async function readWeeklyFootballMarket(sport: FootballSport) {
         warningKey: "", warning: "", warningTone: "neutral" as Tone, warningNegative: false,
       } as Split;
       if (!validFootballMarketSplit(storedSplit, sport, canonicalRows)) continue;
-      const sideHistory = historyBySide.get(splitTrendKey(storedSplit)) || [];
+      let sideHistory = historyBySide.get(splitTrendKey(storedSplit)) || [];
+      if (sport === "NCAAF") {
+        play = resolveNcaafSnapshot(play, sideHistory, ncaafRecordHistory);
+        Object.assign(storedSplit, {
+          line: play.line, odds: play.odds, betsPct: play.betsPct, moneyPct: play.moneyPct,
+          gapPct: play.gapPct, sideGroup: play.sideGroup,
+        });
+        sideHistory = ncaafHistoryForPlay(play, sideHistory);
+      }
       const correctedMove = movement(storedSplit, row, sideHistory);
       trendPlays.push({
         ...play,
