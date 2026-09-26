@@ -2835,7 +2835,7 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
   // of prior odds snapshots during every public refresh.
   const weeklyMarket = await readWeeklyFootballMarket(
     sport,
-    sport === "NCAAF" ? { dateKeys: [today], hydrateHistory: true } : {},
+    sport === "NCAAF" ? { dateKeys: [today], hydrateHistory: false } : {},
   );
   const displayTrendPlays = Array.isArray(weeklyMarket.trendPlays)
     ? weeklyMarket.trendPlays as unknown as TrendPlay[]
