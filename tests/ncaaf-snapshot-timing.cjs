@@ -400,7 +400,9 @@ test('NCAAF read path collapses short-name and full-name duplicates onto the ver
   ];
   h.tables.odds_snapshot = [
     observation(short, '09/26/2026, 10:00:00 AM EDT'),
-    observation(full, '09/26/2026, 12:44:00 PM EDT'),
+    observation(short, '09/26/2026, 11:00:00 AM EDT', { Line: '49.5', 'Bets %': '58' }),
+    observation(short, '09/26/2026, 12:00:00 PM EDT', { Line: '50.5', 'Bets %': '62' }),
+    observation(full, '09/26/2026, 12:44:00 PM EDT', { Line: '51.5', 'Bets %': '66' }),
   ];
   h.tables.schedule = [{
     Date: '2026-09-26',
@@ -415,4 +417,14 @@ test('NCAAF read path collapses short-name and full-name duplicates onto the ver
   assert.equal(result.trendPlays[0].homeTeam, 'Texas Tech Red Raiders');
   assert.equal(result.trendPlays[0].snapshotStatus, 'FINAL_PREGAME');
   assert.equal(result.trendPlays[0].updatedAt, '09/26/2026, 12:44:00 PM EDT');
+  assert.equal(result.trendPlays[0].firstTrackedAt, '09/26/2026, 10:00:00 AM EDT');
+  assert.deepEqual(
+    result.trendPlays[0].movementHistory.map((point) => point.snapshotTime),
+    [
+      '09/26/2026, 10:00:00 AM EDT',
+      '09/26/2026, 11:00:00 AM EDT',
+      '09/26/2026, 12:00:00 PM EDT',
+      '09/26/2026, 12:44:00 PM EDT',
+    ],
+  );
 });
