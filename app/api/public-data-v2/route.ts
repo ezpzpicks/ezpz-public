@@ -15,7 +15,7 @@ import { persistEzpzCurrentPicks } from "../../../lib/ezpzCurrentPicks";
 import { repairHistoricalEzpzGrades } from "../../../lib/ezpzHistoricalGrading";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 120;
+export const maxDuration = 180;
 
 function truthy(value:unknown){return["1","true","yes","y"].includes(String(value||"").trim().toLowerCase())}
 function isV2ScheduledCapture(request:NextRequest){return request.nextUrl.searchParams.get("tracking")==="v2"||request.headers.get("x-ezpz-v2-tracking")==="true"||truthy(request.nextUrl.searchParams.get("scheduled"))}
