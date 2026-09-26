@@ -1189,6 +1189,8 @@ function signalBreakdown(signalKey: string, signal: string, tone: Tone, market: 
 }
 
 const MAX_MISSED_LOCK_FRESHNESS_MINUTES = 20;
+const NCAAF_FINAL_TARGET_MINUTES = 15;
+const NCAAF_FINAL_WINDOW_MINUTES = 5;
 const MAX_LOCK_FALLBACK_AGE_MINUTES = 18 * 60;
 // DraftKings can remove a game from the splits table hours before kickoff.
 // At lock, preserve the last real pregame snapshot instead of discarding it solely because DK stopped publishing it.
@@ -1408,42 +1410,70 @@ function resolveNcaafSnapshot(play: WeeklyTrendPlay, rows: SheetRow[], history: 
       lockWarning: "Kickoff time is not verified yet; snapshot remains live.",
     };
   }
-  const cutoff = kickoff - 15 * 60_000;
-  const locked = Date.now() >= cutoff;
+  const target = kickoff - NCAAF_FINAL_TARGET_MINUTES * 60_000;
+  const windowStart = target - NCAAF_FINAL_WINDOW_MINUTES * 60_000;
+  const windowEnd = target + NCAAF_FINAL_WINDOW_MINUTES * 60_000;
+  const locked = Date.now() >= windowEnd;
   const frozen = storedSnapshotEpoch(play.frozenAt || play.updatedAt);
-  // Preserve genuine pregame locks, but repair the old midnight/UTC-offset locks.
-  if (locked && play.snapshotStatus === "FINAL_PREGAME" &&
-      frozen >= kickoff - MAX_MISSED_LOCK_FRESHNESS_MINUTES * 60_000 && frozen < kickoff) {
+  // Preserve a verified final snapshot only when it falls inside the accepted
+  // 10-20 minute pregame window.
+  if (
+    locked &&
+    play.snapshotStatus === "FINAL_PREGAME" &&
+    frozen >= windowStart &&
+    frozen <= windowEnd
+  ) {
     return { ...play, updatedAt: play.frozenAt || play.updatedAt };
   }
-  const end = locked ? cutoff : Date.now();
+
+  const historyEnd = locked ? windowEnd : Date.now();
   const candidates = rows.filter((row) => {
     const rowDate = canonicalScheduleDate(row) || String(row.Date || "").trim();
     const stamp = storedSnapshotEpoch(row["Snapshot Time ET"]);
-    return rowDate === play.date && Number.isFinite(stamp) && stamp <= end &&
+    return rowDate === play.date && Number.isFinite(stamp) && stamp <= historyEnd &&
       String(row["Bets %"] ?? "").trim() !== "" && String(row["Handle %"] ?? "").trim() !== "" &&
       Number.isFinite(Number(row["Bets %"])) && Number.isFinite(Number(row["Handle %"]));
   }).sort((a, b) => storedSnapshotEpoch(a["Snapshot Time ET"]) - storedSnapshotEpoch(b["Snapshot Time ET"]));
-  const latest = candidates[candidates.length - 1];
-  if (!latest) {
-    return { ...play, snapshotStatus: "MISSED_LOCK", frozenAt: undefined, lockWarning: "No verified snapshot available before the pregame cutoff." };
+
+  const finalCandidates = locked
+    ? candidates
+        .filter((row) => {
+          const stamp = storedSnapshotEpoch(row["Snapshot Time ET"]);
+          return stamp >= windowStart && stamp <= windowEnd;
+        })
+        .sort((a, b) => {
+          const aStamp = storedSnapshotEpoch(a["Snapshot Time ET"]);
+          const bStamp = storedSnapshotEpoch(b["Snapshot Time ET"]);
+          const distance = Math.abs(aStamp - target) - Math.abs(bStamp - target);
+          return distance || bStamp - aStamp;
+        })
+    : [];
+  const selected = locked ? finalCandidates[0] : candidates[candidates.length - 1];
+  if (!selected) {
+    return locked
+      ? { ...play, snapshotStatus: "MISSED_LOCK", frozenAt: undefined, lockWarning: "No verified snapshot available 10-20 minutes before kickoff." }
+      : { ...play, snapshotStatus: "LIVE", frozenAt: undefined };
   }
-  const line = numericLine(latest.Line);
-  const betsPct = Number(latest["Bets %"]);
-  const moneyPct = Number(latest["Handle %"]);
+
+  const selectedStamp = storedSnapshotEpoch(selected["Snapshot Time ET"]);
+  const boundedHistory = candidates.filter((row) =>
+    storedSnapshotEpoch(row["Snapshot Time ET"]) <= selectedStamp
+  );
+  const line = numericLine(selected.Line);
+  const betsPct = Number(selected["Bets %"]);
+  const moneyPct = Number(selected["Handle %"]);
   const split: Split = {
-    ...play, eventTime: play.gameTime, line, odds: String(latest.Odds || ""), betsPct, moneyPct,
+    ...play, eventTime: play.gameTime, line, odds: String(selected.Odds || ""), betsPct, moneyPct,
     sideGroup: play.market === "Total" ? play.side : line != null && line < 0 ? "Favorite" : line != null && line > 0 ? "Underdog" : "",
     ...warningFor(betsPct, moneyPct),
   };
-  const rebuilt = buildPlay(split, undefined, history, candidates);
-  const updatedAt = String(latest["Snapshot Time ET"]);
-  const missed = locked && storedSnapshotEpoch(updatedAt) < kickoff - MAX_MISSED_LOCK_FRESHNESS_MINUTES * 60_000;
+  const rebuilt = buildPlay(split, undefined, history, boundedHistory);
+  const updatedAt = String(selected["Snapshot Time ET"]);
   return {
     ...rebuilt, week: play.week, updatedAt,
-    snapshotStatus: !locked ? "LIVE" : missed ? "MISSED_LOCK" : "FINAL_PREGAME",
-    frozenAt: locked && !missed ? updatedAt : undefined,
-    lockWarning: missed ? `Lock capture missed — last verified ${updatedAt}.` : undefined,
+    snapshotStatus: locked ? "FINAL_PREGAME" : "LIVE",
+    frozenAt: locked ? updatedAt : undefined,
+    lockWarning: undefined,
   };
 }
 
@@ -2136,9 +2166,10 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
   for (const split of activeSourceSplits) {
     if (sport === "NCAAF") {
       const minutes = ncaafMinutesUntilEvent(split.date, split.eventTime);
-      // Freeze only when a verified kickoff reaches T-15. Unknown/placeholder
-      // kickoff times must keep collecting live snapshots until a real time is available.
-      if (minutes != null && minutes <= 15) continue;
+      // T-15 is the target final snapshot, with an accepted ±5-minute
+      // window. Keep collecting through T-10 so the closest 10-20 minute
+      // pregame observation can be selected as final.
+      if (minutes != null && minutes <= 10) continue;
     }
     const current = marketHistoryRowForSplit(split, sport, canonicalRows, now);
     marketHistoryRows.push(current);
