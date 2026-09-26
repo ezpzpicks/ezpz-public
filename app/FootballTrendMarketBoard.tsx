@@ -27,6 +27,7 @@ type TrendPlay = {
   lineMovementValue?: number | null;
   lineMovementSignal?: string;
   snapshotStatus?: "LIVE" | "FINAL_PREGAME" | "MISSED_LOCK";
+  frozenAt?: string;
   firstTrackedAt?: string;
   updatedAt?: string;
   movementHistory?: Array<{
@@ -521,6 +522,8 @@ function MovementChart({ play }: { play: TrendPlay }) {
   const lastSnapshotDisplay = compactSnapshotTime(
     latestSnapshotHasTime ? latestSnapshotRaw : play.updatedAt,
   );
+  const isFinalSnapshot =
+    play.snapshotStatus === "FINAL_PREGAME" || Boolean(String(play.frozenAt || "").trim());
   const markers = movementMarkerIndexes(lines);
   const dates = dateAxis(points);
   const lineTicks = Array.from({ length: 5 }, (_, index) => maxLine - ((maxLine - minLine) / 4) * index);
@@ -539,12 +542,12 @@ function MovementChart({ play }: { play: TrendPlay }) {
           <span className="dkMovementCurrentPrice">{play.market === "Moneyline" ? (latest?.odds || play.odds) : `${lineLabel(play, latest?.line)} ${latest?.odds || play.odds}`}</span>
           <span
             className="dkSnapshotHeartbeat"
-            title={play.snapshotStatus === "FINAL_PREGAME"
+            title={isFinalSnapshot
               ? "Official frozen final pregame ScoresAndOdds snapshot for this market"
               : "Most recent successful ScoresAndOdds snapshot for this market"}
           >
             <i aria-hidden="true" />
-            {play.snapshotStatus === "FINAL_PREGAME" ? "Final snapshot" : "Last snapshot"} {lastSnapshotDisplay}
+            {isFinalSnapshot ? "Final snapshot" : "Last snapshot"} {lastSnapshotDisplay}
           </span>
         </div>
       </div>
