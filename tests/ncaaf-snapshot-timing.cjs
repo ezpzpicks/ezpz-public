@@ -224,7 +224,7 @@ test('NCAAF read path repairs a stale stored kickoff from the canonical schedule
   assert.equal(result.trendPlays[0].updatedAt, '09/26/2026, 11:20:00 AM EDT');
 });
 
-test('NCAAF read path does not trust a stale stored kickoff when canonical time is still unknown', async () => {
+test('NCAAF read path keeps a stale stored kickoff display-only when canonical time is still unknown', async () => {
   const h = harness('2026-09-26T15:30:00Z');
   const original = play('2026-09-26T10:00:00-04:00');
   const p = {
@@ -249,10 +249,49 @@ test('NCAAF read path does not trust a stale stored kickoff when canonical time 
   }];
   const result = await h.readWeeklyFootballMarket('NCAAF');
   assert.equal(result.trendPlays.length, 1);
-  assert.equal(result.trendPlays[0].gameTime, '');
+  assert.equal(result.trendPlays[0].gameTime, '2026-09-26T10:00:00-04:00');
+  // The stored 10:00 AM time is display-only: at 11:30 AM this would already
+  // be final if the lock resolver trusted it. It must remain LIVE.
   assert.equal(result.trendPlays[0].snapshotStatus, 'LIVE');
   assert.equal(result.trendPlays[0].frozenAt, undefined);
   assert.equal(result.trendPlays[0].updatedAt, '09/26/2026, 11:20:00 AM EDT');
+});
+
+test('NCAAF read path recovers a missing display time from same-day model rows without trusting it for lock', async () => {
+  const h = harness('2026-09-26T15:30:00Z');
+  const original = play('');
+  const p = {
+    ...original,
+    date: '2026-09-26',
+    gameKey: '2026-09-26|army|temple',
+    gameTime: '',
+    snapshotStatus: 'FINAL_PREGAME',
+    updatedAt: '09/26/2026, 9:44:00 AM EDT',
+    frozenAt: '09/26/2026, 9:44:00 AM EDT',
+  };
+  h.tables.weekly_market_trends = [h.timing.weeklyRow(p)];
+  h.tables.odds_snapshot = [
+    observation(p, '09/26/2026, 9:44:00 AM EDT'),
+    observation(p, '09/26/2026, 11:20:00 AM EDT', { Line: '49.5', 'Bets %': '61' }),
+  ];
+  h.tables.schedule = [{
+    Date: p.date,
+    'Away Team': p.awayTeam,
+    'Home Team': p.homeTeam,
+    'Game Time': '2026-09-26T00:00:00-04:00',
+  }];
+  h.tables.all_game_trends = [{
+    Date: p.date,
+    'Away Team': p.awayTeam,
+    'Home Team': p.homeTeam,
+    'Game Time': '7:30 PM',
+  }];
+
+  const result = await h.readWeeklyFootballMarket('NCAAF');
+  assert.equal(result.trendPlays.length, 1);
+  assert.equal(result.trendPlays[0].gameTime, '7:30 PM');
+  assert.equal(result.trendPlays[0].snapshotStatus, 'LIVE');
+  assert.equal(result.trendPlays[0].frozenAt, undefined);
 });
 
 test('premature lock recovers actual T-15 observation, market values and bounded history', () => {
