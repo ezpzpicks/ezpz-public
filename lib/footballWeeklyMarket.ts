@@ -2312,7 +2312,10 @@ function movementHistoryForPlay(play: WeeklyTrendPlay, rows: SheetRow[]) {
   return firstRealIndex >= 0 ? points.slice(firstRealIndex) : [];
 }
 
-export async function readWeeklyFootballMarket(sport: FootballSport) {
+export async function readWeeklyFootballMarket(
+  sport: FootballSport,
+  options: { dateKeys?: string[] } = {},
+) {
   await Promise.all([
     ensureSportWorksheet(sport, POSTED_GAMES_TAB, POSTED_GAME_HEADERS),
     ensureSportWorksheet(sport, WEEKLY_TRENDS_TAB, WEEKLY_TREND_HEADERS),
@@ -2324,8 +2327,15 @@ export async function readWeeklyFootballMarket(sport: FootballSport) {
     readSportWorksheet(sport, "daily_slate"),
     readSportWorksheet(sport, "all_game_trends"),
   ]);
-  const sourceGames = games.filter(isScoresAndOddsCutoverRow);
-  const sourceRows = rows.filter((row) => isWeeklyTrendSourceRow(row, sport));
+  const requestedDates = new Set(
+    (options.dateKeys || []).map((value) => String(value || "").trim()).filter(Boolean),
+  );
+  const sourceGames = games
+    .filter(isScoresAndOddsCutoverRow)
+    .filter((row) => !requestedDates.size || requestedDates.has(canonicalScheduleDate(row) || String(row.Date || "").trim()));
+  const sourceRows = rows
+    .filter((row) => isWeeklyTrendSourceRow(row, sport))
+    .filter((row) => !requestedDates.size || requestedDates.has(String(row.Date || "").trim()));
   const marketDates = [...new Set([
     ...sourceRows.map((row) => String(row.Date || "")),
     ...sourceGames.map((row) => canonicalScheduleDate(row) || String(row.Date || "")),
