@@ -110,6 +110,53 @@ test('NCAAF binds a stale timestamp clock to the canonical game date and ignores
   assert.equal(h.timing.ncaafHistoryForPlay(repaired, rows).length, 1);
 });
 
+test('midnight placeholder kickoff never finalizes a current-day game', () => {
+  const h = harness('2026-09-26T15:03:00Z'); // 11:03 AM ET.
+  const original = play('2026-09-26T00:00:00-04:00');
+  const p = {
+    ...original,
+    date: '2026-09-26',
+    gameKey: '2026-09-26|army|temple',
+    gameTime: '2026-09-26T00:00:00-04:00',
+    snapshotStatus: 'FINAL_PREGAME',
+    updatedAt: '09/25/2026, 11:43:59 PM EDT',
+    frozenAt: '09/25/2026, 11:43:59 PM EDT',
+  };
+  const rows = [
+    observation(p, '09/25/2026, 11:43:59 PM EDT'),
+    observation(p, '09/26/2026, 11:00:00 AM EDT', { Line: '49.5', 'Bets %': '61' }),
+  ];
+  assert.ok(Number.isNaN(h.timing.ncaafKickoffEpoch(p.date, p.gameTime)));
+  const repaired = h.timing.resolveNcaafSnapshot(p, rows, []);
+  assert.equal(repaired.snapshotStatus, 'LIVE');
+  assert.equal(repaired.frozenAt, undefined);
+  assert.equal(repaired.updatedAt, '09/26/2026, 11:00:00 AM EDT');
+  assert.equal(repaired.line, 49.5);
+  assert.equal(repaired.betsPct, 61);
+});
+
+test('scheduled NCAAF capture keeps polling when kickoff is still a midnight placeholder', async () => {
+  const h = harness('2026-09-26T15:03:00Z');
+  const original = play('2026-09-26T00:00:00-04:00');
+  const p = {
+    ...original,
+    date: '2026-09-26',
+    gameKey: '2026-09-26|army|temple',
+    gameTime: '2026-09-26T00:00:00-04:00',
+    snapshotStatus: 'LIVE',
+    updatedAt: '09/26/2026, 10:58:00 AM EDT',
+    frozenAt: undefined,
+  };
+  seed(h, p, [observation(p, '09/26/2026, 10:58:00 AM EDT')]);
+  h.setFeed([{ ...p, eventTime: p.gameTime, line: 50.5, betsPct: 63, moneyPct: 51,
+    warningKey: '', warning: '', warningTone: 'neutral', warningNegative: false }]);
+  await h.syncPostedFootballMarkets('NCAAF');
+  assert.equal(h.tables.odds_snapshot.length, 2);
+  const stored = JSON.parse(h.tables.weekly_market_trends[0]['Details JSON']);
+  assert.equal(stored.snapshotStatus, 'LIVE');
+  assert.equal(stored.frozenAt, undefined);
+});
+
 test('premature lock recovers actual T-15 observation, market values and bounded history', () => {
   const h = harness(); const p = play();
   const rows = [
