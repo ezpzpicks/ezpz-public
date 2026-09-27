@@ -697,7 +697,11 @@ export async function buildFootballPublicData(
   const baseCurrentPicks = (Array.isArray(core.aiPicks) ? core.aiPicks : [])
     .map((pick: AnyPick) => ({ ...pick, date: isoDate(pick.date) || today }));
   const directTrendPicks = sport === "NFL" ? directNflTrendPicks(core, today) : [];
-  const currentPicks = mergeCurrentPicks(baseCurrentPicks, directTrendPicks, today);
+  // Temporarily restrict the NFL daily EZPZ card to the existing public-split
+  // qualifiers while player props are reviewed. Keep saved history for grading.
+  const currentPicks = sport === "NFL"
+    ? directTrendPicks
+    : mergeCurrentPicks(baseCurrentPicks, directTrendPicks, today);
   const existingByKey = new Map(history.map((row) => [String(row["Pick Key"] || pickKey(row, row.Date)), row]));
   const currentRows = currentPicks
     .map((pick: AnyPick) => historyRowFromPick(pick, today, existingByKey.get(pickKey(pick, today))))
@@ -779,8 +783,10 @@ export async function buildFootballPublicData(
     ? {
         ...(core.aiSelectorStatus || {}),
         message: enrichedCurrentPicks.length
-          ? "NFL EZPZ Picks live: Model Plays require HOT Last-7 and -150 or better. Trend Plays qualify directly as Public Fade (fade an 80%+ bet side), Strong RLM, or Sharp (money 25+ points over bets)."
-          : "No NFL EZPZ Picks qualify right now. Trend Plays qualify directly as Public Fade, Strong RLM, or Sharp.",
+          ? "NFL EZPZ Picks: Public Betting Splits only. Plays qualify as RLM, Sharp (money 25+ points over bets), or Public Fade (fade an 80%+ bet side). Player props and model-only plays are temporarily excluded."
+          : "No NFL Public Betting Splits qualify as RLM, Sharp, or Public Fade right now.",
+        candidateCount: (Array.isArray(core.trendPlays) ? core.trendPlays : [])
+          .filter((play: AnyPick) => isoDate(play.date || play.recordDate || play.Date || today) === today).length,
         selectedCount: enrichedCurrentPicks.length,
       }
     : core.aiSelectorStatus;
