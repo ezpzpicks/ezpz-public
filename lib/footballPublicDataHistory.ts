@@ -581,32 +581,43 @@ function directNflTrendLabels(play: AnyPick, plays: AnyPick[]) {
   const openingPublicBets = Number(publicSide.openingBetsPct);
   const publicMove = Number(publicSide.publicMovementPct);
   const lineMove = Number(publicSide.lineMovementValue);
+  const basis = String(publicSide.lineMovementBasis || "");
+  const marketMatches =
+    (textKey(play.market) === "spread" && basis.includes("Spread")) ||
+    (textKey(play.market) === "total" && basis.includes("Total Line"));
   if (
-    textKey(play.market) === "spread" &&
+    marketMatches &&
     Number.isFinite(openingPublicBets) &&
     openingPublicBets > 0 &&
     openingPublicBets < 100 &&
-    String(publicSide.lineMovementBasis || "").includes("Spread") &&
     Number.isFinite(publicMove) &&
     publicMove >= 5 &&
     Number.isFinite(lineMove) &&
     lineMove <= -1.5
   ) {
-    labels.push("Strong RLM");
+    labels.push("RLM");
   }
 
   return { labels, publicSide };
 }
 
 function directNflTrendPick(play: AnyPick, plays: AnyPick[], today: string): AnyPick | null {
+  const market = textKey(play.market);
+  if (market !== "spread" && market !== "total") return null;
   const { labels, publicSide } = directNflTrendLabels(play, plays);
+  // Any qualifying signal is sufficient; keep all labels on combined plays.
   if (!labels.length) return null;
 
-  const odds = parseAmericanOdds(play.odds);
-  if (odds == null || odds < -150) return null;
+  // A missing snapshot price must not hide qualified spreads/totals, including
+  // Sharp + Public Fade combinations. Preserve the cap for known prices.
+  const snapshotOdds = parseAmericanOdds(play.odds);
+  const odds = snapshotOdds ?? -110;
+  if (odds < -150) return null;
 
+  if (play.line == null || String(play.line).trim() === "") return null;
   const lineValue = Number(play.line);
-  const line = Number.isFinite(lineValue) ? `${lineValue > 0 ? "+" : ""}${lineValue}` : "";
+  if (!Number.isFinite(lineValue)) return null;
+  const line = `${market === "spread" && lineValue > 0 ? "+" : ""}${lineValue}`;
   const selection = textKey(play.market) === "total"
     ? `${play.side || play.selection} ${line}`.trim()
     : `${play.selection || play.selectionTeam} ${line}`.trim();
@@ -618,9 +629,9 @@ function directNflTrendPick(play: AnyPick, plays: AnyPick[], today: string): Any
   if (labels.includes("Public Fade") && publicSide) {
     details.push(`fade ${Math.round(Number(publicSide.betsPct))}% public side`);
   }
-  if (labels.includes("Strong RLM") && publicSide) {
+  if (labels.includes("RLM") && publicSide) {
     details.push(
-      `public bets +${Math.round(Number(publicSide.publicMovementPct))} pts while spread moved ${Math.abs(Number(publicSide.lineMovementValue)).toFixed(1)} pts against that side`,
+      `public bets +${Math.round(Number(publicSide.publicMovementPct))} pts while ${market} moved ${Math.abs(Number(publicSide.lineMovementValue)).toFixed(1)} pts against that side`,
     );
   }
 
@@ -631,7 +642,8 @@ function directNflTrendPick(play: AnyPick, plays: AnyPick[], today: string): Any
     market: textKey(play.market) === "total" ? "Total" : "Spread",
     selection,
     odds: formatAmericanOdds(odds),
-    score: labels.includes("Strong RLM") ? 85 : 80,
+    oddsSource: snapshotOdds == null ? "DEFAULT_110" : "SNAPSHOT",
+    score: labels.includes("RLM") ? 85 : 80,
     tier: labels.join(" + "),
     qualification: `${labels.join(" + ")} • ${details.join(" • ")}`,
     betsPct: Number(play.betsPct),
