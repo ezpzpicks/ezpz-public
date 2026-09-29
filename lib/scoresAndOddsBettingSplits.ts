@@ -362,6 +362,23 @@ function descriptorSelections(tokens: string[], anchor: number) {
   return { left, right };
 }
 
+function ncaafScheduleFromInstant(instant: Date) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(instant);
+  const get = (type: string) => parts.find((part) => part.type === type)?.value || "";
+  return {
+    date: `${get("year")}-${get("month")}-${get("day")}`,
+    eventTime: `${get("hour")}:${get("minute")}`,
+  };
+}
+
 function ncaafSourceScheduleNearAnchor(
   tokens: string[],
   anchor: number,
@@ -392,23 +409,42 @@ function ncaafSourceScheduleNearAnchor(
     // renders the user's local clock. Normalize that instant to Eastern once,
     // then persist the ET date/time as the sole NCAAF lock clock.
     const instant = new Date(Date.UTC(year, month - 1, day, hour, minute));
-    const parts = new Intl.DateTimeFormat("en-US", {
-      timeZone: "America/New_York",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      hourCycle: "h23",
-    }).formatToParts(instant);
-    const get = (type: string) => parts.find((part) => part.type === type)?.value || "";
-    const date = `${get("year")}-${get("month")}-${get("day")}`;
-    const eventTime = `${get("hour")}:${get("minute")}`;
+    const { date, eventTime } = ncaafScheduleFromInstant(instant);
     if (/^\d{4}-\d{2}-\d{2}$/.test(date) && /^\d{2}:\d{2}$/.test(eventTime)) {
       return { date, eventTime };
     }
   }
   return { date: "", eventTime: "" };
+}
+
+function ncaafScheduleKey(awayTeam: string, homeTeam: string) {
+  return `${awayTeam.trim().toLowerCase()}|${homeTeam.trim().toLowerCase()}`;
+}
+
+function ncaafSourceSchedules(rawHtml: string, pageDate: string) {
+  const schedules = new Map<string, { date: string; eventTime: string }>();
+  // Read the kickoff before stripping tags: the source's localtime span can
+  // be empty until browser JavaScript renders its ISO data-value. Scope each
+  // timestamp to its own event header so no adjacent game can lend its clock.
+  const headers = rawHtml.matchAll(/<div\b[^>]*\bclass\s*=\s*["'][^"']*\bevent-header\b[^"']*["'][^>]*>([\s\S]*?)(?=<div\b[^>]*\bclass\s*=\s*["'][^"']*\b(?:module-body|event-header)\b)/gi);
+  for (const [, header] of headers) {
+    const tokens = stripTagsToTokens(header);
+    const teams = tokens.map(cleanAltToken).filter((team) => team && !isNoiseTeamToken(team));
+    if (teams.length !== 2) continue;
+    let schedule = ncaafSourceScheduleNearAnchor(tokens, tokens.length, pageDate);
+    for (const [tag] of header.matchAll(/<span\b[^>]*>/gi)) {
+      if (!/\bdata-role\s*=\s*["']localtime["']/i.test(tag)) continue;
+      const value = tag.match(/\bdata-value\s*=\s*(?:"([^"]*)"|'([^']*)')/i);
+      const raw = decodeHtmlEntities(value?.[1] || value?.[2] || "").trim();
+      if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})$/i.test(raw)) continue;
+      const instant = new Date(raw);
+      if (!Number.isFinite(instant.getTime())) continue;
+      schedule = ncaafScheduleFromInstant(instant);
+      break;
+    }
+    schedules.set(ncaafScheduleKey(teams[0], teams[1]), schedule);
+  }
+  return schedules;
 }
 
 function dateFromPage(rawHtml: string) {
@@ -431,6 +467,7 @@ export function parseScoresAndOddsConsensus(
   const tokens = stripTagsToTokens(rawHtml);
   const sourceUrl = scoresAndOddsConsensusUrl(sport);
   const pageDate = dateFromPage(rawHtml);
+  const sourceSchedules = sport === "NCAAF" ? ncaafSourceSchedules(rawHtml, pageDate) : null;
   const rows: ScoresAndOddsMarketSplit[] = [];
   const matchupOccurrenceState = new Map<
     string,
@@ -448,9 +485,12 @@ export function parseScoresAndOddsConsensus(
     const header = headerAroundAnchor(tokens, anchor);
     const market = marketFromHeader(header, sport);
     const sourceSchedule = sport === "NCAAF"
-      ? ncaafSourceScheduleNearAnchor(tokens, anchor, pageDate)
+      ? sourceSchedules!.get(ncaafScheduleKey(contextAway, contextHome))
+        || (sourceSchedules!.size ? { date: "", eventTime: "" } : ncaafSourceScheduleNearAnchor(tokens, anchor, pageDate))
       : { date: "", eventTime: "" };
-    const rowDate = sourceSchedule.date || pageDate;
+    // The NCAAF page title is today's date, not the dates of its weekly games.
+    // If a kickoff is unavailable, let the caller match the canonical schedule.
+    const rowDate = sourceSchedule.date || (sport === "NCAAF" ? "" : pageDate);
     const rowEventTime = sourceSchedule.eventTime;
 
     const awayTeam = contextAway || (market === "Total" ? "" : cleanSelectionTeam(descriptor.left));
