@@ -2753,7 +2753,9 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
       .map((row)=>draftKingsSplitFromStoredSnapshot(row,sport))
       .filter((split): split is DraftKingsSplit=>Boolean(split))
       .filter((split)=>splitMatchesSlate(split,trackingSlate,sport));
-    if (sport !== "NFL" || !retained.length) throw error;
+    // Both football boards can use their saved current-slate snapshots when
+    // ScoresAndOdds is unavailable, including on a cold public payload cache.
+    if (!retained.length) throw error;
 
     const retainedBySide = new Map<string,DraftKingsSplit>();
     for (const split of retained) {
@@ -2766,7 +2768,7 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
       splits,
       errors:[
         `Live ScoresAndOdds refresh failed: ${errorMessage}`,
-        `Serving ${splits.length} retained ScoresAndOdds market sides from the last successful snapshots instead of failing the public NFL payload.`,
+        `Serving ${splits.length} retained ScoresAndOdds market sides from the last successful snapshots instead of failing the public ${sport} payload.`,
       ],
       filter:{
         eventGroup:"stored-snapshots",
@@ -2779,7 +2781,7 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
       missingPages:[],
       retainedFallback:true,
     };
-    console.warn("Using retained NFL ScoresAndOdds snapshots after live partial-slate failure.",error);
+    console.warn(`Using retained ${sport} ScoresAndOdds snapshots after live refresh failure.`,error);
   }
   const usingStoredDraftKingsFallback=dk.retainedFallback===true;
   const snapshotMap=new Map(
