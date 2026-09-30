@@ -107,15 +107,27 @@ test('NCAAF persistence does not turn retained observations into new snapshots',
   assert.equal(over['Public Split Snapshot Time'], snapshotTime);
 });
 
-test('NCAAF fallback rejects snapshots from other dates, matchups, sources, or invalid rows', async () => {
+test('NCAAF public read still loads weekly data when no legacy snapshots match the current slate', async () => {
   const h = harness([
     { ...snapshot, Date: '2026-09-23' },
     { ...snapshot, 'Away Team': 'Alabama', 'Home Team': 'Georgia' },
     { ...snapshot, Source: 'DraftKings' },
     { ...snapshot, 'Public Bets %': '' },
   ]);
-  await assert.rejects(h.buildFootballPublicData('NCAAF'), error => error === h.error);
+  const data = await h.buildFootballPublicData('NCAAF');
+  assert.equal(data.ok, true);
+  assert.equal(data.draftKings.splits.length, 0);
+  assert.equal(data.draftKings.status, 'UNAVAILABLE');
+  assert.equal(data.trendPlays[0], h.weeklyPlay);
   assert.equal(h.writes.length, 0);
+});
+
+test('NCAAF scheduled capture and NFL still report an outage when no usable snapshots exist', async () => {
+  for (const [sport, options] of [['NCAAF', { persist: true }], ['NFL', {}]]) {
+    const h = harness([]);
+    await assert.rejects(h.buildFootballPublicData(sport, options), error => error === h.error);
+    assert.equal(h.writes.length, 0);
+  }
 });
 
 test('NCAAF resumes fresh data after the feed recovers', async () => {

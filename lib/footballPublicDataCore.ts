@@ -2753,9 +2753,11 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
       .map((row)=>draftKingsSplitFromStoredSnapshot(row,sport))
       .filter((split): split is DraftKingsSplit=>Boolean(split))
       .filter((split)=>splitMatchesSlate(split,trackingSlate,sport));
-    // Both football boards can use their saved current-slate snapshots when
-    // ScoresAndOdds is unavailable, including on a cold public payload cache.
-    if (!retained.length) throw error;
+    // NCAAF's public board also reads saved weekly_market_trends below. A new
+    // week's slate may have no matching legacy snapshots yet; that must not
+    // block the saved weekly display or the rest of a read-only public payload.
+    // Scheduled captures still report failure when no usable snapshots exist.
+    if (!retained.length && (sport !== "NCAAF" || persist)) throw error;
 
     const retainedBySide = new Map<string,DraftKingsSplit>();
     for (const split of retained) {
@@ -2768,7 +2770,9 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
       splits,
       errors:[
         `Live ScoresAndOdds refresh failed: ${errorMessage}`,
-        `Serving ${splits.length} retained ScoresAndOdds market sides from the last successful snapshots instead of failing the public ${sport} payload.`,
+        splits.length
+          ? `Serving ${splits.length} retained ScoresAndOdds market sides from the last successful snapshots instead of failing the public ${sport} payload.`
+          : `No retained current-slate snapshots; continuing with saved ${sport} weekly market and model data.`,
       ],
       filter:{
         eventGroup:"stored-snapshots",
@@ -2781,7 +2785,7 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
       missingPages:[],
       retainedFallback:true,
     };
-    console.warn(`Using retained ${sport} ScoresAndOdds snapshots after live refresh failure.`,error);
+    console.warn(`Serving saved ${sport} data after live ScoresAndOdds refresh failure (${splits.length} retained market sides).`,error);
   }
   const usingStoredDraftKingsFallback=dk.retainedFallback===true;
   const snapshotMap=new Map(
