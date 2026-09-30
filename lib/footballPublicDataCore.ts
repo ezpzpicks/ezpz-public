@@ -2723,8 +2723,11 @@ function buildFootballEzpzPicks(
 
 
 async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:{persist?:boolean}={}){
+  let readStage = "stored-tables";
+  try {
   const today=todayET(); const trackingWeek=footballWeekBounds(sport,today); if(persist) await Promise.all([ensureSportWorksheet(sport,"all_game_trends",ALL_GAME_TRENDS_HEADERS),ensureSportWorksheet(sport,"public_split_snapshots",PUBLIC_SPLIT_HEADERS)]);
   const [slateAll,trackerRaw,schedule,trendExisting,snapshotExisting,propProjectionRows]=await Promise.all([readSportWorksheet(sport,"daily_slate"),readSportWorksheet(sport,"bet_tracker"),readSportWorksheet(sport,"schedule"),readSportWorksheet(sport,"all_game_trends",ALL_GAME_TRENDS_HEADERS),readSportWorksheet(sport,"public_split_snapshots",PUBLIC_SPLIT_HEADERS),sport==="NFL"?readSportWorksheet(sport,"prop_projections"):Promise.resolve([] as SheetRow[])]);
+  readStage = "current-schedule";
   const liveSchedule=await loadFootballWeekSchedule(sport,trackingWeek.start,trackingWeek.end);
   const footballSchedule=mergeFootballSchedules(schedule,liveSchedule,sport);
   const pendingRecordDates=[...new Set([...trackerRaw,...trendExisting]
@@ -2735,9 +2738,11 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
       const current=Date.parse(today+"T12:00:00Z"),stamp=Date.parse(date+"T12:00:00Z");
       return Number.isFinite(current)&&Number.isFinite(stamp)&&current-stamp<=14*86_400_000;
     }))].sort();
+  readStage = "settlement-schedule";
   const pendingLiveSchedule=pendingRecordDates.length
     ? await loadFootballWeekSchedule(sport,pendingRecordDates[0],pendingRecordDates[pendingRecordDates.length-1])
     : [];
+  readStage = "settle-records";
   const settlementSchedule=mergeFootballSchedules(footballSchedule,pendingLiveSchedule,sport);
   const trackingSlate=mergeFootballTrackingSlate(slateAll,footballSchedule,sport,today);
   const slate=trackingSlate;
@@ -2751,6 +2756,7 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
   }
   const shells=slate.flatMap(modelTrendShells); const merged=new Map(trendRows.map((row)=>[trendRowKey(row),row]));for(const shell of shells){const key=trendRowKey(shell);merged.set(key,{...(merged.get(key)||{}),...shell,Result:resultCode(merged.get(key)?.Result)?merged.get(key)!.Result:"Pending"});}trendRows=[...merged.values()];
   let dk: LoadedDraftKingsSplits;
+  readStage = "live-market";
   try {
     dk = await loadDraftKingsSplits(sport,trackingSlate);
   } catch (error) {
@@ -2792,6 +2798,7 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
     };
     console.warn(`Serving saved ${sport} data after live ScoresAndOdds refresh failure (${splits.length} retained market sides).`,error);
   }
+  readStage = "build-market";
   const usingStoredDraftKingsFallback=dk.retainedFallback===true;
   const snapshotMap=new Map(
     snapshotExisting
@@ -2844,10 +2851,12 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
   // The public NCAAF board only renders the current day's market. Keep the
   // archive/discovery reader unchanged, but avoid loading hundreds of thousands
   // of prior odds snapshots during every public refresh.
+  readStage = "saved-weekly-market";
   const weeklyMarket = await readWeeklyFootballMarket(
     sport,
     sport === "NCAAF" ? { dateKeys: [today], hydrateHistory: false } : {},
   );
+  readStage = "assemble-payload";
   const displayTrendPlays = Array.isArray(weeklyMarket.trendPlays)
     ? weeklyMarket.trendPlays as unknown as TrendPlay[]
     : [];
@@ -3024,6 +3033,14 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
   const last7RecordSummary = buildRecordSummary(7);
   const aiPickRecordRows = buildFootballEzpzRecordRows(effectiveTracker, publicTrendRows, sport);
   return {ok:true,sport,database:sportDatabaseLabel(sport),today,lastUpdated:nowET(),tiles:{last7Days:last7,overallGreen:overall,handpickedLast7:last7,handpickedOverall:overall,pendingGreen:pending,bestPlaysToday:best.length},bestPlays:best,slateToday:todaySlate,betTrackerRows:effectiveTracker,draftKings:{ok:enriched.length>0,status:enriched.length?"LIVE":"UNAVAILABLE",updatedAt:nowET(),stale:usingStoredDraftKingsFallback,splits:enriched,props:[],errors:dk.errors,source:SCORES_AND_ODDS_SOURCE,filter:dk.filter,coverage:dk.coverage,displayMode:usingStoredDraftKingsFallback?"STALE_FALLBACK":"LIVE",trackingMode:"WEEKLY",trackingWeekStart:trackingWeek.start,trackingWeekEnd:trackingWeek.end,trackedGames:trackingSlate.length},draftKingsSignalRows:history,trendRecordRows:publicTrendRows.filter(r=>resultCode(r.Result)),trendPlays:displayTrendPlays,aiPicks,aiPickRecordRows,aiSelectorStatus:{mode:"LIVE",externalResearchConfigured:false,message:aiPicks.length?`${sport} EZPZ Picks are live for ${today}: ${sport === "NFL" ? "yardage props qualify directly at Strong or Regular; Lean is tracked but excluded from EZPZ Picks. " : ""}HOT game Best Plays remain FINAL immediately; Trend Plays qualify only through Public Fade, RLM, or Sharp. NFL Public Fade uses 80%+ bets; CFB Public Fade uses >75% bets with a 55+ point Bets%-Money% gap. RLM requires public bet share to rise at least 5 points while the market line moves 1.5+ points against that side. EZPZ Sharp requires money share over bet share by ${sport === "NFL" ? 25 : 40}+ points. Qualifying Trend Plays remain tied to the saved pregame market snapshot.`:`No ${sport} EZPZ Picks for ${today} currently qualify under the active game, prop, or trend rules.`,updatedAt:nowET(),candidateCount:modelBest.length+todayTrendPlays.length+propBest.length,selectedCount:aiPicks.length},recordSummary,last7RecordSummary,handpickedRecordSummary:recordSummary,handpickedLast7RecordSummary:last7RecordSummary};
+  } catch (error) {
+    console.error("Football public build failed", {
+      sport, persist, stage: readStage,
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
+    throw error;
+  }
 }
 
 const FOOTBALL_PUBLIC_DATA_CACHE_TTL_MS = 60_000;
