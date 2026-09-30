@@ -35,6 +35,7 @@ function harness(rows = [snapshot]) {
   const warnings = [];
   const weeklyReads = [];
   let fresh = null;
+  let writeError = null;
   class Clock extends Date {
     constructor(...args) { super(...(args.length ? args : ['2026-09-30T13:30:00Z'])); }
     static now() { return Date.parse('2026-09-30T13:30:00Z'); }
@@ -53,7 +54,10 @@ function harness(rows = [snapshot]) {
       readSportWorksheet: async (_sport, table) => tables[table] || [],
       ensureSportWorksheet: async () => {},
       sportDatabaseLabel: sport => sport,
-      upsertSportRows: async (sport, table, _headers, rows) => { writes.push({ sport, table, rows }); },
+      upsertSportRows: async (sport, table, _headers, rows) => {
+        writes.push({ sport, table, rows });
+        if (writeError) throw writeError;
+      },
     },
     './scoresAndOddsBettingSplits': {
       ...sourceExports,
@@ -75,8 +79,8 @@ function harness(rows = [snapshot]) {
     console: { ...console, warn: (...args) => warnings.push(args) },
     fetch: async () => ({ ok: true, json: async () => ({ events: [] }) }),
   });
-  return { ...exports, error, writes, warnings, weeklyReads, weeklyPlay,
-    setFresh: rows => { fresh = rows; } };
+  return { ...exports, error, writes, warnings, weeklyReads, weeklyPlay, tables,
+    setFresh: rows => { fresh = rows; }, failWrites: () => { writeError = error; } };
 }
 
 for (const sport of ['NCAAF', 'NFL']) {
@@ -128,6 +132,32 @@ test('NCAAF scheduled capture and NFL still report an outage when no usable snap
     await assert.rejects(h.buildFootballPublicData(sport, options), error => error === h.error);
     assert.equal(h.writes.length, 0);
   }
+});
+
+test('NCAAF public reads can grade pending records without depending on a storage write', async () => {
+  const h = harness();
+  const completed = { ...game, Date: '2026-09-26', 'Game ID': 'finished-game',
+    Completed: 'TRUE', 'Away Score': '30', 'Home Score': '20' };
+  h.tables.schedule.push(completed);
+  h.tables.bet_tracker = [{ ...completed, 'Bet Type': 'Total', Selection: 'Over 45.5',
+    'Odds/Line': '-110', Result: 'Pending' }];
+  h.failWrites();
+  const data = await h.buildFootballPublicData('NCAAF');
+  assert.equal(data.ok, true);
+  assert.equal(data.betTrackerRows[0].Result, 'Win');
+  assert.equal(h.writes.length, 0);
+});
+
+test('NCAAF scheduled capture still saves settled tracker records', async () => {
+  const h = harness();
+  const completed = { ...game, Date: '2026-09-26', 'Game ID': 'finished-game',
+    Completed: 'TRUE', 'Away Score': '30', 'Home Score': '20' };
+  h.tables.schedule.push(completed);
+  h.tables.bet_tracker = [{ ...completed, 'Bet Type': 'Total', Selection: 'Over 45.5',
+    'Odds/Line': '-110', Result: 'Pending' }];
+  await h.buildFootballPublicData('NCAAF', { persist: true });
+  const write = h.writes.find(write => write.table === 'bet_tracker');
+  assert.equal(write.rows[0].Result, 'Win');
 });
 
 test('NCAAF resumes fresh data after the feed recovers', async () => {

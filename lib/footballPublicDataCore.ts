@@ -2744,7 +2744,12 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
   let trendRows=settleTrendRows(trendExisting,settlementSchedule,sport);
   const trackerSettlement=settleBestPlayTracker(trackerRaw,settlementSchedule,sport); const tracker=trackerSettlement.settled;
   trendRows=settleTrendRowsFromTracker(trendRows,tracker,sport);
-  if(trackerSettlement.changed.length) await upsertSportRows(sport,"bet_tracker",FOOTBALL_TRACKER_HEADERS,trackerSettlement.changed,trackerKey); const shells=slate.flatMap(modelTrendShells); const merged=new Map(trendRows.map((row)=>[trendRowKey(row),row]));for(const shell of shells){const key=trendRowKey(shell);merged.set(key,{...(merged.get(key)||{}),...shell,Result:resultCode(merged.get(key)?.Result)?merged.get(key)!.Result:"Pending"});}trendRows=[...merged.values()];
+  // NCAAF public reads can use settled records in memory, but only scheduled
+  // captures may save them. A write outage must not block an already-read board.
+  if(trackerSettlement.changed.length && (sport !== "NCAAF" || persist)) {
+    await upsertSportRows(sport,"bet_tracker",FOOTBALL_TRACKER_HEADERS,trackerSettlement.changed,trackerKey);
+  }
+  const shells=slate.flatMap(modelTrendShells); const merged=new Map(trendRows.map((row)=>[trendRowKey(row),row]));for(const shell of shells){const key=trendRowKey(shell);merged.set(key,{...(merged.get(key)||{}),...shell,Result:resultCode(merged.get(key)?.Result)?merged.get(key)!.Result:"Pending"});}trendRows=[...merged.values()];
   let dk: LoadedDraftKingsSplits;
   try {
     dk = await loadDraftKingsSplits(sport,trackingSlate);
