@@ -20,10 +20,10 @@ const mean=(a:number[])=>a.length?a.reduce((s,x)=>s+x,0)/a.length:null;
 const key=(r:Row,market?:string)=>`${text(r.Date)}|${text(r.Player)}|${market??text(r.Market)}`;
 const playerKey=(r:Row)=>`${text(r.Date)}|${text(r.Player)}`;
 const slotOf=(r:Row):Slot|null=>{const s=text(r.Slot).toUpperCase(); return s==="WR1"||s==="WR2"?s:null};
-const role=(s:unknown)=>{
+const roleMaybe=(s:unknown)=>{
   const z=text(s);
   const m=z.match(/(?:removed\s+)?live role(?:\/injury)? overlay\s+([0-9.]+)x/i);
-  return m&&Number(m[1])>0?Number(m[1]):1;
+  return m&&Number(m[1])>0?Number(m[1]):null;
 };
 
 function betResult(r:Base,p:number){
@@ -97,7 +97,7 @@ export async function GET(){
     const routePart=num(p["Route Participation"])??num(recv["Route Participation"]);
     if(targets==null||targets<=0||routes==null||routes<=0||tprr==null||tprr<=0||routePart==null)continue;
     const d=`${key(c)}|${projection}`;if(seen.has(d))continue;seen.add(d);
-    const roleValue=role(p.Confluence||recv.Confluence);
+    const roleValue=roleMaybe(p.Confluence)??roleMaybe(recv.Confluence)??1;
     const matchup=num(p["Matchup Index"])??1;
     const at=market==="Targets"?actual:(num(c["Actual Opportunity"])??actualTargets.get(playerKey(c))??null);
     rows.push({date:text(c.Date),player:text(c.Player),slot,market,line,projection,actual,targets,routes,tprr,routePart,role:roleValue,matchup:matchup&&matchup>0?matchup:1,actualTargets:at});
@@ -118,7 +118,7 @@ export async function GET(){
     const catchGrid=catchWeights.map(cw=>({catchWeight:cw,train:summarize(rPre,r=>receptionCandidate(r,cfg,cw,prior)),holdout:summarize(rHold,r=>receptionCandidate(r,cfg,cw,prior)),all:summarize(rAll,r=>receptionCandidate(r,cfg,cw,prior))}));
     const bestCatch=[...catchGrid].sort((a,b)=>(a.train.mae??999)-(b.train.mae??999))[0];
     out.slots[slot]={
-      counts:{all:allS.length,pre:preS.length,holdout:holdS.length,targets:tAll.length,receptions:rAll.length},
+      counts:{all:allS.length,pre:preS.length,holdout:holdS.length,targets:tAll.length,receptions:rAll.length,nonNeutralRole:allS.filter(r=>Math.abs(r.role-1)>1e-9).length},
       targets:{
         current:{train:summarize(tPre,r=>r.projection),holdout:summarize(tHold,r=>r.projection),all:summarize(tAll,r=>r.projection)},
         noRole:{train:summarize(tPre,r=>r.targets/r.role),holdout:summarize(tHold,r=>r.targets/r.role),all:summarize(tAll,r=>r.targets/r.role)},
