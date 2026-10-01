@@ -99,20 +99,21 @@ export async function GET(){
 
   const exact=new Map<string,Row>(),fallback=new Map<string,Row>(),targets=new Map<string,Row>();
   for(const p of proj){
-    if(t(p.Position)!=="TE")continue;
-    if(t(p.Market)==="Receiving Yards"&&t(p.Slot)==="TE1"){
+    if(t(p.Slot)!=="TE1")continue;
+    if(t(p.Market)==="Receiving Yards"){
       exact.set(key(p,true),p);fallback.set(key(p,false),p);
     }
-    if(t(p.Market)==="Targets"&&t(p.Slot)==="TE1")targets.set(playerKey(p),p);
+    if(t(p.Market)==="Targets")targets.set(playerKey(p),p);
   }
 
   const reconstructed:R[]=[]; const allCompleted:any[]=[]; const seen=new Set<string>();
   for(const c of cal){
-    if(t(c.Position)!=="TE"||t(c.Market)!=="Receiving Yards"||t(c.Slot)!=="TE1")continue;
+    if(t(c.Market)!=="Receiving Yards")continue;
     const p=exact.get(key(c,true))||fallback.get(key(c,false));
+    const slot=t(c.Slot)||t(p?.Slot); if(slot!=="TE1")continue;
     const line=n(c["Market Line"])??0,projection=n(c.Projection),actual=n(c["Actual Result"]); if(projection==null||actual==null)continue;
     const ded=`${key(c,true)}|${projection}`; if(seen.has(ded))continue;seen.add(ded);
-    allCompleted.push({date:t(c.Date),player:t(c.Player),line,projection,actual,version:t(c["Model Version"]||p?.["Model Version"])});
+    allCompleted.push({date:t(c.Date),player:t(c.Player),position:t(c.Position)||t(p?.Position),line,projection,actual,version:t(c["Model Version"]||p?.["Model Version"])});
     if(!p)continue;
     const tr=targets.get(playerKey(c)),mi=n(p["Matchup Index"]),ro=role(p.Confluence),ft=n(p["Projected Targets"]),fe=n(p.Efficiency);
     if(!tr||mi==null||mi<=0||ro==null||ro<=0||ft==null||fe==null||!t(p.Confluence).includes("slot matchup"))continue;
@@ -127,6 +128,8 @@ export async function GET(){
   const byDate=Object.fromEntries([...new Set(reconstructed.map(x=>x.date))].sort().map(d=>[d,{n:reconstructed.filter(x=>x.date===d).length,current:metrics(reconstructed.filter(x=>x.date===d),current),market:metrics(reconstructed.filter(x=>x.date===d&&x.line>0),x=>x.line)}]));
   return NextResponse.json({
     counts:{allCompleted:allCompleted.length,reconstructed:reconstructed.length,pre:pre.length,holdout:hold.length,dates:Object.fromEntries([...new Set(reconstructed.map(x=>x.date))].map(d=>[d,reconstructed.filter(x=>x.date===d).length]))},
+    completedSamples:allCompleted.slice(0,10),
+    projectionTE1Count:[...exact.values()].length,
     allCompletedCurrent:allCurrent,
     selectedOnPre:selected,
     fixed:{all:fixed(reconstructed),pre:fixed(pre),holdout:fixed(hold)},
