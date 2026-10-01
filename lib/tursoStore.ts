@@ -144,6 +144,9 @@ async function pipeline(sqlStatements: string[], atomic = false) {
     headers: {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
+      // Each Hrana pipeline closes its stream. Also close the HTTP connection
+      // so a later stage cannot reuse a socket the remote end already closed.
+      Connection: "close",
     },
     body: JSON.stringify({ requests }),
     cache: "no-store",
