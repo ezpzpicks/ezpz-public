@@ -1,0 +1,19 @@
+import { NextResponse } from "next/server";
+import { readSportWorksheet } from "../../../../lib/sportSheets";
+export const dynamic="force-dynamic";export const revalidate=0;
+type Row=Record<string,string>;
+type R={date:string;player:string;market:string;projection:number;actual:number;projOpp:number;actualOpp:number;projEff:number;actualEff:number;version:string;gameId:string};
+const t=(v:unknown)=>String(v??"").trim();const n=(v:unknown)=>{const x=Number(t(v));return Number.isFinite(x)?x:null};const mean=(a:number[])=>a.length?a.reduce((s,x)=>s+x,0)/a.length:null;const rnd=(x:number|null,d=3)=>x==null?null:Number(x.toFixed(d));
+function sm(a:R[],f:(r:R)=>number,g:(r:R)=>number){const e=a.map(r=>f(r)-g(r));return{n:a.length,mae:rnd(mean(e.map(x=>Math.abs(x)))),bias:rnd(mean(e)),projectedMean:rnd(mean(a.map(f)),3),actualMean:rnd(mean(a.map(g)),3)}}
+function versionNum(v:string){const m=v.match(/v(\d+)\.(\d+)/i);return m?Number(m[1])*100+Number(m[2]):99999}
+function dedupeEarliest(a:R[]){const m=new Map<string,R>();for(const r of a){const k=`${r.date}|${r.player}|${r.market}`;const old=m.get(k);if(!old||versionNum(r.version)<versionNum(old.version))m.set(k,r)}return [...m.values()]}
+export async function GET(){
+ const raw=await readSportWorksheet("NFL","prop_calibration") as Row[];const all:R[]=[];
+ for(const x of raw){if(t(x.Position)!=="QB")continue;const market=t(x.Market);if(market!=="Passing Attempts"&&market!=="Passing Completions")continue;const projection=n(x.Projection),actual=n(x["Actual Result"]),projOpp=n(x["Projected Opportunity"]),actualOpp=n(x["Actual Opportunity"]),projEff=n(x["Projected Efficiency"]),actualEff=n(x["Actual Efficiency"]);if(projection==null||actual==null||projOpp==null||actualOpp==null||projEff==null||actualEff==null)continue;all.push({date:t(x.Date),player:t(x.Player),market,projection,actual,projOpp,actualOpp,projEff,actualEff,version:t(x["Model Version"]),gameId:t(x["Game ID"])})}
+ const rows=dedupeEarliest(all),attempts=rows.filter(r=>r.market==="Passing Attempts"),comps=rows.filter(r=>r.market==="Passing Completions");const pre=(a:R[])=>a.filter(r=>r.date<"2026-09-27"),hold=(a:R[])=>a.filter(r=>r.date==="2026-09-27");
+ const versions:any={};for(const r of all){versions[r.version]=(versions[r.version]??0)+1}
+ const compRate=(r:R)=>r.projOpp>0?r.projection/r.projOpp:r.projEff;const actualRate=(r:R)=>r.actualOpp>0?r.actual/r.actualOpp:r.actualEff;
+ const compUsingActualOpp=(r:R)=>r.actualOpp*compRate(r),compUsingActualRate=(r:R)=>r.projOpp*actualRate(r);
+ const byDate=[...new Set(rows.map(r=>r.date))].sort().map(date=>{const aa=attempts.filter(r=>r.date===date),cc=comps.filter(r=>r.date===date);return{date,attempts:sm(aa,r=>r.projection,r=>r.actual),completions:sm(cc,r=>r.projection,r=>r.actual),compRate:sm(cc,compRate,actualRate)}});
+ return NextResponse.json({counts:{raw:all.length,deduped:rows.length,attempts:attempts.length,completions:comps.length,attemptPre:pre(attempts).length,attemptHoldout:hold(attempts).length,compPre:pre(comps).length,compHoldout:hold(comps).length},versions,attempts:{pre:sm(pre(attempts),r=>r.projection,r=>r.actual),holdout:sm(hold(attempts),r=>r.projection,r=>r.actual),all:sm(attempts,r=>r.projection,r=>r.actual)},completions:{pre:sm(pre(comps),r=>r.projection,r=>r.actual),holdout:sm(hold(comps),r=>r.projection,r=>r.actual),all:sm(comps,r=>r.projection,r=>r.actual),rate:{pre:sm(pre(comps),compRate,actualRate),holdout:sm(hold(comps),compRate,actualRate),all:sm(comps,compRate,actualRate)},oracleActualOpportunity:{pre:sm(pre(comps),compUsingActualOpp,r=>r.actual),holdout:sm(hold(comps),compUsingActualOpp,r=>r.actual),all:sm(comps,compUsingActualOpp,r=>r.actual)},oracleActualRate:{pre:sm(pre(comps),compUsingActualRate,r=>r.actual),holdout:sm(hold(comps),compUsingActualRate,r=>r.actual),all:sm(comps,compUsingActualRate,r=>r.actual)}},byDate,sample:rows.slice(0,12)});
+}
