@@ -299,6 +299,47 @@ function ezpzModelRecordType(row: SheetRow, sport: Sport) {
   }
   return "";
 }
+function lastSevenModelBetRecordRows(rows: SheetRow[], sport: Sport): Summary[] {
+  const settled = rows
+    .map((row, index) => ({
+      row,
+      index,
+      date: signalIsoDate(row.Date || row["Game Date"] || ""),
+      type: ezpzModelRecordType(row, sport),
+    }))
+    .filter((item) => Boolean(item.date && item.type && !item.type.includes("|PROP|") && resultCode(item.row.Result || item.row.Status)));
+  const types = [...new Set(settled.map((item) => item.type))];
+  const label = (type: string) => {
+    const [grade, market, direction] = type.split("|");
+    if (market === "SPREAD") return `${grade} Spread ${direction}`;
+    if (market === "TOTAL") return `${grade} Points/Total ${direction}`;
+    return type;
+  };
+  const order = [
+    "A|SPREAD|Favorite", "A|SPREAD|Underdog", "A|TOTAL|Over", "A|TOTAL|Under",
+    "B|SPREAD|Favorite", "B|SPREAD|Underdog", "B|TOTAL|Over", "B|TOTAL|Under",
+  ];
+  return types
+    .sort((left, right) => {
+      const leftRank = order.indexOf(left);
+      const rightRank = order.indexOf(right);
+      if (leftRank !== rightRank) return (leftRank < 0 ? 999 : leftRank) - (rightRank < 0 ? 999 : rightRank);
+      return label(left).localeCompare(label(right));
+    })
+    .map((type) => {
+      const recent = settled
+        .filter((item) => item.type === type)
+        .sort((a, b) => b.date.localeCompare(a.date) || b.index - a.index)
+        .slice(0, 7)
+        .map((item) => item.row);
+      const totals = recordTotalsFromRows(recent);
+      return {
+        betType: label(type),
+        status: totals.wins > totals.losses ? "WINNING" : totals.losses > totals.wins ? "LOSING" : "EVEN",
+        ...totals,
+      };
+    });
+}
 function ezpzModelHistoryRows(rows: SheetRow[], sport: Sport) {
   const settled = rows
     .map((row, index) => ({ row, index, date: signalIsoDate(row.Date || row["Game Date"] || ""), type: ezpzModelRecordType(row, sport) }))
@@ -499,6 +540,7 @@ function FootballRecords({ sport, data }: { sport: Sport; data: FootballData }) 
   const overallRows = data.recordSummary || [];
   const last7Rows = data.last7RecordSummary || [];
   const trackerRows = data.betTrackerRows || [];
+  const last7BetRows = sport === "NFL" ? lastSevenModelBetRecordRows(trackerRows, sport) : [];
   const ezpzRows = sport === "NFL"
     ? nflSavedEzpzRecordRows(data)
     : footballEzpzHistoryRows(data, sport);
@@ -525,7 +567,11 @@ function FootballRecords({ sport, data }: { sport: Sport; data: FootballData }) 
           <DirectTrendRecords rows={data.trendRecordRows || []} trendPlays={data.trendPlays || []} aiPickRows={data.aiPickRecordRows || []} today={data.today || ""} sport={sport} />
         </div>
         <div className="sectionHead"><div><h2>Bet Type Records</h2></div></div>
-        <div className="advancedRecordsStack"><RecordDropdown title="Last 7 Days Model Plays" rows={last7Rows} open /><RecordDropdown title="Overall Model Plays" rows={overallRows} /></div>
+        <div className="advancedRecordsStack">
+          {sport === "NFL" ? <RecordDropdown title="Last 7 Bets Model Plays" rows={last7BetRows} open /> : null}
+          <RecordDropdown title="Last 7 Days Model Plays" rows={last7Rows} open={sport !== "NFL"} />
+          <RecordDropdown title="Overall Model Plays" rows={overallRows} />
+        </div>
         <details className="recordsDropdown"><summary className="recordsSummary"><div><div className="recordsSummaryTitle">Recent Graded Model Plays</div></div><span className="recordsCount">{recent.length} results</span></summary>
           {recent.length ? <div className="tableWrap"><table className="recordsTable"><thead><tr><th>Date</th><th>Game</th><th>Type</th><th>Play</th><th>Result</th></tr></thead><tbody>{recent.map((row, index) => { const result = resultCode(row.Result || row.Status); return <tr className={`footballRecentResult result-${result.toLowerCase()}`} key={`${row.Date}-${recentGame(row)}-${recentSelection(row)}-${index}`}><td>{row.Date || row["Game Date"]}</td><td>{recentGame(row)}</td><td>{recentLabel(row)}</td><td><strong>{recentSelection(row)}</strong></td><td><b>{result}</b></td></tr>; })}</tbody></table></div> : <div className="empty insideDropdown">Completed Model Plays will populate here automatically.</div>}
         </details>
