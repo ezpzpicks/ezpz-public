@@ -1,3 +1,4 @@
 import { NextResponse } from "next/server";
 export const dynamic="force-dynamic";export const revalidate=0;
-export async function GET(){const u="https://www.warrennolan.com/fbs/2025/elo";const r=await fetch(u,{headers:{"user-agent":"Mozilla/5.0"},cache:"no-store"});const t=await r.text();return NextResponse.json({status:r.status,len:t.length,sample:t.slice(0,12000)});}
+const clean=s=>s.replace(/<script[\s\S]*?<\/script>/gi,"").replace(/<style[\s\S]*?<\/style>/gi,"").replace(/<[^>]+>/g," ").replace(/&nbsp;/g," ").replace(/&amp;/g,"&").replace(/&#39;/g,"'").replace(/&quot;/g,'"').replace(/\s+/g," ").trim();
+export async function GET(){const u="https://www.warrennolan.com/fbs/2025/elo";const r=await fetch(u,{headers:{"user-agent":"Mozilla/5.0"},cache:"no-store"});const t=await r.text();const rows=[...t.matchAll(/<tr\b[\s\S]*?<\/tr>/gi)].map(m=>({text:clean(m[0]),hrefs:[...m[0].matchAll(/href=["']([^"']+)["']/gi)].map(x=>x[1])})).filter(x=>/Ohio State|Notre Dame|Oregon|Texas|Georgia/.test(x.text)).slice(0,12);return NextResponse.json({status:r.status,len:t.length,rowCount:(t.match(/<tr\b/gi)||[]).length,rows});}
