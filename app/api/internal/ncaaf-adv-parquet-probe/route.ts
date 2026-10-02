@@ -2,5 +2,5 @@ import { NextResponse } from "next/server";
 import { parquetReadObjects } from "hyparquet";
 import { compressors } from "hyparquet-compressors";
 export const dynamic="force-dynamic";export const revalidate=0;export const maxDuration=60;
-const safe=(v:unknown)=>JSON.parse(JSON.stringify(v,(_k,x)=>typeof x==="bigint"?Number(x):x));
+const safe=(v:unknown)=>JSON.parse(JSON.stringify(v,(_k:string,x:unknown)=>typeof x==="bigint"?Number(x):x));
 export async function GET(){try{const url="https://raw.githubusercontent.com/sportsdataverse/cfbfastR-cfb-data/main/cfb/adv_team/parquet/adv_team_2025.parquet";const res=await fetch(url,{cache:"force-cache"});if(!res.ok)throw new Error(`fetch ${res.status}`);const buf=await res.arrayBuffer();const rows=await parquetReadObjects({file:buf,compressors});const first=(rows[0]??{}) as Record<string,unknown>;return NextResponse.json(safe({bytes:buf.byteLength,rows:rows.length,keys:Object.keys(first),sample:rows.slice(0,3)}));}catch(e){const x=e as Error;return NextResponse.json({error:String(x?.message??e),stack:x?.stack??""},{status:200})}}
