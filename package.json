@@ -6,6 +6,7 @@
     "turso:check": "node scripts/check-turso-env.mjs"
   },
   "dependencies": {
+    "hyparquet": "1.31.2",
     "next": "15.4.11",
     "react": "19.1.0",
     "react-dom": "19.1.0"
