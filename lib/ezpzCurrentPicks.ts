@@ -4,6 +4,7 @@ import {
   type TursoRow,
   type TursoSport,
 } from "./tursoStore";
+import { isPublicSplitEzpzPick } from "./ezpzPublicSplitEligibility";
 
 export type EzpzCurrentSport = Extract<TursoSport, "MLB" | "NFL" | "NCAAF">;
 
@@ -59,7 +60,8 @@ export async function persistEzpzCurrentPicks(
   sport: EzpzCurrentSport,
   payload: AnyRow,
 ) {
-  const picks = Array.isArray(payload?.aiPicks) ? payload.aiPicks : [];
+  const picks = (Array.isArray(payload?.aiPicks) ? payload.aiPicks : [])
+    .filter((pick: AnyRow) => sport !== "NCAAF" || isPublicSplitEzpzPick(pick));
   const date = normalizedDate(firstValue(payload?.today, payload?.date));
   const updatedAt = new Date().toISOString();
   const sourceUpdatedAt = String(firstValue(payload?.lastUpdated, payload?.generatedAt, updatedAt));
@@ -94,14 +96,15 @@ export async function readEzpzCurrentPicks(sport: EzpzCurrentSport) {
   const picks = rows
     .filter((row) => String(row.Kind || "").toUpperCase() === "PICK")
     .map((row) => parseJson(row["Details JSON"]))
-    .filter((row): row is AnyRow => Boolean(row));
+    .filter((row): row is AnyRow => Boolean(row))
+    .filter((pick) => sport !== "NCAAF" || isPublicSplitEzpzPick(pick));
 
   return {
     sport,
     date: String(meta.Date || ""),
     updatedAt: String(meta["Updated At"] || ""),
     sourceUpdatedAt: String(meta["Source Updated At"] || ""),
-    pickCount: Number(meta["Pick Count"] || picks.length || 0),
+    pickCount: sport === "NCAAF" ? picks.length : Number(meta["Pick Count"] || picks.length || 0),
     picks,
   };
 }

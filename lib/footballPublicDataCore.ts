@@ -2386,7 +2386,8 @@ function buildFootballEzpzRecordRows(
 ): FootballEzpzRecordRow[] {
   const candidates: FootballEzpzRecordRow[] = [];
 
-  for (const row of tracker) {
+  // NCAAF EZPZ history is reconstructed only from public-split qualifiers.
+  for (const row of sport === "NCAAF" ? [] : tracker) {
     const result = resultCode(row.Result || row.Status);
     const date = isoDate(row.Date || row["Game Date"] || "");
     if (!result || !date) continue;
@@ -2607,7 +2608,9 @@ function buildFootballEzpzPicks(
 ) {
   const picks: FootballEzpzPick[] = [];
   const formCache = new Map<FootballBestRecordType, ReturnType<typeof recordTotals>>();
-  for (const play of best) {
+  // Keep NCAAF model plays in their own tab; they cannot enter EZPZ selection
+  // or displace a qualifying public split during deduplication.
+  for (const play of sport === "NCAAF" ? [] : best) {
     const market: "Spread" | "Total" = textKey(play.role || play.playType).includes("total") ? "Total" : "Spread";
     const split = footballBestPlaySplit(play, splits, sport);
     const recordType = footballBestPlayRecordType(play, split, sport);

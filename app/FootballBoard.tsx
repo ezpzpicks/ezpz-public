@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import LegacyFootballBoard from "./FootballBoardLegacy";
 import { MatchupWithLogos, SelectionWithTeamLogo, TeamLogoName } from "./TeamLogoName";
 import FootballModelFormBadges from "./FootballModelFormBadges";
+import { isPublicSplitEzpzPick } from "../lib/ezpzPublicSplitEligibility";
 
 type Tab = "Today’s Model Plays" | "Public Betting Splits" | "EZPZ Picks" | "Full Slate" | "Records";
 type Sport = "NFL" | "NCAAF";
@@ -307,6 +308,7 @@ function pickIdentity(pick: EzpzPick) {
 }
 
 function buildFallbackHistory(data: FootballData, sport: Sport) {
+  if (sport === "NCAAF") return [];
   const modelRows = modelHistoryRows(data.betTrackerRows || [], sport).map((row) => rowToHistoryPick(row, "Best Play"));
   const map = new Map<string, EzpzPick>();
   for (const pick of modelRows) {
@@ -647,12 +649,16 @@ function FootballEzpzHistory({ sport, data }: { sport: Sport; data: FootballData
       if (!pick.date) continue;
       map.set(pickIdentity(pick), { ...map.get(pickIdentity(pick)), ...pick });
     }
-    return [...map.values()].filter((pick) => Boolean(isoDate(pick.date)));
-  }, [data.aiPickRecordRows, fallbackHistory]);
+    return [...map.values()].filter((pick) =>
+      Boolean(isoDate(pick.date)) && (sport !== "NCAAF" || isPublicSplitEzpzPick(pick))
+    );
+  }, [data.aiPickRecordRows, fallbackHistory, sport]);
 
   const currentPicks = useMemo(
-    () => (data.aiPicks || []).map((pick) => ({ ...pick, date: today })).sort(ezpzPickTimeSort),
-    [data.aiPicks, today],
+    () => (data.aiPicks || [])
+      .filter((pick) => sport !== "NCAAF" || isPublicSplitEzpzPick(pick))
+      .map((pick) => ({ ...pick, date: today })).sort(ezpzPickTimeSort),
+    [data.aiPicks, today, sport],
   );
   const viewingToday = selectedDate === today;
   const picks = viewingToday

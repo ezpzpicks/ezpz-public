@@ -1,6 +1,7 @@
 import {
   buildFootballPublicData as buildLegacyFootballPublicData,
 } from "./footballPublicDataLegacy";
+import { isPublicSplitEzpzPick } from "./ezpzPublicSplitEligibility";
 import {
   readSportWorksheet,
   upsertSportRows,
@@ -713,7 +714,7 @@ export async function buildFootballPublicData(
   // qualifiers while player props are reviewed. Keep saved history for grading.
   const currentPicks = sport === "NFL"
     ? directTrendPicks
-    : mergeCurrentPicks(baseCurrentPicks, directTrendPicks, today);
+    : mergeCurrentPicks(baseCurrentPicks, directTrendPicks, today).filter(isPublicSplitEzpzPick);
   const existingByKey = new Map(history.map((row) => [String(row["Pick Key"] || pickKey(row, row.Date)), row]));
   const currentRows = currentPicks
     .map((pick: AnyPick) => historyRowFromPick(pick, today, existingByKey.get(pickKey(pick, today))))
@@ -789,6 +790,7 @@ export async function buildFootballPublicData(
 
   const aiPickRecordRows = gradedHistory
     .map(historyPickFromRow)
+    .filter((pick) => sport !== "NCAAF" || isPublicSplitEzpzPick(pick))
     .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")) || String(a.game || "").localeCompare(String(b.game || "")));
 
   const aiSelectorStatus = sport === "NFL"
@@ -801,7 +803,15 @@ export async function buildFootballPublicData(
           .filter((play: AnyPick) => isoDate(play.date || play.recordDate || play.Date || today) === today).length,
         selectedCount: enrichedCurrentPicks.length,
       }
-    : core.aiSelectorStatus;
+    : {
+        ...(core.aiSelectorStatus || {}),
+        message: enrichedCurrentPicks.length
+          ? "NCAAF EZPZ Picks: Public Betting Splits only. Plays qualify as RLM, Public Fade, or Sharp."
+          : "No NCAAF Public Betting Splits qualify as RLM, Public Fade, or Sharp right now.",
+        candidateCount: (Array.isArray(core.trendPlays) ? core.trendPlays : [])
+          .filter((play: AnyPick) => isoDate(play.date || play.recordDate || play.Date || today) === today).length,
+        selectedCount: enrichedCurrentPicks.length,
+      };
 
   return {
     ...core,
