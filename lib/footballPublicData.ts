@@ -94,9 +94,16 @@ function timestamp(value: unknown) {
   return Number.isFinite(stamp) ? stamp : 0;
 }
 
-function pickTime(pick: AnyPick) {
+function eventTime(pick: AnyPick) {
+  for (const value of [pick.gameTime, pick.lockedAt, pick.updatedAt, pick.resultUpdated]) {
+    const stamp = timestamp(value);
+    if (stamp) return stamp;
+  }
+  return 0;
+}
+
+function decisionTime(pick: AnyPick) {
   return Math.max(
-    timestamp(pick.gameTime),
     timestamp(pick.lockedAt),
     timestamp(pick.updatedAt),
     timestamp(pick.resultUpdated),
@@ -115,7 +122,7 @@ function duplicateLinePenalty(pick: AnyPick) {
 function preferPublishedPick(current: AnyPick, candidate: AnyPick) {
   const rankDiff = snapshotRank(candidate) - snapshotRank(current);
   if (rankDiff !== 0) return rankDiff > 0 ? candidate : current;
-  const timeDiff = pickTime(candidate) - pickTime(current);
+  const timeDiff = decisionTime(candidate) - decisionTime(current);
   if (timeDiff !== 0) return timeDiff > 0 ? candidate : current;
   const penaltyDiff = duplicateLinePenalty(candidate) - duplicateLinePenalty(current);
   if (penaltyDiff !== 0) return penaltyDiff < 0 ? candidate : current;
@@ -134,7 +141,7 @@ function authoritativeDirectHistory(rows: AnyPick[]) {
   return [...grouped.values()].sort((a, b) => {
     const byDate = isoDate(b.date || b.Date).localeCompare(isoDate(a.date || a.Date));
     if (byDate) return byDate;
-    return pickTime(b) - pickTime(a);
+    return eventTime(b) - eventTime(a);
   });
 }
 
