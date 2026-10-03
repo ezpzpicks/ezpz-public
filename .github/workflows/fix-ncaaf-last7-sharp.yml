@@ -1,0 +1,36 @@
+name: One-time NCAAF Last 7 Sharp threshold fix
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/fix-ncaaf-last7-sharp.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Patch stale NCAAF historical Sharp threshold
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('app/FootballBoard.tsx')
+          s = p.read_text()
+          old = '  const sharpMin = sport === "NFL" ? 25 : 40;'
+          new = '  const sharpMin = 25;'
+          if old not in s:
+              raise SystemExit('Expected stale Sharp threshold was not found')
+          p.write_text(s.replace(old, new, 1))
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/FootballBoard.tsx
+          git commit -m 'Use 25% Sharp threshold in NCAAF Last 7 records'
+          git push origin HEAD:main
