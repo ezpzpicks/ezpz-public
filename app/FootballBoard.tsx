@@ -339,6 +339,7 @@ function pickFormMeta(value: unknown) {
 
 
 type DirectTrendSignal = "RLM" | "Public Fade" | "Sharp";
+type DirectTrendBetType = "Favorite" | "Underdog" | "Over" | "Under" | "";
 
 function matchupTeams(game: unknown) {
   const raw = String(game || "").trim();
@@ -358,6 +359,45 @@ function directTrendTypes(pick: EzpzPick): DirectTrendSignal[] {
   if (key.includes("public fade")) types.push("Public Fade");
   if (key.includes("sharp")) types.push("Sharp");
   return types;
+}
+
+function directTrendLine(value: unknown) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+  const match = raw.match(/[+-]?\d+(?:\.\d+)?\s*$/);
+  const parsed = Number(match?.[0] ?? raw);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function directTrendBetTypeForPick(pick: EzpzPick): DirectTrendBetType {
+  if (pick.market === "Total") {
+    const key = textKey(pick.selection);
+    if (key.startsWith("under")) return "Under";
+    if (key.startsWith("over")) return "Over";
+    return "";
+  }
+  if (pick.market === "Spread") {
+    const line = directTrendLine(pick.selection);
+    if (line == null || Math.abs(line) < 1e-9) return "";
+    return line < 0 ? "Favorite" : "Underdog";
+  }
+  return "";
+}
+
+function directTrendBetTypeForRow(row: SheetRow): DirectTrendBetType {
+  const market = textKey(row.Market);
+  if (market === "total") {
+    const key = textKey(row.Side || row.Selection || row["Public Split Selection"]);
+    if (key.startsWith("under")) return "Under";
+    if (key.startsWith("over")) return "Over";
+    return "";
+  }
+  if (market === "spread") {
+    const line = directTrendLine(row["Public Split Line"] || row.Line || row.Selection);
+    if (line == null || Math.abs(line) < 1e-9) return "";
+    return line < 0 ? "Favorite" : "Underdog";
+  }
+  return "";
 }
 
 function historicalTrendSelectionKey(row: SheetRow) {
@@ -414,7 +454,7 @@ function directTrendLabels(row: SheetRow, group: SheetRow[], sport: Sport): Dire
   return labels;
 }
 
-function directTrendRecord(rows: SheetRow[], sport: Sport, signal: DirectTrendSignal, beforeDate = "") {
+function directTrendRecord(rows: SheetRow[], sport: Sport, signal: DirectTrendSignal, betType: DirectTrendBetType, beforeDate = "") {
   const grouped = new Map<string, SheetRow[]>();
   for (const row of rows || []) {
     if (!resultCode(row.Result || row.Status)) continue;
@@ -432,7 +472,10 @@ function directTrendRecord(rows: SheetRow[], sport: Sport, signal: DirectTrendSi
     });
     const sides = [...unique.values()];
     sides.forEach((row) => {
-      if (directTrendLabels(row, sides, sport).includes(signal)) qualified.push(row);
+      if (
+      directTrendLabels(row, sides, sport).includes(signal) &&
+      (!betType || directTrendBetTypeForRow(row) === betType)
+    ) qualified.push(row);
     });
   });
 
@@ -486,10 +529,9 @@ function directTrendRecord(rows: SheetRow[], sport: Sport, signal: DirectTrendSi
   };
 }
 
-function trendRecordTitle(signal: DirectTrendSignal, sport: Sport) {
-  if (signal === "Sharp") return `${sport} Sharp ${sport === "NFL" ? "25%+" : "40%+"} Record`;
-  if (signal === "Public Fade") return sport === "NFL" ? "NFL Public Fade 80%+ Record" : "CFB Public Fade 75% / 55-gap Record";
-  return `${sport} RLM Record`;
+function trendRecordTitle(signal: DirectTrendSignal, sport: Sport, betType: DirectTrendBetType) {
+  const exactType = [signal, betType].filter(Boolean).join(" ");
+  return exactType ? `${exactType} Record` : `${sport} ${signal} Record`;
 }
 
 function trendSignalDetail(pick: EzpzPick, signal: DirectTrendSignal) {
@@ -541,6 +583,7 @@ function HistoryPickCard({ pick, sport, viewingToday, data }: { pick: EzpzPick; 
   const formRecord = String(pick.record || "").trim();
   const trendTypes = directTrendTypes(pick);
   const primaryTrend = trendTypes[0];
+  const directBetType = directTrendBetTypeForPick(pick);
   const matchup = matchupTeams(pick.game);
   const gameTimeLabel = ezpzGameTimeInfo(pick.gameTime).label;
 
@@ -549,6 +592,7 @@ function HistoryPickCard({ pick, sport, viewingToday, data }: { pick: EzpzPick; 
       data.trendRecordRows || [],
       sport,
       primaryTrend,
+      directBetType,
       isoDate(pick.date) || isoDate(data.today),
     );
     return (
@@ -580,7 +624,7 @@ function HistoryPickCard({ pick, sport, viewingToday, data }: { pick: EzpzPick; 
         </div>
 
         <div className="footballHistoryTrendRecordInline">
-          <span className="footballHistoryTrendRecordLabel">{trendRecordTitle(primaryTrend, sport)} • Last 7</span>
+          <span className="footballHistoryTrendRecordLabel">{trendRecordTitle(primaryTrend, sport, directBetType)} • Last 7</span>
           <strong>L7 {trendRecord.record}</strong>
           {trendRecord.totalBets ? <span>{trendRecord.units >= 0 ? "+" : ""}{trendRecord.units.toFixed(2)}u</span> : null}
           {trendRecord.totalBets ? <span>ROI {trendRecord.roi >= 0 ? "+" : ""}{trendRecord.roi.toFixed(1)}%</span> : null}

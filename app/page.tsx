@@ -5180,23 +5180,46 @@ function aiTrendNetRoiSummary(play: TrendPlay, trendPlays: TrendPlay[]) {
   };
 }
 
-function aiTrendRecordKey(pick: AiPick) {
+type AiDirectTrendSignal = "Public Fade" | "RLM" | "Sharp";
+
+function aiDirectTrendSignals(pick: AiPick): AiDirectTrendSignal[] {
   const tier = normalizeType(pick.trendTier || pick.tier || "");
-  const signals = ["PUBLIC FADE", "RLM", "SHARP"].filter((signal) =>
-    signal === "RLM" ? tier.includes("RLM") : tier.includes(signal),
-  );
-  const signalKey = signals.length ? signals.join("+") : tier || "SPLIT";
+  const signals: AiDirectTrendSignal[] = [];
+  if (tier.includes("PUBLIC FADE")) signals.push("Public Fade");
+  if (tier.includes("RLM")) signals.push("RLM");
+  if (tier.includes("SHARP")) signals.push("Sharp");
+  return signals;
+}
+
+function aiTrendBetType(pick: AiPick) {
   const market = normalizeType(pick.market || "");
   const selection = normalizeType(`${pick.selection || ""} ${pick.play || ""}`);
-  const direction =
-    market === "TOTAL"
-      ? selection.includes("UNDER")
-        ? "UNDER"
-        : selection.includes("OVER")
-          ? "OVER"
-          : ""
-      : "";
-  return [signalKey, market, direction].filter(Boolean).join("|");
+  if (market === "TOTAL") {
+    if (selection.includes("UNDER")) return "Under";
+    if (selection.includes("OVER")) return "Over";
+    return "";
+  }
+  if (market === "MONEYLINE") {
+    const odds = parseAmericanOdds(pick.odds);
+    if (odds != null && odds < 0) return "Favorite";
+    if (odds != null && odds > 0) return "Underdog";
+  }
+  return "";
+}
+
+function aiTrendRecordKey(pick: AiPick, signal?: AiDirectTrendSignal) {
+  const tier = normalizeType(pick.trendTier || pick.tier || "");
+  const signals = ["PUBLIC FADE", "RLM", "SHARP"].filter((candidate) =>
+    candidate === "RLM" ? tier.includes("RLM") : tier.includes(candidate),
+  );
+  const signalKey = signal
+    ? signal.toUpperCase()
+    : signals.length
+      ? signals.join("+")
+      : tier || "SPLIT";
+  const market = normalizeType(pick.market || "");
+  const betType = aiTrendBetType(pick).toUpperCase();
+  return [signalKey, market, betType].filter(Boolean).join("|");
 }
 
 function aiTrendLastSevenRecord(
@@ -5204,7 +5227,8 @@ function aiTrendLastSevenRecord(
   rows: AiPick[] | undefined,
   referenceDate: string,
 ) {
-  const key = aiTrendRecordKey(pick);
+  const directSignal = aiDirectTrendSignals(pick)[0];
+  const key = aiTrendRecordKey(pick, directSignal);
   const beforeDate = normalizedDateKey(pick.date || referenceDate);
   const completed = (rows || [])
     .map((row, index) => ({
@@ -5217,7 +5241,8 @@ function aiTrendLastSevenRecord(
         date &&
         (!beforeDate || date < beforeDate) &&
         row.result &&
-        aiTrendRecordKey(row) === key,
+        (!directSignal || aiDirectTrendSignals(row).includes(directSignal)) &&
+        aiTrendRecordKey(row, directSignal) === key,
       ),
     )
     .sort((a, b) => b.date.localeCompare(a.date) || b.index - a.index)
@@ -5231,7 +5256,10 @@ function aiTrendLastSevenRecord(
     else if (row.result === "L") losses += 1;
     else if (row.result === "P") pushes += 1;
   });
-  return `${wins}-${losses}-${pushes}`;
+  const record = `${wins}-${losses}-${pushes}`;
+  if (!directSignal) return record;
+  const exactType = [directSignal, aiTrendBetType(pick)].filter(Boolean).join(" ");
+  return exactType ? `${exactType} • ${record}` : record;
 }
 
 function AiPickSelectorCard({
