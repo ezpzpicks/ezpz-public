@@ -1,0 +1,118 @@
+name: One-time persisted football EZPZ display fix
+
+on:
+  push:
+    paths:
+      - ".github/workflows/ezpz-football-persisted-snapshot-display.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Overlay fresh persisted football EZPZ picks on public page
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          page_path = Path('app/page.tsx')
+          page = page_path.read_text()
+          old = '''        const json = (await response.json()) as ApiData;
+        if (!response.ok || !json.ok) {
+          throw new Error(json.error || "Failed to load EZPZ data");
+        }
+        setData(json);
+        setError("");'''
+          new = '''        let json = (await response.json()) as ApiData;
+        if (!response.ok || !json.ok) {
+          throw new Error(json.error || "Failed to load EZPZ data");
+        }
+
+        // Football has a lightweight, persisted EZPZ snapshot written by the
+        // scheduled tracker. Prefer it for the visible EZPZ tab when fresh so
+        // a qualified FINAL_PREGAME pick cannot disappear just because the
+        // heavier public-data response is on a different refresh cycle.
+        if (activeSport === "NFL" || activeSport === "NCAAF") {
+          try {
+            const snapshotResponse = await fetch(`/api/ezpz-picks?sport=${activeSport}`, {
+              cache: "no-store",
+              signal: controller.signal,
+            });
+            if (snapshotResponse.ok) {
+              const snapshot = (await snapshotResponse.json()) as {
+                ok?: boolean;
+                picks?: ApiData["aiPicks"];
+              };
+              if (snapshot.ok && Array.isArray(snapshot.picks)) {
+                json = { ...json, aiPicks: snapshot.picks };
+              }
+            }
+          } catch (snapshotError) {
+            if (!(snapshotError instanceof DOMException && snapshotError.name === "AbortError")) {
+              console.warn("Football EZPZ snapshot overlay failed; using public-data picks", snapshotError);
+            }
+          }
+        }
+
+        setData(json);
+        setError("");'''
+          if page.count(old) != 1:
+            raise SystemExit(f'Expected one public-data load block, found {page.count(old)}')
+          page_path.write_text(page.replace(old, new, 1))
+
+          route_path = Path('app/api/ezpz-picks/route.ts')
+          route = route_path.read_text()
+          old_fields = '''    source: String(firstValue(pick.source, pick.Source)),
+    bestPlayType: String(firstValue(pick.bestPlayType, pick["Best Play Type"])),
+    grade: String(firstValue(pick.grade, pick.playGrade, pick.bestPlayGrade, pick.Grade)),
+    tier: String(firstValue(pick.trendTier, pick.v2Tier, pick.tier, pick.Tier)),
+    label: String(firstValue(pick.snapshotStatus, pick.status, pick.Status)),'''
+          new_fields = '''    source: String(firstValue(pick.source, pick.Source)),
+    bestPlayType: String(firstValue(pick.bestPlayType, pick["Best Play Type"])),
+    grade: String(firstValue(pick.grade, pick.playGrade, pick.bestPlayGrade, pick.Grade)),
+    tier: String(firstValue(pick.trendTier, pick.v2Tier, pick.tier, pick.Tier)),
+    qualification: String(firstValue(pick.qualification, pick.Qualification)),
+    score: firstValue(pick.score, pick.Score),
+    betsPct: firstValue(pick.betsPct, pick["Public Bets %"]),
+    moneyPct: firstValue(pick.moneyPct, pick["Public Money %"]),
+    gapPct: firstValue(pick.gapPct, pick["Public Gap %"]),
+    publicSideBetsPct: firstValue(pick.publicSideBetsPct),
+    publicSideMoneyPct: firstValue(pick.publicSideMoneyPct),
+    publicMovePct: firstValue(pick.publicMovePct),
+    lineMoveValue: firstValue(pick.lineMoveValue),
+    gameKey: String(firstValue(pick.gameKey, pick["Game Key"])),
+    lockedAt: String(firstValue(pick.lockedAt, pick["Locked At"])),
+    updatedAt: String(firstValue(pick.updatedAt, pick["Updated At"])),
+    label: String(firstValue(pick.snapshotStatus, pick.status, pick.Status)),'''
+          if route.count(old_fields) != 1:
+            raise SystemExit(f'Expected one EZPZ normalize field block, found {route.count(old_fields)}')
+          route_path.write_text(route.replace(old_fields, new_fields, 1))
+          PY
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript check
+        run: npx tsc --noEmit
+
+      - name: Verify fix
+        shell: bash
+        run: |
+          grep -q 'snapshotResponse = await fetch(`/api/ezpz-picks?sport=${activeSport}`' app/page.tsx
+          grep -q 'qualification: String(firstValue(pick.qualification' app/api/ezpz-picks/route.ts
+
+      - name: Commit fix
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/page.tsx app/api/ezpz-picks/route.ts
+          git commit -m "Keep football EZPZ tab aligned with persisted picks"
+          git push origin HEAD:main
