@@ -156,3 +156,5 @@ jobs:
           git add lib/footballWeeklyMarket.ts
           git commit -m "Avoid NFL cron historical snapshot rescans"
           git push origin HEAD:main
+
+# trigger after workflow exists on the default branch
