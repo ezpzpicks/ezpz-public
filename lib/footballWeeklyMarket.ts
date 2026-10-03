@@ -82,6 +82,7 @@ export const MARKET_HISTORY_HEADERS = [
 type Split = {
   date: string;
   eventTime: string;
+  sourceKickoff?: string;
   game: string;
   awayTeam: string;
   homeTeam: string;
@@ -134,6 +135,7 @@ export type WeeklyTrendPlay = {
   game: string;
   gameKey: string;
   gameTime: string;
+  sourceKickoff?: string;
   awayTeam: string;
   homeTeam: string;
   market: WeeklyFootballMarket;
@@ -714,6 +716,9 @@ async function loadPostedSplits(
       .filter((candidate) => candidate.date)
       .sort((left, right) => {
         if (sport === "NCAAF") {
+          const leftSourceDate = left.date === source.date;
+          const rightSourceDate = right.date === source.date;
+          if (leftSourceDate !== rightSourceDate) return leftSourceDate ? -1 : 1;
           const leftReliable = Number.isFinite(ncaafKickoffEpoch(left.date, rowEventTime(left.row)));
           const rightReliable = Number.isFinite(ncaafKickoffEpoch(right.date, rowEventTime(right.row)));
           if (leftReliable !== rightReliable) return rightReliable ? 1 : -1;
@@ -727,9 +732,16 @@ async function loadPostedSplits(
     const homeTeam = String(matched["Home Team"] || source.homeTeam).trim();
     const matchedDate = canonicalScheduleDate(matched);
     const matchedEventTime = rowEventTime(matched);
+    // The parser has already converted this game's source timestamp to ET.
+    // Preserve its provenance so read/lock paths do not discard it when the
+    // builder still has a midnight placeholder or ESPN uses a different alias.
+    const sourceClock = source.eventTime.match(/^([01]\d|2[0-3]):([0-5]\d)$/);
+    const sourceKickoff = sport === "NCAAF" && source.date === matchedDate && sourceClock
+      ? new Date(ncaafWallClockEpoch(matchedDate, Number(sourceClock[1]), Number(sourceClock[2]))).toISOString()
+      : undefined;
     const authoritativeEventTime = sport === "NCAAF"
       ? ncaafAuthoritativeGameTime(
-          { date: matchedDate, gameTime: matchedEventTime, awayTeam, homeTeam },
+          { date: matchedDate, gameTime: matchedEventTime, sourceKickoff, awayTeam, homeTeam },
           kickoffAuthorityRows,
         )
       : matchedEventTime;
@@ -751,6 +763,7 @@ async function loadPostedSplits(
     mapped.push({
       date: matchedDate,
       eventTime: authoritativeEventTime,
+      ...(sourceKickoff ? { sourceKickoff } : {}),
       game: `${awayTeam} @ ${homeTeam}`,
       awayTeam,
       homeTeam,
@@ -1292,9 +1305,24 @@ function ncaafWallClockEpoch(date: string, hour: number, minute: number) {
   return epoch;
 }
 
-function ncaafKickoffEpoch(date: string, eventTime: string) {
+function verifiedNcaafSourceKickoff(date: string, sourceKickoff?: string) {
+  const raw = String(sourceKickoff || "");
+  if (!/^\d{4}-\d{2}-\d{2}T.*Z$/.test(raw)) return "";
+  const instant = new Date(raw);
+  if (!Number.isFinite(instant.getTime())) return "";
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(instant);
+  const get = (type: string) => parts.find((part) => part.type === type)?.value || "";
+  return `${get("year")}-${get("month")}-${get("day")}` === date ? raw : "";
+}
+
+function ncaafKickoffEpoch(date: string, eventTime: string, sourceKickoff?: string) {
   const raw = String(eventTime || "").trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return Number.NaN;
+  // A real source midnight (for example Hawaii) is distinct from an unknown
+  // builder time. Never move a verified source timestamp to another date.
+  if (raw && raw === verifiedNcaafSourceKickoff(date, sourceKickoff)) return Date.parse(raw);
 
   // Full source timestamps sometimes carry the prior slate's calendar date.
   // Keep the ET kickoff clock, but bind it to the canonical stored game date so
@@ -1326,15 +1354,17 @@ function ncaafKickoffEpoch(date: string, eventTime: string) {
   if (hour === 0 && minute === 0) return Number.NaN;
   return ncaafWallClockEpoch(date, hour, minute);
 }
-function ncaafMinutesUntilEvent(date: string, eventTime: string) {
-  const kickoff = ncaafKickoffEpoch(date, eventTime);
+function ncaafMinutesUntilEvent(date: string, eventTime: string, sourceKickoff?: string) {
+  const kickoff = ncaafKickoffEpoch(date, eventTime, sourceKickoff);
   return Number.isFinite(kickoff) ? (kickoff - Date.now()) / 60_000 : null;
 }
 
 function ncaafAuthoritativeGameTime(
-  play: Pick<WeeklyTrendPlay, "date" | "gameTime" | "awayTeam" | "homeTeam">,
+  play: Pick<WeeklyTrendPlay, "date" | "gameTime" | "sourceKickoff" | "awayTeam" | "homeTeam">,
   rows: SheetRow[],
 ) {
+  const sourceKickoff = verifiedNcaafSourceKickoff(play.date, play.sourceKickoff);
+  if (sourceKickoff) return sourceKickoff;
   const sameDate = rows.filter((row) => canonicalScheduleDate(row) === play.date);
   const strictMatches = sameDate.filter((row) =>
     collegeCanonicalTeamMatch(row["Away Team"], play.awayTeam) &&
@@ -1417,7 +1447,7 @@ async function loadNcaafLiveKickoffAuthorityRows(): Promise<SheetRow[]> {
 }
 
 function ncaafDisplayGameTime(
-  play: Pick<WeeklyTrendPlay, "date" | "gameTime" | "awayTeam" | "homeTeam">,
+  play: Pick<WeeklyTrendPlay, "date" | "gameTime" | "sourceKickoff" | "awayTeam" | "homeTeam">,
   authorityRows: SheetRow[],
   fallbackRows: SheetRow[] = [],
 ) {
@@ -1450,7 +1480,7 @@ function ncaafHistoryForPlay(play: WeeklyTrendPlay, rows: SheetRow[]) {
 }
 function resolveNcaafSnapshot(play: WeeklyTrendPlay, rows: SheetRow[], history: HistoryRow[]): WeeklyTrendPlay {
   if (play.date < SCORES_AND_ODDS_CUTOVER_DATE) return play;
-  const kickoff = ncaafKickoffEpoch(play.date, play.gameTime);
+  const kickoff = ncaafKickoffEpoch(play.date, play.gameTime, play.sourceKickoff);
   if (!Number.isFinite(kickoff)) {
     if (play.date < todayET()) {
       return play.snapshotStatus === "FINAL_PREGAME"
@@ -1743,6 +1773,7 @@ function buildPlay(split: Split, existing: SheetRow | undefined, history: Histor
     game: split.game,
     gameKey: gameKey(split),
     gameTime: split.eventTime,
+    ...(split.sourceKickoff ? { sourceKickoff: split.sourceKickoff } : {}),
     awayTeam: split.awayTeam,
     homeTeam: split.homeTeam,
     market: split.market,
@@ -2333,7 +2364,7 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
 
   for (const split of activeSourceSplits) {
     if (sport === "NCAAF") {
-      const minutes = ncaafMinutesUntilEvent(split.date, split.eventTime);
+      const minutes = ncaafMinutesUntilEvent(split.date, split.eventTime, split.sourceKickoff);
       // T-15 is the target final snapshot, with an accepted ±5-minute
       // window. Keep collecting through T-10 so the closest 10-20 minute
       // pregame observation can be selected as final.
@@ -2387,6 +2418,7 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
             date: split.date,
             gameKey: gameKey(split),
             gameTime: split.eventTime,
+            sourceKickoff: split.sourceKickoff,
             game: split.game,
             awayTeam: split.awayTeam,
             homeTeam: split.homeTeam,

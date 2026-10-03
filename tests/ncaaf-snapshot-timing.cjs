@@ -7,7 +7,7 @@ const ts = require('typescript');
 
 // Exercise production parsing, recovery, read and scheduled-write paths with
 // an in-memory store and clock. No test contacts a feed or production database.
-function harness(now = '2026-09-26T01:09:00Z') {
+function harness(now = '2026-09-26T01:09:00Z', useSource = false) {
   let currentTime = Date.parse(now);
   const tables = {};
   const writes = [];
@@ -35,8 +35,8 @@ function harness(now = '2026-09-26T01:09:00Z') {
     },
   };
   const source = fs.readFileSync(path.join(__dirname, '../lib/footballWeeklyMarket.ts'), 'utf8') + `
-    export const timing = { ncaafKickoffEpoch, ncaafMinutesUntilEvent, resolveNcaafSnapshot, ncaafHistoryForPlay, weeklyRow };
-    loadPostedSplits = async () => ({ splits: testFeed(), errors: [] } as any);
+    export const timing = { ncaafKickoffEpoch, ncaafMinutesUntilEvent, resolveNcaafSnapshot, ncaafHistoryForPlay, weeklyRow, loadPostedSplits };
+    ${useSource ? '' : 'loadPostedSplits = async () => ({ splits: testFeed(), errors: [] } as any);'}
   `;
   const code = ts.transpileModule(source, { compilerOptions: {
     target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS,
@@ -44,7 +44,11 @@ function harness(now = '2026-09-26T01:09:00Z') {
   const exports = {};
   vm.runInNewContext(code, { exports, Date: Clock, Intl, console, process,
     testFeed: () => feed,
-    require: id => id === './sportSheets' ? storage : { SCORES_AND_ODDS_SOURCE: 'ScoresAndOdds' },
+    require: id => id === './sportSheets' ? storage : {
+      SCORES_AND_ODDS_SOURCE: 'ScoresAndOdds',
+      loadScoresAndOddsConsensus: async () => ({ splits: feed }),
+      assessScoresAndOddsMarketCoverage: () => ({ ok: true, receivedGames: 1, expectedGames: 1, missingGames: [], incompleteGames: [] }),
+    },
   });
   return { ...exports, tables, writes, setFeed: rows => { feed = rows; }, setTime: time => { currentTime = Date.parse(time); } };
 }
@@ -446,4 +450,47 @@ test('NCAAF read path collapses short-name and full-name duplicates onto the ver
       '09/26/2026, 12:44:00 PM EDT',
     ],
   );
+});
+
+test('source kickoff survives real mapping, persistence, fast reads and lock when schedule time is unknown', async () => {
+  const h = harness('2026-10-03T16:44:00Z', true);
+  const p = { ...play(''), date: '2026-10-03', gameKey: '2026-10-03|army|temple',
+    snapshotStatus: 'LIVE', frozenAt: undefined, updatedAt: '10/03/2026, 12:40:00 PM EDT' };
+  seed(h, p, []);
+  h.tables.schedule[0]['Game Time'] = '00:00';
+  h.setFeed([{ ...p, eventTime: '13:00', sourceUrl: 'https://www.scoresandodds.com/ncaaf/consensus-picks' }]);
+  await h.syncPostedFootballMarkets('NCAAF');
+  let stored = JSON.parse(h.tables.weekly_market_trends[0]['Details JSON']);
+  assert.equal(stored.sourceKickoff, '2026-10-03T17:00:00.000Z');
+  assert.equal(stored.gameTime, stored.sourceKickoff);
+  const fast = await h.readWeeklyFootballMarket('NCAAF', { hydrateHistory: false });
+  assert.equal(fast.trendPlays[0].gameTime, stored.sourceKickoff);
+  h.setTime('2026-10-03T16:51:00Z');
+  await h.syncPostedFootballMarkets('NCAAF');
+  stored = JSON.parse(h.tables.weekly_market_trends[0]['Details JSON']);
+  assert.equal(stored.snapshotStatus, 'FINAL_PREGAME');
+  assert.equal(stored.frozenAt, '10/03/2026, 12:44:00 PM EDT');
+  assert.equal(h.tables.odds_snapshot.length, 1);
+  // After the source removes the game, the verified clock still controls reads.
+  h.setFeed([]);
+  const read = await h.readWeeklyFootballMarket('NCAAF');
+  assert.equal(read.trendPlays[0].snapshotStatus, 'FINAL_PREGAME');
+  assert.equal(read.trendPlays[0].gameTime, stored.sourceKickoff);
+});
+
+test('source date guard preserves canonical fallback and verified midnight differs from a placeholder', async () => {
+  const h = harness('2026-10-03T16:44:00Z', true);
+  const p = { ...play(''), date: '2026-10-03', gameKey: '2026-10-03|army|temple' };
+  seed(h, p, []);
+  h.setFeed([{ ...p, date: '2026-10-04', eventTime: '13:00' }]);
+  const mapped = await h.timing.loadPostedSplits('NCAAF', h.tables.schedule);
+  assert.equal(mapped.splits[0].date, p.date);
+  assert.equal(mapped.splits[0].eventTime, '');
+  assert.equal(mapped.splits[0].sourceKickoff, undefined);
+  const midnight = '2026-10-04T04:00:00.000Z';
+  assert.equal(h.timing.ncaafKickoffEpoch('2026-10-04', midnight, midnight), Date.parse(midnight));
+  assert.ok(Number.isNaN(h.timing.ncaafKickoffEpoch('2026-10-04', midnight)));
+  h.tables.weekly_market_trends = [h.timing.weeklyRow({ ...p, sourceKickoff: '2026-10-02T17:00:00.000Z' })];
+  const read = await h.readWeeklyFootballMarket('NCAAF', { hydrateHistory: false });
+  assert.equal(read.trendPlays[0].gameTime, '');
 });
