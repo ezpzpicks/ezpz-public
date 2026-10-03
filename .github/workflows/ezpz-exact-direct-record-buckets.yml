@@ -1,0 +1,278 @@
+name: One-time exact EZPZ direct-signal record buckets
+
+on:
+  push:
+    paths:
+      - ".github/workflows/ezpz-exact-direct-record-buckets.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Use exact signal and bet-type records on EZPZ cards
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          # NFL + NCAAF EZPZ cards
+          football_path = Path('app/FootballBoard.tsx')
+          football = football_path.read_text()
+
+          signal_type = 'type DirectTrendSignal = "RLM" | "Public Fade" | "Sharp";\n'
+          if signal_type not in football:
+            raise SystemExit('Football direct trend signal type marker not found')
+          football = football.replace(
+            signal_type,
+            signal_type + 'type DirectTrendBetType = "Favorite" | "Underdog" | "Over" | "Under" | "";\n',
+            1,
+          )
+
+          history_marker = 'function historicalTrendSelectionKey(row: SheetRow) {'
+          if history_marker not in football:
+            raise SystemExit('Football historical selection marker not found')
+          helpers = '''function directTrendLine(value: unknown) {
+            const raw = String(value ?? "").trim();
+            if (!raw) return null;
+            const match = raw.match(/[+-]?\\d+(?:\\.\\d+)?\\s*$/);
+            const parsed = Number(match?.[0] ?? raw);
+            return Number.isFinite(parsed) ? parsed : null;
+          }
+
+          function directTrendBetTypeForPick(pick: EzpzPick): DirectTrendBetType {
+            if (pick.market === "Total") {
+              const key = textKey(pick.selection);
+              if (key.startsWith("under")) return "Under";
+              if (key.startsWith("over")) return "Over";
+              return "";
+            }
+            if (pick.market === "Spread") {
+              const directLine = Number(pick.line);
+              const line = Number.isFinite(directLine) ? directLine : directTrendLine(pick.selection);
+              if (line == null || Math.abs(line) < 1e-9) return "";
+              return line < 0 ? "Favorite" : "Underdog";
+            }
+            return "";
+          }
+
+          function directTrendBetTypeForRow(row: SheetRow): DirectTrendBetType {
+            const market = textKey(row.Market);
+            if (market === "total") {
+              const key = textKey(row.Side || row.Selection || row["Public Split Selection"]);
+              if (key.startsWith("under")) return "Under";
+              if (key.startsWith("over")) return "Over";
+              return "";
+            }
+            if (market === "spread") {
+              const line = directTrendLine(row["Public Split Line"] || row.Line || row.Selection);
+              if (line == null || Math.abs(line) < 1e-9) return "";
+              return line < 0 ? "Favorite" : "Underdog";
+            }
+            return "";
+          }
+
+          '''
+          football = football.replace(history_marker, helpers + history_marker, 1)
+
+          old_sig = 'function directTrendRecord(rows: SheetRow[], sport: Sport, signal: DirectTrendSignal, beforeDate = "") {'
+          new_sig = 'function directTrendRecord(rows: SheetRow[], sport: Sport, signal: DirectTrendSignal, betType: DirectTrendBetType, beforeDate = "") {'
+          if football.count(old_sig) != 1:
+            raise SystemExit(f'Expected one football directTrendRecord signature, found {football.count(old_sig)}')
+          football = football.replace(old_sig, new_sig, 1)
+
+          old_qualify = '      if (directTrendLabels(row, sides, sport).includes(signal)) qualified.push(row);'
+          new_qualify = '''      if (
+                directTrendLabels(row, sides, sport).includes(signal) &&
+                (!betType || directTrendBetTypeForRow(row) === betType)
+              ) qualified.push(row);'''
+          if football.count(old_qualify) != 1:
+            raise SystemExit(f'Expected one football direct record qualifier, found {football.count(old_qualify)}')
+          football = football.replace(old_qualify, new_qualify, 1)
+
+          old_title = '''function trendRecordTitle(signal: DirectTrendSignal, sport: Sport) {
+            if (signal === "Sharp") return `${sport} Sharp ${sport === "NFL" ? "25%+" : "40%+"} Record`;
+            if (signal === "Public Fade") return sport === "NFL" ? "NFL Public Fade 80%+ Record" : "CFB Public Fade 75% / 55-gap Record";
+            return `${sport} RLM Record`;
+          }'''
+          new_title = '''function trendRecordTitle(signal: DirectTrendSignal, sport: Sport, betType: DirectTrendBetType) {
+            const exactType = [signal, betType].filter(Boolean).join(" ");
+            return exactType ? `${exactType} Record` : `${sport} ${signal} Record`;
+          }'''
+          if football.count(old_title) != 1:
+            raise SystemExit(f'Expected one football trendRecordTitle helper, found {football.count(old_title)}')
+          football = football.replace(old_title, new_title, 1)
+
+          old_primary = '''  const trendTypes = directTrendTypes(pick);
+            const primaryTrend = trendTypes[0];
+            const matchup = matchupTeams(pick.game);'''
+          new_primary = '''  const trendTypes = directTrendTypes(pick);
+            const primaryTrend = trendTypes[0];
+            const directBetType = directTrendBetTypeForPick(pick);
+            const matchup = matchupTeams(pick.game);'''
+          if football.count(old_primary) != 1:
+            raise SystemExit(f'Expected one football trend primary block, found {football.count(old_primary)}')
+          football = football.replace(old_primary, new_primary, 1)
+
+          old_call = '''    const trendRecord = directTrendRecord(
+                data.trendRecordRows || [],
+                sport,
+                primaryTrend,
+                isoDate(pick.date) || isoDate(data.today),
+              );'''
+          new_call = '''    const trendRecord = directTrendRecord(
+                data.trendRecordRows || [],
+                sport,
+                primaryTrend,
+                directBetType,
+                isoDate(pick.date) || isoDate(data.today),
+              );'''
+          if football.count(old_call) != 1:
+            raise SystemExit(f'Expected one football directTrendRecord call, found {football.count(old_call)}')
+          football = football.replace(old_call, new_call, 1)
+
+          old_title_use = '{trendRecordTitle(primaryTrend, sport)} • Last 7'
+          new_title_use = '{trendRecordTitle(primaryTrend, sport, directBetType)} • Last 7'
+          if football.count(old_title_use) != 1:
+            raise SystemExit(f'Expected one football record title use, found {football.count(old_title_use)}')
+          football = football.replace(old_title_use, new_title_use, 1)
+
+          football_path.write_text(football)
+
+          # MLB EZPZ cards
+          mlb_path = Path('app/page.tsx')
+          mlb = mlb_path.read_text()
+
+          old_key_fn = '''function aiTrendRecordKey(pick: AiPick) {
+            const tier = normalizeType(pick.trendTier || pick.tier || "");
+            const signals = ["PUBLIC FADE", "RLM", "SHARP"].filter((signal) =>
+              signal === "RLM" ? tier.includes("RLM") : tier.includes(signal),
+            );
+            const signalKey = signals.length ? signals.join("+") : tier || "SPLIT";
+            const market = normalizeType(pick.market || "");
+            const selection = normalizeType(`${pick.selection || ""} ${pick.play || ""}`);
+            const direction =
+              market === "TOTAL"
+                ? selection.includes("UNDER")
+                  ? "UNDER"
+                  : selection.includes("OVER")
+                    ? "OVER"
+                    : ""
+                : "";
+            return [signalKey, market, direction].filter(Boolean).join("|");
+          }'''
+          new_key_fn = '''type AiDirectTrendSignal = "Public Fade" | "RLM" | "Sharp";
+
+          function aiDirectTrendSignals(pick: AiPick): AiDirectTrendSignal[] {
+            const tier = normalizeType(pick.trendTier || pick.tier || "");
+            const signals: AiDirectTrendSignal[] = [];
+            if (tier.includes("PUBLIC FADE")) signals.push("Public Fade");
+            if (tier.includes("RLM")) signals.push("RLM");
+            if (tier.includes("SHARP")) signals.push("Sharp");
+            return signals;
+          }
+
+          function aiTrendBetType(pick: AiPick) {
+            const market = normalizeType(pick.market || "");
+            const selection = normalizeType(`${pick.selection || ""} ${pick.play || ""}`);
+            if (market === "TOTAL") {
+              if (selection.includes("UNDER")) return "Under";
+              if (selection.includes("OVER")) return "Over";
+              return "";
+            }
+            if (market === "MONEYLINE") {
+              const odds = parseAmericanOdds(pick.odds);
+              if (odds < 0) return "Favorite";
+              if (odds > 0) return "Underdog";
+            }
+            return "";
+          }
+
+          function aiTrendRecordKey(pick: AiPick, signal?: AiDirectTrendSignal) {
+            const tier = normalizeType(pick.trendTier || pick.tier || "");
+            const signals = ["PUBLIC FADE", "RLM", "SHARP"].filter((candidate) =>
+              candidate === "RLM" ? tier.includes("RLM") : tier.includes(candidate),
+            );
+            const signalKey = signal
+              ? signal.toUpperCase()
+              : signals.length
+                ? signals.join("+")
+                : tier || "SPLIT";
+            const market = normalizeType(pick.market || "");
+            const betType = aiTrendBetType(pick).toUpperCase();
+            return [signalKey, market, betType].filter(Boolean).join("|");
+          }'''
+          if mlb.count(old_key_fn) != 1:
+            raise SystemExit(f'Expected one MLB aiTrendRecordKey helper, found {mlb.count(old_key_fn)}')
+          mlb = mlb.replace(old_key_fn, new_key_fn, 1)
+
+          old_last7_head = '''  const key = aiTrendRecordKey(pick);
+            const beforeDate = normalizedDateKey(pick.date || referenceDate);'''
+          new_last7_head = '''  const directSignal = aiDirectTrendSignals(pick)[0];
+            const key = aiTrendRecordKey(pick, directSignal);
+            const beforeDate = normalizedDateKey(pick.date || referenceDate);'''
+          if mlb.count(old_last7_head) != 1:
+            raise SystemExit(f'Expected one MLB trend last-7 head, found {mlb.count(old_last7_head)}')
+          mlb = mlb.replace(old_last7_head, new_last7_head, 1)
+
+          old_row_filter = '''        row.result &&
+                aiTrendRecordKey(row) === key,'''
+          new_row_filter = '''        row.result &&
+                (!directSignal || aiDirectTrendSignals(row).includes(directSignal)) &&
+                aiTrendRecordKey(row, directSignal) === key,'''
+          if mlb.count(old_row_filter) != 1:
+            raise SystemExit(f'Expected one MLB trend record filter, found {mlb.count(old_row_filter)}')
+          mlb = mlb.replace(old_row_filter, new_row_filter, 1)
+
+          old_return = '  return `${wins}-${losses}-${pushes}`;\n}\n\nfunction AiPickSelectorCard({'
+          new_return = '''  const record = `${wins}-${losses}-${pushes}`;
+            if (!directSignal) return record;
+            const exactType = [directSignal, aiTrendBetType(pick)].filter(Boolean).join(" ");
+            return exactType ? `${exactType} • ${record}` : record;
+          }
+
+          function AiPickSelectorCard({'''
+          if mlb.count(old_return) != 1:
+            raise SystemExit(f'Expected one MLB trend record return, found {mlb.count(old_return)}')
+          mlb = mlb.replace(old_return, new_return, 1)
+
+          mlb_path.write_text(mlb)
+          PY
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript check
+        run: npx tsc --noEmit
+
+      - name: Verify exact EZPZ record buckets
+        shell: bash
+        run: |
+          grep -q 'type DirectTrendBetType = "Favorite" | "Underdog" | "Over" | "Under" | ""' app/FootballBoard.tsx
+          grep -q 'directTrendBetTypeForPick' app/FootballBoard.tsx
+          grep -q 'directTrendBetTypeForRow' app/FootballBoard.tsx
+          grep -q 'trendRecordTitle(primaryTrend, sport, directBetType)' app/FootballBoard.tsx
+          grep -q 'type AiDirectTrendSignal = "Public Fade" | "RLM" | "Sharp"' app/page.tsx
+          grep -q 'function aiTrendBetType' app/page.tsx
+          grep -q 'aiTrendRecordKey(row, directSignal) === key' app/page.tsx
+          grep -q 'exactType ? `${exactType} • ${record}` : record' app/page.tsx
+          git diff --check
+
+      - name: Commit exact EZPZ record display
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/FootballBoard.tsx app/page.tsx
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git commit -m "Show exact bet-type records on EZPZ picks"
+          git push
