@@ -2512,7 +2512,7 @@ function buildFootballEzpzRecordRows(
       const direct = directTrendQualification(play, splits, sport);
       if (!direct.labels.length) continue;
       const requiredCfbSplit = sport === "NCAAF"
-        && (direct.labels.includes("RLM") || direct.labels.includes("Public Fade"));
+        && direct.labels.some((label) => label === "RLM" || label === "Sharp" || label === "Public Fade");
       const oddsNumber = parseOdds(split.odds) || (requiredCfbSplit ? -110 : 0);
       if (!oddsNumber || (!requiredCfbSplit && oddsNumber < -150)) continue;
       const row = rowByIdentity.get(
@@ -2571,12 +2571,12 @@ function buildFootballEzpzRecordRows(
   );
   if (sport !== "NCAAF") return sorted;
 
-  // Every historical CFB split that qualified as RLM or Public Fade was an
+  // Every historical CFB split that qualified as RLM, Sharp, or Public Fade was an
   // EZPZ pick, even if another market from the same game scored higher. Keep
   // those rows during backdating; retain the old one-per-game behavior only for
   // non-direct selections.
   const requiredDirect = sorted.filter((candidate) =>
-    /(?:\bRLM\b|Public Fade)/i.test(candidate.qualification)
+    /(?:\bRLM\b|\bSharp\b|Public Fade)/i.test(candidate.qualification)
   );
   const requiredKeys = new Set(requiredDirect.map((candidate) =>
     `${candidate.date}|${textKey(candidate.game)}|${candidate.market}|${textKey(candidate.selection)}`
@@ -2644,7 +2644,7 @@ function buildFootballEzpzPicks(
     const direct = directTrendQualification(play, splits, sport, trends);
     if (!direct.labels.length) continue;
     const requiredCfbSplit = sport === "NCAAF"
-      && (direct.labels.includes("RLM") || direct.labels.includes("Public Fade"));
+      && direct.labels.some((label) => label === "RLM" || label === "Sharp" || label === "Public Fade");
     const odds = americanOddsText(play.odds) || (requiredCfbSplit ? "-110" : "");
     if (!odds || (!requiredCfbSplit && Number(odds) < -150)) continue;
 
@@ -2700,11 +2700,11 @@ function buildFootballEzpzPicks(
   }
   const sorted = [...deduped.values()].sort((a, b) => b.score - a.score || a.game.localeCompare(b.game));
   if (sport !== "NCAAF") return sorted;
-  // A visible CFB RLM/Public Fade badge is a direct EZPZ promotion. Never let
+  // A visible CFB RLM/Sharp/Public Fade badge is a direct EZPZ promotion. Never let
   // the normal one-pick-per-game collapse or model-play ordering hide one of
   // those market sides. Keep the old one-per-game behavior for all other picks.
   const requiredDirect = sorted.filter((pick) =>
-    /(?:\bRLM\b|Public Fade)/i.test(`${pick.qualification || ""} ${pick.tier || ""}`)
+    /(?:\bRLM\b|\bSharp\b|Public Fade)/i.test(`${pick.qualification || ""} ${pick.tier || ""}`)
   );
   const requiredKeys = new Set(requiredDirect.map((pick) =>
     `${textKey(pick.game)}|${pick.market}|${textKey(pick.selection)}`
