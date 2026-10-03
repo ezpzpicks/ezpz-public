@@ -145,6 +145,42 @@ function authoritativeDirectHistory(rows: AnyPick[]) {
   });
 }
 
+function hardenDirectTrendRecordRows(rows: SheetRow[], sport: FootballSport) {
+  const sharpMin = sport === "NFL" ? 25 : 40;
+  return rows.map((row) => {
+    const next = { ...row };
+
+    // FootballBoard historically reduced spread selections to their last word.
+    // Give published ledger rows a compact full-team identity so matchups such
+    // as "Missouri State" vs "Washington State" remain two distinct sides.
+    if (
+      textKey(next["Result Source"]) === "ezpz pick history" &&
+      textKey(next.Market) === "spread"
+    ) {
+      const compact = textKey(next.Selection).replace(/\s+/g, "");
+      if (compact) next["Public Split Selection"] = compact;
+    }
+
+    // FootballTrendMarketBoard still contains retired lower Sharp thresholds.
+    // On the record-only ledger, neutralize positive gaps below the active
+    // threshold so old UI code cannot promote a non-qualifying Sharp result.
+    const bets = Number(next["Public Bets %"] || next["Current Public %"]);
+    const money = Number(next["Public Money %"] || next["Current Sharp %"]);
+    const gap = money - bets;
+    if (
+      Number.isFinite(bets) &&
+      Number.isFinite(money) &&
+      gap > 0 &&
+      gap < sharpMin
+    ) {
+      next["Public Money %"] = String(bets);
+      next["Current Sharp %"] = String(bets);
+    }
+
+    return next;
+  });
+}
+
 export async function buildFootballPublicData(
   sport: FootballSport,
   options: { forceFresh?: boolean; persist?: boolean } = {},
@@ -164,12 +200,14 @@ export async function buildFootballPublicData(
     return !key || !publishedGroups.has(key);
   });
 
+  const directTrendRecordRows = overlayPublishedDirectTrendRows(
+    legacyFallbackRows,
+    published,
+    sport,
+  );
+
   return {
     ...data,
-    trendRecordRows: overlayPublishedDirectTrendRows(
-      legacyFallbackRows,
-      published,
-      sport,
-    ),
+    trendRecordRows: hardenDirectTrendRecordRows(directTrendRecordRows, sport),
   };
 }
