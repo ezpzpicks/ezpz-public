@@ -25,8 +25,8 @@ jobs:
           path = Path('lib/footballPublicDataCore.ts')
           text = path.read_text()
 
-          old_gate = '    const requiredCfbSplit = sport === "NCAAF"\n        && (direct.labels.includes("RLM") || direct.labels.includes("Public Fade"));'
-          new_gate = '    const requiredCfbSplit = sport === "NCAAF"\n        && direct.labels.some((label) => label === "RLM" || label === "Sharp" || label === "Public Fade");'
+          old_gate = '(direct.labels.includes("RLM") || direct.labels.includes("Public Fade"))'
+          new_gate = 'direct.labels.some((label) => label === "RLM" || label === "Sharp" || label === "Public Fade")'
           gate_count = text.count(old_gate)
           if gate_count != 2:
             raise SystemExit(f'Expected 2 NCAAF direct-signal gates, found {gate_count}')
