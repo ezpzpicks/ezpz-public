@@ -2286,15 +2286,41 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
     ...(sport === "NCAAF" ? effectiveExistingTrends.map((row) => canonicalScheduleDate(row))
       .filter((date) => date === todayET()) : []),
   ].filter(Boolean))];
-  // NCAAF updates each side directly from the movementHistory already persisted
-  // on that weekly trend row. Do not rebuild one giant in-memory Saturday
-  // archive here. NFL retains its existing raw-history read.
+  // Reuse compact movementHistory persisted on active NFL weekly rows instead of
+  // re-reading the full raw odds_snapshot archive every five minutes. Existing
+  // active rows without movementHistory trigger one raw-history seed pass; once
+  // seeded, subsequent runs use only the compact per-side history. Raw snapshots
+  // are still appended below exactly as before for the permanent chart archive.
+  const activeNflSplitKeys = sport === "NFL"
+    ? new Set(activeSourceSplits.map(splitTrendKey))
+    : new Set<string>();
+  const persistedNflMarketHistory: SheetRow[] = [];
+  let nflNeedsRawHistorySeed = false;
+  if (sport === "NFL") {
+    for (const row of effectiveExistingTrends) {
+      if (!activeNflSplitKeys.has(trendKey(row))) continue;
+      const raw = String(row["Details JSON"] || "").trim();
+      if (!raw) continue;
+      try {
+        const play = JSON.parse(raw) as WeeklyTrendPlay;
+        if (!Array.isArray(play.movementHistory)) {
+          nflNeedsRawHistorySeed = true;
+          continue;
+        }
+        persistedNflMarketHistory.push(...persistedNcaafMarketHistoryRowsForPlay(play));
+      } catch {
+        nflNeedsRawHistorySeed = true;
+      }
+    }
+  }
   const existingMarketHistory = sport === "NCAAF"
     ? []
-    : activeMarketDates.length
-      ? (await readSportWorksheetByDateKeys(sport, MARKET_HISTORY_TAB, activeMarketDates, MARKET_HISTORY_HEADERS))
-          .filter((row) => String(row.Source || "").trim() === SCORES_AND_ODDS_SOURCE)
-      : [];
+    : sport === "NFL" && !nflNeedsRawHistorySeed
+      ? persistedNflMarketHistory
+      : activeMarketDates.length
+        ? (await readSportWorksheetByDateKeys(sport, MARKET_HISTORY_TAB, activeMarketDates, MARKET_HISTORY_HEADERS))
+            .filter((row) => String(row.Source || "").trim() === SCORES_AND_ODDS_SOURCE)
+        : [];
   const now = nowET();
   const gameMap = new Map(sourceFilteredExistingGames.map((row) => [postedGameKey(row), row]));
   const postedRows: SheetRow[] = [];
@@ -2446,6 +2472,9 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
               liveCandidates.push({
                 ...saved,
                 week: footballWeekLabel(sport, saved.date),
+                movementHistory: Array.isArray(saved.movementHistory)
+                  ? saved.movementHistory
+                  : movementHistoryForPlay(saved, marketHistoryRows),
                 snapshotStatus: missedLock ? "MISSED_LOCK" as const : "FINAL_PREGAME" as const,
                 frozenAt: missedLock ? undefined : saved.updatedAt,
                 lockWarning: missedLock
@@ -2467,13 +2496,19 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
       liveCandidates.push({
         ...freshLock,
         week: footballWeekLabel(sport, split.date),
+        movementHistory: movementHistoryForPlay(freshLock, marketHistoryRows),
         snapshotStatus: "FINAL_PREGAME" as const,
         frozenAt: freshLock.updatedAt,
         lockWarning: undefined,
       });
       continue;
     }
-    liveCandidates.push({ ...buildPlay(split, existing, history, marketHistoryRows), week: footballWeekLabel(sport, split.date) });
+    const livePlay = buildPlay(split, existing, history, marketHistoryRows);
+    liveCandidates.push({
+      ...livePlay,
+      week: footballWeekLabel(sport, split.date),
+      movementHistory: movementHistoryForPlay(livePlay, marketHistoryRows),
+    });
   }
 
   for (const row of effectiveExistingTrends) {
