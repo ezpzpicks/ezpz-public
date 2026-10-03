@@ -2178,7 +2178,7 @@ const PUBLIC_FADE_MIN_BETS_PCT = 75;
 const PUBLIC_FADE_MIN_TICKET_MONEY_GAP_PCT = 55;
 const RLM_MIN_PUBLIC_MOVE_PCT = 5;
 const RLM_MIN_MARKET_MOVE_POINTS = 1.5;
-const EZPZ_SHARP_MIN_MONEY_OVER_BETS_PCT: Record<FootballSport, number> = { NFL: 25, NCAAF: 40 };
+const EZPZ_SHARP_MIN_MONEY_OVER_BETS_PCT: Record<FootballSport, number> = { NFL: 25, NCAAF: 25 };
 
 function sameTrendSplitGame(play: TrendPlay, split: DraftKingsSplit, sport: FootballSport) {
   return sameTeam(play.awayTeam, split.awayTeam, sport)
