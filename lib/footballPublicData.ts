@@ -1,6 +1,11 @@
 import { buildFootballPublicData as buildFootballPublicDataWithHistory } from "./footballPublicDataHistory";
 import { overlayPublishedDirectTrendRows } from "./footballDirectTrendLedger";
-import type { FootballSport, SheetRow } from "./sportSheets";
+import {
+  readSportWorksheet,
+  upsertSportRows,
+  type FootballSport,
+  type SheetRow,
+} from "./sportSheets";
 
 export {
   PUBLIC_SPLIT_HEADERS,
@@ -10,6 +15,28 @@ export {
 export type { FootballMarket } from "./footballPublicDataHistory";
 
 type AnyPick = Record<string, any>;
+type ResultCode = "W" | "L" | "P" | "";
+
+const EZPZ_PICK_HISTORY_TAB = "ezpz_pick_history";
+const EZPZ_PICK_HISTORY_HEADERS = [
+  "Date",
+  "Pick Key",
+  "Game",
+  "Market",
+  "Selection",
+  "Odds",
+  "Source",
+  "Snapshot Status",
+  "Player",
+  "Player Team",
+  "Prop Market",
+  "Prop Side",
+  "Prop Line",
+  "Result",
+  "Result Updated",
+  "Saved At",
+  "Details JSON",
+];
 
 function textKey(value: unknown) {
   return String(value || "")
@@ -17,6 +44,7 @@ function textKey(value: unknown) {
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .replace(/−/g, "-")
+    .replace(/&/g, "and")
     .replace(/[^a-z0-9]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -32,9 +60,44 @@ function isoDate(value: unknown) {
   return `${year}-${us[1].padStart(2, "0")}-${us[2].padStart(2, "0")}`;
 }
 
+function resultCode(value: unknown): ResultCode {
+  const key = String(value || "").trim().toUpperCase();
+  if (["W", "WIN", "WON"].includes(key)) return "W";
+  if (["L", "LOSS", "LOST"].includes(key)) return "L";
+  if (["P", "PUSH"].includes(key)) return "P";
+  return "";
+}
+
 function normalizeTeam(value: unknown) {
   const aliases: Record<string, string> = {
     pitt: "pittsburgh",
+    "app state": "appalachian state",
+    "app st": "appalachian state",
+    "florida atlantic": "fau",
+    "fla atlantic": "fau",
+    "florida atl": "fau",
+    "florida international": "fiu",
+    "florida intl": "fiu",
+    "central florida": "ucf",
+    "southern california": "usc",
+    "louisiana state": "lsu",
+    "texas san antonio": "utsa",
+    "texas el paso": "utep",
+    "nevada las vegas": "unlv",
+    "brigham young": "byu",
+    "texas christian": "tcu",
+    "southern methodist": "smu",
+    "north carolina state": "nc state",
+    "east carolina": "ecu",
+    "western kentucky": "wku",
+    "middle tennessee state": "middle tennessee",
+    mtsu: "middle tennessee",
+    "miami oh": "miami ohio",
+    uconn: "connecticut",
+    umass: "massachusetts",
+    "ul lafayette": "louisiana",
+    "louisiana lafayette": "louisiana",
+    "ul monroe": "louisiana monroe",
     "missouri st": "missouri state",
     "mississippi st": "mississippi state",
     "michigan st": "michigan state",
@@ -42,18 +105,43 @@ function normalizeTeam(value: unknown) {
     "penn st": "penn state",
     "washington st": "washington state",
     "fresno st": "fresno state",
+    "oregon st": "oregon state",
+    "kansas st": "kansas state",
+    "iowa st": "iowa state",
+    "boise st": "boise state",
+    "colorado st": "colorado state",
+    "san jose st": "san jose state",
+    "ball st": "ball state",
   };
-  const key = textKey(value).replace(/\bst\b/g, "state").replace(/\s+/g, " ").trim();
-  return aliases[key] || key;
+
+  const raw = textKey(value);
+  const direct = aliases[raw];
+  if (direct) return direct;
+  const expanded = raw.replace(/\bst\b/g, "state").replace(/\s+/g, " ").trim();
+  return aliases[expanded] || expanded;
 }
 
-function normalizeGame(value: unknown) {
-  const raw = String(value || "").trim();
-  const parts = raw
+function matchupTeams(value: unknown) {
+  return String(value || "")
+    .trim()
     .split(/\s*(?:@|\bat\b|\bvs\.?\b|\bversus\b)\s*/i)
     .map(normalizeTeam)
     .filter(Boolean);
-  return parts.length === 2 ? `${parts[0]}|${parts[1]}` : textKey(raw);
+}
+
+function normalizeGame(value: unknown) {
+  const teams = matchupTeams(value);
+  return teams.length === 2 ? `${teams[0]}|${teams[1]}` : textKey(value);
+}
+
+function sameGame(left: unknown, right: unknown) {
+  const a = matchupTeams(left);
+  const b = matchupTeams(right);
+  if (a.length === 2 && b.length === 2) {
+    return (a[0] === b[0] && a[1] === b[1]) ||
+      (a[0] === b[1] && a[1] === b[0]);
+  }
+  return normalizeGame(left) === normalizeGame(right);
 }
 
 function normalizedMarket(value: unknown) {
@@ -61,6 +149,61 @@ function normalizedMarket(value: unknown) {
   if (key.includes("total")) return "Total";
   if (key.includes("spread") || key.includes("run line")) return "Spread";
   return "";
+}
+
+function lineNumber(value: unknown) {
+  const matches = String(value || "")
+    .replace(/[−–—]/g, "-")
+    .match(/[+-]?\d+(?:\.\d+)?/g) || [];
+  for (const raw of [...matches].reverse()) {
+    const parsed = Number(raw);
+    if (Number.isFinite(parsed) && Math.abs(parsed) <= 100) return parsed;
+  }
+  return null;
+}
+
+function totalSide(value: unknown) {
+  const key = textKey(value);
+  if (key.startsWith("under") || key.includes(" under ")) return "under";
+  if (key.startsWith("over") || key.includes(" over ")) return "over";
+  return "";
+}
+
+function selectionTeam(value: unknown) {
+  return normalizeTeam(
+    String(value || "")
+      .trim()
+      .replace(/\s+[+-]?\d+(?:\.\d+)?\s*$/, "")
+      .trim(),
+  );
+}
+
+function rowGame(row: SheetRow) {
+  return String(
+    row.Game ||
+    `${row["Away Team"] || row.Away || ""} @ ${row["Home Team"] || row.Home || ""}`,
+  ).trim();
+}
+
+function rowSelection(row: SheetRow) {
+  return String(
+    row.Selection ||
+    row.Pick ||
+    row.Side ||
+    row["Public Split Selection"] ||
+    "",
+  ).trim();
+}
+
+function rowLine(row: SheetRow) {
+  return lineNumber(
+    row.Selection ||
+    row.Pick ||
+    row.Line ||
+    row["Market Line"] ||
+    row["Odds/Line"] ||
+    "",
+  );
 }
 
 function directPublishedPick(pick: AnyPick) {
@@ -79,9 +222,122 @@ function historyGroupKey(pick: AnyPick) {
 
 function trendGroupKey(row: SheetRow) {
   const date = isoDate(row.Date || row["Game Date"]);
-  const game = normalizeGame(row.Game || `${row["Away Team"] || ""} @ ${row["Home Team"] || ""}`);
+  const game = normalizeGame(rowGame(row));
   const market = normalizedMarket(row.Market || row["Bet Type"]);
   return date && game && market ? `${date}|${game}|${market}` : "";
+}
+
+function exactPublishedMatch(pick: AnyPick, row: SheetRow) {
+  const pickDate = isoDate(pick.date || pick.Date);
+  const rowDate = isoDate(row.Date || row["Game Date"]);
+  if (!pickDate || pickDate !== rowDate) return false;
+  if (!sameGame(pick.game || pick.Game, rowGame(row))) return false;
+
+  const market = normalizedMarket(pick.market || pick.Market);
+  const rowMarket = normalizedMarket(row.Market || row["Bet Type"]);
+  if (!market || market !== rowMarket) return false;
+
+  const pickSelection = String(pick.selection || pick.Selection || "");
+  const settledSelection = rowSelection(row);
+
+  if (market === "Total") {
+    const pickSide = totalSide(pickSelection);
+    const settledSide = totalSide(settledSelection);
+    if (!pickSide || !settledSide || pickSide !== settledSide) return false;
+    const pickLine = lineNumber(pickSelection || pick.line || pick.Line);
+    const settledLine = rowLine(row);
+    return pickLine != null && settledLine != null && Math.abs(pickLine - settledLine) <= 0.01;
+  }
+
+  const pickTeam = selectionTeam(pickSelection);
+  const settledTeam = selectionTeam(settledSelection);
+  if (!pickTeam || !settledTeam || pickTeam !== settledTeam) return false;
+  const pickLine = lineNumber(pickSelection || pick.line || pick.Line);
+  const settledLine = rowLine(row);
+  return pickLine == null || settledLine == null || Math.abs(pickLine - settledLine) <= 0.01;
+}
+
+function backfillPublishedResults(picks: AnyPick[], trendRows: SheetRow[]) {
+  const settledRows = trendRows.filter((row) => resultCode(row.Result || row.Status));
+  return picks.map((pick) => {
+    if (resultCode(pick.result || pick.Result)) return pick;
+    const match = settledRows.find((row) => exactPublishedMatch(pick, row));
+    if (!match) return pick;
+    const result = resultCode(match.Result || match.Status);
+    if (!result) return pick;
+    return {
+      ...pick,
+      result,
+      resultUpdated: String(
+        match["Result Updated"] ||
+        match["Updated At"] ||
+        new Date().toISOString(),
+      ),
+    };
+  });
+}
+
+function exactPickKey(pick: AnyPick) {
+  const date = isoDate(pick.date || pick.Date);
+  const game = normalizeGame(pick.game || pick.Game);
+  const market = normalizedMarket(pick.market || pick.Market);
+  const selection = String(pick.selection || pick.Selection || "");
+  if (!date || !game || !market) return "";
+  if (market === "Total") {
+    return `${date}|${game}|total|${totalSide(selection)}|${lineNumber(selection) ?? ""}`;
+  }
+  return `${date}|${game}|spread|${selectionTeam(selection)}|${lineNumber(selection) ?? ""}`;
+}
+
+function historyRowAsPick(row: SheetRow): AnyPick {
+  return {
+    date: row.Date,
+    game: row.Game,
+    market: row.Market,
+    selection: row.Selection,
+    result: row.Result,
+    resultUpdated: row["Result Updated"],
+  };
+}
+
+async function persistNcaafHistoryBackfill(picks: AnyPick[]) {
+  const resolvedByKey = new Map<string, AnyPick>();
+  for (const pick of picks) {
+    if (!resultCode(pick.result || pick.Result)) continue;
+    const key = exactPickKey(pick);
+    if (key) resolvedByKey.set(key, pick);
+  }
+  if (!resolvedByKey.size) return 0;
+
+  let history: SheetRow[];
+  try {
+    history = await readSportWorksheet("NCAAF", EZPZ_PICK_HISTORY_TAB, EZPZ_PICK_HISTORY_HEADERS);
+  } catch {
+    return 0;
+  }
+
+  const changed: SheetRow[] = [];
+  for (const row of history) {
+    if (resultCode(row.Result)) continue;
+    const resolved = resolvedByKey.get(exactPickKey(historyRowAsPick(row)));
+    const result = resultCode(resolved?.result || resolved?.Result);
+    if (!resolved || !result) continue;
+    changed.push({
+      ...row,
+      Result: result,
+      "Result Updated": String(resolved.resultUpdated || resolved["Result Updated"] || new Date().toISOString()),
+    });
+  }
+
+  if (!changed.length) return 0;
+  await upsertSportRows(
+    "NCAAF",
+    EZPZ_PICK_HISTORY_TAB,
+    EZPZ_PICK_HISTORY_HEADERS,
+    changed,
+    (row) => String(row["Pick Key"] || exactPickKey(historyRowAsPick(row))),
+  );
+  return changed.length;
 }
 
 function timestamp(value: unknown) {
@@ -187,9 +443,32 @@ export async function buildFootballPublicData(
 ): Promise<Record<string, any>> {
   const data = (await buildFootballPublicDataWithHistory(sport, options)) as Record<string, any>;
   const trendRows = Array.isArray(data.trendRecordRows) ? data.trendRecordRows as SheetRow[] : [];
-  const published = authoritativeDirectHistory(
-    Array.isArray(data.aiPickRecordRows) ? data.aiPickRecordRows : [],
+  const recordRows = Array.isArray(data.aiPickRecordRows) ? data.aiPickRecordRows as AnyPick[] : [];
+  const backfilledRecordRows = sport === "NCAAF"
+    ? backfillPublishedResults(recordRows, trendRows)
+    : recordRows;
+
+  if (sport === "NCAAF" && options.persist) {
+    await persistNcaafHistoryBackfill(backfilledRecordRows);
+  }
+
+  const resolvedByKey = new Map(
+    backfilledRecordRows
+      .filter((pick) => resultCode(pick.result || pick.Result))
+      .map((pick) => [exactPickKey(pick), pick]),
   );
+  const aiPicks = (Array.isArray(data.aiPicks) ? data.aiPicks as AnyPick[] : []).map((pick) => {
+    if (sport !== "NCAAF" || resultCode(pick.result || pick.Result)) return pick;
+    const resolved = resolvedByKey.get(exactPickKey(pick));
+    if (!resolved) return pick;
+    return {
+      ...pick,
+      result: resultCode(resolved.result || resolved.Result),
+      resultUpdated: String(resolved.resultUpdated || resolved["Result Updated"] || ""),
+    };
+  });
+
+  const published = authoritativeDirectHistory(backfilledRecordRows);
 
   // Any published direct-trend decision owns its game+market record identity,
   // even if its FINAL grade is still pending. This prevents a stale LIVE row or
@@ -208,6 +487,8 @@ export async function buildFootballPublicData(
 
   return {
     ...data,
+    aiPicks,
+    aiPickRecordRows: backfilledRecordRows,
     trendRecordRows: hardenDirectTrendRecordRows(directTrendRecordRows, sport),
   };
 }
