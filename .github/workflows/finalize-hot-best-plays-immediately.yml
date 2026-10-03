@@ -1,0 +1,96 @@
+name: Finalize HOT Best Plays immediately
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/finalize-hot-best-plays-immediately.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Make HOT Best Plays immediately final
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("app/api/public-data/route.ts")
+          text = path.read_text()
+          marker = "HOT_BEST_PLAY_IMMEDIATE_FINAL_V1"
+          if marker in text:
+              print("Immediate Best Play finalization already applied")
+              raise SystemExit(0)
+
+          anchor = '''  // NO_FINAL_AI_REVIEW_V1: a game enters finalization only after the actual frozen pregame
+          '''
+          if anchor not in text:
+              raise SystemExit("Could not find AI finalization anchor")
+
+          block = '''  // HOT_BEST_PLAY_IMMEDIATE_FINAL_V1: Best Plays do not use the separate
+            // pregame finalization workflow. Their rolling Last-7 form is fixed for the
+            // day, so a Best Play that qualifies as HOT is immediately an authoritative
+            // EZPZ Pick and remains locked for the rest of the day. Trend-only candidates
+            // still wait for their frozen FINAL_PREGAME snapshot below.
+            const alreadyFinalCandidateIds = new Set(
+              storedToday
+                .filter((pick) => pick.snapshotStatus === "FINAL_PREGAME")
+                .map((pick) => pick.candidateId),
+            );
+            const immediateBestPlayPicks = finalizeAiCandidates(
+              candidates.filter(
+                (candidate) =>
+                  Boolean(candidate.bestPlayType) &&
+                  candidate.pitcherBetTypeForm === EZPZ_BEST_PLAY_POLICY.requiredForm &&
+                  !alreadyFinalCandidateIds.has(candidate.candidateId) &&
+                  (!candidate.slateRow || isPregameRow(candidate.slateRow, selectorNow)),
+              ),
+              new Map(),
+              "NOT_REQUIRED",
+              "FINAL_PREGAME",
+            ).filter((pick) => pick.selected);
+
+            if (immediateBestPlayPicks.length) {
+              await persistAiPickRows(immediateBestPlayPicks);
+              const immediateCandidateIds = new Set(
+                immediateBestPlayPicks.map((pick) => pick.candidateId),
+              );
+              workingStoredRows = [
+                ...workingStoredRows.filter((row) => {
+                  const storedPick = parseAiPickRow(row);
+                  return !storedPick || !immediateCandidateIds.has(storedPick.candidateId);
+                }),
+                ...immediateBestPlayPicks.map(aiPickRow),
+              ];
+              stored = workingStoredRows
+                .map(parseAiPickRow)
+                .filter((pick): pick is AiPick => Boolean(pick));
+              storedToday = stored.filter((pick) => pick.date === isoPublicDate(today));
+            }
+
+          '''
+          path.write_text(text.replace(anchor, block + anchor, 1))
+          PY
+
+      - name: Verify source
+        shell: bash
+        run: |
+          grep -q "HOT_BEST_PLAY_IMMEDIATE_FINAL_V1" app/api/public-data/route.ts
+          grep -q "immediateBestPlayPicks" app/api/public-data/route.ts
+
+      - name: Commit source change
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/api/public-data/route.ts
+          git rm .github/workflows/finalize-hot-best-plays-immediately.yml
+          git commit -m "Finalize hot best plays immediately"
+          git push origin HEAD:main
