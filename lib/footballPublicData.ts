@@ -146,7 +146,7 @@ function authoritativeDirectHistory(rows: AnyPick[]) {
 }
 
 function hardenDirectTrendRecordRows(rows: SheetRow[], sport: FootballSport) {
-  const sharpMin = sport === "NFL" ? 25 : 40;
+  const sharpMin = 25;
   return rows.map((row) => {
     const next = { ...row };
 
