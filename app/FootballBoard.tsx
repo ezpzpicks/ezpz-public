@@ -418,7 +418,7 @@ function directTrendLabels(row: SheetRow, group: SheetRow[], sport: Sport): Dire
   const labels: DirectTrendSignal[] = [];
   const ownBets = Number(row["Public Bets %"] || row["Current Public %"]);
   const ownMoney = Number(row["Public Money %"] || row["Current Sharp %"]);
-  const sharpMin = sport === "NFL" ? 25 : 40;
+  const sharpMin = 25;
   if (Number.isFinite(ownBets) && Number.isFinite(ownMoney) && ownMoney - ownBets >= sharpMin) {
     labels.push("Sharp");
   }
