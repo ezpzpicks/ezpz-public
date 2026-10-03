@@ -1,4 +1,4 @@
-name: One-time NCAAF EZPZ all public signals hotfix
+name: One-time NCAAF Sharp threshold hotfix
 
 on:
   push:
@@ -16,7 +16,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Promote all NCAAF public split signals into EZPZ
+      - name: Set NCAAF Sharp threshold to 25 percent
         shell: bash
         run: |
           python - <<'PY'
@@ -24,25 +24,12 @@ jobs:
 
           path = Path('lib/footballPublicDataCore.ts')
           text = path.read_text()
-
-          old_gate = '(direct.labels.includes("RLM") || direct.labels.includes("Public Fade"))'
-          new_gate = 'direct.labels.some((label) => label === "RLM" || label === "Sharp" || label === "Public Fade")'
-          gate_count = text.count(old_gate)
-          if gate_count != 2:
-            raise SystemExit(f'Expected 2 NCAAF direct-signal gates, found {gate_count}')
-          text = text.replace(old_gate, new_gate)
-
-          old_regex = r'/(?:\bRLM\b|Public Fade)/i'
-          new_regex = r'/(?:\bRLM\b|\bSharp\b|Public Fade)/i'
-          regex_count = text.count(old_regex)
-          if regex_count != 2:
-            raise SystemExit(f'Expected 2 NCAAF required-direct regexes, found {regex_count}')
-          text = text.replace(old_regex, new_regex)
-
-          text = text.replace('Every historical CFB split that qualified as RLM or Public Fade was an', 'Every historical CFB split that qualified as RLM, Sharp, or Public Fade was an', 1)
-          text = text.replace('A visible CFB RLM/Public Fade badge is a direct EZPZ promotion. Never let', 'A visible CFB RLM/Sharp/Public Fade badge is a direct EZPZ promotion. Never let', 1)
-
-          path.write_text(text)
+          old = 'EZPZ_SHARP_MIN_MONEY_OVER_BETS_PCT: Record<FootballSport, number> = { NFL: 25, NCAAF: 40 }'
+          new = 'EZPZ_SHARP_MIN_MONEY_OVER_BETS_PCT: Record<FootballSport, number> = { NFL: 25, NCAAF: 25 }'
+          count = text.count(old)
+          if count != 1:
+            raise SystemExit(f'Expected exactly one old NCAAF Sharp threshold, found {count}')
+          path.write_text(text.replace(old, new, 1))
           PY
 
       - name: Install dependencies
@@ -51,21 +38,18 @@ jobs:
       - name: TypeScript check
         run: npx tsc --noEmit
 
-      - name: Verify all three NCAAF public signals are guaranteed
+      - name: Verify NCAAF Sharp threshold
         shell: bash
         run: |
           python - <<'PY'
           from pathlib import Path
           text = Path('lib/footballPublicDataCore.ts').read_text()
-          gate = 'direct.labels.some((label) => label === "RLM" || label === "Sharp" || label === "Public Fade")'
-          regex = r'/(?:\bRLM\b|\bSharp\b|Public Fade)/i'
-          assert text.count(gate) == 2, text.count(gate)
-          assert text.count(regex) == 2, text.count(regex)
-          assert 'EZPZ_SHARP_MIN_MONEY_OVER_BETS_PCT: Record<FootballSport, number> = { NFL: 25, NCAAF: 40 }' in text
+          expected = 'EZPZ_SHARP_MIN_MONEY_OVER_BETS_PCT: Record<FootballSport, number> = { NFL: 25, NCAAF: 25 }'
+          assert expected in text
           PY
           git diff --check
 
-      - name: Commit NCAAF EZPZ public-signal fix
+      - name: Commit NCAAF Sharp threshold fix
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
@@ -75,5 +59,5 @@ jobs:
             echo "No changes to commit"
             exit 0
           fi
-          git commit -m "Include Sharp in NCAAF EZPZ public split picks"
+          git commit -m "Set NCAAF Sharp threshold to 25 percent"
           git push
