@@ -1,0 +1,51 @@
+name: One-time align public Sharp badge thresholds
+
+on:
+  push:
+    paths:
+      - ".github/workflows/fix-public-sharp-badge-thresholds.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Align displayed Sharp thresholds with EZPZ qualification
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('app/FootballTrendMarketBoard.tsx')
+          text = path.read_text()
+          old = 'const SHARP_MIN_MONEY_OVER_BETS = { NFL: 20, NCAAF: 25, MLB: 20 } as const;'
+          new = 'const SHARP_MIN_MONEY_OVER_BETS = { NFL: 25, NCAAF: 40, MLB: 25 } as const;'
+          if text.count(old) != 1:
+              raise SystemExit(f'Expected exactly one stale Sharp threshold constant, found {text.count(old)}')
+          path.write_text(text.replace(old, new, 1))
+          PY
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript check
+        run: npx tsc --noEmit
+
+      - name: Verify thresholds
+        shell: bash
+        run: |
+          grep -q 'SHARP_MIN_MONEY_OVER_BETS = { NFL: 25, NCAAF: 40, MLB: 25 }' app/FootballTrendMarketBoard.tsx
+
+      - name: Commit fix
+        shell: bash
+        run: |
+          git config user.name "ezpzpicks"
+          git config user.email "ryanpaez5@gmail.com"
+          git add app/FootballTrendMarketBoard.tsx
+          git commit -m "Align public Sharp badges with EZPZ thresholds"
+          git push origin main
