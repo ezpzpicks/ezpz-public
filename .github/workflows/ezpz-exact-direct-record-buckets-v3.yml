@@ -1,0 +1,74 @@
+name: One-time exact EZPZ direct-signal record buckets v3
+
+on:
+  push:
+    paths:
+      - ".github/workflows/ezpz-exact-direct-record-buckets-v3.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply exact record patch with typed spread classifier
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import textwrap
+
+          workflow = Path('.github/workflows/ezpz-exact-direct-record-buckets-v2.yml').read_text()
+          start_marker = "          python - <<'PY'\n"
+          end_marker = "\n          PY\n\n      - name: Install dependencies"
+          start = workflow.index(start_marker) + len(start_marker)
+          end = workflow.index(end_marker, start)
+          script = textwrap.dedent(workflow[start:end])
+
+          old = '''    const directLine = pick.line == null ? null : Number(pick.line);
+              const line = directLine != null && Number.isFinite(directLine)
+                ? directLine
+                : directTrendLine(pick.selection);'''
+          new = '''    const line = directTrendLine(pick.selection);'''
+          if script.count(old) != 1:
+            raise SystemExit(f'Expected typed spread classifier once, found {script.count(old)}')
+          script = script.replace(old, new, 1)
+          exec(compile(script, '<exact-ezpz-record-patch>', 'exec'), {})
+          PY
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript check
+        run: npx tsc --noEmit
+
+      - name: Verify exact EZPZ record buckets
+        shell: bash
+        run: |
+          grep -q 'type DirectTrendBetType = "Favorite" | "Underdog" | "Over" | "Under" | ""' app/FootballBoard.tsx
+          grep -q 'const line = directTrendLine(pick.selection);' app/FootballBoard.tsx
+          grep -q 'directTrendBetTypeForRow' app/FootballBoard.tsx
+          grep -q 'trendRecordTitle(primaryTrend, sport, directBetType)' app/FootballBoard.tsx
+          grep -q 'type AiDirectTrendSignal = "Public Fade" | "RLM" | "Sharp"' app/page.tsx
+          grep -q 'function aiTrendBetType' app/page.tsx
+          grep -q 'aiTrendRecordKey(row, directSignal) === key' app/page.tsx
+          grep -q 'exactType ? `${exactType} • ${record}` : record' app/page.tsx
+          git diff --check
+
+      - name: Commit exact EZPZ record display
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/FootballBoard.tsx app/page.tsx
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git commit -m "Show exact bet-type records on EZPZ picks"
+          git push
