@@ -2857,7 +2857,9 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
   readStage = "saved-weekly-market";
   const weeklyMarket = await readWeeklyFootballMarket(
     sport,
-    sport === "NCAAF" ? { dateKeys: [today], hydrateHistory: false } : {},
+    sport === "NCAAF"
+      ? { dateKeys: [today], hydrateHistory: false }
+      : { hydrateHistory: false },
   );
   readStage = "assemble-payload";
   const displayTrendPlays = Array.isArray(weeklyMarket.trendPlays)
