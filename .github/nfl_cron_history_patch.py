@@ -93,8 +93,8 @@ new_lock = '''      const freshLock = buildPlay(split, existing, history, market
         frozenAt: freshLock.updatedAt,
         lockWarning: undefined,
       });'''
-if text.count(old_lock) != 1:
-    raise SystemExit(f"Expected one NFL fresh-lock block, found {text.count(old_lock)}")
+if text.count(old_lock) != 2:
+    raise SystemExit(f"Expected two fresh-lock blocks (primary + external), found {text.count(old_lock)}")
 text = text.replace(old_lock, new_lock, 1)
 
 old_live = '''    liveCandidates.push({ ...buildPlay(split, existing, history, marketHistoryRows), week: footballWeekLabel(sport, split.date) });'''
