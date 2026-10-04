@@ -258,8 +258,8 @@ function exactPublishedMatch(pick: AnyPick, row: SheetRow) {
 }
 
 function actualScores(row: SheetRow) {
-  const awayRaw = String(row["Actual Away"] ?? row["Actual Away Runs"] ?? "").trim();
-  const homeRaw = String(row["Actual Home"] ?? row["Actual Home Runs"] ?? "").trim();
+  const awayRaw = String(row["Away Score"] ?? row["Actual Away"] ?? row["Actual Away Runs"] ?? "").trim();
+  const homeRaw = String(row["Home Score"] ?? row["Actual Home"] ?? row["Actual Home Runs"] ?? "").trim();
   if (!awayRaw || !homeRaw) return null;
   const away = Number(awayRaw);
   const home = Number(homeRaw);
@@ -298,9 +298,9 @@ function gradePublishedFromFinalRow(pick: AnyPick, row: SheetRow): ResultCode {
   return Math.abs(value) <= 0.01 ? "P" : value > 0 ? "W" : "L";
 }
 
-function backfillPublishedResults(picks: AnyPick[], trendRows: SheetRow[], trackerRows: SheetRow[] = []) {
+function backfillPublishedResults(picks: AnyPick[], trendRows: SheetRow[], finalRows: SheetRow[] = []) {
   const settledRows = trendRows.filter((row) => resultCode(row.Result || row.Status));
-  const finalScoreRows = [...trendRows, ...trackerRows].filter((row) => actualScores(row));
+  const finalScoreRows = [...trendRows, ...finalRows].filter((row) => actualScores(row));
   return picks.map((pick) => {
     if (resultCode(pick.result || pick.Result)) return pick;
     const match = settledRows.find((row) => exactPublishedMatch(pick, row));
@@ -500,9 +500,12 @@ export async function buildFootballPublicData(
   const data = (await buildFootballPublicDataWithHistory(sport, options)) as Record<string, any>;
   const trendRows = Array.isArray(data.trendRecordRows) ? data.trendRecordRows as SheetRow[] : [];
   const trackerRows = Array.isArray(data.betTrackerRows) ? data.betTrackerRows as SheetRow[] : [];
+  const scheduleRows = sport === "NCAAF"
+    ? await readSportWorksheet("NCAAF", "schedule").catch(() => [] as SheetRow[])
+    : [];
   const recordRows = Array.isArray(data.aiPickRecordRows) ? data.aiPickRecordRows as AnyPick[] : [];
   const backfilledRecordRows = sport === "NCAAF"
-    ? backfillPublishedResults(recordRows, trendRows, trackerRows)
+    ? backfillPublishedResults(recordRows, trendRows, [...trackerRows, ...scheduleRows])
     : recordRows;
 
   if (sport === "NCAAF" && options.persist) {
