@@ -75,7 +75,6 @@ function normalizeTeam(value: unknown) {
     "app st": "appalachian state",
     "florida atlantic": "fau",
     "fla atlantic": "fau",
-    "florida atl": "fau",
     "florida international": "fiu",
     "florida intl": "fiu",
     "central florida": "ucf",
@@ -121,6 +120,14 @@ function normalizeTeam(value: unknown) {
   return aliases[expanded] || expanded;
 }
 
+function sameTeamName(left: unknown, right: unknown) {
+  const a = normalizeTeam(left);
+  const b = normalizeTeam(right);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  return a.startsWith(`${b} `) || b.startsWith(`${a} `);
+}
+
 function matchupTeams(value: unknown) {
   return String(value || "")
     .trim()
@@ -138,8 +145,8 @@ function sameGame(left: unknown, right: unknown) {
   const a = matchupTeams(left);
   const b = matchupTeams(right);
   if (a.length === 2 && b.length === 2) {
-    return (a[0] === b[0] && a[1] === b[1]) ||
-      (a[0] === b[1] && a[1] === b[0]);
+    return (sameTeamName(a[0], b[0]) && sameTeamName(a[1], b[1])) ||
+      (sameTeamName(a[0], b[1]) && sameTeamName(a[1], b[0]));
   }
   return normalizeGame(left) === normalizeGame(right);
 }
@@ -251,7 +258,7 @@ function exactPublishedMatch(pick: AnyPick, row: SheetRow) {
 
   const pickTeam = selectionTeam(pickSelection);
   const settledTeam = selectionTeam(settledSelection);
-  if (!pickTeam || !settledTeam || pickTeam !== settledTeam) return false;
+  if (!pickTeam || !settledTeam || !sameTeamName(pickTeam, settledTeam)) return false;
   const pickLine = lineNumber(pickSelection || pick.line || pick.Line);
   const settledLine = rowLine(row);
   return pickLine == null || settledLine == null || Math.abs(pickLine - settledLine) <= 0.01;
@@ -292,8 +299,8 @@ function gradePublishedFromFinalRow(pick: AnyPick, row: SheetRow): ResultCode {
   if (teams.length !== 2) return "";
   const team = selectionTeam(selection);
   if (!team) return "";
-  if (team === teams[0]) value = scores.away - scores.home + line;
-  else if (team === teams[1]) value = scores.home - scores.away + line;
+  if (sameTeamName(team, teams[0])) value = scores.away - scores.home + line;
+  else if (sameTeamName(team, teams[1])) value = scores.home - scores.away + line;
   else return "";
   return Math.abs(value) <= 0.01 ? "P" : value > 0 ? "W" : "L";
 }
