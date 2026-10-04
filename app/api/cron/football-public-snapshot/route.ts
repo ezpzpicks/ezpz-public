@@ -5,6 +5,7 @@ import { evaluateFootballTrendV2 } from "../../../../lib/footballTrendV2Lifecycl
 import type { FootballSport } from "../../../../lib/sportSheets";
 import { withTursoReadCache } from "../../../../lib/tursoStore";
 import { persistEzpzCurrentPicks } from "../../../../lib/ezpzCurrentPicks";
+import { repairTodayNcaafFinalScores } from "../../../../lib/ncaafFinalScoreRepair";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -40,6 +41,18 @@ async function runCron(request: NextRequest) {
   }
 
   try {
+    let finalScoreRepair: unknown = null;
+    if (sport === "NCAAF") {
+      try {
+        finalScoreRepair = await repairTodayNcaafFinalScores();
+      } catch (error) {
+        console.warn("NCAAF schedule final-score repair failed", error);
+        finalScoreRepair = {
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    }
+
     let settlement: unknown = null;
     try {
       settlement = await settlePendingFootballResults(sport, { force: true });
@@ -86,7 +99,7 @@ async function runCron(request: NextRequest) {
         reason: "Lifecycle evaluation failed; incumbent/legacy scoring was left unchanged.",
       };
     }
-    return NextResponse.json({ ...payload, settlement, trendV2Lifecycle }, {
+    return NextResponse.json({ ...payload, finalScoreRepair, settlement, trendV2Lifecycle }, {
       headers: {
         "Cache-Control": "no-store, max-age=0",
       },
