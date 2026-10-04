@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { buildFootballPublicData } from "../../../lib/footballPublicData";
+import { repairTodayNcaafFinalScores } from "../../../lib/ncaafFinalScoreRepair";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -63,6 +64,18 @@ export async function GET(request: NextRequest) {
   const forceFresh = scheduled || request.nextUrl.searchParams.get("refresh") === "1";
 
   try {
+    let finalScoreRepair: unknown = null;
+    if (forceFresh) {
+      try {
+        finalScoreRepair = await repairTodayNcaafFinalScores();
+      } catch (error) {
+        console.warn("NCAAF final-score repair failed", error);
+        finalScoreRepair = {
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    }
+
     const data = await buildFootballPublicData("NCAAF", {
       forceFresh,
       persist: scheduled,
@@ -81,6 +94,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       ...data,
+      finalScoreRepair,
       bestPlays,
       aiPicks,
       aiSelectorStatus: data.aiSelectorStatus
