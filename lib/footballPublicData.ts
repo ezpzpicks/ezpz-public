@@ -257,20 +257,76 @@ function exactPublishedMatch(pick: AnyPick, row: SheetRow) {
   return pickLine == null || settledLine == null || Math.abs(pickLine - settledLine) <= 0.01;
 }
 
-function backfillPublishedResults(picks: AnyPick[], trendRows: SheetRow[]) {
+function actualScores(row: SheetRow) {
+  const awayRaw = String(row["Actual Away"] ?? row["Actual Away Runs"] ?? "").trim();
+  const homeRaw = String(row["Actual Home"] ?? row["Actual Home Runs"] ?? "").trim();
+  if (!awayRaw || !homeRaw) return null;
+  const away = Number(awayRaw);
+  const home = Number(homeRaw);
+  return Number.isFinite(away) && Number.isFinite(home) ? { away, home } : null;
+}
+
+function gradePublishedFromFinalRow(pick: AnyPick, row: SheetRow): ResultCode {
+  const scores = actualScores(row);
+  if (!scores) return "";
+  const pickDate = isoDate(pick.date || pick.Date);
+  const rowDate = isoDate(row.Date || row["Game Date"]);
+  if (pickDate && rowDate && pickDate !== rowDate) return "";
+  if (!sameGame(pick.game || pick.Game, rowGame(row))) return "";
+
+  const market = normalizedMarket(pick.market || pick.Market);
+  const selection = String(pick.selection || pick.Selection || "");
+  const line = lineNumber(pick.line ?? pick.Line ?? selection);
+  if (!market || line == null) return "";
+
+  let value = 0;
+  if (market === "Total") {
+    const side = totalSide(selection);
+    if (!side) return "";
+    value = scores.away + scores.home - line;
+    if (Math.abs(value) <= 0.01) return "P";
+    return side === "under" ? (value < 0 ? "W" : "L") : (value > 0 ? "W" : "L");
+  }
+
+  const teams = matchupTeams(rowGame(row));
+  if (teams.length !== 2) return "";
+  const team = selectionTeam(selection);
+  if (!team) return "";
+  if (team === teams[0]) value = scores.away - scores.home + line;
+  else if (team === teams[1]) value = scores.home - scores.away + line;
+  else return "";
+  return Math.abs(value) <= 0.01 ? "P" : value > 0 ? "W" : "L";
+}
+
+function backfillPublishedResults(picks: AnyPick[], trendRows: SheetRow[], trackerRows: SheetRow[] = []) {
   const settledRows = trendRows.filter((row) => resultCode(row.Result || row.Status));
+  const finalScoreRows = [...trendRows, ...trackerRows].filter((row) => actualScores(row));
   return picks.map((pick) => {
     if (resultCode(pick.result || pick.Result)) return pick;
     const match = settledRows.find((row) => exactPublishedMatch(pick, row));
-    if (!match) return pick;
-    const result = resultCode(match.Result || match.Status);
+    const directResult = match ? resultCode(match.Result || match.Status) : "";
+    if (directResult) {
+      return {
+        ...pick,
+        result: directResult,
+        resultUpdated: String(
+          match?.["Result Updated"] ||
+          match?.["Updated At"] ||
+          new Date().toISOString(),
+        ),
+      };
+    }
+
+    const finalRow = finalScoreRows.find((row) => gradePublishedFromFinalRow(pick, row));
+    if (!finalRow) return pick;
+    const result = gradePublishedFromFinalRow(pick, finalRow);
     if (!result) return pick;
     return {
       ...pick,
       result,
       resultUpdated: String(
-        match["Result Updated"] ||
-        match["Updated At"] ||
+        finalRow["Result Updated"] ||
+        finalRow["Updated At"] ||
         new Date().toISOString(),
       ),
     };
@@ -443,9 +499,10 @@ export async function buildFootballPublicData(
 ): Promise<Record<string, any>> {
   const data = (await buildFootballPublicDataWithHistory(sport, options)) as Record<string, any>;
   const trendRows = Array.isArray(data.trendRecordRows) ? data.trendRecordRows as SheetRow[] : [];
+  const trackerRows = Array.isArray(data.betTrackerRows) ? data.betTrackerRows as SheetRow[] : [];
   const recordRows = Array.isArray(data.aiPickRecordRows) ? data.aiPickRecordRows as AnyPick[] : [];
   const backfilledRecordRows = sport === "NCAAF"
-    ? backfillPublishedResults(recordRows, trendRows)
+    ? backfillPublishedResults(recordRows, trendRows, trackerRows)
     : recordRows;
 
   if (sport === "NCAAF" && options.persist) {
