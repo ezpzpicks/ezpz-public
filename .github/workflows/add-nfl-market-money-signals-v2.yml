@@ -1,0 +1,354 @@
+name: One-time add NFL Market Move and Money Momentum signals v2
+
+on:
+  push:
+    paths:
+      - ".github/workflows/add-nfl-market-money-signals-v2.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch NFL market signals
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def r1(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              n = text.count(old)
+              if n != 1:
+                  raise SystemExit(f"{path}: expected one match, found {n}: {old[:180]!r}")
+              p.write_text(text.replace(old, new, 1))
+
+          r1('lib/ezpzPublicSplitEligibility.ts',
+             '&& /\\b(?:RLM|Public\\s+Fade|Sharp)\\b/i.test(`${pick.tier || ""} ${pick.qualification || ""}`);',
+             '&& /\\b(?:RLM|Public\\s+Fade|Sharp|Market\\s+Move|Money\\s+Momentum)\\b/i.test(`${pick.tier || ""} ${pick.qualification || ""}`);')
+
+          r1('lib/footballPublicDataCore.ts',
+             '''const RLM_MIN_PUBLIC_MOVE_PCT = 5;
+          const RLM_MIN_MARKET_MOVE_POINTS = 1.5;
+          const EZPZ_SHARP_MIN_MONEY_OVER_BETS_PCT: Record<FootballSport, number> = { NFL: 25, NCAAF: 25 };''',
+             '''const RLM_MIN_PUBLIC_MOVE_PCT = 5;
+          const RLM_MIN_MARKET_MOVE_POINTS = 1.5;
+          const NFL_MARKET_MOVE_MIN_POINTS = 1;
+          const NFL_MONEY_MOMENTUM_MIN_MONEY_MOVE_PCT = 10;
+          const NFL_MONEY_MOMENTUM_MIN_MARKET_MOVE_POINTS = 0.5;
+          const EZPZ_SHARP_MIN_MONEY_OVER_BETS_PCT: Record<FootballSport, number> = { NFL: 25, NCAAF: 25 };''')
+
+          r1('lib/footballPublicDataCore.ts',
+             '''function isSharpSource(play: Pick<TrendPlay, "betsPct" | "moneyPct">, sport: FootballSport) {
+            const bets = Number(play.betsPct);
+            const money = Number(play.moneyPct);
+            return Number.isFinite(bets)
+              && Number.isFinite(money)
+              && money - bets >= EZPZ_SHARP_MIN_MONEY_OVER_BETS_PCT[sport];
+          }
+
+          function directTrendQualification(''',
+             '''function isSharpSource(play: Pick<TrendPlay, "betsPct" | "moneyPct">, sport: FootballSport) {
+            const bets = Number(play.betsPct);
+            const money = Number(play.moneyPct);
+            return Number.isFinite(bets)
+              && Number.isFinite(money)
+              && money - bets >= EZPZ_SHARP_MIN_MONEY_OVER_BETS_PCT[sport];
+          }
+
+          function selectedMarketMove(play: Pick<TrendPlay, "market" | "lineMovementBasis" | "lineMovementValue">) {
+            const lineMove = Number(play.lineMovementValue);
+            const basis = String(play.lineMovementBasis || "");
+            const marketMatches =
+              (play.market === "Spread" && basis.includes("Spread")) ||
+              (play.market === "Total" && basis.includes("Total"));
+            return marketMatches && Number.isFinite(lineMove) ? lineMove : null;
+          }
+
+          function selectedMoneyMove(play: Pick<TrendPlay, "moneyPct" | "openingMoneyPct" | "sharpMovementPct">) {
+            const explicit = Number(play.sharpMovementPct);
+            if (Number.isFinite(explicit)) return explicit;
+            const opening = Number(play.openingMoneyPct);
+            const current = Number(play.moneyPct);
+            if (!Number.isFinite(opening) || !Number.isFinite(current) || opening <= 0 || opening >= 100) return null;
+            return current - opening;
+          }
+
+          function isNflMarketMoveSelectedSide(play: TrendPlay, sport: FootballSport) {
+            if (sport !== "NFL" || play.market !== "Total") return false;
+            const lineMove = selectedMarketMove(play);
+            return lineMove != null && lineMove >= NFL_MARKET_MOVE_MIN_POINTS;
+          }
+
+          function isNflMoneyMomentumSelectedSide(play: TrendPlay, sport: FootballSport) {
+            if (sport !== "NFL") return false;
+            const lineMove = selectedMarketMove(play);
+            const moneyMove = selectedMoneyMove(play);
+            return lineMove != null
+              && moneyMove != null
+              && lineMove >= NFL_MONEY_MOMENTUM_MIN_MARKET_MOVE_POINTS
+              && moneyMove >= NFL_MONEY_MOMENTUM_MIN_MONEY_MOVE_PCT;
+          }
+
+          function directTrendQualification(''')
+
+          r1('lib/footballPublicDataCore.ts',
+             '  return { labels, publicSide };',
+             '''  if (isNflMarketMoveSelectedSide(play, sport)) labels.push("Market Move");
+            if (isNflMoneyMomentumSelectedSide(play, sport)) labels.push("Money Momentum");
+            return { labels, publicSide };''')
+
+          r1('lib/footballDirectTrendLedger.ts',
+             'type DirectTrendSignal = "RLM" | "Public Fade" | "Sharp";',
+             'type DirectTrendSignal = "RLM" | "Public Fade" | "Sharp" | "Market Move" | "Money Momentum";')
+          r1('lib/footballDirectTrendLedger.ts',
+             '''  if (key.includes("sharp")) signals.push("Sharp");
+            return signals;''',
+             '''  if (key.includes("sharp")) signals.push("Sharp");
+            if (key.includes("market move")) signals.push("Market Move");
+            if (key.includes("money momentum")) signals.push("Money Momentum");
+            return signals;''')
+          r1('lib/footballDirectTrendLedger.ts',
+             '''  const hasRlm = signals.includes("RLM");
+            const hasFade = signals.includes("Public Fade");
+            const hasSharp = signals.includes("Sharp");
+            const teams = gameTeams(game);''',
+             '''  const hasRlm = signals.includes("RLM");
+            const hasFade = signals.includes("Public Fade");
+            const hasSharp = signals.includes("Sharp");
+            const hasMarketMove = signals.includes("Market Move");
+            const hasMoneyMomentum = signals.includes("Money Momentum");
+            const teams = gameTeams(game);''')
+          r1('lib/footballDirectTrendLedger.ts',
+             '''  const selectedBets = 40;
+            const selectedMoney = hasSharp ? (sport === "NCAAF" ? 85 : 70) : 40;''',
+             '''  const selectedBets = 40;
+            const selectedMoney = hasSharp ? (sport === "NCAAF" ? 85 : 70) : hasMoneyMomentum ? 50 : 40;
+            const openingSelectedMoney = hasMoneyMomentum ? selectedMoney - 10 : selectedMoney;
+            const selectedLineMove = hasMarketMove ? 1 : hasMoneyMomentum ? 0.5 : 0;''')
+          r1('lib/footballDirectTrendLedger.ts',
+             '''    "Public Money %": String(selectedMoney),
+              "Current Sharp %": String(selectedMoney),
+              "Opening Sharp %": String(selectedMoney),
+              "Sharp Change %": "0",
+              "Line Movement Basis": market === "Total" ? "Total Line" : "Spread Line",
+              "Line Movement Value": "0",''',
+             '''    "Public Money %": String(selectedMoney),
+              "Current Sharp %": String(selectedMoney),
+              "Opening Sharp %": String(openingSelectedMoney),
+              "Sharp Change %": String(selectedMoney - openingSelectedMoney),
+              "Line Movement Basis": market === "Total" ? "Total Line" : "Spread Line",
+              "Line Movement Value": String(selectedLineMove),''')
+
+          r1('lib/footballPublicData.ts',
+             '''    (labels.includes("rlm") || labels.includes("public fade") || labels.includes("sharp"));''',
+             '''    (labels.includes("rlm") || labels.includes("public fade") || labels.includes("sharp") ||
+              labels.includes("market move") || labels.includes("money momentum"));''')
+
+          r1('app/FootballTrendMarketBoard.tsx',
+             'const SHARP_MIN_MONEY_OVER_BETS = { NFL: 20, NCAAF: 25, MLB: 20 } as const;',
+             '''const SHARP_MIN_MONEY_OVER_BETS = { NFL: 25, NCAAF: 25, MLB: 25 } as const;
+          const NFL_MARKET_MOVE_MIN_POINTS = 1;
+          const NFL_MONEY_MOMENTUM_MIN_MONEY_MOVE_PCT = 10;
+          const NFL_MONEY_MOMENTUM_MIN_MARKET_MOVE_POINTS = 0.5;''')
+          r1('app/FootballTrendMarketBoard.tsx',
+             '''  ) labels.push("Sharp");
+
+            const publicSide = opposite(play, plays);''',
+             '''  ) labels.push("Sharp");
+
+            if (sport === "NFL") {
+              const ownLineMove = Number(play.lineMovementValue);
+              const ownBasis = String(play.lineMovementBasis || "");
+              const lineMarketMatches =
+                (play.market === "Spread" && ownBasis.includes("Spread")) ||
+                (play.market === "Total" && ownBasis.includes("Total"));
+              if (play.market === "Total" && ownBasis.includes("Total") && Number.isFinite(ownLineMove) && ownLineMove >= NFL_MARKET_MOVE_MIN_POINTS) {
+                labels.push("Market Move");
+              }
+              const openingMoney = Number(play.openingMoneyPct);
+              const currentMoney = Number(play.moneyPct);
+              const moneyMove = Number.isFinite(openingMoney) && Number.isFinite(currentMoney) ? currentMoney - openingMoney : Number.NaN;
+              if (lineMarketMatches && openingMoney > 0 && openingMoney < 100 && Number.isFinite(moneyMove) && moneyMove >= NFL_MONEY_MOMENTUM_MIN_MONEY_MOVE_PCT && Number.isFinite(ownLineMove) && ownLineMove >= NFL_MONEY_MOMENTUM_MIN_MARKET_MOVE_POINTS) {
+                labels.push("Money Momentum");
+              }
+            }
+
+            const publicSide = opposite(play, plays);''')
+          r1('app/FootballTrendMarketBoard.tsx',
+             '''  ) labels.push("Sharp");
+
+            const ownKey = historicalSelectionKey(row);''',
+             '''  ) labels.push("Sharp");
+
+            const marketKey = textKey(row.Market);
+            if (sport === "NFL") {
+              const ownBasis = String(row["Line Movement Basis"] || "");
+              const ownLineMove = Number(row["Line Movement Value"]);
+              const lineMarketMatches =
+                (marketKey === "spread" && ownBasis.includes("Spread")) ||
+                (marketKey === "total" && ownBasis.includes("Total"));
+              if (marketKey === "total" && ownBasis.includes("Total") && Number.isFinite(ownLineMove) && ownLineMove >= NFL_MARKET_MOVE_MIN_POINTS) {
+                labels.push("Market Move");
+              }
+              const openingMoney = Number(row["Opening Sharp %"] || row["Opening Money %"]);
+              const sharpChangeRaw = String(row["Sharp Change %"] || "").trim();
+              const moneyMove = sharpChangeRaw && Number.isFinite(Number(sharpChangeRaw))
+                ? Number(sharpChangeRaw)
+                : Number.isFinite(openingMoney) && Number.isFinite(ownMoney) ? ownMoney - openingMoney : Number.NaN;
+              if (lineMarketMatches && openingMoney > 0 && openingMoney < 100 && Number.isFinite(moneyMove) && moneyMove >= NFL_MONEY_MOMENTUM_MIN_MONEY_MOVE_PCT && Number.isFinite(ownLineMove) && ownLineMove >= NFL_MONEY_MOMENTUM_MIN_MARKET_MOVE_POINTS) {
+                labels.push("Money Momentum");
+              }
+            }
+
+            const ownKey = historicalSelectionKey(row);''')
+          r1('app/FootballTrendMarketBoard.tsx',
+             '''  const lineMove = Number(publicSide["Line Movement Value"]);
+            const marketKey = textKey(row.Market);
+            const footballLineRlm =''',
+             '''  const lineMove = Number(publicSide["Line Movement Value"]);
+            const footballLineRlm =''')
+          r1('app/FootballTrendMarketBoard.tsx',
+             '''  // ONLY the current Public Fade, RLM, and Sharp definitions. This avoids''',
+             '''  // ONLY the current Public Fade, RLM, Sharp, Market Move, and Money Momentum definitions. This avoids''')
+          r1('app/FootballTrendMarketBoard.tsx',
+             '''        "Public Money %": String(play.moneyPct),
+                "Opening Public %": play.openingBetsPct == null ? "" : String(play.openingBetsPct),
+                "Public Change %": play.publicMovementPct == null ? "" : String(play.publicMovementPct),''',
+             '''        "Public Money %": String(play.moneyPct),
+                "Opening Public %": play.openingBetsPct == null ? "" : String(play.openingBetsPct),
+                "Public Change %": play.publicMovementPct == null ? "" : String(play.publicMovementPct),
+                "Opening Sharp %": play.openingMoneyPct == null ? "" : String(play.openingMoneyPct),
+                "Sharp Change %": play.openingMoneyPct == null ? "" : String(Number(play.moneyPct) - Number(play.openingMoneyPct)),''')
+          r1('app/FootballTrendMarketBoard.tsx',
+             'const activeSignals = ["Public Fade", "RLM", "Sharp"] as const;',
+             'const activeSignals = ["Public Fade", "RLM", "Sharp", "Market Move", "Money Momentum"] as const;')
+          r1('app/FootballTrendMarketBoard.tsx',
+             '["Public Fade", "RLM", "Sharp"].forEach((signal) => {',
+             '["Public Fade", "RLM", "Sharp", "Market Move", "Money Momentum"].forEach((signal) => {')
+          r1('app/FootballTrendMarketBoard.tsx',
+             '<div className="recordsSummaryTitle">Public Fade + RLM + Sharp Records</div>',
+             '<div className="recordsSummaryTitle">Public Fade + RLM + Sharp + Market Move + Money Momentum Records</div>')
+          r1('app/FootballTrendMarketBoard.tsx',
+             'No completed Public Fade, RLM, or Sharp results are available yet.',
+             'No completed Public Fade, RLM, Sharp, Market Move, or Money Momentum results are available yet.')
+
+          r1('app/FootballBoard.tsx',
+             'type DirectTrendSignal = "RLM" | "Public Fade" | "Sharp";',
+             'type DirectTrendSignal = "RLM" | "Public Fade" | "Sharp" | "Market Move" | "Money Momentum";')
+          r1('app/FootballBoard.tsx',
+             '''  if (key.includes("sharp")) types.push("Sharp");
+            return types;''',
+             '''  if (key.includes("sharp")) types.push("Sharp");
+            if (key.includes("market move")) types.push("Market Move");
+            if (key.includes("money momentum")) types.push("Money Momentum");
+            return types;''')
+          r1('app/FootballBoard.tsx',
+             '''  if (Number.isFinite(ownBets) && Number.isFinite(ownMoney) && ownMoney - ownBets >= sharpMin) {
+              labels.push("Sharp");
+            }
+
+            const ownKey = historicalTrendSelectionKey(row);''',
+             '''  if (Number.isFinite(ownBets) && Number.isFinite(ownMoney) && ownMoney - ownBets >= sharpMin) {
+              labels.push("Sharp");
+            }
+
+            const marketKey = textKey(row.Market);
+            if (sport === "NFL") {
+              const ownBasis = String(row["Line Movement Basis"] || "");
+              const ownLineMove = Number(row["Line Movement Value"]);
+              const lineMarketMatches =
+                (marketKey === "spread" && ownBasis.includes("Spread")) ||
+                (marketKey === "total" && ownBasis.includes("Total"));
+              if (marketKey === "total" && ownBasis.includes("Total") && Number.isFinite(ownLineMove) && ownLineMove >= 1) labels.push("Market Move");
+              const openingMoney = Number(row["Opening Sharp %"] || row["Opening Money %"]);
+              const sharpChangeRaw = String(row["Sharp Change %"] || "").trim();
+              const moneyMove = sharpChangeRaw && Number.isFinite(Number(sharpChangeRaw))
+                ? Number(sharpChangeRaw)
+                : Number.isFinite(openingMoney) && Number.isFinite(ownMoney) ? ownMoney - openingMoney : Number.NaN;
+              if (lineMarketMatches && openingMoney > 0 && openingMoney < 100 && Number.isFinite(moneyMove) && moneyMove >= 10 && Number.isFinite(ownLineMove) && ownLineMove >= 0.5) labels.push("Money Momentum");
+            }
+
+            const ownKey = historicalTrendSelectionKey(row);''')
+          r1('app/FootballBoard.tsx',
+             '''  const lineMove = Number(publicSide["Line Movement Value"]);
+            const marketKey = textKey(row.Market);
+            const rlmMarketMatches =''',
+             '''  const lineMove = Number(publicSide["Line Movement Value"]);
+            const rlmMarketMatches =''')
+          r1('app/FootballBoard.tsx',
+             '''  if (signal === "RLM") {
+              const publicMove = Number(pick.publicMovePct);
+              const lineMove = Number(pick.lineMoveValue);
+              if (Number.isFinite(publicMove) && Number.isFinite(lineMove)) {
+                return `Bets +${Math.round(publicMove * 10) / 10} pts • line ${lineMove > 0 ? "+" : ""}${Math.round(lineMove * 10) / 10}`;
+              }
+            }
+            return String(pick.qualification || signal);''',
+             '''  if (signal === "RLM") {
+              const publicMove = Number(pick.publicMovePct);
+              const lineMove = Number(pick.lineMoveValue);
+              if (Number.isFinite(publicMove) && Number.isFinite(lineMove)) {
+                return `Bets +${Math.round(publicMove * 10) / 10} pts • line ${lineMove > 0 ? "+" : ""}${Math.round(lineMove * 10) / 10}`;
+              }
+            }
+            if (signal === "Market Move") return "Total moved 1.0+ point toward the pick";
+            if (signal === "Money Momentum") return "Money +10 pts • line +0.5 toward the pick";
+            return String(pick.qualification || signal);''')
+
+          r1('app/FootballBoardBase.tsx',
+             '''  // Trend EZPZ qualification is deterministic on the backend:
+            // Public Fade, RLM, or Sharp. Do not re-apply retired tier/sample/ROI gates here.
+            return /(?:^|\\b)(Public Fade|RLM|Sharp)(?:\\b|$)/i.test(String(pick.qualification || pick.tier || ""));''',
+             '''  // Trend EZPZ qualification is deterministic on the backend.
+            // Do not re-apply retired tier/sample/ROI gates here.
+            return /(?:^|\\b)(Public Fade|RLM|Sharp|Market Move|Money Momentum)(?:\\b|$)/i.test(String(pick.qualification || pick.tier || ""));''')
+          r1('app/FootballBoardBase.tsx',
+             '''          <span><b>Public Fade</b> {sport === "NFL" ? "Fade any side with 80%+ of bets" : "Bets exceed 75% with a 55+ point Bets/Money gap"}</span>
+                    <span><b>RLM</b> Public bets rise 5+ points while the spread or total moves 1.5+ points against that side</span>
+                    <span><b>Sharp</b> Money share exceeds bet share by {sport === "NFL" ? "20+" : "25+"} points</span>''',
+             '''          <span><b>Public Fade</b> {sport === "NFL" ? "Fade any side with 80%+ of bets" : "Bets exceed 75% with a 55+ point Bets/Money gap"}</span>
+                    <span><b>RLM</b> Public bets rise 5+ points while the spread or total moves 1.5+ points against that side</span>
+                    <span><b>Sharp</b> Money share exceeds bet share by 25+ points</span>
+                    {sport === "NFL" ? <span><b>Market Move</b> Follow a total when the total line moves 1.0+ point in that direction</span> : null}
+                    {sport === "NFL" ? <span><b>Money Momentum</b> Money share rises 10+ points while the spread or total moves 0.5+ point toward that side</span> : null}''')
+
+          for workflow in [
+              '.github/workflows/add-nfl-market-money-signals.yml',
+              '.github/workflows/add-nfl-market-money-signals-v2.yml',
+          ]:
+              p = Path(workflow)
+              if p.exists(): p.unlink()
+          PY
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript check
+        run: npx tsc --noEmit
+
+      - name: Verify wiring
+        shell: bash
+        run: |
+          grep -q 'labels.push("Market Move")' lib/footballPublicDataCore.ts
+          grep -q 'labels.push("Money Momentum")' lib/footballPublicDataCore.ts
+          grep -q 'Market Move.*Money Momentum' lib/ezpzPublicSplitEligibility.ts
+          grep -q '<b>Market Move</b>' app/FootballBoardBase.tsx
+          grep -q '<b>Money Momentum</b>' app/FootballBoardBase.tsx
+          grep -q 'Market Move.*Money Momentum' app/FootballBoard.tsx
+
+      - name: Commit implementation
+        shell: bash
+        run: |
+          git config user.name "ezpzpicks"
+          git config user.email "ryanpaez5@gmail.com"
+          git add -A
+          git commit -m "Add NFL Market Move and Money Momentum signals"
+          git push origin main
