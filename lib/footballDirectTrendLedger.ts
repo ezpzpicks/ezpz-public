@@ -2,7 +2,7 @@ import type { FootballSport, SheetRow } from "./sportSheets";
 
 type AnyPick = Record<string, any>;
 type ResultCode = "W" | "L" | "P" | "";
-type DirectTrendSignal = "RLM" | "Public Fade" | "Sharp";
+type DirectTrendSignal = "RLM" | "Public Fade" | "Sharp" | "Market Move" | "Money Momentum";
 
 function textKey(value: unknown) {
   return String(value || "")
@@ -39,6 +39,8 @@ function directSignals(pick: AnyPick): DirectTrendSignal[] {
   if (key.includes("rlm")) signals.push("RLM");
   if (key.includes("public fade")) signals.push("Public Fade");
   if (key.includes("sharp")) signals.push("Sharp");
+  if (key.includes("market move")) signals.push("Market Move");
+  if (key.includes("money momentum")) signals.push("Money Momentum");
   return signals;
 }
 
@@ -223,6 +225,8 @@ function syntheticRowsForPick(pick: AnyPick, sport: FootballSport): SheetRow[] {
   const hasRlm = signals.includes("RLM");
   const hasFade = signals.includes("Public Fade");
   const hasSharp = signals.includes("Sharp");
+  const hasMarketMove = signals.includes("Market Move");
+  const hasMoneyMomentum = signals.includes("Money Momentum");
   const teams = gameTeams(game);
   const selection = market === "Total"
     ? totalSide(pick.selection || pick.play)
@@ -240,7 +244,9 @@ function syntheticRowsForPick(pick: AnyPick, sport: FootballSport): SheetRow[] {
   // signals that were actually published so current rule code cannot invent or
   // erase a historical qualification later.
   const selectedBets = 40;
-  const selectedMoney = hasSharp ? (sport === "NCAAF" ? 85 : 70) : 40;
+  const selectedMoney = hasSharp ? (sport === "NCAAF" ? 85 : 70) : hasMoneyMomentum ? 50 : 40;
+  const openingSelectedMoney = hasMoneyMomentum ? selectedMoney - 10 : selectedMoney;
+  const selectedLineMove = hasMarketMove ? 1 : hasMoneyMomentum ? 0.5 : 0;
   let publicBets = 60;
   let publicMoney = 60;
   if (hasFade) {
@@ -293,10 +299,10 @@ function syntheticRowsForPick(pick: AnyPick, sport: FootballSport): SheetRow[] {
     "Public Change %": "0",
     "Public Money %": String(selectedMoney),
     "Current Sharp %": String(selectedMoney),
-    "Opening Sharp %": String(selectedMoney),
-    "Sharp Change %": "0",
+    "Opening Sharp %": String(openingSelectedMoney),
+    "Sharp Change %": String(selectedMoney - openingSelectedMoney),
     "Line Movement Basis": market === "Total" ? "Total Line" : "Spread Line",
-    "Line Movement Value": "0",
+    "Line Movement Value": String(selectedLineMove),
     Result: result,
   };
 

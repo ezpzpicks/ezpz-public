@@ -338,7 +338,7 @@ function pickFormMeta(value: unknown) {
 }
 
 
-type DirectTrendSignal = "RLM" | "Public Fade" | "Sharp";
+type DirectTrendSignal = "RLM" | "Public Fade" | "Sharp" | "Market Move" | "Money Momentum";
 type DirectTrendBetType = "Favorite" | "Underdog" | "Over" | "Under" | "";
 
 function matchupTeams(game: unknown) {
@@ -358,6 +358,8 @@ function directTrendTypes(pick: EzpzPick): DirectTrendSignal[] {
   if (key.includes("rlm")) types.push("RLM");
   if (key.includes("public fade")) types.push("Public Fade");
   if (key.includes("sharp")) types.push("Sharp");
+  if (key.includes("market move")) types.push("Market Move");
+  if (key.includes("money momentum")) types.push("Money Momentum");
   return types;
 }
 
@@ -423,6 +425,18 @@ function directTrendLabels(row: SheetRow, group: SheetRow[], sport: Sport): Dire
     labels.push("Sharp");
   }
 
+  const marketKey = textKey(row.Market);
+  if (sport === "NFL") {
+    const ownBasis = String(row["Line Movement Basis"] || "");
+    const ownLineMove = Number(row["Line Movement Value"]);
+    const lineMarketMatches = (marketKey === "spread" && ownBasis.includes("Spread")) || (marketKey === "total" && ownBasis.includes("Total"));
+    if (marketKey === "total" && ownBasis.includes("Total") && Number.isFinite(ownLineMove) && ownLineMove >= 1) labels.push("Market Move");
+    const openingMoney = Number(row["Opening Sharp %"] || row["Opening Money %"]);
+    const sharpChangeRaw = String(row["Sharp Change %"] || "").trim();
+    const moneyMove = sharpChangeRaw && Number.isFinite(Number(sharpChangeRaw)) ? Number(sharpChangeRaw) : Number.isFinite(openingMoney) && Number.isFinite(ownMoney) ? ownMoney - openingMoney : Number.NaN;
+    if (lineMarketMatches && openingMoney > 0 && openingMoney < 100 && Number.isFinite(moneyMove) && moneyMove >= 10 && Number.isFinite(ownLineMove) && ownLineMove >= 0.5) labels.push("Money Momentum");
+  }
+
   const ownKey = historicalTrendSelectionKey(row);
   const publicSide = group.find((candidate) => historicalTrendSelectionKey(candidate) !== ownKey);
   if (!publicSide) return labels;
@@ -438,7 +452,6 @@ function directTrendLabels(row: SheetRow, group: SheetRow[], sport: Sport): Dire
   const openingBets = Number(publicSide["Opening Public %"] || publicSide["Opening Bets %"]);
   const publicMove = Number(publicSide["Public Change %"]);
   const lineMove = Number(publicSide["Line Movement Value"]);
-  const marketKey = textKey(row.Market);
   const rlmMarketMatches =
     (marketKey === "spread" &&
       String(publicSide["Line Movement Basis"] || "").includes("Spread")) ||
@@ -549,6 +562,8 @@ function trendSignalDetail(pick: EzpzPick, signal: DirectTrendSignal) {
       return `Bets +${Math.round(publicMove * 10) / 10} pts • line ${lineMove > 0 ? "+" : ""}${Math.round(lineMove * 10) / 10}`;
     }
   }
+  if (signal === "Market Move") return "Total moved 1.0+ point toward the pick";
+  if (signal === "Money Momentum") return "Money +10 pts • line +0.5 toward the pick";
   return String(pick.qualification || signal);
 }
 

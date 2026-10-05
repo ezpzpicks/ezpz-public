@@ -2178,6 +2178,9 @@ const PUBLIC_FADE_MIN_BETS_PCT = 75;
 const PUBLIC_FADE_MIN_TICKET_MONEY_GAP_PCT = 55;
 const RLM_MIN_PUBLIC_MOVE_PCT = 5;
 const RLM_MIN_MARKET_MOVE_POINTS = 1.5;
+const NFL_MARKET_MOVE_MIN_POINTS = 1;
+const NFL_MONEY_MOMENTUM_MIN_MONEY_MOVE_PCT = 10;
+const NFL_MONEY_MOMENTUM_MIN_MARKET_MOVE_POINTS = 0.5;
 const EZPZ_SHARP_MIN_MONEY_OVER_BETS_PCT: Record<FootballSport, number> = { NFL: 25, NCAAF: 25 };
 
 function sameTrendSplitGame(play: TrendPlay, split: DraftKingsSplit, sport: FootballSport) {
@@ -2273,6 +2276,40 @@ function isSharpSource(play: Pick<TrendPlay, "betsPct" | "moneyPct">, sport: Foo
     && money - bets >= EZPZ_SHARP_MIN_MONEY_OVER_BETS_PCT[sport];
 }
 
+function selectedMarketMove(play: Pick<TrendPlay, "market" | "lineMovementBasis" | "lineMovementValue">) {
+  const lineMove = Number(play.lineMovementValue);
+  const basis = String(play.lineMovementBasis || "");
+  const marketMatches =
+    (play.market === "Spread" && basis.includes("Spread")) ||
+    (play.market === "Total" && basis.includes("Total"));
+  return marketMatches && Number.isFinite(lineMove) ? lineMove : null;
+}
+
+function selectedMoneyMove(play: Pick<TrendPlay, "moneyPct" | "openingMoneyPct" | "sharpMovementPct">) {
+  const explicit = Number(play.sharpMovementPct);
+  if (play.sharpMovementPct != null && Number.isFinite(explicit)) return explicit;
+  const opening = Number(play.openingMoneyPct);
+  const current = Number(play.moneyPct);
+  if (!Number.isFinite(opening) || !Number.isFinite(current) || opening <= 0 || opening >= 100) return null;
+  return current - opening;
+}
+
+function isNflMarketMoveSelectedSide(play: TrendPlay, sport: FootballSport) {
+  if (sport !== "NFL" || play.market !== "Total") return false;
+  const lineMove = selectedMarketMove(play);
+  return lineMove != null && lineMove >= NFL_MARKET_MOVE_MIN_POINTS;
+}
+
+function isNflMoneyMomentumSelectedSide(play: TrendPlay, sport: FootballSport) {
+  if (sport !== "NFL") return false;
+  const lineMove = selectedMarketMove(play);
+  const moneyMove = selectedMoneyMove(play);
+  return lineMove != null
+    && moneyMove != null
+    && lineMove >= NFL_MONEY_MOMENTUM_MIN_MARKET_MOVE_POINTS
+    && moneyMove >= NFL_MONEY_MOMENTUM_MIN_MONEY_MOVE_PCT;
+}
+
 function directTrendQualification(
   play: TrendPlay,
   splits: DraftKingsSplit[],
@@ -2294,6 +2331,8 @@ function directTrendQualification(
   ) {
     labels.push("RLM");
   }
+  if (isNflMarketMoveSelectedSide(play, sport)) labels.push("Market Move");
+  if (isNflMoneyMomentumSelectedSide(play, sport)) labels.push("Money Momentum");
   return { labels, publicSide };
 }
 

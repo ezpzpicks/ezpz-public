@@ -954,9 +954,9 @@ function fbTrendNetRoiSummary(play: TrendPlay, trendPlays: TrendPlay[]) {
 
 function fbTrendPickPassesEzpzRules(pick: EzpzPick, trendPlays: TrendPlay[], sport: Sport) {
   if (pick.source !== "Trend Play") return true;
-  // Trend EZPZ qualification is deterministic on the backend:
-  // Public Fade, RLM, or Sharp. Do not re-apply retired tier/sample/ROI gates here.
-  return /(?:^|\b)(Public Fade|RLM|Sharp)(?:\b|$)/i.test(String(pick.qualification || pick.tier || ""));
+  // Trend EZPZ qualification is deterministic on the backend.
+  // Do not re-apply retired tier/sample/ROI gates here.
+  return /(?:^|\b)(Public Fade|RLM|Sharp|Market Move|Money Momentum)(?:\b|$)/i.test(String(pick.qualification || pick.tier || ""));
 }
 
 function BestPlayCard({ play, splits, index, sport, recentByType, lastSevenBetsByType }: { play: Play; splits: DraftKingsSplit[]; index: number; sport: Sport; recentByType: Map<string, Summary>; lastSevenBetsByType: Map<string, Summary> }) {
@@ -1624,7 +1624,9 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
         <div className="directTrendRules">
           <span><b>Public Fade</b> {sport === "NFL" ? "Fade any side with 80%+ of bets" : "Bets exceed 75% with a 55+ point Bets/Money gap"}</span>
           <span><b>RLM</b> Public bets rise 5+ points while the spread or total moves 1.5+ points against that side</span>
-          <span><b>Sharp</b> Money share exceeds bet share by {sport === "NFL" ? "20+" : "25+"} points</span>
+          <span><b>Sharp</b> Money share exceeds bet share by 25+ points</span>
+          {sport === "NFL" ? <span><b>Market Move</b> Follow a total when the total line moves 1.0+ point in that direction</span> : null}
+          {sport === "NFL" ? <span><b>Money Momentum</b> Money share rises 10+ points while the spread or total moves 0.5+ point toward that side</span> : null}
         </div>
         <div className="trendGamesCountRow">
           <span className="countPill">{displayedTrendGroups.length} games</span>

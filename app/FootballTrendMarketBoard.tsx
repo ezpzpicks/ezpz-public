@@ -283,7 +283,10 @@ function opposite(play: TrendPlay, plays: TrendPlay[]) {
   }) || null;
 }
 
-const SHARP_MIN_MONEY_OVER_BETS = { NFL: 20, NCAAF: 25, MLB: 20 } as const;
+const SHARP_MIN_MONEY_OVER_BETS = { NFL: 25, NCAAF: 25, MLB: 25 } as const;
+const NFL_MARKET_MOVE_MIN_POINTS = 1;
+const NFL_MONEY_MOMENTUM_MIN_MONEY_MOVE_PCT = 10;
+const NFL_MONEY_MOMENTUM_MIN_MARKET_MOVE_POINTS = 0.5;
 
 function labelsFor(play: TrendPlay, plays: TrendPlay[], sport: Sport) {
   const labels: string[] = [];
@@ -294,6 +297,19 @@ function labelsFor(play: TrendPlay, plays: TrendPlay[], sport: Sport) {
     Number.isFinite(ownMoney) &&
     ownMoney - ownBets >= SHARP_MIN_MONEY_OVER_BETS[sport]
   ) labels.push("Sharp");
+
+  if (sport === "NFL") {
+    const ownLineMove = Number(play.lineMovementValue);
+    const ownBasis = String(play.lineMovementBasis || "");
+    const lineMarketMatches =
+      (play.market === "Spread" && ownBasis.includes("Spread")) ||
+      (play.market === "Total" && ownBasis.includes("Total"));
+    if (play.market === "Total" && ownBasis.includes("Total") && Number.isFinite(ownLineMove) && ownLineMove >= NFL_MARKET_MOVE_MIN_POINTS) labels.push("Market Move");
+    const openingMoney = Number(play.openingMoneyPct);
+    const currentMoney = Number(play.moneyPct);
+    const moneyMove = Number.isFinite(openingMoney) && Number.isFinite(currentMoney) ? currentMoney - openingMoney : Number.NaN;
+    if (lineMarketMatches && openingMoney > 0 && openingMoney < 100 && Number.isFinite(moneyMove) && moneyMove >= NFL_MONEY_MOMENTUM_MIN_MONEY_MOVE_PCT && Number.isFinite(ownLineMove) && ownLineMove >= NFL_MONEY_MOMENTUM_MIN_MARKET_MOVE_POINTS) labels.push("Money Momentum");
+  }
 
   const publicSide = opposite(play, plays);
   if (!publicSide) return labels;
@@ -926,6 +942,18 @@ function historicalLabels(row: SheetRow, group: SheetRow[], sport: Sport) {
     ownMoney - ownBets >= SHARP_MIN_MONEY_OVER_BETS[sport]
   ) labels.push("Sharp");
 
+  const marketKey = textKey(row.Market);
+  if (sport === "NFL") {
+    const ownBasis = String(row["Line Movement Basis"] || "");
+    const ownLineMove = Number(row["Line Movement Value"]);
+    const lineMarketMatches = (marketKey === "spread" && ownBasis.includes("Spread")) || (marketKey === "total" && ownBasis.includes("Total"));
+    if (marketKey === "total" && ownBasis.includes("Total") && Number.isFinite(ownLineMove) && ownLineMove >= NFL_MARKET_MOVE_MIN_POINTS) labels.push("Market Move");
+    const openingMoney = Number(row["Opening Sharp %"] || row["Opening Money %"]);
+    const sharpChangeRaw = String(row["Sharp Change %"] || "").trim();
+    const moneyMove = sharpChangeRaw && Number.isFinite(Number(sharpChangeRaw)) ? Number(sharpChangeRaw) : Number.isFinite(openingMoney) && Number.isFinite(ownMoney) ? ownMoney - openingMoney : Number.NaN;
+    if (lineMarketMatches && openingMoney > 0 && openingMoney < 100 && Number.isFinite(moneyMove) && moneyMove >= NFL_MONEY_MOMENTUM_MIN_MONEY_MOVE_PCT && Number.isFinite(ownLineMove) && ownLineMove >= NFL_MONEY_MOMENTUM_MIN_MARKET_MOVE_POINTS) labels.push("Money Momentum");
+  }
+
   const ownKey = historicalSelectionKey(row);
   const publicSide = group.find((candidate) => historicalSelectionKey(candidate) !== ownKey);
   if (!publicSide) return labels;
@@ -946,7 +974,6 @@ function historicalLabels(row: SheetRow, group: SheetRow[], sport: Sport) {
   const openingPublicBets = Number(publicSide["Opening Public %"] || publicSide["Opening Bets %"]);
   const publicMove = Number(publicSide["Public Change %"]);
   const lineMove = Number(publicSide["Line Movement Value"]);
-  const marketKey = textKey(row.Market);
   const footballLineRlm =
     sport !== "MLB" &&
     (
@@ -1055,7 +1082,7 @@ export function DirectTrendRecords({
   });
 
   // Recover completed direct-trend results from finalized pregame snapshots using
-  // ONLY the current Public Fade, RLM, and Sharp definitions. This avoids
+  // ONLY the current Public Fade, RLM, Sharp, Market Move, and Money Momentum definitions. This avoids
   // legacy signal labels while still handling historical rows stored under
   // different game IDs.
   if (trendPlays.length) {
@@ -1102,7 +1129,7 @@ export function DirectTrendRecords({
   // Merge those finalized picks into the trend-record ledger and de-duplicate
   // against any historical row that already represents the same decision.
   if (aiPickRows.length) {
-    const activeSignals = ["Public Fade", "RLM", "Sharp"] as const;
+    const activeSignals = ["Public Fade", "RLM", "Sharp", "Market Move", "Money Momentum"] as const;
     aiPickRows.forEach((pick) => {
       if (!resultCode(pick.result)) return;
 
@@ -1210,7 +1237,7 @@ export function DirectTrendRecords({
   }
 
   const summaries: Array<{ label: string; totals: RecordTotals }> = [];
-  ["Public Fade", "RLM", "Sharp"].forEach((signal) => {
+  ["Public Fade", "RLM", "Sharp", "Market Move", "Money Momentum"].forEach((signal) => {
     let signalRows = labeled.filter((item) => item.signal === signal);
     if (signal === "RLM") {
       // RLM is side-specific. A team can appear twice in historical storage
@@ -1234,7 +1261,7 @@ export function DirectTrendRecords({
     <details className="recordsDropdown directTrendRecords" open>
       <summary className="recordsSummary">
         <div>
-          <div className="recordsSummaryTitle">Public Fade + RLM + Sharp Records</div>
+          <div className="recordsSummaryTitle">{sport === "NFL" ? "Public Fade + RLM + Sharp + Market Move + Money Momentum Records" : "Public Fade + RLM + Sharp Records"}</div>
         </div>
         <span className="recordsCount">{labeled.length} graded</span>
       </summary>
@@ -1259,7 +1286,7 @@ export function DirectTrendRecords({
             </tbody>
           </table>
         </div>
-      ) : <div className="empty insideDropdown">No completed Public Fade, RLM, or Sharp results are available yet.</div>}
+      ) : <div className="empty insideDropdown">{sport === "NFL" ? "No completed Public Fade, RLM, Sharp, Market Move, or Money Momentum results are available yet." : "No completed Public Fade, RLM, or Sharp results are available yet."}</div>}
     </details>
   );
 }

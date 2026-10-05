@@ -217,7 +217,8 @@ function directPublishedPick(pick: AnyPick) {
   const source = textKey(pick.source);
   const labels = textKey(`${pick.tier || ""} ${pick.trendTier || ""} ${pick.qualification || ""}`);
   return (source === "trend play" || source === "best trend") &&
-    (labels.includes("rlm") || labels.includes("public fade") || labels.includes("sharp"));
+    (labels.includes("rlm") || labels.includes("public fade") || labels.includes("sharp") ||
+    labels.includes("market move") || labels.includes("money momentum"));
 }
 
 function historyGroupKey(pick: AnyPick) {
