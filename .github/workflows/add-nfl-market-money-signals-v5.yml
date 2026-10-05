@@ -1,0 +1,93 @@
+name: One-time commit validated NFL Market Move and Money Momentum signals
+
+on:
+  push:
+    paths:
+      - ".github/workflows/add-nfl-market-money-signals-v5.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply validated source patch
+        shell: bash
+        run: |
+          python - <<'RUNNER'
+          from pathlib import Path
+
+          workflow = Path('.github/workflows/add-nfl-market-money-signals-v3.yml').read_text().splitlines()
+          start = next(i for i, line in enumerate(workflow) if line.strip() == "python - <<'PY'") + 1
+          end = next(i for i in range(start, len(workflow)) if workflow[i].strip() == 'PY')
+          code = '\n'.join(line[10:] if line.startswith('          ') else line for line in workflow[start:end])
+          exec(compile(code, 'validated-v3-patch.py', 'exec'))
+
+          for name in ('add-nfl-market-money-signals-v4.yml', 'add-nfl-market-money-signals-v5.yml'):
+              path = Path('.github/workflows') / name
+              if path.exists():
+                  path.unlink()
+          RUNNER
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript check
+        run: npx tsc --noEmit
+
+      - name: Code-aware verification
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          checks = {
+              'lib/footballPublicDataCore.ts': [
+                  'NFL_MARKET_MOVE_MIN_POINTS = 1',
+                  'NFL_MONEY_MOMENTUM_MIN_MONEY_MOVE_PCT = 10',
+                  'labels.push("Market Move")',
+                  'labels.push("Money Momentum")',
+              ],
+              'lib/ezpzPublicSplitEligibility.ts': [
+                  r'Market\s+Move',
+                  r'Money\s+Momentum',
+              ],
+              'lib/footballDirectTrendLedger.ts': [
+                  '"Market Move"',
+                  '"Money Momentum"',
+              ],
+              'app/FootballBoardBase.tsx': [
+                  '<b>Market Move</b>',
+                  '<b>Money Momentum</b>',
+                  'Money share exceeds bet share by 25+ points',
+              ],
+              'app/FootballBoard.tsx': [
+                  'Market Move',
+                  'Money Momentum',
+              ],
+              'app/FootballTrendMarketBoard.tsx': [
+                  'Market Move',
+                  'Money Momentum',
+              ],
+          }
+          for file, needles in checks.items():
+              text = Path(file).read_text()
+              for needle in needles:
+                  if needle not in text:
+                      raise SystemExit(f'Missing {needle!r} in {file}')
+          print('All Market Move / Money Momentum wiring checks passed.')
+          PY
+
+      - name: Commit implementation
+        shell: bash
+        run: |
+          git config user.name "ezpzpicks"
+          git config user.email "ryanpaez5@gmail.com"
+          git add -A
+          git commit -m "Add NFL Market Move and Money Momentum signals"
+          git push origin main
