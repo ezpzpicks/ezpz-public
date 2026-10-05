@@ -549,9 +549,11 @@ const NFL_MONEY_MOMENTUM_MIN_MARKET_MOVE_POINTS = 0.5;
 const NFL_CORE_MIN_HISTORY_MS = 60 * 60_000;
 
 function directTrendSideKey(play: AnyPick) {
+  const selection = String(play.selectionTeam || play.selection || "")
+    .replace(/\s+[+-]?\d+(?:\.\d+)?\s*$/, "");
   return textKey(play.market) === "total"
-    ? textKey(play.side || play.selection).replace(/\s+[+-]?\d+(?:\.\d+)?\s*$/, "")
-    : textKey(String(play.selection || play.selectionTeam || "").replace(/\s+[+-]?\d+(?:\.\d+)?\s*$/, ""));
+    ? side(play.side || play.selection)
+    : nflTeamIdentity(selection);
 }
 
 // Legacy public-split signals remain fully tracked. They are used only as
@@ -630,23 +632,29 @@ function selectedNflMoneyMove(play: AnyPick) {
 }
 
 function hasNflCoreHistory(play: AnyPick) {
-  const opening = Date.parse(String(play.openingSnapshotTime || ""));
+  const opening = Date.parse(String(play.openingSnapshotTime || play.firstTrackedAt || ""));
   const current = Date.parse(String(play.updatedAt || play.snapshotTime || play.frozenAt || ""));
   return Number.isFinite(opening) && Number.isFinite(current) && current - opening >= NFL_CORE_MIN_HISTORY_MS;
 }
 
 function enrichNflTrendTiming(play: AnyPick, splits: AnyPick[]) {
-  if (play.openingSnapshotTime && (play.updatedAt || play.snapshotTime || play.frozenAt)) return play;
+  // Weekly trend plays carry firstTrackedAt; raw splits carry openingSnapshotTime.
+  // Keep timing attached to its own movement history before trying a split fallback.
+  const openingSnapshotTime = play.openingSnapshotTime || play.firstTrackedAt;
+  if (openingSnapshotTime && (play.updatedAt || play.snapshotTime || play.frozenAt)) {
+    return { ...play, openingSnapshotTime };
+  }
   const ownKey = directTrendSideKey(play);
   const match = splits.find((split) =>
     sameGame(split.game, play.game, "NFL") &&
+    (!split.date || !play.date || isoDate(split.date) === isoDate(play.date)) &&
     textKey(split.market) === textKey(play.market) &&
     directTrendSideKey(split) === ownKey
   );
   if (!match) return play;
   return {
     ...play,
-    openingSnapshotTime: play.openingSnapshotTime || match.openingSnapshotTime,
+    openingSnapshotTime: openingSnapshotTime || match.openingSnapshotTime || match.firstTrackedAt,
     updatedAt: play.updatedAt || match.snapshotTime || match.updatedAt,
   };
 }
