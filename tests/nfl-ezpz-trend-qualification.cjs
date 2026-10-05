@@ -5,7 +5,6 @@ const path = require("node:path");
 const vm = require("node:vm");
 const ts = require("typescript");
 
-// Exercise the production selector without network calls or storage writes.
 const source = fs.readFileSync(path.join(__dirname, "../lib/footballPublicDataHistory.ts"), "utf8")
   + "\nexport const testFunctions = { directNflTrendPick, directNflTrendPicks };\n";
 const compiled = ts.transpileModule(source, {
@@ -18,83 +17,131 @@ vm.runInNewContext(compiled.outputText, {
   Date, Intl, console,
 });
 const { directNflTrendPick, directNflTrendPicks } = moduleExports.testFunctions;
-const today = "2026-09-27";
+const today = "2026-10-05";
 
-function sides({ sharp = false, fade = false, rlm = false, market = "Total", odds = "" } = {}) {
-  const bets = fade ? 15 : 40;
-  const money = bets + (sharp ? 30 : 0);
-  const base = { date: today, game: "BAL @ DAL", market, line: market === "Total" ? 53.5 : 3.5,
-    odds, lineMovementBasis: market + " Line", snapshotStatus: "FINAL_PREGAME" };
-  return [
-    { ...base, selection: market === "Total" ? "Over" : "BAL", side: market === "Total" ? "Over" : "",
-      betsPct: bets, moneyPct: money, openingBetsPct: bets + (rlm ? 10 : 0),
-      publicMovementPct: rlm ? -10 : 0, lineMovementValue: rlm ? 2 : 0 },
-    { ...base, selection: market === "Total" ? "Under" : "DAL", side: market === "Total" ? "Under" : "",
-      line: market === "Total" ? 53.5 : -3.5,
-      betsPct: 100 - bets, moneyPct: 100 - money, openingBetsPct: 100 - bets - (rlm ? 10 : 0),
-      publicMovementPct: rlm ? 10 : 0, lineMovementValue: rlm ? -2 : 0 },
-  ];
+function pair({
+  game = "BAL @ DAL",
+  market = "Total",
+  lineMove = 1,
+  moneyMove = 0,
+  odds = "",
+  opening = "2026-10-05T12:00:00Z",
+  updated = "2026-10-05T14:00:00Z",
+} = {}) {
+  const total = market === "Total";
+  const selected = {
+    date: today, game, market,
+    selection: total ? "Over" : "BAL",
+    selectionTeam: total ? "" : "BAL",
+    side: total ? "Over" : "",
+    line: total ? 46.5 : 3.5,
+    odds,
+    betsPct: 40,
+    moneyPct: 40 + moneyMove,
+    openingBetsPct: 40,
+    openingMoneyPct: 40,
+    publicMovementPct: 0,
+    sharpMovementPct: moneyMove,
+    lineMovementBasis: total ? "Total Line" : "Spread Line",
+    lineMovementValue: lineMove,
+    openingSnapshotTime: opening,
+    updatedAt: updated,
+    snapshotStatus: "LIVE",
+  };
+  const opposite = {
+    ...selected,
+    selection: total ? "Under" : "DAL",
+    selectionTeam: total ? "" : "DAL",
+    side: total ? "Under" : "",
+    line: total ? 46.5 : -3.5,
+    betsPct: 60,
+    moneyPct: 60 - moneyMove,
+    openingBetsPct: 60,
+    openingMoneyPct: 60,
+    sharpMovementPct: -moneyMove,
+    lineMovementValue: -lineMove,
+  };
+  return [selected, opposite];
 }
 
-test("Baltimore-Dallas Over 53.5 retains Sharp and Public Fade with a missing price", () => {
-  const plays = sides({ sharp: true, fade: true });
-  Object.assign(plays[0], { betsPct: 17, moneyPct: 49, openingBetsPct: 13, publicMovementPct: 4, lineMovementValue: 1 });
-  Object.assign(plays[1], { betsPct: 83, moneyPct: 51, openingBetsPct: 87, publicMovementPct: -4, lineMovementValue: -1 });
-  const pick = directNflTrendPick(plays[0], plays, today);
-  assert.ok(pick);
-  assert.equal(pick.selection, "Over 53.5");
-  assert.equal(pick.tier, "Sharp + Public Fade");
-  assert.equal(pick.odds, "-110");
-  assert.equal(pick.oddsSource, "DEFAULT_110");
+test("legacy Sharp/Public Fade/RLM no longer qualify alone after the effective date", () => {
+  const plays = pair({ lineMove: 0, moneyMove: 0 });
+  Object.assign(plays[0], { betsPct: 20, moneyPct: 50 });
+  Object.assign(plays[1], { betsPct: 80, moneyPct: 50 });
+  assert.equal(directNflTrendPicks({ trendPlays: plays }, today).length, 0);
 });
 
-test("all seven signal combinations qualify once for spreads and totals", () => {
-  for (const market of ["Spread", "Total"]) {
-    for (let mask = 1; mask < 8; mask++) {
-      const sharp = Boolean(mask & 1), fade = Boolean(mask & 2), rlm = Boolean(mask & 4);
-      const plays = sides({ sharp, fade, rlm, market });
-      const picks = directNflTrendPicks({ trendPlays: [...plays, ...plays] }, today);
-      assert.equal(picks.length, 1, market + " combination " + mask);
-      assert.equal(picks[0].tier, [sharp && "Sharp", fade && "Public Fade", rlm && "RLM"].filter(Boolean).join(" + "));
-      assert.equal(picks[0].market, market);
-      assert.equal(picks[0].selection, market === "Total" ? "Over 53.5" : "BAL +3.5");
-    }
-  }
+test("standalone total Market Move qualifies at 1.0 point with one hour of history", () => {
+  const plays = pair({ lineMove: 1, moneyMove: 0 });
+  const picks = directNflTrendPicks({ trendPlays: plays }, today);
+  assert.equal(picks.length, 1);
+  assert.equal(picks[0].tier, "Market Move");
+  assert.equal(picks[0].selection, "Over 46.5");
+  assert.equal(picks[0].odds, "-110");
 });
 
-test("known prices retain the -150 cap regardless of the number of signals", () => {
-  const plays = sides({ sharp: true, fade: true, rlm: true });
-  for (const odds of ["-112", "-150", "+105"]) {
-    const pick = directNflTrendPick({ ...plays[0], odds }, plays, today);
-    assert.equal(pick.odds, odds);
-    assert.equal(pick.oddsSource, "SNAPSHOT");
-  }
-  assert.equal(directNflTrendPick({ ...plays[0], odds: "-151" }, plays, today), null);
+test("total Market Move plus 10-point money growth is the top class", () => {
+  const plays = pair({ lineMove: 1, moneyMove: 10 });
+  const picks = directNflTrendPicks({ trendPlays: plays }, today);
+  assert.equal(picks.length, 1);
+  assert.equal(picks[0].tier, "Market Move + Total Money Momentum");
 });
 
-test("fallback prices do not admit unqualified plays, player props, or missing lines", () => {
-  const plain = sides();
-  assert.equal(directNflTrendPick(plain[0], plain, today), null);
-  const plays = sides({ sharp: true, fade: true, rlm: true });
-  assert.equal(directNflTrendPick({ ...plays[0], market: "Player Prop" }, plays, today), null);
-  for (const line of [null, undefined, "", "bad"]) {
-    assert.equal(directNflTrendPick({ ...plays[0], line }, plays, today), null);
-  }
-  assert.equal(directNflTrendPicks({ trendPlays: plays }, "2026-09-28").length, 0);
+test("spread money momentum qualifies at 0.5 line move and 10-point money growth", () => {
+  const plays = pair({ market: "Spread", lineMove: 0.5, moneyMove: 10 });
+  const picks = directNflTrendPicks({ trendPlays: plays }, today);
+  assert.equal(picks.length, 1);
+  assert.equal(picks[0].tier, "Spread Money Momentum");
+  assert.equal(picks[0].selection, "BAL +3.5");
 });
 
-test("the existing Sharp, Public Fade, and RLM boundaries remain in effect", () => {
-  const plays = sides({ sharp: true });
-  assert.ok(directNflTrendPick({ ...plays[0], moneyPct: plays[0].betsPct + 25 }, plays, today));
-  assert.equal(directNflTrendPick({ ...plays[0], moneyPct: plays[0].betsPct + 24 }, plays, today), null);
-  const fade = sides({ fade: true });
-  fade[1].betsPct = 79;
-  assert.equal(directNflTrendPick(fade[0], fade, today), null);
-  fade[1].betsPct = 80;
-  assert.ok(directNflTrendPick(fade[0], fade, today));
-  Object.assign(fade[1], { betsPct: 100, moneyPct: 100 });
-  assert.equal(directNflTrendPick(fade[0], fade, today), null);
-  const rlm = sides({ rlm: true });
-  rlm[1].openingBetsPct = 100;
-  assert.equal(directNflTrendPick(rlm[0], rlm, today), null);
+test("one-pick hierarchy prefers confirmed total over spread momentum over standalone market move", () => {
+  const top = pair({ game: "BAL @ DAL", market: "Total", lineMove: 1, moneyMove: 10 });
+  const spread = pair({ game: "BAL @ DAL", market: "Spread", lineMove: 0.5, moneyMove: 10 });
+  let picks = directNflTrendPicks({ trendPlays: [...top, ...spread] }, today);
+  assert.equal(picks.length, 1);
+  assert.equal(picks[0].tier, "Market Move + Total Money Momentum");
+
+  const standalone = pair({ game: "KC @ LV", market: "Total", lineMove: 1, moneyMove: 0 });
+  const spread2 = pair({ game: "KC @ LV", market: "Spread", lineMove: 0.5, moneyMove: 10 });
+  picks = directNflTrendPicks({ trendPlays: [...standalone, ...spread2] }, today);
+  assert.equal(picks.length, 1);
+  assert.equal(picks[0].tier, "Spread Money Momentum");
+});
+
+test("opposite same-market legacy signal causes a pass, while same-side confirmation does not", () => {
+  const conflict = pair({ lineMove: 1, moneyMove: 0 });
+  Object.assign(conflict[1], { betsPct: 30, moneyPct: 60 });
+  assert.equal(directNflTrendPicks({ trendPlays: conflict }, today).length, 0);
+
+  const confirm = pair({ game: "BUF @ NYJ", lineMove: 1, moneyMove: 0 });
+  Object.assign(confirm[0], { betsPct: 30, moneyPct: 60 });
+  const picks = directNflTrendPicks({ trendPlays: confirm }, today);
+  assert.equal(picks.length, 1);
+  assert.equal(picks[0].tier, "Market Move");
+});
+
+test("new signals require at least one hour of tracked history", () => {
+  const immature = pair({ lineMove: 1, moneyMove: 10, updated: "2026-10-05T12:59:00Z" });
+  assert.equal(directNflTrendPicks({ trendPlays: immature }, today).length, 0);
+  const mature = pair({ lineMove: 1, moneyMove: 10, updated: "2026-10-05T13:00:00Z" });
+  assert.equal(directNflTrendPicks({ trendPlays: mature }, today).length, 1);
+});
+
+test("thresholds remain exact and known prices preserve the -150 cap", () => {
+  assert.equal(directNflTrendPicks({ trendPlays: pair({ lineMove: 0.9, moneyMove: 0 }) }, today).length, 0);
+  assert.equal(directNflTrendPicks({ trendPlays: pair({ market: "Spread", lineMove: 0.4, moneyMove: 10 }) }, today).length, 0);
+  assert.equal(directNflTrendPicks({ trendPlays: pair({ market: "Spread", lineMove: 0.5, moneyMove: 9 }) }, today).length, 0);
+  assert.equal(directNflTrendPicks({ trendPlays: pair({ lineMove: 1, moneyMove: 0, odds: "-150" }) }, today).length, 1);
+  assert.equal(directNflTrendPicks({ trendPlays: pair({ lineMove: 1, moneyMove: 0, odds: "-151" }) }, today).length, 0);
+});
+
+test("Week 4 remains on the prior selector so finished games are not retroactively backfilled", () => {
+  const plays = pair({ lineMove: 0, moneyMove: 0 });
+  plays.forEach((play) => { play.date = "2026-10-04"; });
+  Object.assign(plays[0], { betsPct: 20, moneyPct: 50 });
+  Object.assign(plays[1], { betsPct: 80, moneyPct: 50 });
+  const picks = directNflTrendPicks({ trendPlays: plays }, "2026-10-04");
+  assert.equal(picks.length, 1);
+  assert.equal(picks[0].tier, "Sharp + Public Fade");
 });

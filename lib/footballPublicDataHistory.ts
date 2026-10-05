@@ -542,12 +542,20 @@ function historyPickFromRow(row: SheetRow): AnyPick {
   };
 }
 
+const NFL_CORE_SELECTOR_EFFECTIVE_DATE = "2026-10-05";
+const NFL_MARKET_MOVE_MIN_POINTS = 1;
+const NFL_MONEY_MOMENTUM_MIN_MONEY_MOVE_PCT = 10;
+const NFL_MONEY_MOMENTUM_MIN_MARKET_MOVE_POINTS = 0.5;
+const NFL_CORE_MIN_HISTORY_MS = 60 * 60_000;
+
 function directTrendSideKey(play: AnyPick) {
   return textKey(play.market) === "total"
-    ? textKey(play.side || play.selection)
-    : textKey(play.selection || play.selectionTeam);
+    ? textKey(play.side || play.selection).replace(/\s+[+-]?\d+(?:\.\d+)?\s*$/, "")
+    : textKey(String(play.selection || play.selectionTeam || "").replace(/\s+[+-]?\d+(?:\.\d+)?\s*$/, ""));
 }
 
+// Legacy public-split signals remain fully tracked. They are used only as
+// contradiction guards by the new NFL EZPZ selector after the effective date.
 function directNflTrendLabels(play: AnyPick, plays: AnyPick[]) {
   const labels: string[] = [];
 
@@ -563,7 +571,7 @@ function directNflTrendLabels(play: AnyPick, plays: AnyPick[]) {
 
   const ownKey = directTrendSideKey(play);
   const publicSide = plays.find((candidate) =>
-    textKey(candidate.game) === textKey(play.game) &&
+    sameGame(candidate.game, play.game, "NFL") &&
     textKey(candidate.market) === textKey(play.market) &&
     directTrendSideKey(candidate) !== ownKey
   );
@@ -585,7 +593,7 @@ function directNflTrendLabels(play: AnyPick, plays: AnyPick[]) {
   const basis = String(publicSide.lineMovementBasis || "");
   const marketMatches =
     (textKey(play.market) === "spread" && basis.includes("Spread")) ||
-    (textKey(play.market) === "total" && basis.includes("Total Line"));
+    (textKey(play.market) === "total" && basis.includes("Total"));
   if (
     marketMatches &&
     Number.isFinite(openingPublicBets) &&
@@ -602,27 +610,132 @@ function directNflTrendLabels(play: AnyPick, plays: AnyPick[]) {
   return { labels, publicSide };
 }
 
-function directNflTrendPick(play: AnyPick, plays: AnyPick[], today: string): AnyPick | null {
+function selectedNflMarketMove(play: AnyPick) {
+  const lineMove = Number(play.lineMovementValue);
+  const basis = String(play.lineMovementBasis || "");
+  const market = textKey(play.market);
+  const marketMatches =
+    (market === "spread" && basis.includes("Spread")) ||
+    (market === "total" && basis.includes("Total"));
+  return marketMatches && Number.isFinite(lineMove) ? lineMove : null;
+}
+
+function selectedNflMoneyMove(play: AnyPick) {
+  const explicit = Number(play.sharpMovementPct);
+  if (play.sharpMovementPct != null && Number.isFinite(explicit)) return explicit;
+  const opening = Number(play.openingMoneyPct);
+  const current = Number(play.moneyPct);
+  if (!Number.isFinite(opening) || !Number.isFinite(current) || opening <= 0 || opening >= 100) return null;
+  return current - opening;
+}
+
+function hasNflCoreHistory(play: AnyPick) {
+  const opening = Date.parse(String(play.openingSnapshotTime || ""));
+  const current = Date.parse(String(play.updatedAt || play.snapshotTime || play.frozenAt || ""));
+  return Number.isFinite(opening) && Number.isFinite(current) && current - opening >= NFL_CORE_MIN_HISTORY_MS;
+}
+
+function enrichNflTrendTiming(play: AnyPick, splits: AnyPick[]) {
+  if (play.openingSnapshotTime && (play.updatedAt || play.snapshotTime || play.frozenAt)) return play;
+  const ownKey = directTrendSideKey(play);
+  const match = splits.find((split) =>
+    sameGame(split.game, play.game, "NFL") &&
+    textKey(split.market) === textKey(play.market) &&
+    directTrendSideKey(split) === ownKey
+  );
+  if (!match) return play;
+  return {
+    ...play,
+    openingSnapshotTime: play.openingSnapshotTime || match.openingSnapshotTime,
+    updatedAt: play.updatedAt || match.snapshotTime || match.updatedAt,
+  };
+}
+
+function nflCoreSignalState(play: AnyPick, plays: AnyPick[]) {
+  const legacy = directNflTrendLabels(play, plays);
+  const market = textKey(play.market);
+  const lineMove = selectedNflMarketMove(play);
+  const moneyMove = selectedNflMoneyMove(play);
+  const mature = hasNflCoreHistory(play);
+  const marketMove = Boolean(
+    mature && market === "total" && lineMove != null && lineMove >= NFL_MARKET_MOVE_MIN_POINTS,
+  );
+  const moneyMomentum = Boolean(
+    mature &&
+    (market === "spread" || market === "total") &&
+    lineMove != null &&
+    moneyMove != null &&
+    lineMove >= NFL_MONEY_MOMENTUM_MIN_MARKET_MOVE_POINTS &&
+    moneyMove >= NFL_MONEY_MOMENTUM_MIN_MONEY_MOVE_PCT,
+  );
+  const labels = [...legacy.labels];
+  if (marketMove) labels.push("Market Move");
+  if (moneyMomentum) labels.push(market === "spread" ? "Spread Money Momentum" : "Total Money Momentum");
+  return { ...legacy, labels, marketMove, moneyMomentum, lineMove, moneyMove, mature };
+}
+
+function nflCoreClass(play: AnyPick, plays: AnyPick[]) {
+  const state = nflCoreSignalState(play, plays);
+  const market = textKey(play.market);
+  if (market === "total" && state.marketMove && state.moneyMomentum) {
+    return { tier: "Market Move + Total Money Momentum", priority: 1, score: 95, state };
+  }
+  if (market === "spread" && state.moneyMomentum) {
+    return { tier: "Spread Money Momentum", priority: 2, score: 90, state };
+  }
+  if (market === "total" && state.marketMove) {
+    return { tier: "Market Move", priority: 3, score: 85, state };
+  }
+  return null;
+}
+
+function trendPickShell(
+  play: AnyPick,
+  today: string,
+  tier: string,
+  score: number,
+  qualification: string,
+  publicSide?: AnyPick | null,
+): AnyPick | null {
   const market = textKey(play.market);
   if (market !== "spread" && market !== "total") return null;
-  const { labels, publicSide } = directNflTrendLabels(play, plays);
-  // Any qualifying signal is sufficient; keep all labels on combined plays.
-  if (!labels.length) return null;
-
-  // A missing snapshot price must not hide qualified spreads/totals, including
-  // Sharp + Public Fade combinations. Preserve the cap for known prices.
   const snapshotOdds = parseAmericanOdds(play.odds);
   const odds = snapshotOdds ?? -110;
   if (odds < -150) return null;
-
   if (play.line == null || String(play.line).trim() === "") return null;
   const lineValue = Number(play.line);
   if (!Number.isFinite(lineValue)) return null;
   const line = `${market === "spread" && lineValue > 0 ? "+" : ""}${lineValue}`;
-  const selection = textKey(play.market) === "total"
+  const selection = market === "total"
     ? `${play.side || play.selection} ${line}`.trim()
     : `${play.selection || play.selectionTeam} ${line}`.trim();
+  return {
+    date: today,
+    source: "Trend Play",
+    game: String(play.game || ""),
+    market: market === "total" ? "Total" : "Spread",
+    selection,
+    odds: formatAmericanOdds(odds),
+    oddsSource: snapshotOdds == null ? "DEFAULT_110" : "SNAPSHOT",
+    score,
+    tier,
+    qualification,
+    betsPct: Number(play.betsPct),
+    moneyPct: Number(play.moneyPct),
+    gapPct: Math.round((Number(play.moneyPct) - Number(play.betsPct)) * 10) / 10,
+    publicSideBetsPct: publicSide ? Number(publicSide.betsPct) : undefined,
+    publicSideMoneyPct: publicSide ? Number(publicSide.moneyPct) : undefined,
+    publicMovePct: publicSide ? Number(publicSide.publicMovementPct) : undefined,
+    lineMoveValue: Number(play.lineMovementValue),
+    moneyMovePct: selectedNflMoneyMove(play) ?? undefined,
+    openingSnapshotTime: String(play.openingSnapshotTime || ""),
+    snapshotStatus: String(play.snapshotStatus || "LIVE"),
+  };
+}
 
+function directNflLegacyTrendPick(play: AnyPick, plays: AnyPick[], today: string): AnyPick | null {
+  const { labels, publicSide } = directNflTrendLabels(play, plays);
+  if (!labels.length) return null;
   const details: string[] = [];
   if (labels.includes("Sharp")) {
     details.push(`money exceeds bets by ${Math.round(Number(play.moneyPct) - Number(play.betsPct))} pts`);
@@ -632,43 +745,102 @@ function directNflTrendPick(play: AnyPick, plays: AnyPick[], today: string): Any
   }
   if (labels.includes("RLM") && publicSide) {
     details.push(
-      `public bets +${Math.round(Number(publicSide.publicMovementPct))} pts while ${market} moved ${Math.abs(Number(publicSide.lineMovementValue)).toFixed(1)} pts against that side`,
+      `public bets +${Math.round(Number(publicSide.publicMovementPct))} pts while ${textKey(play.market)} moved ${Math.abs(Number(publicSide.lineMovementValue)).toFixed(1)} pts against that side`,
     );
   }
-
-  return {
-    date: today,
-    source: "Trend Play",
-    game: String(play.game || ""),
-    market: textKey(play.market) === "total" ? "Total" : "Spread",
-    selection,
-    odds: formatAmericanOdds(odds),
-    oddsSource: snapshotOdds == null ? "DEFAULT_110" : "SNAPSHOT",
-    score: labels.includes("RLM") ? 85 : 80,
-    tier: labels.join(" + "),
-    qualification: `${labels.join(" + ")} • ${details.join(" • ")}`,
-    betsPct: Number(play.betsPct),
-    moneyPct: Number(play.moneyPct),
-    gapPct: Math.round((Number(play.moneyPct) - Number(play.betsPct)) * 10) / 10,
-    publicSideBetsPct: publicSide ? Number(publicSide.betsPct) : undefined,
-    publicSideMoneyPct: publicSide ? Number(publicSide.moneyPct) : undefined,
-    publicMovePct: publicSide ? Number(publicSide.publicMovementPct) : undefined,
-    lineMoveValue: publicSide ? Number(publicSide.lineMovementValue) : undefined,
-    snapshotStatus: String(play.snapshotStatus || "LIVE"),
-  };
+  return trendPickShell(
+    play,
+    today,
+    labels.join(" + "),
+    labels.includes("RLM") ? 85 : 80,
+    `${labels.join(" + ")} • ${details.join(" • ")}`,
+    publicSide,
+  );
 }
 
-function directNflTrendPicks(core: AnyPick, today: string) {
-  const plays = (Array.isArray(core.trendPlays) ? core.trendPlays : [])
-    .filter((play: AnyPick) => isoDate(play.date || play.recordDate || play.Date || today) === today);
+function directNflTrendPick(play: AnyPick, plays: AnyPick[], today: string): AnyPick | null {
+  const classification = nflCoreClass(play, plays);
+  if (!classification) return null;
+  const { state } = classification;
+  const details = [
+    state.lineMove != null ? `market moved ${Math.abs(state.lineMove).toFixed(1)} pts toward the pick` : "",
+    state.moneyMomentum && state.moneyMove != null ? `money share +${Math.round(state.moneyMove * 10) / 10} pts` : "",
+    "1+ hour tracked history",
+  ].filter(Boolean);
+  return trendPickShell(
+    play,
+    today,
+    classification.tier,
+    classification.score,
+    `${classification.tier} • ${details.join(" • ")}`,
+    state.publicSide,
+  );
+}
+
+function hasOpposingNflSignal(play: AnyPick, plays: AnyPick[]) {
+  const ownKey = directTrendSideKey(play);
+  return plays.some((candidate) => {
+    if (!sameGame(candidate.game, play.game, "NFL")) return false;
+    if (textKey(candidate.market) !== textKey(play.market)) return false;
+    if (directTrendSideKey(candidate) === ownKey) return false;
+    return nflCoreSignalState(candidate, plays).labels.length > 0;
+  });
+}
+
+function directNflLegacyTrendPicks(plays: AnyPick[], today: string) {
   const picks = plays
-    .map((play: AnyPick) => directNflTrendPick(play, plays, today))
+    .map((play) => directNflLegacyTrendPick(play, plays, today))
     .filter((pick: AnyPick | null): pick is AnyPick => Boolean(pick));
   const deduped = new Map<string, AnyPick>();
   for (const pick of picks) deduped.set(pickKey(pick, today), pick);
   return [...deduped.values()];
 }
 
+function directNflTrendPicks(core: AnyPick, today: string) {
+  const rawSplits = Array.isArray(core?.draftKings?.splits) ? core.draftKings.splits as AnyPick[] : [];
+  const plays = (Array.isArray(core.trendPlays) ? core.trendPlays : [])
+    .filter((play: AnyPick) => isoDate(play.date || play.recordDate || play.Date || today) === today)
+    .map((play: AnyPick) => enrichNflTrendTiming(play, rawSplits));
+
+  // Preserve the already-played Week 4 card. The new system begins
+  // prospectively with the next NFL card so no finished result is backfilled.
+  if (today < NFL_CORE_SELECTOR_EFFECTIVE_DATE) {
+    return directNflLegacyTrendPicks(plays, today);
+  }
+
+  const candidates = plays
+    .map((play: AnyPick) => {
+      const classification = nflCoreClass(play, plays);
+      const pick = classification ? directNflTrendPick(play, plays, today) : null;
+      return classification && pick ? { play, pick, priority: classification.priority } : null;
+    })
+    .filter((candidate): candidate is { play: AnyPick; pick: AnyPick; priority: number } => Boolean(candidate));
+
+  const byGame = new Map<string, Array<{ play: AnyPick; pick: AnyPick; priority: number }>>();
+  for (const candidate of candidates) {
+    const key = normalizedGame(candidate.play.game);
+    const group = byGame.get(key) || [];
+    group.push(candidate);
+    byGame.set(key, group);
+  }
+
+  const selected: AnyPick[] = [];
+  for (const group of byGame.values()) {
+    group.sort((a, b) =>
+      a.priority - b.priority ||
+      String(a.pick.market || "").localeCompare(String(b.pick.market || "")) ||
+      String(a.pick.selection || "").localeCompare(String(b.pick.selection || "")),
+    );
+    const chosen = group[0];
+    if (!chosen || hasOpposingNflSignal(chosen.play, plays)) continue;
+    selected.push(chosen.pick);
+  }
+
+  return selected.sort((a, b) =>
+    String(a.game || "").localeCompare(String(b.game || "")) ||
+    Number(b.score || 0) - Number(a.score || 0),
+  );
+}
 function mergeCurrentPicks(basePicks: AnyPick[], trendPicks: AnyPick[], today: string) {
   const merged = new Map<string, AnyPick>();
   for (const pick of basePicks) merged.set(pickKey(pick, today), pick);
@@ -710,8 +882,8 @@ export async function buildFootballPublicData(
   const baseCurrentPicks = (Array.isArray(core.aiPicks) ? core.aiPicks : [])
     .map((pick: AnyPick) => ({ ...pick, date: isoDate(pick.date) || today }));
   const directTrendPicks = sport === "NFL" ? directNflTrendPicks(core, today) : [];
-  // Temporarily restrict the NFL daily EZPZ card to the existing public-split
-  // qualifiers while player props are reviewed. Keep saved history for grading.
+  // NFL EZPZ is a filtered one-pick-per-game market-trend card. Legacy RLM,
+  // Sharp, and Public Fade signals remain tracked but no longer qualify alone.
   const currentPicks = sport === "NFL"
     ? directTrendPicks
     : mergeCurrentPicks(baseCurrentPicks, directTrendPicks, today).filter(isPublicSplitEzpzPick);
@@ -796,9 +968,11 @@ export async function buildFootballPublicData(
   const aiSelectorStatus = sport === "NFL"
     ? {
         ...(core.aiSelectorStatus || {}),
-        message: enrichedCurrentPicks.length
-          ? "NFL EZPZ Picks: Public Betting Splits only. Plays qualify as RLM, Sharp (money 25+ points over bets), or Public Fade (fade an 80%+ bet side). Player props and model-only plays are temporarily excluded."
-          : "No NFL Public Betting Splits qualify as RLM, Sharp, or Public Fade right now.",
+        message: today < NFL_CORE_SELECTOR_EFFECTIVE_DATE
+          ? "NFL EZPZ Picks: the already-played Week 4 card is preserved under the prior rules. The new core market-trend selector starts prospectively with the next NFL card."
+          : enrichedCurrentPicks.length
+            ? "NFL EZPZ Picks: one pick per game, prioritized as Market Move + Total Money Momentum, then Spread Money Momentum, then standalone Market Move. Same-market contradictions are skipped. RLM, Sharp, and Public Fade remain tracked in Public Betting Splits but do not qualify by themselves."
+            : "No NFL core market-trend setup currently qualifies after the one-hour history and contradiction filters.",
         candidateCount: (Array.isArray(core.trendPlays) ? core.trendPlays : [])
           .filter((play: AnyPick) => isoDate(play.date || play.recordDate || play.Date || today) === today).length,
         selectedCount: enrichedCurrentPicks.length,
