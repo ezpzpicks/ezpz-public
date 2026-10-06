@@ -65,7 +65,7 @@ function eligible(pick: Pick) {
   if (/^(?:rejected|cancelled|canceled|pass|skipped|void)/.test(textKey(pick.snapshotStatus))) return false;
   const trend = isPublicSplitEzpzPick(pick);
   if (pick.date >= NFL_CORE_SELECTOR_EFFECTIVE_DATE) {
-    return trend && Boolean(savedNflCoreClass(pick.market, pick.tier));
+    return trend && Boolean(savedNflCoreClass(pick.market, pick.tier)) && finalSnapshot(pick);
   }
   // Keep published legacy qualifications, including graded snapshots whose
   // capture label was never advanced from LIVE to FINAL_PREGAME.
