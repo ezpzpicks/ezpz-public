@@ -995,6 +995,36 @@ function historicalLabels(row: SheetRow, group: SheetRow[], sport: Sport) {
     const sharpChangeRaw = String(row["Sharp Change %"] || "").trim();
     const moneyMove = sharpChangeRaw && Number.isFinite(Number(sharpChangeRaw)) ? Number(sharpChangeRaw) : Number.isFinite(openingMoney) && Number.isFinite(ownMoney) ? ownMoney - openingMoney : Number.NaN;
     if (lineMarketMatches && openingMoney > 0 && openingMoney < 100 && Number.isFinite(moneyMove) && moneyMove >= NFL_MONEY_MOMENTUM_MIN_MONEY_MOVE_PCT && Number.isFinite(ownLineMove) && ownLineMove >= NFL_MONEY_MOMENTUM_MIN_MARKET_MOVE_POINTS) labels.push("Money Momentum");
+  } else if (sport === "NCAAF") {
+    if (marketKey === "total" && textKey(row.Side || row.Selection).startsWith("over")) {
+      const opening = Number(row["Opening Line"] || row["Opening Total"]);
+      const current = Number(row["Public Split Line"] || row.Line);
+      if (Number.isFinite(opening) && Number.isFinite(current) && opening - current >= NCAAF_TOTAL_DROP_FADE_MIN_POINTS) {
+        labels.push("Total Drop Fade");
+      }
+    }
+    if (marketKey === "spread") {
+      const lineMove = Number(row["Line Movement Value"]);
+      const openingTickets = Number(row["Opening Public %"] || row["Opening Bets %"]);
+      const currentTickets = Number(row["Public Bets %"] || row["Current Public %"]);
+      const storedTicketMove = Number(row["Public Change %"]);
+      const ticketMove =
+        String(row["Public Change %"] || "").trim() && Number.isFinite(storedTicketMove)
+          ? storedTicketMove
+          : Number.isFinite(openingTickets) && Number.isFinite(currentTickets)
+            ? currentTickets - openingTickets
+            : Number.NaN;
+      if (
+        Number.isFinite(lineMove) &&
+        lineMove >= NCAAF_SPREAD_TICKET_MOMENTUM_MIN_MOVE_POINTS &&
+        openingTickets > 0 &&
+        openingTickets < 100 &&
+        Number.isFinite(ticketMove) &&
+        ticketMove >= NCAAF_SPREAD_TICKET_MOMENTUM_MIN_TICKET_MOVE_PCT
+      ) {
+        labels.push("Spread Ticket Momentum");
+      }
+    }
   }
 
   const ownKey = historicalSelectionKey(row);
@@ -1125,7 +1155,7 @@ export function DirectTrendRecords({
   });
 
   // Recover completed direct-trend results from finalized pregame snapshots using
-  // ONLY the current Public Fade, RLM, Sharp, Market Move, and Money Momentum definitions. This avoids
+  // ONLY the current sport-specific direct-trend definitions. This avoids
   // legacy signal labels while still handling historical rows stored under
   // different game IDs.
   if (trendPlays.length) {
@@ -1172,7 +1202,9 @@ export function DirectTrendRecords({
   // Merge those finalized picks into the trend-record ledger and de-duplicate
   // against any historical row that already represents the same decision.
   if (aiPickRows.length) {
-    const activeSignals = ["Public Fade", "RLM", "Sharp", "Market Move", "Money Momentum"] as const;
+    const activeSignals: readonly string[] = sport === "NCAAF"
+      ? ["Public Fade", "RLM", "Sharp", "Total Drop Fade", "Spread Ticket Momentum"]
+      : ["Public Fade", "RLM", "Sharp", "Market Move", "Money Momentum"];
     aiPickRows.forEach((pick) => {
       if (!resultCode(pick.result)) return;
 
@@ -1280,7 +1312,10 @@ export function DirectTrendRecords({
   }
 
   const summaries: Array<{ label: string; totals: RecordTotals }> = [];
-  ["Public Fade", "RLM", "Sharp", "Market Move", "Money Momentum"].forEach((signal) => {
+  const summarySignals = sport === "NCAAF"
+    ? ["Public Fade", "RLM", "Sharp", "Total Drop Fade", "Spread Ticket Momentum"]
+    : ["Public Fade", "RLM", "Sharp", "Market Move", "Money Momentum"];
+  summarySignals.forEach((signal) => {
     let signalRows = labeled.filter((item) => item.signal === signal);
     if (signal === "RLM") {
       // RLM is side-specific. A team can appear twice in historical storage
@@ -1304,7 +1339,7 @@ export function DirectTrendRecords({
     <details className="recordsDropdown directTrendRecords" open>
       <summary className="recordsSummary">
         <div>
-          <div className="recordsSummaryTitle">{sport === "NFL" ? "Public Fade + RLM + Sharp + Market Move + Money Momentum Records" : "Public Fade + RLM + Sharp Records"}</div>
+          <div className="recordsSummaryTitle">{sport === "NFL" ? "Public Fade + RLM + Sharp + Market Move + Money Momentum Records" : sport === "NCAAF" ? "Public Fade + RLM + Sharp + Total Drop Fade + Spread Ticket Momentum Records" : "Public Fade + RLM + Sharp Records"}</div>
         </div>
         <span className="recordsCount">{labeled.length} graded</span>
       </summary>
@@ -1329,7 +1364,7 @@ export function DirectTrendRecords({
             </tbody>
           </table>
         </div>
-      ) : <div className="empty insideDropdown">{sport === "NFL" ? "No completed Public Fade, RLM, Sharp, Market Move, or Money Momentum results are available yet." : "No completed Public Fade, RLM, or Sharp results are available yet."}</div>}
+      ) : <div className="empty insideDropdown">{sport === "NFL" ? "No completed Public Fade, RLM, Sharp, Market Move, or Money Momentum results are available yet." : sport === "NCAAF" ? "No completed Public Fade, RLM, Sharp, Total Drop Fade, or Spread Ticket Momentum results are available yet." : "No completed Public Fade, RLM, or Sharp results are available yet."}</div>}
     </details>
   );
 }
