@@ -13,6 +13,7 @@ vm.runInNewContext(ts.transpileModule(source + "\nexports.select = directNflTren
 }).outputText, {
   exports: exportsForTest,
   require(name) {
+    if (name === "./nflEzpzPolicy") return require("./load-typescript.cjs")(path.join(__dirname, "../lib/nflEzpzPolicy.ts"));
     assert.ok(["./footballPublicDataLegacy", "./ezpzPublicSplitEligibility", "./sportSheets"].includes(name));
     return {};
   },

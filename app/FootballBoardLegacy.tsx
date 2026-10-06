@@ -5,6 +5,7 @@ import FootballBoardBase from "./FootballBoardBase";
 import FootballGameTabs from "./FootballGameTabs";
 import { DirectTrendRecords } from "./FootballTrendMarketBoard";
 import { MatchupWithLogos, SelectionWithTeamLogo, TeamLogoName } from "./TeamLogoName";
+import { buildNflEzpzRecords } from "../lib/nflEzpzRecords";
 
 type Tab = "Today’s Model Plays" | "Public Betting Splits" | "EZPZ Picks" | "Full Slate" | "Records";
 type Sport = "NFL" | "NCAAF";
@@ -78,6 +79,7 @@ type FootballData = {
   bestPlays?: NflPlay[];
   aiPicks?: NflEzpzPick[];
   aiPickRecordRows?: any[];
+  ezpzRecords?: ReturnType<typeof buildNflEzpzRecords>;
   aiSelectorStatus?: { message?: string };
   betTrackerRows?: SheetRow[];
   trendRecordRows?: SheetRow[];
@@ -500,40 +502,6 @@ function signalDateWithin(date: unknown, today: string, days: number) {
   return Number.isFinite(diff) && diff >= 0 && diff < days;
 }
 
-function nflSavedEzpzRecordRows(data: FootballData): SheetRow[] {
-  return (data.aiPickRecordRows || [])
-    .filter((pick: any) => resultCode(pick.result || pick.Result))
-    .filter((pick: any) => {
-      const snapshot = ezpzTextKey(pick.snapshotStatus || pick["Snapshot Status"]);
-      if (!snapshot.startsWith("final")) return false;
-
-      const market = ezpzTextKey(pick.market || pick.Market);
-      const propMarket = ezpzTextKey(pick.propMarket || pick["Prop Market"]);
-      const isYardageProp =
-        market === "player prop" &&
-        ["passing yards", "rushing yards", "receiving yards"].includes(propMarket);
-      if (!isYardageProp) return true;
-
-      // NFL yardage EZPZ records use the current locked rule:
-      // Strong + Regular only. This excludes obsolete A/B-era rows that may
-      // still exist in saved history from before the tier change.
-      const tier = ezpzTextKey(pick.tier || pick.Grade || "");
-      return tier === "strong" || tier === "regular";
-    })
-    .map((pick: any) => ({
-      Date: String(pick.date || pick.Date || ""),
-      Game: String(pick.game || pick.Game || ""),
-      Market: String(pick.market || pick.Market || ""),
-      Selection: String(pick.selection || pick.Selection || ""),
-      Odds: String(pick.odds || pick.Odds || ""),
-      Result: String(pick.result || pick.Result || ""),
-      Player: String(pick.playerName || pick.Player || ""),
-      "Prop Market": String(pick.propMarket || pick["Prop Market"] || ""),
-      "Prop Side": String(pick.propSide || pick["Prop Side"] || ""),
-      "Prop Line": String(pick.propLine || pick["Prop Line"] || ""),
-      Grade: String(pick.tier || pick.Grade || ""),
-    }));
-}
 function FootballRecords({ sport, data }: { sport: Sport; data: FootballData }) {
   const overall = data.tiles?.overallGreen || fallbackTotals();
   const last7 = data.tiles?.last7Days || fallbackTotals();
@@ -541,11 +509,10 @@ function FootballRecords({ sport, data }: { sport: Sport; data: FootballData }) 
   const last7Rows = data.last7RecordSummary || [];
   const trackerRows = data.betTrackerRows || [];
   const last7BetRows = sport === "NFL" ? lastSevenModelBetRecordRows(trackerRows, sport) : [];
-  const ezpzRows = sport === "NFL"
-    ? nflSavedEzpzRecordRows(data)
-    : footballEzpzHistoryRows(data, sport);
-  const ezpzOverall = recordTotalsFromRows(ezpzRows);
-  const ezpzLast7 = recordTotalsFromRows(ezpzRows.filter((row) => signalDateWithin(row.Date || row["Game Date"] || "", data.today || "", 7)));
+  const nflEzpz = sport === "NFL" ? data.ezpzRecords || buildNflEzpzRecords(data.aiPickRecordRows || [], data.today || "") : null;
+  const ezpzRows = sport === "NFL" ? [] : footballEzpzHistoryRows(data, sport);
+  const ezpzOverall = nflEzpz?.overall || recordTotalsFromRows(ezpzRows);
+  const ezpzLast7 = nflEzpz?.last7Days || recordTotalsFromRows(ezpzRows.filter((row) => signalDateWithin(row.Date || row["Game Date"] || "", data.today || "", 7)));
   const nflPropRecord = sport === "NFL" ? recordTotalsFromRows(trackerRows.filter(isNflPlayerPropRow)) : null;
   const recent = trackerRows.filter((row) => resultCode(row.Result || row.Status)).sort((a, b) => String(b.Date || b["Game Date"] || "").localeCompare(String(a.Date || a["Game Date"] || ""))).slice(0, 30);
   return (

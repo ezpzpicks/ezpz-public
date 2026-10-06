@@ -1,5 +1,6 @@
 import { buildFootballPublicData as buildFootballPublicDataWithHistory } from "./footballPublicDataHistory";
 import { overlayPublishedDirectTrendRows } from "./footballDirectTrendLedger";
+import { buildNflEzpzRecords } from "./nflEzpzRecords";
 import {
   readSportWorksheet,
   upsertSportRows,
@@ -557,6 +558,7 @@ export async function buildFootballPublicData(
     ...data,
     aiPicks,
     aiPickRecordRows: backfilledRecordRows,
+    ...(sport === "NFL" ? { ezpzRecords: buildNflEzpzRecords(backfilledRecordRows, String(data.today || "")) } : {}),
     trendRecordRows: hardenDirectTrendRecordRows(directTrendRecordRows, sport),
   };
 }

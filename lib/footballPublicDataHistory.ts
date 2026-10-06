@@ -1,3 +1,4 @@
+import { NFL_CORE_PICK_CLASSES, NFL_CORE_SELECTOR_EFFECTIVE_DATE } from "./nflEzpzPolicy";
 import {
   buildFootballPublicData as buildLegacyFootballPublicData,
 } from "./footballPublicDataLegacy";
@@ -542,7 +543,6 @@ function historyPickFromRow(row: SheetRow): AnyPick {
   };
 }
 
-const NFL_CORE_SELECTOR_EFFECTIVE_DATE = "2026-10-05";
 const NFL_MARKET_MOVE_MIN_POINTS = 1;
 const NFL_MONEY_MOMENTUM_MIN_MONEY_MOVE_PCT = 10;
 const NFL_MONEY_MOMENTUM_MIN_MARKET_MOVE_POINTS = 0.5;
@@ -686,13 +686,13 @@ function nflCoreClass(play: AnyPick, plays: AnyPick[]) {
   const state = nflCoreSignalState(play, plays);
   const market = textKey(play.market);
   if (market === "total" && state.marketMove && state.moneyMomentum) {
-    return { tier: "Market Move + Total Money Momentum", priority: 1, score: 95, state };
+    return { ...NFL_CORE_PICK_CLASSES.combinedTotal, state };
   }
   if (market === "spread" && state.moneyMomentum) {
-    return { tier: "Spread Money Momentum", priority: 2, score: 90, state };
+    return { ...NFL_CORE_PICK_CLASSES.spreadMomentum, state };
   }
   if (market === "total" && state.marketMove) {
-    return { tier: "Market Move", priority: 3, score: 85, state };
+    return { ...NFL_CORE_PICK_CLASSES.marketMove, state };
   }
   return null;
 }
@@ -822,7 +822,7 @@ function directNflTrendPicks(core: AnyPick, today: string) {
       const pick = classification ? directNflTrendPick(play, plays, today) : null;
       return classification && pick ? { play, pick, priority: classification.priority } : null;
     })
-    .filter((candidate): candidate is { play: AnyPick; pick: AnyPick; priority: number } => Boolean(candidate));
+    .filter((candidate): candidate is NonNullable<typeof candidate> => Boolean(candidate));
 
   const byGame = new Map<string, Array<{ play: AnyPick; pick: AnyPick; priority: number }>>();
   for (const candidate of candidates) {

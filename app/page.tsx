@@ -1,6 +1,7 @@
 "use client";
 
 import FootballBoard from "./FootballBoard";
+import { buildNflEzpzRecords } from "../lib/nflEzpzRecords";
 import { DirectTrendRecords, FootballTrendMarketBoard } from "./FootballTrendMarketBoard";
 import { MatchupWithLogos, SelectionWithTeamLogo } from "./TeamLogoName";
 
@@ -316,6 +317,7 @@ type ApiData = {
   trendPlays?: TrendPlay[];
   aiPicks?: AiPick[];
   aiPickRecordRows?: AiPick[];
+  ezpzRecords?: ReturnType<typeof buildNflEzpzRecords>;
   aiSelectorStatus?: AiSelectorStatus;
   recordSummary: Summary[];
   last7RecordSummary: Summary[];
@@ -6845,6 +6847,9 @@ export default function Home() {
   const [error, setError] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   const [activeSport, setActiveSport] = useState<Sport>("MLB");
+  const nflEzpzRecords = useMemo(() => activeSport === "NFL" && data
+    ? data.ezpzRecords || buildNflEzpzRecords(data.aiPickRecordRows || [], data.today)
+    : null, [activeSport, data]);
   const [active, setActive] = useState<Tab>("Today’s Model Plays");
   const [selectedEzpzDate, setSelectedEzpzDate] = useState("");
   const [selectedMlbTrendDate, setSelectedMlbTrendDate] = useState("");
@@ -7877,16 +7882,16 @@ export default function Home() {
           ) : activeSport === "NFL" || activeSport === "NCAAF" ? (
             <>
               <Tile
-                label="Model Plays - Last 7 Days"
-                value={data.tiles.last7Days.record}
-                meta={`${data.tiles.last7Days.winPct}% • ${data.tiles.last7Days.unitsWon}u • ROI ${data.tiles.last7Days.roiPct}%`}
-                green={data.tiles.last7Days.totalBets > 0}
+                label={nflEzpzRecords ? "EZPZ Picks - Last 7 Days" : "Model Plays - Last 7 Days"}
+                value={(nflEzpzRecords?.last7Days || data.tiles.last7Days).record}
+                meta={`${(nflEzpzRecords?.last7Days || data.tiles.last7Days).winPct}% • ${(nflEzpzRecords?.last7Days || data.tiles.last7Days).unitsWon}u • ROI ${(nflEzpzRecords?.last7Days || data.tiles.last7Days).roiPct}%`}
+                green={(nflEzpzRecords?.last7Days || data.tiles.last7Days).totalBets > 0}
               />
               <Tile
-                label="Model Plays - Running Total"
-                value={data.tiles.overallGreen.record}
-                meta={`${data.tiles.overallGreen.winPct}% • ${data.tiles.overallGreen.unitsWon}u • ROI ${data.tiles.overallGreen.roiPct}%`}
-                green={data.tiles.overallGreen.totalBets > 0}
+                label={nflEzpzRecords ? "EZPZ Picks - Running Total" : "Model Plays - Running Total"}
+                value={(nflEzpzRecords?.overall || data.tiles.overallGreen).record}
+                meta={`${(nflEzpzRecords?.overall || data.tiles.overallGreen).winPct}% • ${(nflEzpzRecords?.overall || data.tiles.overallGreen).unitsWon}u • ROI ${(nflEzpzRecords?.overall || data.tiles.overallGreen).roiPct}%`}
+                green={(nflEzpzRecords?.overall || data.tiles.overallGreen).totalBets > 0}
               />
               <Tile label="Today’s Model Plays" value={String(data.bestPlays.length)} meta="Spread + Total" green={data.bestPlays.length > 0} />
               <Tile label="Public Betting Splits" value={String((data.trendPlays || []).filter((play) => play.tier !== "Pass").length)} meta="Sport-specific ScoresAndOdds records" />

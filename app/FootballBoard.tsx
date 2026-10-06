@@ -5,6 +5,7 @@ import LegacyFootballBoard from "./FootballBoardLegacy";
 import { MatchupWithLogos, SelectionWithTeamLogo, TeamLogoName } from "./TeamLogoName";
 import FootballModelFormBadges from "./FootballModelFormBadges";
 import { isPublicSplitEzpzPick } from "../lib/ezpzPublicSplitEligibility";
+import { selectNflEzpzHistory } from "../lib/nflEzpzRecords";
 
 type Tab = "Today’s Model Plays" | "Public Betting Splits" | "EZPZ Picks" | "Full Slate" | "Records";
 type Sport = "NFL" | "NCAAF";
@@ -747,10 +748,9 @@ function HistoryPickCard({ pick, sport, viewingToday, data }: { pick: EzpzPick; 
 function FootballEzpzHistory({ sport, data }: { sport: Sport; data: FootballData }) {
   const today = isoDate(data.today) || new Date().toISOString().slice(0, 10);
   const [selectedDate, setSelectedDate] = useState(today);
-  const fallbackHistory = useMemo(() => buildFallbackHistory(data, sport), [data, sport]);
   const savedHistory = useMemo(() => {
+    if (sport === "NFL") return (data.ezpzRecords?.history || selectNflEzpzHistory(data.aiPickRecordRows || [], today)) as EzpzPick[];
     const map = new Map<string, EzpzPick>();
-    for (const pick of fallbackHistory) map.set(pickIdentity(pick), pick);
     for (const raw of data.aiPickRecordRows || []) {
       const pick = { ...raw, date: isoDate(raw.date) } as EzpzPick;
       if (!pick.date) continue;
@@ -759,7 +759,7 @@ function FootballEzpzHistory({ sport, data }: { sport: Sport; data: FootballData
     return [...map.values()].filter((pick) =>
       Boolean(isoDate(pick.date)) && (sport !== "NCAAF" || isPublicSplitEzpzPick(pick))
     );
-  }, [data.aiPickRecordRows, fallbackHistory, sport]);
+  }, [data.aiPickRecordRows, data.ezpzRecords, sport, today]);
 
   const currentPicks = useMemo(
     () => (data.aiPicks || [])
