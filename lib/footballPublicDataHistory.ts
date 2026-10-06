@@ -364,8 +364,11 @@ function historyPropLine(row: SheetRow) {
 
 function finalNflTrendSnapshotForHistory(history: SheetRow, data: AnyPick) {
   if (isoDate(history.Date) < NFL_CORE_SELECTOR_EFFECTIVE_DATE || String(history.Player || "").trim()) return null;
-  const trends = Array.isArray(data.trendPlays) ? data.trendPlays as AnyPick[] : [];
-  return trends.find((play) => {
+
+  const liveTrends = Array.isArray(data.trendPlays) ? data.trendPlays as AnyPick[] : [];
+  const historicalTrends = Array.isArray(data.trendRecordRows) ? data.trendRecordRows as SheetRow[] : [];
+
+  const liveMatch = liveTrends.find((play) => {
     if (!textKey(play.snapshotStatus).startsWith("final")) return false;
     if (isoDate(play.date || play.recordDate || play.Date) !== isoDate(history.Date)) return false;
     const row: SheetRow = {
@@ -377,7 +380,48 @@ function finalNflTrendSnapshotForHistory(history: SheetRow, data: AnyPick) {
         : `${play.selectionTeam || play.selection || ""} ${play.line == null ? "" : `${Number(play.line) > 0 ? "+" : ""}${play.line}`}`.trim(),
     };
     return rowMatchesHistory(row, history, "NFL");
-  }) || null;
+  });
+  if (liveMatch) return liveMatch;
+
+  for (const row of historicalTrends) {
+    let details: AnyPick = {};
+    try {
+      const parsed = JSON.parse(String(row["Trend Score Details"] || row["Details JSON"] || "{}"));
+      if (parsed && typeof parsed === "object") details = parsed;
+    } catch {}
+
+    const snapshotStatus = String(
+      row["Snapshot Status"] ||
+      details.snapshotStatus ||
+      "",
+    );
+    if (!textKey(snapshotStatus).startsWith("final")) continue;
+    if (isoDate(row.Date || row["Game Date"] || details.date) !== isoDate(history.Date)) continue;
+
+    const candidate: SheetRow = {
+      Date: isoDate(row.Date || row["Game Date"] || details.date),
+      Game: String(row.Game || details.game || ""),
+      Market: String(row.Market || details.market || ""),
+      Selection: String(
+        row.Selection ||
+        row["Public Split Selection"] ||
+        details.selection ||
+        (textKey(row.Market || details.market) === "total"
+          ? `${row.Side || details.side || ""} ${row["Public Split Line"] ?? row.Line ?? details.line ?? ""}`.trim()
+          : `${row["Public Split Selection"] || details.selectionTeam || ""} ${row["Public Split Line"] ?? row.Line ?? details.line ?? ""}`.trim())
+      ),
+    };
+    if (!rowMatchesHistory(candidate, history, "NFL")) continue;
+
+    return {
+      ...details,
+      snapshotStatus: "FINAL_PREGAME",
+      frozenAt: details.frozenAt || row["Frozen At"] || row["Public Split Snapshot Time"] || "",
+      updatedAt: details.updatedAt || row["Public Split Snapshot Time"] || row["Result Updated"] || "",
+    };
+  }
+
+  return null;
 }
 
 function recentUngradedProp(row: SheetRow, today: string, maxAgeDays = 14) {
