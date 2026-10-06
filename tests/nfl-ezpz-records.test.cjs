@@ -8,7 +8,7 @@ function falcons(overrides = {}) {
   return {
     date: "2026-10-05", game: "ATL @ NO", market: "Spread", selection: "ATL +1.5",
     source: "Trend Play", tier: "Spread Money Momentum", odds: "-110",
-    snapshotStatus: "LIVE", result: "W", ...overrides,
+    snapshotStatus: "FINAL_PREGAME", result: "W", ...overrides,
   };
 }
 function under(overrides = {}) {
@@ -64,6 +64,12 @@ test("settled legacy LIVE picks count; legacy rules are not reapplied as the Oct
     under({ date: "2026-10-04", game: "LAR @ PHI", selection: "Under 42.5", tier: "RLM", snapshotStatus: "FINAL_PREGAME" }),
   ];
   assert.equal(records(rows, today).last7Days.record, "1-4-0");
+});
+
+test("post-effective LIVE picks are excluded until the final pregame decision is persisted", () => {
+  const summary = records([falcons({ snapshotStatus: "LIVE" })], today);
+  assert.equal(summary.last7Days.totalBets, 0);
+  assert.equal(summary.history.length, 0);
 });
 
 test("unqualified picks cannot enter records just because they have a settled result", () => {
