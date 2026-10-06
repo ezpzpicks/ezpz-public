@@ -1461,12 +1461,46 @@ body::after {
   white-space: nowrap;
 }
 
-.directTrendBadge.fade,
-.directTrendBadge.rlm,
+.directTrendBadge.fade {
+  color: #fecaca;
+  background: rgba(185,28,28,.22);
+  border: 1px solid rgba(239,68,68,.46);
+}
+
+.directTrendBadge.rlm {
+  color: #fde68a;
+  background: rgba(161,98,7,.22);
+  border: 1px solid rgba(245,158,11,.46);
+}
+
 .directTrendBadge.sharp {
   color: #bfdbfe;
   background: rgba(30,64,175,.24);
   border: 1px solid rgba(59,130,246,.44);
+}
+
+.directTrendBadge.marketMove {
+  color: #ddd6fe;
+  background: rgba(109,40,217,.24);
+  border: 1px solid rgba(139,92,246,.48);
+}
+
+.directTrendBadge.moneyMomentum {
+  color: #a7f3d0;
+  background: rgba(5,150,105,.22);
+  border: 1px solid rgba(16,185,129,.46);
+}
+
+.directTrendBadge.totalDropFade {
+  color: #bae6fd;
+  background: rgba(3,105,161,.22);
+  border: 1px solid rgba(14,165,233,.46);
+}
+
+.directTrendBadge.ticketMomentum {
+  color: #f5d0fe;
+  background: rgba(162,28,175,.22);
+  border: 1px solid rgba(217,70,239,.46);
 }
 
 .dkTrendBadgeGroup {
