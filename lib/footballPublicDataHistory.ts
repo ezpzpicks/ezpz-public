@@ -240,10 +240,18 @@ function historyRowFromPick(pick: AnyPick, today: string, previous?: SheetRow): 
   const date = isoDate(pick.date || today) || today;
   const now = new Date().toISOString();
   const result = resultCode(pick.result || pick.Result || previous?.Result);
+  const previousSnapshotStatus = String(previous?.["Snapshot Status"] || "");
+  const incomingSnapshotStatus = String(pick.snapshotStatus || "");
+  const snapshotStatus =
+    textKey(previousSnapshotStatus).startsWith("final") &&
+    !textKey(incomingSnapshotStatus).startsWith("final")
+      ? previousSnapshotStatus
+      : incomingSnapshotStatus;
   const details = {
     ...pick,
     date,
     result,
+    snapshotStatus,
   };
   return {
     Date: date,
@@ -253,7 +261,7 @@ function historyRowFromPick(pick: AnyPick, today: string, previous?: SheetRow): 
     Selection: String(pick.selection || ""),
     Odds: String(pick.odds || ""),
     Source: String(pick.source || ""),
-    "Snapshot Status": String(pick.snapshotStatus || ""),
+    "Snapshot Status": snapshotStatus,
     Player: String(pick.playerName || ""),
     "Player Team": String(pick.playerTeam || ""),
     "Prop Market": String(pick.propMarket || ""),
@@ -352,6 +360,24 @@ function historyPropLine(row: SheetRow) {
   const direct = lineNumber(row["Prop Line"]);
   if (direct != null) return direct;
   return lineNumber(row.Selection);
+}
+
+function finalNflTrendSnapshotForHistory(history: SheetRow, data: AnyPick) {
+  if (isoDate(history.Date) < NFL_CORE_SELECTOR_EFFECTIVE_DATE || String(history.Player || "").trim()) return null;
+  const trends = Array.isArray(data.trendPlays) ? data.trendPlays as AnyPick[] : [];
+  return trends.find((play) => {
+    if (!textKey(play.snapshotStatus).startsWith("final")) return false;
+    if (isoDate(play.date || play.recordDate || play.Date) !== isoDate(history.Date)) return false;
+    const row: SheetRow = {
+      Date: isoDate(play.date || play.recordDate || play.Date),
+      Game: String(play.game || ""),
+      Market: String(play.market || ""),
+      Selection: textKey(play.market) === "total"
+        ? `${play.side || play.selection || ""} ${play.line ?? ""}`.trim()
+        : `${play.selectionTeam || play.selection || ""} ${play.line == null ? "" : `${Number(play.line) > 0 ? "+" : ""}${play.line}`}`.trim(),
+    };
+    return rowMatchesHistory(row, history, "NFL");
+  }) || null;
 }
 
 function recentUngradedProp(row: SheetRow, today: string, maxAgeDays = 14) {
@@ -925,7 +951,28 @@ export async function buildFootballPublicData(
   const nflSummaryCache = new Map<string, Promise<AnyPick | null>>();
 
   const gradedHistory = await Promise.all(history.map(async (row) => {
-    let settled = settledResultForHistory(row, core, sport);
+    const finalNflTrend = sport === "NFL" ? finalNflTrendSnapshotForHistory(row, core) : null;
+    let workingRow = row;
+    if (finalNflTrend && !textKey(row["Snapshot Status"]).startsWith("final")) {
+      gradingChanged = true;
+      let details: AnyPick = {};
+      try {
+        const parsed = JSON.parse(String(row["Details JSON"] || "{}"));
+        if (parsed && typeof parsed === "object") details = parsed;
+      } catch {}
+      workingRow = {
+        ...row,
+        "Snapshot Status": "FINAL_PREGAME",
+        "Details JSON": JSON.stringify({
+          ...details,
+          snapshotStatus: "FINAL_PREGAME",
+          frozenAt: finalNflTrend.frozenAt || finalNflTrend.updatedAt || details.frozenAt,
+          lockedAt: finalNflTrend.frozenAt || finalNflTrend.updatedAt || details.lockedAt,
+          finalizationRecovery: "synced from finalized weekly NFL market snapshot",
+        }),
+      };
+    }
+    let settled = settledResultForHistory(workingRow, core, sport);
     if (
       !settled.result &&
       sport === "NFL" &&
@@ -938,10 +985,10 @@ export async function buildFootballPublicData(
         nflSummaryCache,
       );
     }
-    if (!settled.result || settled.result === resultCode(row.Result)) return row;
+    if (!settled.result || settled.result === resultCode(workingRow.Result)) return workingRow;
     gradingChanged = true;
     return {
-      ...row,
+      ...workingRow,
       Result: settled.result,
       "Result Updated": settled.updated,
     };
