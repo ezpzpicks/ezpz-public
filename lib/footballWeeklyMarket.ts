@@ -1641,6 +1641,20 @@ function snapshotAgeMinutes(play: Pick<WeeklyTrendPlay, "updatedAt">) {
   return Math.max(0, (Date.now() - stamp) / 60_000);
 }
 
+function snapshotLeadToKickoffMinutes(
+  play: Pick<WeeklyTrendPlay, "date" | "updatedAt">,
+  eventTime: string,
+) {
+  const minutes = minutesUntilEvent(play.date, eventTime);
+  const normalized = String(play.updatedAt || "")
+    .replace(/ EDT$/, " -0400")
+    .replace(/ EST$/, " -0500");
+  const snapshotStamp = Date.parse(normalized);
+  if (minutes == null || !Number.isFinite(snapshotStamp)) return null;
+  const kickoffStamp = Date.now() + minutes * 60_000;
+  return (kickoffStamp - snapshotStamp) / 60_000;
+}
+
 function existingNumber(row: SheetRow | undefined, field: string, fallback: number) {
   if (!row || String(row[field] ?? "").trim() === "") return fallback;
   const n = Number(row[field]);
@@ -2459,7 +2473,13 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
       if (JSON.stringify(persisted) !== String(existing?.["Details JSON"] || "")) liveCandidates.push(persisted);
       continue;
     }
-    const minutes = minutesUntil(split);
+    const nflScheduleRow = sport === "NFL" ? canonicalGameRow(split, sport, canonicalRows) : undefined;
+    const authoritativeEventTime = sport === "NFL"
+      ? rowEventTime(nflScheduleRow || {}) || split.eventTime
+      : split.eventTime;
+    const minutes = sport === "NFL"
+      ? minutesUntilEvent(split.date, authoritativeEventTime)
+      : minutesUntil(split);
     if (minutes != null && minutes <= 15) {
       handledLockKeys.add(key);
       if (minutes < 0) {
@@ -2467,8 +2487,10 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
           try {
             const saved = JSON.parse(String(existing["Details JSON"])) as WeeklyTrendPlay;
             if (saved.snapshotStatus !== "FINAL_PREGAME") {
-              const ageMinutes = snapshotAgeMinutes(saved);
-              const missedLock = ageMinutes == null || ageMinutes > (sport === "NFL" ? MAX_LOCK_FALLBACK_AGE_MINUTES : MAX_MISSED_LOCK_FRESHNESS_MINUTES);
+              const leadMinutes = sport === "NFL"
+                ? snapshotLeadToKickoffMinutes(saved, authoritativeEventTime)
+                : snapshotAgeMinutes(saved);
+              const missedLock = leadMinutes == null || leadMinutes < 0 || leadMinutes > (sport === "NFL" ? MAX_LOCK_FALLBACK_AGE_MINUTES : MAX_MISSED_LOCK_FRESHNESS_MINUTES);
               liveCandidates.push({
                 ...saved,
                 week: footballWeekLabel(sport, saved.date),
@@ -2550,11 +2572,23 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
       if (saved.snapshotStatus === "FINAL_PREGAME") continue;
       // Re-check today's NFL MISSED_LOCK rows too so a source-dropout fallback can repair them.
       if (saved.snapshotStatus === "MISSED_LOCK" && sport !== "NFL") continue;
-      if (saved.date !== todayET()) continue;
-      const minutes = minutesUntilPlay(saved);
+      if (sport === "NFL" ? saved.date > todayET() : saved.date !== todayET()) continue;
+      const savedScheduleRow = sport === "NFL"
+        ? canonicalGameRow(
+            { date: saved.date, awayTeam: saved.awayTeam, homeTeam: saved.homeTeam } as Pick<Split, "date" | "awayTeam" | "homeTeam">,
+            sport,
+            canonicalRows,
+          )
+        : undefined;
+      const authoritativeGameTime = sport === "NFL"
+        ? rowEventTime(savedScheduleRow || {}) || saved.gameTime
+        : saved.gameTime;
+      const minutes = minutesUntilEvent(saved.date, authoritativeGameTime);
       if (minutes == null || minutes > 15) continue;
-      const ageMinutes = snapshotAgeMinutes(saved);
-      const missedLock = ageMinutes == null || ageMinutes > (sport === "NFL" ? MAX_LOCK_FALLBACK_AGE_MINUTES : MAX_MISSED_LOCK_FRESHNESS_MINUTES);
+      const leadMinutes = sport === "NFL"
+        ? snapshotLeadToKickoffMinutes(saved, authoritativeGameTime)
+        : snapshotAgeMinutes(saved);
+      const missedLock = leadMinutes == null || leadMinutes < 0 || leadMinutes > (sport === "NFL" ? MAX_LOCK_FALLBACK_AGE_MINUTES : MAX_MISSED_LOCK_FRESHNESS_MINUTES);
       liveCandidates.push({
         ...saved,
         week: footballWeekLabel(sport, saved.date),
