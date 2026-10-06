@@ -50,4 +50,17 @@ replaceOnce(
 );
 
 fs.writeFileSync(target, source);
-console.log(changed ? "Applied NCAAF EZPZ movement-rule patch." : "NCAAF EZPZ movement-rule patch already applied.");
+
+const historyTarget = path.join(process.cwd(), "lib", "footballPublicDataHistory.ts");
+let historySource = fs.readFileSync(historyTarget, "utf8");
+let historyChanged = false;
+const oldHistoryFilter = `  const aiPickRecordRows = gradedHistory\n    .map(historyPickFromRow)\n    .filter((pick) => sport !== "NCAAF" || (\n      textKey(pick.snapshotStatus) === "final pregame" && isPublicSplitEzpzPick(pick)\n    ))\n    .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")) || String(a.game || "").localeCompare(String(b.game || "")));\n`;
+const newHistoryFilter = `  const aiPickRecordRows = gradedHistory\n    .map(historyPickFromRow)\n    .filter((pick) => sport !== "NCAAF" || (\n      textKey(pick.snapshotStatus) === "final pregame" &&\n      isPublicSplitEzpzPick(pick) &&\n      /(?:total drop fade|spread ticket momentum)/i.test(\n        String(pick.qualification || "") + " " + String(pick.tier || "")\n      )\n    ))\n    .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")) || String(a.game || "").localeCompare(String(b.game || "")));\n`;
+if (!historySource.includes(newHistoryFilter)) {
+  if (!historySource.includes(oldHistoryFilter)) throw new Error("NCAAF EZPZ movement patch could not locate final-only history output filter.");
+  historySource = historySource.replace(oldHistoryFilter, newHistoryFilter);
+  fs.writeFileSync(historyTarget, historySource);
+  historyChanged = true;
+}
+
+console.log(changed || historyChanged ? "Applied NCAAF EZPZ movement-rule patch." : "NCAAF EZPZ movement-rule patch already applied.");
