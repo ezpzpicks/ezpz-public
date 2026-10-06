@@ -287,6 +287,29 @@ const SHARP_MIN_MONEY_OVER_BETS = { NFL: 25, NCAAF: 25, MLB: 25 } as const;
 const NFL_MARKET_MOVE_MIN_POINTS = 1;
 const NFL_MONEY_MOMENTUM_MIN_MONEY_MOVE_PCT = 10;
 const NFL_MONEY_MOMENTUM_MIN_MARKET_MOVE_POINTS = 0.5;
+const NCAAF_TOTAL_DROP_FADE_MIN_POINTS = 1.5;
+const NCAAF_SPREAD_TICKET_MOMENTUM_MIN_MOVE_POINTS = 1;
+const NCAAF_SPREAD_TICKET_MOMENTUM_MIN_TICKET_MOVE_PCT = 7;
+
+function selectedPublicMove(play: Pick<TrendPlay, "betsPct" | "openingBetsPct" | "publicMovementPct">) {
+  const explicit = Number(play.publicMovementPct);
+  if (play.publicMovementPct != null && Number.isFinite(explicit)) return explicit;
+  const opening = Number(play.openingBetsPct);
+  const current = Number(play.betsPct);
+  if (!Number.isFinite(opening) || !Number.isFinite(current) || opening <= 0 || opening >= 100) return null;
+  return current - opening;
+}
+
+function directTrendBadgeClass(label: string) {
+  if (label === "Public Fade") return "fade";
+  if (label === "RLM") return "rlm";
+  if (label === "Sharp") return "sharp";
+  if (label === "Market Move") return "marketMove";
+  if (label === "Money Momentum") return "moneyMomentum";
+  if (label === "Total Drop Fade") return "totalDropFade";
+  if (label === "Spread Ticket Momentum") return "ticketMomentum";
+  return "sharp";
+}
 
 function labelsFor(play: TrendPlay, plays: TrendPlay[], sport: Sport) {
   const labels: string[] = [];
@@ -309,6 +332,26 @@ function labelsFor(play: TrendPlay, plays: TrendPlay[], sport: Sport) {
     const currentMoney = Number(play.moneyPct);
     const moneyMove = Number.isFinite(openingMoney) && Number.isFinite(currentMoney) ? currentMoney - openingMoney : Number.NaN;
     if (lineMarketMatches && openingMoney > 0 && openingMoney < 100 && Number.isFinite(moneyMove) && moneyMove >= NFL_MONEY_MOMENTUM_MIN_MONEY_MOVE_PCT && Number.isFinite(ownLineMove) && ownLineMove >= NFL_MONEY_MOMENTUM_MIN_MARKET_MOVE_POINTS) labels.push("Money Momentum");
+  } else if (sport === "NCAAF") {
+    if (play.market === "Total" && play.side === "Over") {
+      const opening = Number(play.openingLine);
+      const current = Number(play.line);
+      if (Number.isFinite(opening) && Number.isFinite(current) && opening - current >= NCAAF_TOTAL_DROP_FADE_MIN_POINTS) {
+        labels.push("Total Drop Fade");
+      }
+    }
+    if (play.market === "Spread") {
+      const lineMove = Number(play.lineMovementValue);
+      const ticketMove = selectedPublicMove(play);
+      if (
+        Number.isFinite(lineMove) &&
+        lineMove >= NCAAF_SPREAD_TICKET_MOMENTUM_MIN_MOVE_POINTS &&
+        ticketMove != null &&
+        ticketMove >= NCAAF_SPREAD_TICKET_MOMENTUM_MIN_TICKET_MOVE_PCT
+      ) {
+        labels.push("Spread Ticket Momentum");
+      }
+    }
   }
 
   const publicSide = opposite(play, plays);
@@ -673,7 +716,7 @@ function MarketRow({ play, plays, sport }: { play: TrendPlay; plays: TrendPlay[]
       <div className="dkTrendBadges">
         {labels.map((label) => (
           <div className="dkTrendBadgeGroup" key={label}>
-            <span className={`directTrendBadge ${label === "Public Fade" ? "fade" : label === "RLM" ? "rlm" : "sharp"}`}>{label}</span>
+            <span className={`directTrendBadge ${directTrendBadgeClass(label)}`}>{label}</span>
             {label === "RLM" && rlmSummary ? (
               <div
                 className="rlmMovementMini"
