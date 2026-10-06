@@ -2428,6 +2428,42 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
 
   const liveCandidates: WeeklyTrendPlay[] = [];
   const handledLockKeys = new Set<string>();
+
+  // NFL safety pass: independently reconcile every stored LIVE/MISSED_LOCK row
+  // whose authoritative kickoff has reached the lock window. This runs before
+  // live-source processing so a stale/duplicate ScoresAndOdds side cannot mask
+  // a missed finalization from the prior calendar date.
+  if (sport === "NFL") {
+    for (const row of effectiveExistingTrends) {
+      const raw = String(row["Details JSON"] || "").trim();
+      if (!raw) continue;
+      try {
+        const saved = JSON.parse(raw) as WeeklyTrendPlay;
+        if (saved.snapshotStatus === "FINAL_PREGAME" || saved.date > todayET()) continue;
+        const scheduleRow = canonicalGameRow(
+          { date: saved.date, awayTeam: saved.awayTeam, homeTeam: saved.homeTeam } as Pick<Split, "date" | "awayTeam" | "homeTeam">,
+          sport,
+          canonicalRows,
+        );
+        if (!scheduleRow) continue;
+        const authoritativeGameTime = rowEventTime(scheduleRow);
+        const minutes = minutesUntilEvent(saved.date, authoritativeGameTime);
+        if (minutes == null || minutes > 15) continue;
+        const leadMinutes = snapshotLeadToKickoffMinutes(saved, authoritativeGameTime);
+        if (leadMinutes == null || leadMinutes < 0 || leadMinutes > MAX_LOCK_FALLBACK_AGE_MINUTES) continue;
+        liveCandidates.push({
+          ...saved,
+          gameTime: authoritativeGameTime || saved.gameTime,
+          week: footballWeekLabel(sport, saved.date),
+          snapshotStatus: "FINAL_PREGAME" as const,
+          frozenAt: saved.updatedAt,
+          lockWarning: "Recovered from the last verified pregame snapshot using the authoritative NFL kickoff.",
+        });
+        handledLockKeys.add(trendKey(row));
+      } catch {}
+    }
+  }
+
   const withPersistedNcaafMovementHistory = (play: WeeklyTrendPlay, rows: SheetRow[]) => {
     if (sport !== "NCAAF") return play;
     const bounded = ncaafHistoryForPlay(play, rows);
@@ -2438,6 +2474,7 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
   };
   for (const split of activeSourceSplits) {
     const key = splitTrendKey(split);
+    if (sport === "NFL" && handledLockKeys.has(key)) continue;
     let existing = existingTrendMap.get(key);
     if (sport === "NCAAF") {
       const canonicalIdentity = ncaafCanonicalIdentityForSplit(split);
