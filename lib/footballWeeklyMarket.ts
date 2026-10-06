@@ -2969,6 +2969,33 @@ export async function readWeeklyFootballMarket(
     if (!raw) continue;
     try {
       let play = JSON.parse(raw) as WeeklyTrendPlay;
+      if (sport === "NFL" && play.snapshotStatus !== "FINAL_PREGAME" && play.date <= todayET()) {
+        const scheduleRow = canonicalGameRow(
+          { date: play.date, awayTeam: play.awayTeam, homeTeam: play.homeTeam } as Pick<Split, "date" | "awayTeam" | "homeTeam">,
+          sport,
+          canonicalRows,
+        );
+        const authoritativeGameTime = scheduleRow ? rowEventTime(scheduleRow) : "";
+        const minutes = authoritativeGameTime ? minutesUntilEvent(play.date, authoritativeGameTime) : null;
+        const leadMinutes = authoritativeGameTime
+          ? snapshotLeadToKickoffMinutes(play, authoritativeGameTime)
+          : null;
+        if (
+          minutes != null &&
+          minutes <= 15 &&
+          leadMinutes != null &&
+          leadMinutes >= 0 &&
+          leadMinutes <= MAX_LOCK_FALLBACK_AGE_MINUTES
+        ) {
+          play = {
+            ...play,
+            gameTime: authoritativeGameTime,
+            snapshotStatus: "FINAL_PREGAME",
+            frozenAt: play.updatedAt,
+            lockWarning: "Recovered from the last verified pregame snapshot using the authoritative NFL kickoff.",
+          };
+        }
+      }
       let ncaafDisplayTime = "";
       if (sport === "NCAAF") {
         ncaafDisplayTime = ncaafDisplayGameTime(
