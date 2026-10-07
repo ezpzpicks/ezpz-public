@@ -28,6 +28,8 @@ function buildRatings(games:Hist[], cutoff:string){
   }
   const base=mean(pointRows.map(x=>x.pts))??27;
   let off=new Map<string,number>(), def=new Map<string,number>();
+  const counts=new Map<string,number>();
+  for(const r of pointRows) counts.set(k(r.team),(counts.get(k(r.team))??0)+1);
   const targetMs=new Date(cutoff+"T12:00:00Z").getTime();
   const wt=(date:string)=>Math.pow(0.5, Math.max(0,(targetMs-new Date(date+"T12:00:00Z").getTime())/86400000)/28);
   const homeAdj=1.5;
@@ -54,7 +56,7 @@ function buildRatings(games:Hist[], cutoff:string){
     for(const [team,z] of defVals){const shrink=z.c/(z.c+2);ndef.set(team,shrink*(z.s/Math.max(z.w,1e-9)));}
     off=noff; def=ndef;
   }
-  return {base,off,def,homeAdj,priorCount:prior.length};
+  return {base,off,def,homeAdj,priorCount:prior.length,counts};
 }
 
 export async function GET(){
@@ -103,6 +105,8 @@ export async function GET(){
     const neutralOld=((g.oldAway+g.oldHome) || g.oldTotal);
     const correction=rawTotal-(2*rr.base);
     const hybridTotal=neutralOld+correction;
+    const awayGames=rr.counts.get(k(g.away))??0, homeGames=rr.counts.get(k(g.home))??0;
+    const matchupGames=Math.min(awayGames,homeGames);
 
     const market=g.marketTotal;
     const pick=market==null?null:(hybridTotal>market?"Over":"Under");
@@ -112,7 +116,7 @@ export async function GET(){
       old:g.oldTotal,newRaw:rnd(rawTotal),newHybrid:rnd(hybridTotal),correction:rnd(correction),
       oldError:rnd(g.oldTotal-g.actualTotal),newError:rnd(hybridTotal-g.actualTotal),
       pick,won,
-      components:{awayOff:rnd(awayOff),homeOff:rnd(homeOff),awayDef:rnd(awayDef),homeDef:rnd(homeDef),leagueBase:rnd(rr.base)}
+      components:{awayOff:rnd(awayOff),homeOff:rnd(homeOff),awayDef:rnd(awayDef),homeDef:rnd(homeDef),leagueBase:rnd(rr.base),awayGames,homeGames,matchupGames}
     };
   });
 
@@ -123,6 +127,39 @@ export async function GET(){
     const w=q.filter(x=>x.won).length;
     return {threshold:th,n:q.length,wins:w,losses:q.length-w,winRate:q.length?rnd(w/q.length):null};
   });
+
+  type Variant={name:string,alpha:number,cap:number|null,sampleK:number|null};
+  const variants:Variant[]=[{name:"baseline",alpha:1,cap:null,sampleK:null}];
+  for(const alpha of [0.35,0.5,0.65,0.75,0.85,1]){
+    for(const cap of [4,6,8,10,12]) variants.push({name:`a${alpha}-cap${cap}`,alpha,cap,sampleK:null});
+  }
+  for(const sampleK of [1,2,3,4]){
+    for(const alpha of [0.65,0.8,1]){
+      for(const cap of [6,8,10,12]) variants.push({name:`k${sampleK}-a${alpha}-cap${cap}`,alpha,cap,sampleK});
+    }
+  }
+  const evalVariant=(v:Variant)=>{
+    const vr=rows.map(x=>{
+      const games=x.components.matchupGames as number;
+      const sampleW=v.sampleK==null?1:(games/(games+v.sampleK));
+      let adj=Number(x.correction)*v.alpha*sampleW;
+      if(v.cap!=null) adj=Math.max(-v.cap,Math.min(v.cap,adj));
+      const proj=Number(x.old)+adj;
+      const err=proj-x.actual;
+      const market=x.market==null?null:Number(x.market);
+      const pick=market==null?null:(proj>market?"Over":"Under");
+      const won=market==null?null:(pick==="Over"?x.actual>market:x.actual<market);
+      return {...x,proj,err,adj,pick,won};
+    });
+    const errs=vr.map(x=>x.err);
+    const edgeRecords=[0,2,3,4,5,6].map(th=>{
+      const q=vr.filter(x=>x.market!=null&&x.won!=null&&Math.abs(x.proj-Number(x.market))>=th);
+      const w=q.filter(x=>x.won).length;
+      return {threshold:th,n:q.length,wins:w,losses:q.length-w,winRate:q.length?rnd(w/q.length):null};
+    });
+    return {variant:v,mae:rnd(mae(errs)),rmse:rnd(rmse(errs)),bias:rnd(mean(errs)),edgeRecords};
+  };
+  const tuning=variants.map(evalVariant).sort((a,b)=>(a.mae??999)-(b.mae??999));
 
   return NextResponse.json({
     methodology:{
@@ -142,6 +179,7 @@ export async function GET(){
       delta:{mae:rnd((mae(newErr)??0)-(mae(oldErr)??0)),bias:rnd((mean(newErr)??0)-(mean(oldErr)??0))}
     },
     edgeRecords:edges,
+    tuning:{bestByMae:tuning.slice(0,15),all:tuning},
     rows
   });
 }
