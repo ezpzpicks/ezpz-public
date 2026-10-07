@@ -63,13 +63,16 @@ export async function GET(){
     readSportWorksheet("NCAAF","schedule") as Promise<Row[]>
   ]);
 
-  const actual=new Map<string,{away:number,home:number}>();
+  const actualById=new Map<string,{date:string,away:string,home:string,awayPts:number,homePts:number}>();
+  const actualByKey=new Map<string,{date:string,away:string,home:string,awayPts:number,homePts:number}>();
   const hist:Hist[]=[];
   for(const r of schedRows){
     const date=d(r["Game Date"]), away=t(r["Away Team"]), home=t(r["Home Team"]);
-    const ap=n(r["Away Score"]), hp=n(r["Home Score"]);
+    const ap=n(r["Away Score"]), hp=n(r["Home Score"]), id=t(r["Game ID"]);
     if(!date||!away||!home||ap==null||hp==null||(ap===0&&hp===0)) continue;
-    actual.set(schedKey(date,away,home),{away:ap,home:hp});
+    const rec={date,away,home,awayPts:ap,homePts:hp};
+    if(id) actualById.set(id,rec);
+    actualByKey.set(schedKey(date,away,home),rec);
     hist.push({date,away,home,awayPts:ap,homePts:hp});
   }
 
@@ -78,12 +81,13 @@ export async function GET(){
   for(const r of slateRows){
     const date=d(r.Date);
     if(date!=="2026-10-02"&&date!=="2026-10-03") continue;
-    const away=t(r["Away Team"]), home=t(r["Home Team"]);
-    const key=schedKey(date,away,home); if(seen.has(key)) continue; seen.add(key);
-    const a=actual.get(key); if(!a) continue;
+    const slateAway=t(r["Away Team"]), slateHome=t(r["Home Team"]), id=t(r["Game ID"]);
+    const a=(id?actualById.get(id):undefined) ?? actualByKey.get(schedKey(date,slateAway,slateHome));
+    if(!a) continue;
+    const dedupKey=id||schedKey(date,a.away,a.home); if(seen.has(dedupKey)) continue; seen.add(dedupKey);
     const oldTotal=n(r["Projected Total"]), oldAway=n(r["Projected Away"]), oldHome=n(r["Projected Home"]);
     if(oldTotal==null||oldAway==null||oldHome==null) continue;
-    targets.push({date,away,home,oldTotal,oldAway,oldHome,marketTotal:n(r["Market Total"]),actualTotal:a.away+a.home});
+    targets.push({date:a.date,away:a.away,home:a.home,oldTotal,oldAway,oldHome,marketTotal:n(r["Market Total"]),actualTotal:a.awayPts+a.homePts});
   }
 
   const rows=targets.map(g=>{
