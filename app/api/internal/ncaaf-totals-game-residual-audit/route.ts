@@ -82,7 +82,7 @@ export async function GET(){
   const seen=new Set<string>();
   for(const r of slateRows){
     const date=d(r.Date);
-    if(date!=="2026-10-02"&&date!=="2026-10-03") continue;
+    if(date<"2026-09-12"||date>"2026-10-03") continue;
     const slateAway=t(r["Away Team"]), slateHome=t(r["Home Team"]), id=t(r["Game ID"]);
     const a=(id?actualById.get(id):undefined) ?? actualByKey.get(schedKey(date,slateAway,slateHome));
     if(!a) continue;
@@ -163,7 +163,7 @@ export async function GET(){
 
   return NextResponse.json({
     methodology:{
-      targetDates:["2026-10-02","2026-10-03"],
+      targetDates:["2026-09-12 through 2026-10-03"],
       noLookahead:true,
       residualUnit:"each prior team-game separately",
       opponentAdjustment:"iterative offense/defense residuals from prior games only",
