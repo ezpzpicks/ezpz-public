@@ -1,5 +1,6 @@
-export const NCAAF_EZPZ_POLICY_VERSION = "ncaaf-movement-v2";
-export const NCAAF_EZPZ_RULE = "NCAAF EZPZ Picks: one pick per game, Total Drop Fade first (Over after a 1.5+ point total drop), then Spread Ticket Momentum (1+ point spread move toward the team and 7+ point ticket-share increase). Odds must be -150 or better. RLM, Sharp, and Public Fade remain tracked only.";
+export const NCAAF_EZPZ_POLICY_VERSION = "ncaaf-movement-v3";
+export const NCAAF_SPREAD_TICKET_MOMENTUM_RULE = "Follow the spread side when the line moves at least 1 point toward it and its ticket share rises at least 7 percentage points, and either the selected team is a favorite laying less than 15 points or its ticket share rises by more than 20 percentage points. Either condition qualifies; both are not required.";
+export const NCAAF_EZPZ_RULE = "NCAAF EZPZ Picks: one pick per game, Total Drop Fade first (Over after a 1.5+ point total drop), then Spread Ticket Momentum. " + NCAAF_SPREAD_TICKET_MOMENTUM_RULE + " Odds must be -150 or better. RLM, Sharp, and Public Fade remain tracked only.";
 
 type MovementPlay = {
   market?: unknown;
@@ -20,6 +21,21 @@ export function finiteNcaafNumber(value: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+// This additional gate also checks archived picks carrying the older label.
+// An opposite-side movement field is never used as the selected team's growth.
+export function isNcaafSpreadMomentumSubset(play: MovementPlay) {
+  const selectedLine = String(play.selection || "").replace(/−/g, "-").match(/\s([+-]?\d+(?:\.\d+)?)\s*$/);
+  const current = finiteNcaafNumber(play.line) ?? finiteNcaafNumber(selectedLine?.[1]);
+  if (current == null) return false;
+  const smallFavorite = current < 0 && current > -15;
+  const openingTickets = finiteNcaafNumber(play.openingBetsPct);
+  const currentTickets = finiteNcaafNumber(play.betsPct);
+  const strongTicketGrowth = openingTickets != null && currentTickets != null
+    && openingTickets > 0 && openingTickets < 100 && currentTickets >= 0 && currentTickets <= 100
+    && currentTickets - openingTickets > 20;
+  return smallFavorite || strongTicketGrowth;
+}
+
 export function classifyNcaafMovement(play: MovementPlay) {
   const market = String(play.market || "").toLowerCase();
   const opening = finiteNcaafNumber(play.openingLine);
@@ -31,14 +47,14 @@ export function classifyNcaafMovement(play: MovementPlay) {
   if (market === "spread") {
     const openingTickets = finiteNcaafNumber(play.openingBetsPct);
     const currentTickets = finiteNcaafNumber(play.betsPct);
-    if (openingTickets != null && currentTickets != null && openingTickets > 0 && openingTickets < 100 && currentTickets >= 0 && currentTickets <= 100 && opening - current >= 1 && currentTickets - openingTickets >= 7) {
+    if (openingTickets != null && currentTickets != null && openingTickets > 0 && openingTickets < 100 && currentTickets >= 0 && currentTickets <= 100 && opening - current >= 1 && currentTickets - openingTickets >= 7 && isNcaafSpreadMomentumSubset(play)) {
       return { labels: ["Spread Ticket Momentum"], score: 90 };
     }
   }
   return { labels: [] as string[], score: 0 };
 }
 
-type NcaafPick = {
+type NcaafPick = MovementPlay & {
   source?: unknown;
   market?: unknown;
   game?: unknown;
@@ -56,7 +72,7 @@ type NcaafPick = {
 export function ncaafPickPriority(pick: NcaafPick) {
   const labels = `${pick.tier || ""} ${pick.qualification || ""}`;
   if (String(pick.market).toLowerCase() === "total" && /\bTotal Drop Fade\b/i.test(labels)) return 2;
-  if (String(pick.market).toLowerCase() === "spread" && /\bSpread Ticket Momentum\b/i.test(labels)) return 1;
+  if (String(pick.market).toLowerCase() === "spread" && /\bSpread Ticket Momentum\b/i.test(labels) && isNcaafSpreadMomentumSubset(pick)) return 1;
   return 0;
 }
 

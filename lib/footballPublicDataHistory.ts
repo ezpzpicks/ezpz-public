@@ -1,4 +1,4 @@
-import { selectNcaafEzpzPicks, NCAAF_EZPZ_RULE, NCAAF_EZPZ_POLICY_VERSION } from "./ncaafEzpzPolicy";
+import { finiteNcaafNumber, selectNcaafEzpzPicks, NCAAF_EZPZ_RULE, NCAAF_EZPZ_POLICY_VERSION } from "./ncaafEzpzPolicy";
 import { NFL_CORE_PICK_CLASSES, NFL_CORE_SELECTOR_EFFECTIVE_DATE } from "./nflEzpzPolicy";
 import {
   buildFootballPublicData as buildLegacyFootballPublicData,
@@ -614,6 +614,35 @@ function historyPickFromRow(row: SheetRow): AnyPick {
   };
 }
 
+function ncaafSpreadHistoryEvidence(pick: AnyPick, trendRows: SheetRow[]): AnyPick {
+  if (textKey(pick.market) !== "spread") return pick;
+  const selectedLine = finiteNcaafNumber(pick.line) ?? lineNumber(pick.selection);
+  const base = { ...pick, line: selectedLine };
+  if (finiteNcaafNumber(pick.openingBetsPct) != null || selectedLine == null) return base;
+  const history: SheetRow = {
+    Date: String(pick.date || ""), Game: String(pick.game || ""),
+    Market: "Spread", Selection: String(pick.selection || ""),
+  };
+  const pickStamp = String(pick.lockedAt || pick.updatedAt || "").trim();
+  const match = trendRows.find(row => {
+    let frozen: AnyPick = {};
+    try { frozen = JSON.parse(String(row["Trend Score Details"] || "{}")); } catch {}
+    if (!frozen || typeof frozen !== "object") frozen = {};
+    if (textKey(row["Snapshot Status"] || frozen.snapshotStatus) !== "final pregame" || !rowMatchesHistory(row, history, "NCAAF")) return false;
+    const rowLine = finiteNcaafNumber(row["Public Split Line"] ?? row.Line);
+    if (rowLine == null || Math.abs(rowLine - selectedLine) > 0.001) return false;
+    const rowStamp = String(row["Public Split Snapshot Time"] || frozen.frozenAt || frozen.updatedAt || row["Updated At"] || "").trim();
+    // Never borrow a ticket baseline from another saved decision on the game.
+    return !pickStamp || (rowStamp && Date.parse(rowStamp) === Date.parse(pickStamp));
+  });
+  if (!match) return base;
+  return {
+    ...base,
+    openingBetsPct: finiteNcaafNumber(match["Opening Public %"] ?? match["Opening Bets %"]),
+    betsPct: finiteNcaafNumber(pick.betsPct) ?? finiteNcaafNumber(match["Public Bets %"] ?? match["Current Public %"]),
+  };
+}
+
 const NFL_MARKET_MOVE_MIN_POINTS = 1;
 const NFL_MONEY_MOMENTUM_MIN_MONEY_MOVE_PCT = 10;
 const NFL_MONEY_MOMENTUM_MIN_MARKET_MOVE_POINTS = 0.5;
@@ -1066,6 +1095,7 @@ export async function buildFootballPublicData(
 
   const aiPickRecordRows = gradedHistory
     .map(historyPickFromRow)
+    .map(pick => sport === "NCAAF" ? ncaafSpreadHistoryEvidence(pick, Array.isArray(core.trendRecordRows) ? core.trendRecordRows : []) : pick)
     .filter((pick) => sport !== "NCAAF" || (
       textKey(pick.snapshotStatus) === "final pregame" &&
       isPublicSplitEzpzPick(pick) &&

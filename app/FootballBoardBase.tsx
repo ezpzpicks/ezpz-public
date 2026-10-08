@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { MatchupWithLogos, SelectionWithTeamLogo, TeamLogoName } from "./TeamLogoName";
 import { DirectTrendRecords, FootballTrendMarketBoard } from "./FootballTrendMarketBoard";
+import { NCAAF_SPREAD_TICKET_MOMENTUM_RULE } from "../lib/ncaafEzpzPolicy";
 
 type SheetRow = Record<string, string>;
 type Tab = "Today’s Model Plays" | "Public Betting Splits" | "EZPZ Picks" | "Full Slate" | "Records";
@@ -1633,7 +1634,7 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
             {sport === "NFL" ? <span><b>Market Move</b> Follow a total when the total line moves 1.0+ point in that direction.</span> : null}
             {sport === "NFL" ? <span><b>Money Momentum</b> Money share rises 10+ points while the spread or total moves 0.5+ point toward that side.</span> : null}
             {sport === "NCAAF" ? <span><b>Total Drop Fade</b> Take the Over when the game total has dropped at least 1.5 points from its opening line.</span> : null}
-            {sport === "NCAAF" ? <span><b>Spread Ticket Momentum</b> Follow the spread side when the line moves at least 1.0 point toward it and its ticket share rises at least 7 points.</span> : null}
+            {sport === "NCAAF" ? <span><b>Spread Ticket Momentum</b> {NCAAF_SPREAD_TICKET_MOMENTUM_RULE}</span> : null}
           </div>
         </details>
         <div className="trendGamesCountRow">

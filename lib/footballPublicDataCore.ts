@@ -2046,6 +2046,8 @@ type FootballEzpzPick = {
   market: "Spread" | "Total" | "Player Prop";
   selection: string;
   line?: number | null;
+  openingLine?: number | null;
+  openingBetsPct?: number;
   odds: string;
   score: number;
   tier: string;
@@ -2362,6 +2364,10 @@ type FootballEzpzRecordRow = {
   game: string;
   market: "Spread" | "Total" | "Player Prop";
   selection: string;
+  line?: number | null;
+  openingLine?: number | null;
+  openingBetsPct?: number;
+  betsPct?: number;
   odds: string;
   score: number;
   source: "Best Play" | "Trend Play" | "Best + Trend";
@@ -2579,6 +2585,8 @@ function buildFootballEzpzRecordRows(
       const strengthScore = movement.score;
       candidates.push({
         date: play.date, game: play.game, market: play.market,
+        line: play.line, openingLine: play.openingLine,
+        openingBetsPct: play.openingBetsPct, betsPct: play.betsPct,
         selection: play.market === "Total"
           ? (play.side + " " + (play.line ?? "")).trim()
           : ((play.selectionTeam || play.selection) + " " + (play.line == null ? "" : (play.line > 0 ? "+" : "") + play.line)).trim(),
@@ -2776,6 +2784,8 @@ function buildFootballEzpzPicks(
         ? `${play.side} ${play.line ?? ""}`.trim()
         : `${play.selection} ${play.line == null ? "" : `${play.line > 0 ? "+" : ""}${play.line}`}`.trim(),
       line: play.line,
+      openingLine: play.openingLine,
+      openingBetsPct: play.openingBetsPct,
       odds,
       score: Math.round(strengthScore * 10) / 10,
       tier: labels.join(" + "),
