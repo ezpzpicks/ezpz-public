@@ -2626,7 +2626,7 @@ function buildFootballEzpzRecordRows(
       if (!labels.length) continue;
       const result = gradeFinalNcaafTrendPlay(play, trendRows);
       if (!result) continue;
-      const odds = americanOddsText(play.odds);
+      const odds = americanOddsText(play.odds) || "-110";
       if (!odds || Number(odds) < -150) continue;
       const oddsNumber = Number(odds);
       const strengthScore = movement.score;
@@ -2701,7 +2701,7 @@ function buildFootballEzpzRecordRows(
       if (!direct.labels.length) continue;
       const requiredCfbSplit = sport === "NCAAF"
         && direct.labels.some((label) => label === "RLM" || label === "Sharp" || label === "Public Fade");
-      const oddsNumber = parseOdds(split.odds) || (requiredCfbSplit ? -110 : 0);
+      const oddsNumber = parseOdds(split.odds) || -110;
       if (!oddsNumber || (!requiredCfbSplit && oddsNumber < -150)) continue;
       const row = rowByIdentity.get(
         `${groupKey}|${textKey(split.market === "Total" ? split.side : split.selectionTeam)}`,
@@ -2727,7 +2727,7 @@ function buildFootballEzpzRecordRows(
         selection: split.market === "Total"
           ? `${split.side} ${split.line ?? ""}`.trim()
           : `${split.selectionTeam} ${split.line == null ? "" : `${split.line > 0 ? "+" : ""}${split.line}`}`.trim(),
-        odds: split.odds,
+        odds: String(oddsNumber > 0 ? `+${oddsNumber}` : oddsNumber),
         score: Math.round(strengthScore * 10) / 10,
         source: "Trend Play",
         qualification: direct.labels.join(" • "),
@@ -2809,7 +2809,7 @@ function buildFootballEzpzPicks(
     const ncaafMovement = ncaafEzpzMovementQualification(play, sport);
     const labels = sport === "NCAAF" ? ncaafMovement.labels : direct.labels;
     if (!labels.length) continue;
-    const odds = americanOddsText(play.odds);
+    const odds = americanOddsText(play.odds) || "-110";
     if (!odds || Number(odds) < -150) continue;
 
     const strengthScore = sport === "NCAAF"
@@ -3271,5 +3271,4 @@ export async function buildFootballPublicData(
 
 // Small pure exports used by CI to guarantee football follows the MLB trend contract.
 export const __test__ = { warningFor, movementForSplit, trendRecord, windows, windowMetrics, signalBreakdown, headToHead, parseBettingSplits, footballWeekBounds, minutesUntilKickoff, settleTrendRows, settleTrendRowsFromTracker, historyFromTrendRows, buildTrendPlay };
-
 

@@ -3300,9 +3300,11 @@ export async function readWeeklyFootballMarket(
   // Collapse those storage aliases at read time so the public board never renders
   // duplicate games. Prefer the verified final snapshot, then the canonical/full
   // team-name row and the richer/newer movement history.
-  const displayTrendPlays = sport === "NCAAF"
+  // Apply the display/selection price only after classifying the actual snapshots.
+  // A missing price must not manufacture an implied-probability line movement.
+  const displayTrendPlays = (sport === "NCAAF"
     ? dedupeNcaafReadTrendPlays(trendPlays, canonicalRows)
-    : trendPlays;
+    : trendPlays).map(play => ({ ...play, odds: String(play.odds || "").trim() || "-110" }));
 
   const splits = displayTrendPlays.map((play) => ({
     game: play.game,
@@ -3827,6 +3829,7 @@ export async function readExternalFootballMarket(
       trendPlays.push({
         ...play,
         week: String(row.Week || play.week || storedFootballWeek(sport, play, canonicalRows)),
+        odds: String(play.odds || "").trim() || "-110",
       });
     } catch { }
   }
@@ -3867,4 +3870,3 @@ export async function readExternalFootballMarket(
     updatedAt: nowET(),
   };
 }
-

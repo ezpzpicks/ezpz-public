@@ -1,6 +1,6 @@
-export const NCAAF_EZPZ_POLICY_VERSION = "ncaaf-movement-v3";
+export const NCAAF_EZPZ_POLICY_VERSION = "ncaaf-movement-v4-default-odds";
 export const NCAAF_SPREAD_TICKET_MOMENTUM_RULE = "Follow the spread side when the line moves at least 1 point toward it and its ticket share rises at least 7 percentage points, and either the selected team is a favorite laying less than 15 points or its ticket share rises by more than 20 percentage points. Either condition qualifies; both are not required.";
-export const NCAAF_EZPZ_RULE = "NCAAF EZPZ Picks: one pick per game, Total Drop Fade first (Over after a 1.5+ point total drop), then Spread Ticket Momentum. " + NCAAF_SPREAD_TICKET_MOMENTUM_RULE + " Odds must be -150 or better. RLM, Sharp, and Public Fade remain tracked only.";
+export const NCAAF_EZPZ_RULE = "NCAAF EZPZ Picks: one pick per game, Total Drop Fade first (Over after a 1.5+ point total drop), then Spread Ticket Momentum. " + NCAAF_SPREAD_TICKET_MOMENTUM_RULE + " Odds must be -150 or better; missing spread/total odds default to -110. RLM, Sharp, and Public Fade remain tracked only.";
 
 type MovementPlay = {
   market?: unknown;
@@ -77,7 +77,10 @@ export function ncaafPickPriority(pick: NcaafPick) {
 }
 
 export function selectNcaafEzpzPicks<T extends NcaafPick>(picks: T[], finalOnly = false): T[] {
-  const eligible = picks.filter(pick => {
+  const eligible = picks.map(pick => String(pick.odds ?? "").trim()
+    ? pick
+    : { ...pick, odds: "-110" }
+  ).filter(pick => {
     const source = String(pick.source || "").trim().toLowerCase();
     const odds = finiteNcaafNumber(String(pick.odds ?? "").replace(/−/g, "-"));
     return (source === "trend play" || source === "best + trend") && ncaafPickPriority(pick) > 0 && !pick.playerName && !pick.propMarket

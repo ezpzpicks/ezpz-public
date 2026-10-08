@@ -80,3 +80,22 @@ test("an abbreviated and full-name copy of the same side is not a contradiction"
   core.trendPlays.push({ ...core.trendPlays[0], selection: "Atlanta Falcons" });
   assert.equal(select(core).length, 1);
 });
+
+test("missing football spread and total prices use -110 and keep signal priority", () => {
+  for (const missing of ["", "  ", null, undefined]) {
+    const spread = board();
+    spread.trendPlays[0].odds = missing;
+    assert.equal(select(spread)[0].selection, "ATL +1.5");
+    assert.equal(select(spread)[0].odds, "-110");
+    assert.equal(select(spread)[0].oddsSource, "DEFAULT_110");
+    const total = board();
+    total.trendPlays[3].sharpMovementPct = 12;
+    total.trendPlays[3].odds = missing;
+    assert.equal(select(total)[0].selection, "Under 47.5");
+    assert.equal(select(total)[0].odds, "-110");
+  }
+  const priced = board();
+  priced.trendPlays[0].odds = "-125";
+  assert.equal(select(priced)[0].odds, "-125");
+  assert.equal(select(priced)[0].oddsSource, "SNAPSHOT");
+});

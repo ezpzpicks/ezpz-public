@@ -50,7 +50,20 @@ test('old spread labels cannot bypass the either-or subset guard',()=>{
 test('one pick per game prioritizes Total Drop Fade and falls back when its price is worse than -150',()=>{
  assert.equal(select([spread,total]).length,1);assert.equal(select([spread,total])[0].tier,'Total Drop Fade');
  assert.equal(select([spread,{...total,odds:'-151'}])[0].tier,'Spread Ticket Momentum');
- assert.equal(select([{...total,odds:'-150'}]).length,1);assert.equal(select([{...total,odds:''}]).length,0);
+ assert.equal(select([{...total,odds:'-150'}]).length,1);assert.equal(select([{...total,odds:''}])[0].odds,'-110');
+});
+test('missing spread and total prices default to -110 without changing a supplied price',()=>{
+ for(const play of [total,spread]){
+  for(const odds of ['', '  ', null, undefined]){
+   const picks=select([{...play,odds}]);assert.equal(picks.length,1);assert.equal(picks[0].odds,'-110');
+  }
+  assert.equal(select([{...play,odds:'-125'}])[0].odds,'-125');
+  assert.equal(select([{...play,odds:'-151'}]).length,0);
+ }
+ const frozen={...select([total])[0],odds:'',snapshotStatus:'FINAL_PREGAME'};
+ assert.equal(policy.selectNcaafEzpzPicks([frozen],true)[0].odds,'-110');
+ assert.equal(policy.selectNcaafEzpzPicks([{...frozen,snapshotStatus:'LIVE'}],true).length,0);
+ assert.equal(policy.selectNcaafEzpzPicks([{...frozen,market:'Moneyline'}],true).length,0);
 });
 test('Under, old signals, missing inputs and 100-percent opening placeholders cannot qualify',()=>{
  for(const p of [{...total,side:'Under'},{...total,line:54.1},{...total,openingLine:null},{...spread,openingBetsPct:100},{...spread,openingBetsPct:''},{...spread,openingLine:undefined},{...total,openingLine:54,betsPct:10,moneyPct:60}])assert.equal(select([p]).length,0);
