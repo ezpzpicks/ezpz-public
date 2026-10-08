@@ -1,3 +1,4 @@
+import { classifyNcaafMovement, selectNcaafEzpzPicks } from "./ncaafEzpzPolicy";
 import {
   type FootballSport,
   type SheetRow,
@@ -2310,6 +2311,25 @@ function isNflMoneyMomentumSelectedSide(play: TrendPlay, sport: FootballSport) {
     && moneyMove >= NFL_MONEY_MOMENTUM_MIN_MONEY_MOVE_PCT;
 }
 
+// NCAAF_EZPZ_MOVEMENT_RULES_V1
+const NCAAF_TOTAL_DROP_FADE_MIN_POINTS = 1.5;
+const NCAAF_SPREAD_TICKET_MOMENTUM_MIN_MOVE_POINTS = 1;
+const NCAAF_SPREAD_TICKET_MOMENTUM_MIN_TICKET_MOVE_PCT = 7;
+
+function selectedPublicMove(play: Pick<TrendPlay, "betsPct" | "openingBetsPct" | "publicMovementPct">) {
+  const explicit = Number(play.publicMovementPct);
+  if (play.publicMovementPct != null && Number.isFinite(explicit)) return explicit;
+  const opening = Number(play.openingBetsPct);
+  const current = Number(play.betsPct);
+  if (!Number.isFinite(opening) || !Number.isFinite(current) || opening <= 0 || opening >= 100) return null;
+  return current - opening;
+}
+
+// NCAAF_EZPZ_SHARED_POLICY_V2
+function ncaafEzpzMovementQualification(play: TrendPlay, sport: FootballSport) {
+  return sport === "NCAAF" ? classifyNcaafMovement(play) : { labels: [] as string[], score: 0 };
+}
+
 function directTrendQualification(
   play: TrendPlay,
   splits: DraftKingsSplit[],
@@ -2418,10 +2438,52 @@ function historicalTrendSplitFromRow(row: SheetRow, sport: FootballSport): Draft
   };
 }
 
+// NCAAF_FINAL_SNAPSHOT_RECORDS_PATCH
+function gradeFinalNcaafTrendPlay(play: TrendPlay, trendRows: SheetRow[]): ResultCode | "" {
+  const candidates = trendRows.filter((row) => {
+    if (isoDate(row.Date || row["Game Date"] || "") !== play.date) return false;
+    return textKey(row.Game) === textKey(play.game) || (
+      sameTeam(row["Away Team"], play.awayTeam, "NCAAF") &&
+      sameTeam(row["Home Team"], play.homeTeam, "NCAAF")
+    );
+  });
+  const scoreRow = candidates.find((row) =>
+    finiteSnapshotNumber(row["Actual Away Runs"]) != null &&
+    finiteSnapshotNumber(row["Actual Home Runs"]) != null
+  );
+  if (scoreRow && play.line != null) {
+    const away = finiteSnapshotNumber(scoreRow["Actual Away Runs"]);
+    const home = finiteSnapshotNumber(scoreRow["Actual Home Runs"]);
+    if (away != null && home != null) {
+      if (play.market === "Total") {
+        const actualTotal = finiteSnapshotNumber(scoreRow["Actual Total"]) ?? away + home;
+        const diff = actualTotal - play.line;
+        if (Math.abs(diff) < 0.001) return "P";
+        return play.side === "Over" ? (diff > 0 ? "W" : "L") : (diff < 0 ? "W" : "L");
+      }
+      const selectedAway = sameTeam(play.selectionTeam || play.selection, play.awayTeam, "NCAAF");
+      const selectedHome = sameTeam(play.selectionTeam || play.selection, play.homeTeam, "NCAAF");
+      if (selectedAway || selectedHome) {
+        const margin = selectedAway ? away - home : home - away;
+        const adjusted = margin + play.line;
+        if (Math.abs(adjusted) < 0.001) return "P";
+        return adjusted > 0 ? "W" : "L";
+      }
+    }
+  }
+  const exact = candidates.find((row) => {
+    if (String(row.Market || "") !== play.market) return false;
+    if (play.market === "Total") return textKey(row.Side || row.Selection) === textKey(play.side || play.selection);
+    return sameTeam(row.Selection || row["Public Split Selection"], play.selectionTeam || play.selection, "NCAAF");
+  });
+  return resultCode(exact?.Result || exact?.Status);
+}
+
 function buildFootballEzpzRecordRows(
   tracker: SheetRow[],
   trendRows: SheetRow[],
   sport: FootballSport,
+  finalTrendPlays: TrendPlay[] = [],
 ): FootballEzpzRecordRow[] {
   const candidates: FootballEzpzRecordRow[] = [];
 
@@ -2497,7 +2559,39 @@ function buildFootballEzpzRecordRows(
     });
   }
 
-  const settledTrendRows = trendRows.filter((row) => Boolean(resultCode(row.Result || row.Status)));
+  if (sport === "NCAAF") {
+    const canonical = new Map<string, TrendPlay>();
+    for (const play of finalTrendPlays) {
+      if (play.snapshotStatus !== "FINAL_PREGAME" || !String(play.frozenAt || play.updatedAt || "").trim()) continue;
+      const key = [play.date, textKey(play.game), play.market, textKey(play.market === "Total" ? play.side || play.selection : play.selectionTeam || play.selection)].join("|");
+      canonical.set(key, play);
+    }
+    const finalPlays = [...canonical.values()];
+    for (const play of finalPlays) {
+      const movement = ncaafEzpzMovementQualification(play, sport);
+      const labels = movement.labels;
+      if (!labels.length) continue;
+      const result = gradeFinalNcaafTrendPlay(play, trendRows);
+      if (!result) continue;
+      const odds = americanOddsText(play.odds);
+      if (!odds || Number(odds) < -150) continue;
+      const oddsNumber = Number(odds);
+      const strengthScore = movement.score;
+      candidates.push({
+        date: play.date, game: play.game, market: play.market,
+        selection: play.market === "Total"
+          ? (play.side + " " + (play.line ?? "")).trim()
+          : ((play.selectionTeam || play.selection) + " " + (play.line == null ? "" : (play.line > 0 ? "+" : "") + play.line)).trim(),
+        odds, score: Math.round(strengthScore * 10) / 10,
+        source: "Trend Play", qualification: labels.join(" • "), selected: true, result,
+        units: result === "P" ? 0 : result === "L" ? -1 : profitUnits(oddsNumber),
+      });
+    }
+  }
+
+  const settledTrendRows = sport === "NCAAF"
+    ? []
+    : trendRows.filter((row) => Boolean(resultCode(row.Result || row.Status)));
   const splitGroups = new Map<string, DraftKingsSplit[]>();
   const rowByIdentity = new Map<string, SheetRow>();
   for (const row of settledTrendRows) {
@@ -2609,32 +2703,8 @@ function buildFootballEzpzRecordRows(
     (a, b) => a.date.localeCompare(b.date) || b.score - a.score || a.game.localeCompare(b.game),
   );
   if (sport !== "NCAAF") return sorted;
+  return selectNcaafEzpzPicks(sorted);
 
-  // Every historical CFB split that qualified as RLM, Sharp, or Public Fade was an
-  // EZPZ pick, even if another market from the same game scored higher. Keep
-  // those rows during backdating; retain the old one-per-game behavior only for
-  // non-direct selections.
-  const requiredDirect = sorted.filter((candidate) =>
-    /(?:\bRLM\b|\bSharp\b|Public Fade)/i.test(candidate.qualification)
-  );
-  const requiredKeys = new Set(requiredDirect.map((candidate) =>
-    `${candidate.date}|${textKey(candidate.game)}|${candidate.market}|${textKey(candidate.selection)}`
-  ));
-  const seenGames = new Set(requiredDirect.map((candidate) =>
-    `${candidate.date}|${textKey(candidate.game)}`
-  ));
-  const onePerGame: FootballEzpzRecordRow[] = [];
-  for (const candidate of sorted) {
-    const identity = `${candidate.date}|${textKey(candidate.game)}|${candidate.market}|${textKey(candidate.selection)}`;
-    if (requiredKeys.has(identity)) continue;
-    const gameKey = `${candidate.date}|${textKey(candidate.game)}`;
-    if (!textKey(candidate.game) || seenGames.has(gameKey)) continue;
-    seenGames.add(gameKey);
-    onePerGame.push(candidate);
-  }
-  return [...requiredDirect, ...onePerGame].sort(
-    (a, b) => a.date.localeCompare(b.date) || a.game.localeCompare(b.game) || b.score - a.score,
-  );
 }
 
 function buildFootballEzpzPicks(
@@ -2681,15 +2751,17 @@ function buildFootballEzpzPicks(
 
   for (const play of trends) {
     const direct = directTrendQualification(play, splits, sport, trends);
-    if (!direct.labels.length) continue;
-    const requiredCfbSplit = sport === "NCAAF"
-      && direct.labels.some((label) => label === "RLM" || label === "Sharp" || label === "Public Fade");
-    const odds = americanOddsText(play.odds) || (requiredCfbSplit ? "-110" : "");
-    if (!odds || (!requiredCfbSplit && Number(odds) < -150)) continue;
+    const ncaafMovement = ncaafEzpzMovementQualification(play, sport);
+    const labels = sport === "NCAAF" ? ncaafMovement.labels : direct.labels;
+    if (!labels.length) continue;
+    const odds = americanOddsText(play.odds);
+    if (!odds || Number(odds) < -150) continue;
 
-    const strengthScore = direct.labels.includes("RLM")
-      ? Math.min(100, 85 + Math.max(0, Math.abs(Number(direct.publicSide?.lineMovementValue || 0)) - RLM_MIN_MARKET_MOVE_POINTS) * 5)
-      : 85;
+    const strengthScore = sport === "NCAAF"
+      ? ncaafMovement.score
+      : direct.labels.includes("RLM")
+        ? Math.min(100, 85 + Math.max(0, Math.abs(Number(direct.publicSide?.lineMovementValue || 0)) - RLM_MIN_MARKET_MOVE_POINTS) * 5)
+        : 85;
 
     picks.push({
       source: "Trend Play",
@@ -2706,8 +2778,8 @@ function buildFootballEzpzPicks(
       line: play.line,
       odds,
       score: Math.round(strengthScore * 10) / 10,
-      tier: direct.labels.join(" + "),
-      qualification: direct.labels.join(" • "),
+      tier: labels.join(" + "),
+      qualification: labels.join(" • "),
       betsPct: Number(play.betsPct),
       moneyPct: Number(play.moneyPct),
       gapPct: Math.round((Number(play.moneyPct) - Number(play.betsPct)) * 10) / 10,
@@ -2739,28 +2811,8 @@ function buildFootballEzpzPicks(
   }
   const sorted = [...deduped.values()].sort((a, b) => b.score - a.score || a.game.localeCompare(b.game));
   if (sport !== "NCAAF") return sorted;
-  // A visible CFB RLM/Sharp/Public Fade badge is a direct EZPZ promotion. Never let
-  // the normal one-pick-per-game collapse or model-play ordering hide one of
-  // those market sides. Keep the old one-per-game behavior for all other picks.
-  const requiredDirect = sorted.filter((pick) =>
-    /(?:\bRLM\b|\bSharp\b|Public Fade)/i.test(`${pick.qualification || ""} ${pick.tier || ""}`)
-  );
-  const requiredKeys = new Set(requiredDirect.map((pick) =>
-    `${textKey(pick.game)}|${pick.market}|${textKey(pick.selection)}`
-  ));
-  const seenGames = new Set(requiredDirect.map((pick) => textKey(pick.game)).filter(Boolean));
-  const onePerGame: FootballEzpzPick[] = [];
-  for (const pick of sorted) {
-    const identity = `${textKey(pick.game)}|${pick.market}|${textKey(pick.selection)}`;
-    if (requiredKeys.has(identity)) continue;
-    const gameKey = textKey(pick.game);
-    if (!gameKey || seenGames.has(gameKey)) continue;
-    seenGames.add(gameKey);
-    onePerGame.push(pick);
-  }
-  return [...requiredDirect, ...onePerGame].sort(
-    (a, b) => b.score - a.score || a.game.localeCompare(b.game),
-  );
+  return selectNcaafEzpzPicks(sorted);
+
 }
 
 
@@ -2903,6 +2955,18 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
   readStage = "assemble-payload";
   const displayTrendPlays = Array.isArray(weeklyMarket.trendPlays)
     ? weeklyMarket.trendPlays as unknown as TrendPlay[]
+    : [];
+  const completedTrendDates = sport === "NCAAF"
+    ? [...new Set(trendRows
+        .filter((row) => Boolean(resultCode(row.Result || row.Status)))
+        .map((row) => isoDate(row.Date || row["Game Date"] || ""))
+        .filter(Boolean))]
+    : [];
+  const recordWeeklyMarket = sport === "NCAAF" && completedTrendDates.length
+    ? await readWeeklyFootballMarket(sport, { dateKeys: completedTrendDates, hydrateHistory: false })
+    : weeklyMarket;
+  const recordTrendPlays = Array.isArray(recordWeeklyMarket.trendPlays)
+    ? recordWeeklyMarket.trendPlays as unknown as TrendPlay[]
     : [];
 
   // all_game_trends can contain an older 0%/100% opening snapshot even when the
@@ -3075,7 +3139,7 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
   });
   const recordSummary = buildRecordSummary();
   const last7RecordSummary = buildRecordSummary(7);
-  const aiPickRecordRows = buildFootballEzpzRecordRows(effectiveTracker, publicTrendRows, sport);
+  const aiPickRecordRows = buildFootballEzpzRecordRows(effectiveTracker, publicTrendRows, sport, recordTrendPlays);
   return {ok:true,sport,database:sportDatabaseLabel(sport),today,lastUpdated:nowET(),tiles:{last7Days:last7,overallGreen:overall,handpickedLast7:last7,handpickedOverall:overall,pendingGreen:pending,bestPlaysToday:best.length},bestPlays:best,slateToday:todaySlate,betTrackerRows:effectiveTracker,draftKings:{ok:enriched.length>0,status:enriched.length?"LIVE":"UNAVAILABLE",updatedAt:nowET(),stale:usingStoredDraftKingsFallback,splits:enriched,props:[],errors:dk.errors,source:SCORES_AND_ODDS_SOURCE,filter:dk.filter,coverage:dk.coverage,displayMode:usingStoredDraftKingsFallback?"STALE_FALLBACK":"LIVE",trackingMode:"WEEKLY",trackingWeekStart:trackingWeek.start,trackingWeekEnd:trackingWeek.end,trackedGames:trackingSlate.length},draftKingsSignalRows:history,trendRecordRows:publicTrendRows.filter(r=>resultCode(r.Result)),trendPlays:displayTrendPlays,aiPicks,aiPickRecordRows,aiSelectorStatus:{mode:"LIVE",externalResearchConfigured:false,message:aiPicks.length?`${sport} EZPZ Picks are live for ${today}: ${sport === "NFL" ? "yardage props qualify directly at Strong or Regular; Lean is tracked but excluded from EZPZ Picks. " : ""}HOT game Best Plays remain FINAL immediately; Trend Plays qualify only through Public Fade, RLM, or Sharp. NFL Public Fade uses 80%+ bets; CFB Public Fade uses >75% bets with a 55+ point Bets%-Money% gap. RLM requires public bet share to rise at least 5 points while the market line moves 1.5+ points against that side. EZPZ Sharp requires money share over bet share by ${sport === "NFL" ? 25 : 40}+ points. Qualifying Trend Plays remain tied to the saved pregame market snapshot.`:`No ${sport} EZPZ Picks for ${today} currently qualify under the active game, prop, or trend rules.`,updatedAt:nowET(),candidateCount:modelBest.length+todayTrendPlays.length+propBest.length,selectedCount:aiPicks.length},recordSummary,last7RecordSummary,handpickedRecordSummary:recordSummary,handpickedLast7RecordSummary:last7RecordSummary};
   } catch (error) {
     console.error("Football public build failed", {
@@ -3145,3 +3209,4 @@ export async function buildFootballPublicData(
 
 // Small pure exports used by CI to guarantee football follows the MLB trend contract.
 export const __test__ = { warningFor, movementForSplit, trendRecord, windows, windowMetrics, signalBreakdown, headToHead, parseBettingSplits, footballWeekBounds, minutesUntilKickoff, settleTrendRows, settleTrendRowsFromTracker, historyFromTrendRows, buildTrendPlay };
+

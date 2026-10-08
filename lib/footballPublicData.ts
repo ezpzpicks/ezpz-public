@@ -219,7 +219,8 @@ function directPublishedPick(pick: AnyPick) {
   const labels = textKey(`${pick.tier || ""} ${pick.trendTier || ""} ${pick.qualification || ""}`);
   return (source === "trend play" || source === "best trend") &&
     (labels.includes("rlm") || labels.includes("public fade") || labels.includes("sharp") ||
-    labels.includes("market move") || labels.includes("money momentum"));
+    labels.includes("market move") || labels.includes("money momentum") ||
+    labels.includes("total drop fade") || labels.includes("spread ticket momentum"));
 }
 
 function historyGroupKey(pick: AnyPick) {
@@ -562,3 +563,4 @@ export async function buildFootballPublicData(
     trendRecordRows: hardenDirectTrendRecordRows(directTrendRecordRows, sport),
   };
 }
+

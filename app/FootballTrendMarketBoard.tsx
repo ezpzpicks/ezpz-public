@@ -1,5 +1,6 @@
 "use client";
 
+import { classifyNcaafMovement } from "../lib/ncaafEzpzPolicy";
 import { SelectionWithTeamLogo, TeamLogoName } from "./TeamLogoName";
 
 type SheetRow = Record<string, string>;
@@ -333,25 +334,7 @@ function labelsFor(play: TrendPlay, plays: TrendPlay[], sport: Sport) {
     const moneyMove = Number.isFinite(openingMoney) && Number.isFinite(currentMoney) ? currentMoney - openingMoney : Number.NaN;
     if (lineMarketMatches && openingMoney > 0 && openingMoney < 100 && Number.isFinite(moneyMove) && moneyMove >= NFL_MONEY_MOMENTUM_MIN_MONEY_MOVE_PCT && Number.isFinite(ownLineMove) && ownLineMove >= NFL_MONEY_MOMENTUM_MIN_MARKET_MOVE_POINTS) labels.push("Money Momentum");
   } else if (sport === "NCAAF") {
-    if (play.market === "Total" && play.side === "Over") {
-      const opening = Number(play.openingLine);
-      const current = Number(play.line);
-      if (Number.isFinite(opening) && Number.isFinite(current) && opening - current >= NCAAF_TOTAL_DROP_FADE_MIN_POINTS) {
-        labels.push("Total Drop Fade");
-      }
-    }
-    if (play.market === "Spread") {
-      const lineMove = Number(play.lineMovementValue);
-      const ticketMove = selectedPublicMove(play);
-      if (
-        Number.isFinite(lineMove) &&
-        lineMove >= NCAAF_SPREAD_TICKET_MOMENTUM_MIN_MOVE_POINTS &&
-        ticketMove != null &&
-        ticketMove >= NCAAF_SPREAD_TICKET_MOMENTUM_MIN_TICKET_MOVE_PCT
-      ) {
-        labels.push("Spread Ticket Momentum");
-      }
-    }
+    labels.push(...classifyNcaafMovement(play).labels);
   }
 
   const publicSide = opposite(play, plays);
@@ -996,35 +979,14 @@ function historicalLabels(row: SheetRow, group: SheetRow[], sport: Sport) {
     const moneyMove = sharpChangeRaw && Number.isFinite(Number(sharpChangeRaw)) ? Number(sharpChangeRaw) : Number.isFinite(openingMoney) && Number.isFinite(ownMoney) ? ownMoney - openingMoney : Number.NaN;
     if (lineMarketMatches && openingMoney > 0 && openingMoney < 100 && Number.isFinite(moneyMove) && moneyMove >= NFL_MONEY_MOMENTUM_MIN_MONEY_MOVE_PCT && Number.isFinite(ownLineMove) && ownLineMove >= NFL_MONEY_MOMENTUM_MIN_MARKET_MOVE_POINTS) labels.push("Money Momentum");
   } else if (sport === "NCAAF") {
-    if (marketKey === "total" && textKey(row.Side || row.Selection).startsWith("over")) {
-      const opening = Number(row["Opening Line"] || row["Opening Total"]);
-      const current = Number(row["Public Split Line"] || row.Line);
-      if (Number.isFinite(opening) && Number.isFinite(current) && opening - current >= NCAAF_TOTAL_DROP_FADE_MIN_POINTS) {
-        labels.push("Total Drop Fade");
-      }
-    }
-    if (marketKey === "spread") {
-      const lineMove = Number(row["Line Movement Value"]);
-      const openingTickets = Number(row["Opening Public %"] || row["Opening Bets %"]);
-      const currentTickets = Number(row["Public Bets %"] || row["Current Public %"]);
-      const storedTicketMove = Number(row["Public Change %"]);
-      const ticketMove =
-        String(row["Public Change %"] || "").trim() && Number.isFinite(storedTicketMove)
-          ? storedTicketMove
-          : Number.isFinite(openingTickets) && Number.isFinite(currentTickets)
-            ? currentTickets - openingTickets
-            : Number.NaN;
-      if (
-        Number.isFinite(lineMove) &&
-        lineMove >= NCAAF_SPREAD_TICKET_MOMENTUM_MIN_MOVE_POINTS &&
-        openingTickets > 0 &&
-        openingTickets < 100 &&
-        Number.isFinite(ticketMove) &&
-        ticketMove >= NCAAF_SPREAD_TICKET_MOMENTUM_MIN_TICKET_MOVE_PCT
-      ) {
-        labels.push("Spread Ticket Momentum");
-      }
-    }
+    labels.push(...classifyNcaafMovement({
+      market: row.Market,
+      side: textKey(row.Side || row.Selection).startsWith("over") ? "Over" : "Under",
+      openingLine: row["Opening Public Split Line"] || row["Opening Line"] || row["Opening Total"],
+      line: row["Public Split Line"] || row.Line,
+      openingBetsPct: row["Opening Public %"] || row["Opening Bets %"],
+      betsPct: row["Public Bets %"] || row["Current Public %"],
+    }).labels);
   }
 
   const ownKey = historicalSelectionKey(row);
@@ -1379,3 +1341,4 @@ export function FootballTrendMarketBoard({ groups, sport }: { groups: Group[]; s
     ? <div className="dkTrendGameGrid">{sortedGroups.map((group) => <GameCard key={group.plays[0]?.gameKey || group.game} group={group} sport={sport} />)}</div>
     : null;
 }
+

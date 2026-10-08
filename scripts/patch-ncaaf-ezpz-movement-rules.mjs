@@ -7,6 +7,7 @@ let changed = false;
 const marker = "NCAAF_EZPZ_MOVEMENT_RULES_V1";
 
 function replaceOnce(oldValue, newValue, label) {
+  if (source.includes("NCAAF_EZPZ_SHARED_POLICY_V2")) return;
   if (source.includes(newValue)) return;
   if (!source.includes(oldValue)) throw new Error(`NCAAF EZPZ movement patch could not locate ${label}.`);
   source = source.replace(oldValue, newValue);
@@ -20,7 +21,7 @@ if (!source.includes(marker)) {
 
   replaceOnce(
 `  for (const play of trends) {\n    const direct = directTrendQualification(play, splits, sport, trends);\n    if (!direct.labels.length) continue;\n    const requiredCfbSplit = sport === "NCAAF"\n      && direct.labels.some((label) => label === "RLM" || label === "Sharp" || label === "Public Fade");\n    const odds = americanOddsText(play.odds) || (requiredCfbSplit ? "-110" : "");\n    if (!odds || (!requiredCfbSplit && Number(odds) < -150)) continue;\n\n    const strengthScore = direct.labels.includes("RLM")\n      ? Math.min(100, 85 + Math.max(0, Math.abs(Number(direct.publicSide?.lineMovementValue || 0)) - RLM_MIN_MARKET_MOVE_POINTS) * 5)\n      : 85;\n\n    picks.push({\n`,
-`  for (const play of trends) {\n    const direct = directTrendQualification(play, splits, sport, trends);\n    const ncaafMovement = ncaafEzpzMovementQualification(play, sport);\n    const labels = sport === "NCAAF" ? ncaafMovement.labels : direct.labels;\n    if (!labels.length) continue;\n    const odds = americanOddsText(play.odds) || (sport === "NCAAF" ? "-110" : "");\n    if (!odds || Number(odds) < -150) continue;\n\n    const strengthScore = sport === "NCAAF"\n      ? ncaafMovement.score\n      : direct.labels.includes("RLM")\n        ? Math.min(100, 85 + Math.max(0, Math.abs(Number(direct.publicSide?.lineMovementValue || 0)) - RLM_MIN_MARKET_MOVE_POINTS) * 5)\n        : 85;\n\n    picks.push({\n`,
+`  for (const play of trends) {\n    const direct = directTrendQualification(play, splits, sport, trends);\n    const ncaafMovement = ncaafEzpzMovementQualification(play, sport);\n    const labels = sport === "NCAAF" ? ncaafMovement.labels : direct.labels;\n    if (!labels.length) continue;\n    const odds = americanOddsText(play.odds);\n    if (!odds || Number(odds) < -150) continue;\n\n    const strengthScore = sport === "NCAAF"\n      ? ncaafMovement.score\n      : direct.labels.includes("RLM")\n        ? Math.min(100, 85 + Math.max(0, Math.abs(Number(direct.publicSide?.lineMovementValue || 0)) - RLM_MIN_MARKET_MOVE_POINTS) * 5)\n        : 85;\n\n    picks.push({\n`,
     "live NCAAF EZPZ promotion loop",
   );
 
@@ -49,6 +50,32 @@ replaceOnce(
   "live required movement selections",
 );
 
+// The generated selector and the eligibility/history layers share one policy.
+const sharedMarker = "NCAAF_EZPZ_SHARED_POLICY_V2";
+if (!source.includes(sharedMarker)) {
+  const start = source.indexOf("function ncaafEzpzMovementQualification(");
+  const end = source.indexOf("function directTrendQualification(", start);
+  if (start < 0 || end < 0) throw new Error("Could not locate NCAAF movement helper.");
+  source = `import { classifyNcaafMovement, selectNcaafEzpzPicks } from "./ncaafEzpzPolicy";\n` + source.slice(0, start)
+    + `// ${sharedMarker}\nfunction ncaafEzpzMovementQualification(play: TrendPlay, sport: FootballSport) {\n  return sport === "NCAAF" ? classifyNcaafMovement(play) : { labels: [] as string[], score: 0 };\n}\n\n`
+    + source.slice(end);
+  const liveAnchor = `  if (sport !== "NCAAF") return sorted;\n`;
+  if (!source.includes(liveAnchor)) throw new Error("Could not locate NCAAF live one-game gate.");
+  const liveStart = source.indexOf(liveAnchor, source.indexOf("function buildFootballEzpzPicks("));
+  const liveEnd = source.indexOf("\n}\n", liveStart);
+  if (liveStart < 0 || liveEnd < 0) throw new Error("Could not locate NCAAF selector return.");
+  source = source.slice(0, liveStart) + liveAnchor + `  return selectNcaafEzpzPicks(sorted);\n` + source.slice(liveEnd);
+  const recordStart = source.indexOf(liveAnchor, source.indexOf("function buildFootballEzpzRecordRows("));
+  const recordEnd = source.indexOf("\n}\n", recordStart);
+  if (recordStart < 0 || recordEnd < 0) throw new Error("Could not locate NCAAF record selector return.");
+  source = source.slice(0, recordStart) + liveAnchor + `  return selectNcaafEzpzPicks(sorted);\n` + source.slice(recordEnd);
+  source = source.replace(`      const oddsNumber = parseOdds(play.odds) || -110;\n      if (oddsNumber < -150) continue;`,
+    `      const odds = americanOddsText(play.odds);\n      if (!odds || Number(odds) < -150) continue;\n      const oddsNumber = Number(odds);`);
+  source = source.replace(`        odds: play.odds || "-110", score: Math.round(strengthScore * 10) / 10,`,
+    `        odds, score: Math.round(strengthScore * 10) / 10,`);
+  changed = true;
+}
+
 fs.writeFileSync(target, source);
 
 const historyTarget = path.join(process.cwd(), "lib", "footballPublicDataHistory.ts");
@@ -64,3 +91,4 @@ if (!historySource.includes(newHistoryFilter)) {
 }
 
 console.log(changed || historyChanged ? "Applied NCAAF EZPZ movement-rule patch." : "NCAAF EZPZ movement-rule patch already applied.");
+

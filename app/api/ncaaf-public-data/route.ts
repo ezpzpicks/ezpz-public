@@ -88,8 +88,9 @@ export async function GET(request: NextRequest) {
     const bestPlays = (data.bestPlays || []).filter((play: FootballPlay) =>
       todaySlate.some((row: SheetRow) => playMatchesSlateRow(play, row)),
     );
-    const aiPicks = (data.aiPicks || []).filter((pick: FootballPlay) =>
-      todaySlate.some((row: SheetRow) => playMatchesSlateRow(pick, row)),
+    // Public-split EZPZ picks do not require a model projection to be saved.
+    const aiPicks = (data.aiPicks || []).filter((pick: FootballPlay & { date?: string }) =>
+      isoDate(pick.date || today) === today,
     );
 
     return NextResponse.json({
@@ -113,3 +114,4 @@ export async function GET(request: NextRequest) {
     );
   }
 }
+

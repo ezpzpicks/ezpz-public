@@ -1,3 +1,4 @@
+import { selectNcaafEzpzPicks, NCAAF_EZPZ_RULE, NCAAF_EZPZ_POLICY_VERSION } from "./ncaafEzpzPolicy";
 import { NFL_CORE_PICK_CLASSES, NFL_CORE_SELECTOR_EFFECTIVE_DATE } from "./nflEzpzPolicy";
 import {
   buildFootballPublicData as buildLegacyFootballPublicData,
@@ -964,9 +965,13 @@ export async function buildFootballPublicData(
   // Sharp, and Public Fade signals remain tracked but no longer qualify alone.
   const currentPicks = sport === "NFL"
     ? directTrendPicks
-    : mergeCurrentPicks(baseCurrentPicks, directTrendPicks, today).filter(isPublicSplitEzpzPick);
+    : selectNcaafEzpzPicks(mergeCurrentPicks(baseCurrentPicks, directTrendPicks, today).filter(isPublicSplitEzpzPick));
+  // NCAAF_FINAL_ONLY_HISTORY_PATCH
   const existingByKey = new Map(history.map((row) => [String(row["Pick Key"] || pickKey(row, row.Date)), row]));
-  const currentRows = currentPicks
+  const historyEligibleCurrentPicks = sport === "NCAAF"
+    ? currentPicks.filter((pick: AnyPick) => textKey(pick.snapshotStatus) === "final pregame")
+    : currentPicks;
+  const currentRows = historyEligibleCurrentPicks
     .map((pick: AnyPick) => historyRowFromPick(pick, today, existingByKey.get(pickKey(pick, today))))
     .filter((row: SheetRow) => Boolean(row["Pick Key"]));
 
@@ -1061,7 +1066,13 @@ export async function buildFootballPublicData(
 
   const aiPickRecordRows = gradedHistory
     .map(historyPickFromRow)
-    .filter((pick) => sport !== "NCAAF" || isPublicSplitEzpzPick(pick))
+    .filter((pick) => sport !== "NCAAF" || (
+      textKey(pick.snapshotStatus) === "final pregame" &&
+      isPublicSplitEzpzPick(pick) &&
+      /(?:total drop fade|spread ticket momentum)/i.test(
+        String(pick.qualification || "") + " " + String(pick.tier || "")
+      )
+    ))
     .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")) || String(a.game || "").localeCompare(String(b.game || "")));
 
   const aiSelectorStatus = sport === "NFL"
@@ -1079,17 +1090,19 @@ export async function buildFootballPublicData(
     : {
         ...(core.aiSelectorStatus || {}),
         message: enrichedCurrentPicks.length
-          ? "NCAAF EZPZ Picks: Public Betting Splits only. Plays qualify as RLM, Public Fade, or Sharp."
-          : "No NCAAF Public Betting Splits qualify as RLM, Public Fade, or Sharp right now.",
+          ? NCAAF_EZPZ_RULE
+          : "No NCAAF Total Drop Fade or Spread Ticket Momentum currently qualifies. " + NCAAF_EZPZ_RULE,
         candidateCount: (Array.isArray(core.trendPlays) ? core.trendPlays : [])
           .filter((play: AnyPick) => isoDate(play.date || play.recordDate || play.Date || today) === today).length,
         selectedCount: enrichedCurrentPicks.length,
+        selectorVersion: NCAAF_EZPZ_POLICY_VERSION,
       };
 
   return {
     ...core,
     aiPicks: enrichedCurrentPicks,
-    aiPickRecordRows,
+    aiPickRecordRows: sport === "NCAAF" ? selectNcaafEzpzPicks(aiPickRecordRows, true) : aiPickRecordRows,
     aiSelectorStatus,
   };
 }
+

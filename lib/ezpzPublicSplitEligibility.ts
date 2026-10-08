@@ -16,5 +16,6 @@ export function isPublicSplitEzpzPick(pick: PublicSplitPick): boolean {
     && (market === "spread" || market === "total")
     && !pick.playerName
     && !pick.propMarket
-    && /\b(?:RLM|Public\s+Fade|Sharp|Market\s+Move|Money\s+Momentum)\b/i.test(`${pick.tier || ""} ${pick.qualification || ""}`);
+    && /\b(?:RLM|Public\s+Fade|Sharp|Market\s+Move|Money\s+Momentum|Total\s+Drop\s+Fade|Spread\s+Ticket\s+Momentum)\b/i.test(`${pick.tier || ""} ${pick.qualification || ""}`);
 }
+
