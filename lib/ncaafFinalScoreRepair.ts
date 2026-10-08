@@ -7,6 +7,7 @@ import {
 type RepairSummary = {
   date: string;
   checkedScheduleRows: number;
+  checkedScoreboards: number;
   resolvedFinalGames: number;
   repairedScheduleRows: number;
 };
@@ -47,11 +48,17 @@ function gameId(row: SheetRow) {
 function hasFinalScore(row: SheetRow) {
   const away = String(row["Away Score"] ?? "").trim();
   const home = String(row["Home Score"] ?? "").trim();
-  return away !== "" && home !== "" && Number.isFinite(Number(away)) && Number.isFinite(Number(home));
+  const completed = ["true", "1", "yes", "completed"].includes(
+    String(row.Completed ?? "").trim().toLowerCase(),
+  );
+  return completed && away !== "" && home !== "" &&
+    Number.isFinite(Number(away)) && Number.isFinite(Number(home));
 }
 
 function scoreNumber(value: any) {
-  const parsed = Number(value?.value ?? value?.displayValue ?? value);
+  const raw = value?.value ?? value?.displayValue ?? value;
+  if (raw == null || String(raw).trim() === "") return null;
+  const parsed = Number(raw);
   return Number.isFinite(parsed) ? parsed : null;
 }
 
@@ -86,12 +93,30 @@ function rowHeaders(rows: SheetRow[]) {
   return [...headers];
 }
 
-async function fetchTodayFinals(date: string) {
-  const dateKey = date.replace(/-/g, "");
+type ScoreboardRequest = { year: number; seasonType: number; week?: number; date?: string };
+
+function scoreboardRequest(row: SheetRow, date: string): ScoreboardRequest {
+  const season = Number(row.Season || date.slice(0, 4));
+  const rawWeek = String(row.Week ?? "").trim();
+  const week = rawWeek ? Number(rawWeek) : NaN;
+  const kind = String(row["Season Type"] ?? "").trim().toLowerCase();
+  const seasonType = kind === "postseason" || kind === "3" ? 3 : 2;
+  if (Number.isInteger(week) && week >= 0 && week <= 18 &&
+      Number.isInteger(season) && season >= 2000 && season <= 2100) {
+    return { year: season, seasonType, week };
+  }
+  return { year: Number(date.slice(0, 4)), seasonType, date };
+}
+
+async function fetchFinals(request: ScoreboardRequest) {
   const url = new URL("https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard");
-  url.searchParams.set("dates", dateKey);
+  url.searchParams.set("dates", request.date ? request.date.replace(/-/g, "") : String(request.year));
   url.searchParams.set("groups", "80");
-  url.searchParams.set("limit", "200");
+  url.searchParams.set("limit", "500");
+  if (request.week !== undefined) {
+    url.searchParams.set("seasontype", String(request.seasonType));
+    url.searchParams.set("week", String(request.week));
+  }
 
   const response = await fetch(url, {
     cache: "no-store",
@@ -110,25 +135,50 @@ async function fetchTodayFinals(date: string) {
   return finals;
 }
 
-export async function repairTodayNcaafFinalScores(): Promise<RepairSummary> {
+export async function repairNcaafFinalScores(): Promise<RepairSummary> {
   const date = todayET();
   const schedule = await readSportWorksheet("NCAAF", "schedule");
-  const candidates = schedule.filter((row) =>
-    isoDate(row["Game Date"] || row.Date || "") === date &&
-    Boolean(gameId(row)) &&
-    !hasFinalScore(row),
-  );
+  const earliestYear = Number(date.slice(0, 4)) - 1;
+  const candidates = schedule.filter((row) => {
+    const gameDate = isoDate(row["Game Date"] || row.Date || "");
+    return Boolean(gameDate) && gameDate <= date &&
+      Number(gameDate.slice(0, 4)) >= earliestYear &&
+      Boolean(gameId(row)) && !hasFinalScore(row);
+  });
 
   if (!candidates.length) {
     return {
       date,
       checkedScheduleRows: 0,
+      checkedScoreboards: 0,
       resolvedFinalGames: 0,
       repairedScheduleRows: 0,
     };
   }
 
-  const finals = await fetchTodayFinals(date);
+  const requests = new Map<string, ScoreboardRequest>();
+  for (const row of candidates) {
+    const request = scoreboardRequest(row, isoDate(row["Game Date"] || row.Date || ""));
+    requests.set(JSON.stringify(request), request);
+  }
+
+  const finals = new Map<string, FinalScore>();
+  let failedScoreboards = 0;
+  const batches = [...requests.values()];
+  for (let offset = 0; offset < batches.length; offset += 8) {
+    const results = await Promise.allSettled(batches.slice(offset, offset + 8).map(fetchFinals));
+    for (const result of results) {
+      if (result.status === "rejected") {
+        failedScoreboards += 1;
+        continue;
+      }
+      for (const [id, final] of result.value) finals.set(id, final);
+    }
+  }
+  if (failedScoreboards === requests.size) {
+    throw new Error(`All ${requests.size} ESPN NCAAF scoreboards failed`);
+  }
+
   const repaired = candidates.flatMap((row) => {
     const final = finals.get(gameId(row));
     if (!final) return [];
@@ -153,6 +203,7 @@ export async function repairTodayNcaafFinalScores(): Promise<RepairSummary> {
   return {
     date,
     checkedScheduleRows: candidates.length,
+    checkedScoreboards: requests.size,
     resolvedFinalGames: finals.size,
     repairedScheduleRows: repaired.length,
   };

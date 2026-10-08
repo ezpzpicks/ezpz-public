@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { buildFootballPublicData } from "../../../lib/footballPublicData";
-import { repairTodayNcaafFinalScores } from "../../../lib/ncaafFinalScoreRepair";
+import { repairNcaafFinalScores } from "../../../lib/ncaafFinalScoreRepair";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -67,7 +67,7 @@ export async function GET(request: NextRequest) {
     let finalScoreRepair: unknown = null;
     if (forceFresh) {
       try {
-        finalScoreRepair = await repairTodayNcaafFinalScores();
+        finalScoreRepair = await repairNcaafFinalScores();
       } catch (error) {
         console.warn("NCAAF final-score repair failed", error);
         finalScoreRepair = {

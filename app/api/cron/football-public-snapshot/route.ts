@@ -5,7 +5,7 @@ import { evaluateFootballTrendV2 } from "../../../../lib/footballTrendV2Lifecycl
 import type { FootballSport } from "../../../../lib/sportSheets";
 import { withTursoReadCache } from "../../../../lib/tursoStore";
 import { persistEzpzCurrentPicks } from "../../../../lib/ezpzCurrentPicks";
-import { repairTodayNcaafFinalScores } from "../../../../lib/ncaafFinalScoreRepair";
+import { repairNcaafFinalScores } from "../../../../lib/ncaafFinalScoreRepair";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -44,7 +44,7 @@ async function runCron(request: NextRequest) {
     let finalScoreRepair: unknown = null;
     if (sport === "NCAAF") {
       try {
-        finalScoreRepair = await repairTodayNcaafFinalScores();
+        finalScoreRepair = await repairNcaafFinalScores();
       } catch (error) {
         console.warn("NCAAF schedule final-score repair failed", error);
         finalScoreRepair = {
