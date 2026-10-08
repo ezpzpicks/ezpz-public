@@ -1,5 +1,6 @@
 import { buildFootballPublicData as buildFootballPublicDataWithHistory } from "./footballPublicDataHistory";
 import { overlayPublishedDirectTrendRows } from "./footballDirectTrendLedger";
+import { isVerifiedNcaafTrendRecord, NCAAF_TREND_RECORD_POLICY } from "./ncaafTrendRecordPolicy";
 import { buildNflEzpzRecords } from "./nflEzpzRecords";
 import {
   readSportWorksheet,
@@ -538,6 +539,16 @@ export async function buildFootballPublicData(
     };
   });
 
+  if (sport === "NCAAF") {
+    // Saved pick history must never replace or supplement the validated market
+    // ledger: old FINAL labels and old prices/lines are not final-snapshot proof.
+    return {
+      ...data, aiPicks, aiPickRecordRows: backfilledRecordRows,
+      trendRecordRows: hardenDirectTrendRecordRows(trendRows.filter(isVerifiedNcaafTrendRecord), sport),
+      trendRecordPolicy: NCAAF_TREND_RECORD_POLICY,
+    };
+  }
+
   const published = authoritativeDirectHistory(backfilledRecordRows);
 
   // Any published direct-trend decision owns its game+market record identity,
@@ -563,4 +574,5 @@ export async function buildFootballPublicData(
     trendRecordRows: hardenDirectTrendRecordRows(directTrendRecordRows, sport),
   };
 }
+
 

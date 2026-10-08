@@ -6,6 +6,8 @@ import { MatchupWithLogos, SelectionWithTeamLogo, TeamLogoName } from "./TeamLog
 import FootballModelFormBadges from "./FootballModelFormBadges";
 import { isPublicSplitEzpzPick } from "../lib/ezpzPublicSplitEligibility";
 import { selectNflEzpzHistory } from "../lib/nflEzpzRecords";
+import { classifyNcaafMovement } from "../lib/ncaafEzpzPolicy";
+import { isVerifiedNcaafTrendRecord } from "../lib/ncaafTrendRecordPolicy";
 
 type Tab = "Today’s Model Plays" | "Public Betting Splits" | "EZPZ Picks" | "Full Slate" | "Records";
 type Sport = "NFL" | "NCAAF";
@@ -339,7 +341,7 @@ function pickFormMeta(value: unknown) {
 }
 
 
-type DirectTrendSignal = "RLM" | "Public Fade" | "Sharp" | "Market Move" | "Money Momentum";
+type DirectTrendSignal = "RLM" | "Public Fade" | "Sharp" | "Market Move" | "Money Momentum" | "Total Drop Fade" | "Spread Ticket Momentum";
 type DirectTrendBetType = "Favorite" | "Underdog" | "Over" | "Under" | "";
 
 function matchupTeams(game: unknown) {
@@ -361,6 +363,8 @@ function directTrendTypes(pick: EzpzPick): DirectTrendSignal[] {
   if (key.includes("sharp")) types.push("Sharp");
   if (/\bmarket move\b/.test(key)) types.push("Market Move");
   if (key.includes("money momentum")) types.push("Money Momentum");
+  if (key.includes("total drop fade")) types.push("Total Drop Fade");
+  if (key.includes("spread ticket momentum")) types.push("Spread Ticket Momentum");
   return types;
 }
 
@@ -428,12 +432,14 @@ function historicalTrendSelectionKey(row: SheetRow, sport?: Sport) {
     return key.startsWith("under") ? "under" : key.startsWith("over") ? "over" : key;
   }
   if (sport === "NFL") return nflRecordTeamKey(row["Public Split Selection"] || row.Selection);
+  if (sport === "NCAAF") return textKey(row["Public Split Selection"] || row.Selection);
   const key = textKey(row["Public Split Selection"] || row.Selection || "");
   const parts = key.split(" ").filter(Boolean);
   return parts[parts.length - 1] || key;
 }
 
 function directTrendGroupKey(row: SheetRow, sport?: Sport) {
+  if (sport === "NCAAF" && row["Direct Trend Group Key"]) return row["Direct Trend Group Key"];
   if (sport === "NFL") {
     const matchup = matchupTeams(rowGame(row));
     if (matchup) {
@@ -454,6 +460,14 @@ function directTrendLabels(row: SheetRow, group: SheetRow[], sport: Sport): Dire
   }
 
   const marketKey = textKey(row.Market);
+  if (sport === "NCAAF") {
+    labels.push(...classifyNcaafMovement({
+      market: row.Market,
+      side: textKey(row.Side || row.Selection).startsWith("over") ? "Over" : "Under",
+      openingLine: row["Opening Public Split Line"], line: row["Public Split Line"],
+      openingBetsPct: row["Opening Public %"], betsPct: row["Public Bets %"],
+    }).labels as DirectTrendSignal[]);
+  }
   if (sport === "NFL") {
     const ownBasis = String(row["Line Movement Basis"] || "");
     const ownLineMove = Number(row["Line Movement Value"]);
@@ -498,6 +512,7 @@ function directTrendLabels(row: SheetRow, group: SheetRow[], sport: Sport): Dire
 function directTrendRecord(rows: SheetRow[], sport: Sport, signal: DirectTrendSignal, betType: DirectTrendBetType, beforeDate = "") {
   const grouped = new Map<string, SheetRow[]>();
   for (const row of rows || []) {
+    if (sport === "NCAAF" && !isVerifiedNcaafTrendRecord(row)) continue;
     if (!resultCode(row.Result || row.Status)) continue;
     const key = directTrendGroupKey(row, sport);
     const current = grouped.get(key);
@@ -524,20 +539,10 @@ function directTrendRecord(rows: SheetRow[], sport: Sport, signal: DirectTrendSi
     });
   });
 
-  // Historical storage can contain the same settled market under two game IDs.
-  // Deduplicate by the actual market state/result so the tile record never double-counts it.
+  // A physical game, market and selection supplies one settled record.
   const deduped = new Map<string, SheetRow>();
   for (const row of qualified) {
-    const key = sport === "NFL" ? `${directTrendGroupKey(row, sport)}|${historicalTrendSelectionKey(row, sport)}` : [
-      String(row.Date || ""),
-      textKey(row.Market),
-      historicalTrendSelectionKey(row),
-      String(row["Public Bets %"] || row["Current Public %"] || ""),
-      String(row["Public Money %"] || row["Current Sharp %"] || ""),
-      String(row["Public Split Line"] || row.Line || ""),
-      String(row["Public Split Odds"] || row.Odds || ""),
-      resultCode(row.Result || row.Status),
-    ].join("|");
+    const key = `${directTrendGroupKey(row, sport)}|${historicalTrendSelectionKey(row, sport)}`;
     if (!deduped.has(key)) deduped.set(key, row);
   }
 
@@ -550,7 +555,7 @@ function directTrendRecord(rows: SheetRow[], sport: Sport, signal: DirectTrendSi
       const aDate = isoDate(a.Date || a["Game Date"] || "");
       const bDate = isoDate(b.Date || b["Game Date"] || "");
       const byDate = bDate.localeCompare(aDate);
-      if (byDate || sport !== "NFL") return byDate;
+      if (byDate) return byDate;
       const aTime = ezpzGameTimeInfo(a["Game Time"] || a["Game Time ET"]).minutes;
       const bTime = ezpzGameTimeInfo(b["Game Time"] || b["Game Time ET"]).minutes;
       if (Number.isFinite(aTime) && Number.isFinite(bTime) && aTime !== bTime) return bTime - aTime;
@@ -812,3 +817,4 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
   if (tab !== "EZPZ Picks") return <LegacyFootballBoard sport={sport} tab={tab} data={data as any} />;
   return <FootballEzpzHistory sport={sport} data={data} />;
 }
+

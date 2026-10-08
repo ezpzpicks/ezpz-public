@@ -81,6 +81,16 @@ export async function GET(request: NextRequest) {
       persist: scheduled,
     });
 
+    // Keep read-only record verification small enough to inspect without the
+    // full model, live feed, and movement-chart payload.
+    if (request.nextUrl.searchParams.get("recordsOnly") === "1") {
+      return NextResponse.json({
+        ok: data.ok, sport: "NCAAF", today: data.today, lastUpdated: data.lastUpdated,
+        trendRecordPolicy: data.trendRecordPolicy,
+        trendRecordRows: data.trendRecordRows || [],
+      }, { headers: { "Cache-Control": "no-store, max-age=0" } });
+    }
+
     const today = data.today;
     const todaySlate = (data.slateToday || []).filter((row: SheetRow) =>
       isoDate(row.Date || row["Game Date"] || "") === today,
@@ -114,4 +124,5 @@ export async function GET(request: NextRequest) {
     );
   }
 }
+
 

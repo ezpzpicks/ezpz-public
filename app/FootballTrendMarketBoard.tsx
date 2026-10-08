@@ -1,6 +1,7 @@
 "use client";
 
 import { classifyNcaafMovement } from "../lib/ncaafEzpzPolicy";
+import { isVerifiedNcaafTrendRecord } from "../lib/ncaafTrendRecordPolicy";
 import { SelectionWithTeamLogo, TeamLogoName } from "./TeamLogoName";
 
 type SheetRow = Record<string, string>;
@@ -1094,6 +1095,7 @@ export function DirectTrendRecords({
 }) {
   const grouped = new Map<string, SheetRow[]>();
   rows.forEach((row) => {
+    if (sport === "NCAAF" && !isVerifiedNcaafTrendRecord(row)) return;
     if (!resultCode(row.Result || row.Status)) return;
     const key = historicalGroupKey(row);
     const existing = grouped.get(key);
@@ -1120,7 +1122,7 @@ export function DirectTrendRecords({
   // ONLY the current sport-specific direct-trend definitions. This avoids
   // legacy signal labels while still handling historical rows stored under
   // different game IDs.
-  if (trendPlays.length) {
+  if (sport !== "NCAAF" && trendPlays.length) {
     const finalized = trendPlays.filter((play) => play.snapshotStatus === "FINAL_PREGAME");
     finalized.forEach((play) => {
       const siblings = finalized.filter((candidate) =>
@@ -1163,10 +1165,8 @@ export function DirectTrendRecords({
   // aiPickRecordRows, while legacy trendRecordRows may have no row at all.
   // Merge those finalized picks into the trend-record ledger and de-duplicate
   // against any historical row that already represents the same decision.
-  if (aiPickRows.length) {
-    const activeSignals: readonly string[] = sport === "NCAAF"
-      ? ["Public Fade", "RLM", "Sharp", "Total Drop Fade", "Spread Ticket Momentum"]
-      : ["Public Fade", "RLM", "Sharp", "Market Move", "Money Momentum"];
+  if (sport !== "NCAAF" && aiPickRows.length) {
+    const activeSignals: readonly string[] = ["Public Fade", "RLM", "Sharp", "Market Move", "Money Momentum"];
     aiPickRows.forEach((pick) => {
       if (!resultCode(pick.result)) return;
 
@@ -1279,7 +1279,7 @@ export function DirectTrendRecords({
     : ["Public Fade", "RLM", "Sharp", "Market Move", "Money Momentum"];
   summarySignals.forEach((signal) => {
     let signalRows = labeled.filter((item) => item.signal === signal);
-    if (signal === "RLM") {
+    if (signal === "RLM" && sport !== "NCAAF") {
       // RLM is side-specific. A team can appear twice in historical storage
       // under different game IDs, so use one settled result per team/date.
       const unique = new Map<string, (typeof signalRows)[number]>();
@@ -1302,6 +1302,7 @@ export function DirectTrendRecords({
       <summary className="recordsSummary">
         <div>
           <div className="recordsSummaryTitle">{sport === "NFL" ? "Public Fade + RLM + Sharp + Market Move + Money Momentum Records" : sport === "NCAAF" ? "Public Fade + RLM + Sharp + Total Drop Fade + Spread Ticket Momentum Records" : "Public Fade + RLM + Sharp Records"}</div>
+          {sport === "NCAAF" ? <small>Final snapshots only</small> : null}
         </div>
         <span className="recordsCount">{labeled.length} graded</span>
       </summary>
@@ -1341,4 +1342,5 @@ export function FootballTrendMarketBoard({ groups, sport }: { groups: Group[]; s
     ? <div className="dkTrendGameGrid">{sortedGroups.map((group) => <GameCard key={group.plays[0]?.gameKey || group.game} group={group} sport={sport} />)}</div>
     : null;
 }
+
 

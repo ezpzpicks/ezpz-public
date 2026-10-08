@@ -1359,6 +1359,23 @@ function ncaafMinutesUntilEvent(date: string, eventTime: string, sourceKickoff?:
   return Number.isFinite(kickoff) ? (kickoff - Date.now()) / 60_000 : null;
 }
 
+export function isValidNcaafFinalSnapshot(play: {
+  date: string;
+  gameTime: string;
+  sourceKickoff?: string;
+  snapshotStatus?: string;
+  frozenAt?: string;
+  updatedAt?: string;
+}) {
+  if (play.snapshotStatus !== "FINAL_PREGAME") return false;
+  const kickoff = ncaafKickoffEpoch(play.date, play.gameTime, play.sourceKickoff);
+  const captured = storedSnapshotEpoch(play.frozenAt || play.updatedAt);
+  const lead = kickoff - captured;
+  return Number.isFinite(kickoff) && Number.isFinite(captured)
+    && lead >= 10 * 60_000 && lead <= 20 * 60_000
+    && Date.now() >= kickoff - 10 * 60_000;
+}
+
 function ncaafAuthoritativeGameTime(
   play: Pick<WeeklyTrendPlay, "date" | "gameTime" | "sourceKickoff" | "awayTeam" | "homeTeam">,
   rows: SheetRow[],
@@ -2914,7 +2931,7 @@ function dedupeNcaafReadTrendPlays(
 
 export async function readWeeklyFootballMarket(
   sport: FootballSport,
-  options: { dateKeys?: string[]; hydrateHistory?: boolean } = {},
+  options: { dateKeys?: string[]; hydrateHistory?: boolean; finalSnapshotsOnly?: boolean } = {},
 ) {
   await Promise.all([
     ensureSportWorksheet(sport, POSTED_GAMES_TAB, POSTED_GAME_HEADERS),
@@ -3017,9 +3034,17 @@ export async function readWeeklyFootballMarket(
       if (!validFootballMarketSplit(storedSplit, sport, canonicalRows)) continue;
       if (!hydrateHistory) {
         if (sport === "NCAAF") {
+          if (options.finalSnapshotsOnly) {
+            // Validate against the authoritative kickoff before replacing it
+            // with a display clock. Never carry an old LIVE/MISSED_LOCK row
+            // into records or accept an incorrectly tagged final capture.
+            if (!isValidNcaafFinalSnapshot(play)) continue;
+            const savedHistory = ncaafHistoryForPlay(play, persistedNcaafMarketHistoryRowsForPlay(play));
+            play = { ...play, ...movement(storedSplit, row, savedHistory) };
+          }
           play = {
             ...play,
-            gameTime: ncaafDisplayTime || play.gameTime,
+            gameTime: options.finalSnapshotsOnly ? play.gameTime : ncaafDisplayTime || play.gameTime,
           };
         }
         trendPlays.push({
@@ -3842,3 +3867,4 @@ export async function readExternalFootballMarket(
     updatedAt: nowET(),
   };
 }
+
