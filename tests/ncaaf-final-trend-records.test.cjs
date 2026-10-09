@@ -25,7 +25,7 @@ function moduleWithStubs(file, imports = {}, appended = '') {
 const weekly = moduleWithStubs('lib/footballWeeklyMarket.ts');
 const core = moduleWithStubs('lib/footballPublicDataCore.ts', {
   './footballWeeklyMarket': weekly, './ncaafEzpzPolicy': movement, './ncaafTrendRecordPolicy': policy,
-}, '\nexport const recordsTest = { buildNcaafFinalTrendRecordRows };').recordsTest;
+}, '\nexport const recordsTest = { buildNcaafFinalTrendRecordRows, buildFootballEzpzRecordRows };').recordsTest;
 const marketBoard = moduleWithStubs('app/FootballTrendMarketBoard.tsx', {
   '../lib/ncaafEzpzPolicy': movement, '../lib/ncaafTrendRecordPolicy': policy,
 });
@@ -101,6 +101,34 @@ test('the records table cannot recover stale games from legacy rows, final-label
   assert.match(html, /Final snapshots only/);
   assert.match(html, /1-0-0/);
   assert.doesNotMatch(html, /1-1-0/);
+});
+
+test('Sharp total replay grades only valid final captures at the locked line', () => {
+  const under = finalPlay({ side: 'Under', selection: 'Under', line: 54, openingLine: 54, betsPct: 19, moneyPct: 44 });
+  const records = core.buildFootballEzpzRecordRows([], [score()], 'NCAAF', [under]);
+  assert.equal(records.length, 1);
+  assert.equal(records[0].qualification, 'Sharp');
+  assert.equal(records[0].selection, 'Under 54');
+  assert.equal(records[0].result, 'W');
+  assert.equal(records[0].moneyPct, 44);
+  for (const override of [{ snapshotStatus: 'LIVE' }, { frozenAt: '2026-09-26T18:30:00-04:00' },
+    { moneyPct: 43.9 }, { odds: '-151' }]) {
+    assert.equal(core.buildFootballEzpzRecordRows([], [score()], 'NCAAF', [{ ...under, ...override }]).length, 0);
+  }
+});
+
+test('Sharp tile badges and Over/Under records use separate verified final samples', () => {
+  const overWin = finalPlay({ openingLine: 53.5 });
+  const overLoss = finalPlay({ game: 'Other @ Teams', awayTeam: 'Other', homeTeam: 'Teams', openingLine: 53.5 });
+  const underWin = finalPlay({ game: 'Third @ Game', awayTeam: 'Third', homeTeam: 'Game',
+    side: 'Under', selection: 'Under', line: 54, openingLine: 54, betsPct: 19, moneyPct: 44 });
+  const rows = build([overWin, overLoss, underWin], [score(),
+    score({ Game: overLoss.game, 'Away Team': 'Other', 'Home Team': 'Teams', 'Actual Away Runs': '20', 'Actual Home Runs': '20' }),
+    score({ Game: underWin.game, 'Away Team': 'Third', 'Home Team': 'Game' })]);
+  const legacy = { ...rows[0], Game: 'Stale @ Old', 'Direct Trend Group Key': 'stale', 'Record Snapshot Policy': '', Result: 'L' };
+  assert.deepEqual(Array.from(tile.directTrendTypes({ tier: 'Sharp', qualification: 'Sharp' })), ['Sharp']);
+  assert.equal(tile.directTrendRecord([...rows, legacy], 'NCAAF', 'Sharp', 'Over', '2026-10-09').record, '1-1-0');
+  assert.equal(tile.directTrendRecord([...rows, legacy], 'NCAAF', 'Sharp', 'Under', '2026-10-09').record, '1-0-0');
 });
 
 test('every NCAAF signal uses the verified ledger in the overall table and exact-type last-seven records', () => {

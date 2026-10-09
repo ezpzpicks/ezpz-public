@@ -1,4 +1,5 @@
 import { finiteNcaafNumber, selectNcaafEzpzPicks, NCAAF_EZPZ_RULE, NCAAF_EZPZ_POLICY_VERSION } from "./ncaafEzpzPolicy";
+import { isVerifiedNcaafTrendRecord } from "./ncaafTrendRecordPolicy";
 import { NFL_CORE_PICK_CLASSES, NFL_CORE_SELECTOR_EFFECTIVE_DATE } from "./nflEzpzPolicy";
 import {
   buildFootballPublicData as buildLegacyFootballPublicData,
@@ -643,6 +644,28 @@ function ncaafSpreadHistoryEvidence(pick: AnyPick, trendRows: SheetRow[]): AnyPi
   };
 }
 
+function ncaafSharpHistoryEvidence(pick: AnyPick, trendRows: SheetRow[]): AnyPick {
+  if (textKey(pick.market) !== "total" || !/\bSharp\b/i.test(`${pick.tier || ""} ${pick.qualification || ""}`)) return pick;
+  const selectedLine = finiteNcaafNumber(pick.line) ?? lineNumber(pick.selection);
+  const pickStamp = String(pick.lockedAt || pick.updatedAt || "").trim();
+  const history: SheetRow = {
+    Date: String(pick.date || ""), Game: String(pick.game || ""),
+    Market: "Total", Selection: String(pick.selection || ""),
+  };
+  const match = trendRows.find(row => {
+    if (!isVerifiedNcaafTrendRecord(row) || !rowMatchesHistory(row, history, "NCAAF")) return false;
+    const rowLine = finiteNcaafNumber(row["Public Split Line"] ?? row.Line);
+    const rowStamp = String(row["Public Split Snapshot Time"] || "").trim();
+    return selectedLine != null && rowLine != null && Math.abs(rowLine - selectedLine) <= 0.001
+      && Boolean(pickStamp && rowStamp && Date.parse(rowStamp) === Date.parse(pickStamp));
+  });
+  return {
+    ...pick, line: selectedLine,
+    betsPct: match ? finiteNcaafNumber(match["Public Bets %"]) : null,
+    moneyPct: match ? finiteNcaafNumber(match["Public Money %"]) : null,
+  };
+}
+
 const NFL_MARKET_MOVE_MIN_POINTS = 1;
 const NFL_MONEY_MOMENTUM_MIN_MONEY_MOVE_PCT = 10;
 const NFL_MONEY_MOMENTUM_MIN_MARKET_MOVE_POINTS = 0.5;
@@ -1096,10 +1119,11 @@ export async function buildFootballPublicData(
   const aiPickRecordRows = gradedHistory
     .map(historyPickFromRow)
     .map(pick => sport === "NCAAF" ? ncaafSpreadHistoryEvidence(pick, Array.isArray(core.trendRecordRows) ? core.trendRecordRows : []) : pick)
+    .map(pick => sport === "NCAAF" ? ncaafSharpHistoryEvidence(pick, Array.isArray(core.trendRecordRows) ? core.trendRecordRows : []) : pick)
     .filter((pick) => sport !== "NCAAF" || (
       textKey(pick.snapshotStatus) === "final pregame" &&
       isPublicSplitEzpzPick(pick) &&
-      /(?:total drop fade|spread ticket momentum)/i.test(
+      /(?:total drop fade|spread ticket momentum|sharp)/i.test(
         String(pick.qualification || "") + " " + String(pick.tier || "")
       )
     ))
@@ -1121,7 +1145,7 @@ export async function buildFootballPublicData(
         ...(core.aiSelectorStatus || {}),
         message: enrichedCurrentPicks.length
           ? NCAAF_EZPZ_RULE
-          : "No NCAAF Total Drop Fade or Spread Ticket Momentum currently qualifies. " + NCAAF_EZPZ_RULE,
+          : "No NCAAF Total Drop Fade, Spread Ticket Momentum, or Sharp total currently qualifies. " + NCAAF_EZPZ_RULE,
         candidateCount: (Array.isArray(core.trendPlays) ? core.trendPlays : [])
           .filter((play: AnyPick) => isoDate(play.date || play.recordDate || play.Date || today) === today).length,
         selectedCount: enrichedCurrentPicks.length,

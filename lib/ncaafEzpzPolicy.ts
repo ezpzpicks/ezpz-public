@@ -1,6 +1,7 @@
-export const NCAAF_EZPZ_POLICY_VERSION = "ncaaf-movement-v4-default-odds";
+export const NCAAF_EZPZ_POLICY_VERSION = "ncaaf-movement-v5-sharp-totals";
+export const NCAAF_SHARP_MIN_MONEY_OVER_BETS_PCT = 25;
 export const NCAAF_SPREAD_TICKET_MOMENTUM_RULE = "Follow the spread side when the line moves at least 1 point toward it and its ticket share rises at least 7 percentage points, and either the selected team is a favorite laying less than 15 points or its ticket share rises by more than 20 percentage points. Either condition qualifies; both are not required.";
-export const NCAAF_EZPZ_RULE = "NCAAF EZPZ Picks: one pick per game, Total Drop Fade first (Over after a 1.5+ point total drop), then Spread Ticket Momentum. " + NCAAF_SPREAD_TICKET_MOMENTUM_RULE + " Odds must be -150 or better; missing spread/total odds default to -110. RLM, Sharp, and Public Fade remain tracked only.";
+export const NCAAF_EZPZ_RULE = "NCAAF EZPZ Picks: one pick per game, Total Drop Fade first (Over after a 1.5+ point total drop), then Spread Ticket Momentum, then Sharp totals. " + NCAAF_SPREAD_TICKET_MOMENTUM_RULE + " Sharp totals select Over or Under when money share is at least 25 percentage points above bet share. Odds must be -150 or better; missing spread/total odds default to -110. RLM, Sharp spreads, and Public Fade remain tracked only. Records use verified final snapshots only.";
 
 type MovementPlay = {
   market?: unknown;
@@ -10,6 +11,7 @@ type MovementPlay = {
   line?: unknown;
   openingBetsPct?: unknown;
   betsPct?: unknown;
+  moneyPct?: unknown;
   publicMovementPct?: unknown;
   lineMovementValue?: unknown;
   lineMovementBasis?: unknown;
@@ -54,6 +56,29 @@ export function classifyNcaafMovement(play: MovementPlay) {
   return { labels: [] as string[], score: 0 };
 }
 
+export function isNcaafSharpTotal(play: MovementPlay) {
+  const selection = String(play.selection || "").trim();
+  const side = String(play.side || selection).trim().toLowerCase();
+  const line = finiteNcaafNumber(play.line) ?? finiteNcaafNumber(selection.match(/\s([+-]?\d+(?:\.\d+)?)\s*$/)?.[1]);
+  const bets = finiteNcaafNumber(play.betsPct);
+  const money = finiteNcaafNumber(play.moneyPct);
+  return String(play.market || "").toLowerCase() === "total"
+    && /^(over|under)(?:\s|$)/.test(side)
+    && line != null && line > 0
+    && bets != null && money != null
+    && bets >= 0 && bets <= 100 && money >= 0 && money <= 100
+    && money - bets >= NCAAF_SHARP_MIN_MONEY_OVER_BETS_PCT;
+}
+
+// Keep movement badges independent; Sharp is an additional EZPZ total candidate.
+export function classifyNcaafEzpzTrend(play: MovementPlay) {
+  const movement = classifyNcaafMovement(play);
+  if (movement.labels.length) return movement;
+  return isNcaafSharpTotal(play)
+    ? { labels: ["Sharp"], score: 85 }
+    : { labels: [] as string[], score: 0 };
+}
+
 type NcaafPick = MovementPlay & {
   source?: unknown;
   market?: unknown;
@@ -71,8 +96,9 @@ type NcaafPick = MovementPlay & {
 
 export function ncaafPickPriority(pick: NcaafPick) {
   const labels = `${pick.tier || ""} ${pick.qualification || ""}`;
-  if (String(pick.market).toLowerCase() === "total" && /\bTotal Drop Fade\b/i.test(labels)) return 2;
-  if (String(pick.market).toLowerCase() === "spread" && /\bSpread Ticket Momentum\b/i.test(labels) && isNcaafSpreadMomentumSubset(pick)) return 1;
+  if (String(pick.market).toLowerCase() === "total" && /\bTotal Drop Fade\b/i.test(labels)) return 3;
+  if (String(pick.market).toLowerCase() === "spread" && /\bSpread Ticket Momentum\b/i.test(labels) && isNcaafSpreadMomentumSubset(pick)) return 2;
+  if (/\bSharp\b/i.test(labels) && isNcaafSharpTotal(pick)) return 1;
   return 0;
 }
 

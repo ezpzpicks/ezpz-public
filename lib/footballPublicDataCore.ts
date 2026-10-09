@@ -1,4 +1,4 @@
-import { classifyNcaafMovement, selectNcaafEzpzPicks } from "./ncaafEzpzPolicy";
+import { classifyNcaafEzpzTrend, selectNcaafEzpzPicks } from "./ncaafEzpzPolicy";
 import {
   type FootballSport,
   type SheetRow,
@@ -2330,7 +2330,7 @@ function selectedPublicMove(play: Pick<TrendPlay, "betsPct" | "openingBetsPct" |
 
 // NCAAF_EZPZ_SHARED_POLICY_V2
 function ncaafEzpzMovementQualification(play: TrendPlay, sport: FootballSport) {
-  return sport === "NCAAF" ? classifyNcaafMovement(play) : { labels: [] as string[], score: 0 };
+  return sport === "NCAAF" ? classifyNcaafEzpzTrend(play) : { labels: [] as string[], score: 0 };
 }
 
 function directTrendQualification(
@@ -2369,6 +2369,7 @@ type FootballEzpzRecordRow = {
   openingLine?: number | null;
   openingBetsPct?: number;
   betsPct?: number;
+  moneyPct?: number;
   odds: string;
   score: number;
   source: "Best Play" | "Trend Play" | "Best + Trend";
@@ -2633,7 +2634,7 @@ function buildFootballEzpzRecordRows(
       candidates.push({
         date: play.date, game: play.game, market: play.market,
         line: play.line, openingLine: play.openingLine,
-        openingBetsPct: play.openingBetsPct, betsPct: play.betsPct,
+        openingBetsPct: play.openingBetsPct, betsPct: play.betsPct, moneyPct: play.moneyPct,
         selection: play.market === "Total"
           ? (play.side + " " + (play.line ?? "")).trim()
           : ((play.selectionTeam || play.selection) + " " + (play.line == null ? "" : (play.line > 0 ? "+" : "") + play.line)).trim(),
@@ -2845,7 +2846,7 @@ function buildFootballEzpzPicks(
       publicMovePct: direct.publicSide ? Number(direct.publicSide.publicMovementPct) : undefined,
       lineMoveValue: direct.publicSide ? Number(direct.publicSide.lineMovementValue) : undefined,
       snapshotStatus: play.snapshotStatus || "LIVE",
-      lockedAt: play.snapshotStatus === "FINAL_PREGAME" ? String(play.updatedAt || "") : "",
+      lockedAt: play.snapshotStatus === "FINAL_PREGAME" ? String(play.frozenAt || play.updatedAt || "") : "",
       updatedAt: String(play.updatedAt || ""),
     });
   }
