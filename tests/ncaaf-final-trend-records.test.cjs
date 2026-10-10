@@ -117,6 +117,20 @@ test('Sharp total replay grades only valid final captures at the locked line', (
   }
 });
 
+test('Sharp spread replay uses the final signed line and wins priority over a Drop Fade total', () => {
+  const sharpSpread = finalPlay({ market: 'Spread', side: '', selection: 'Army', selectionTeam: 'Army',
+    line: -7.5, openingLine: null, betsPct: 29, moneyPct: 73 });
+  const drop = finalPlay({ betsPct: 60, moneyPct: 62 });
+  const rows = core.buildFootballEzpzRecordRows([], [score()], 'NCAAF', [drop, sharpSpread]);
+  assert.equal(rows.length, 1);assert.equal(rows[0].market, 'Spread');
+  assert.equal(rows[0].qualification, 'Sharp');assert.equal(rows[0].selection, 'Army -7.5');
+  assert.equal(rows[0].result, 'W');
+  for (const override of [{ snapshotStatus: 'LIVE' }, { frozenAt: '2026-09-26T18:30:00-04:00' },
+    { moneyPct: 53.9 }, { odds: '-151' }]) {
+    assert.equal(core.buildFootballEzpzRecordRows([], [score()], 'NCAAF', [{ ...sharpSpread, ...override }]).length, 0);
+  }
+});
+
 test('Sharp tile badges and Over/Under records use separate verified final samples', () => {
   const overWin = finalPlay({ openingLine: 53.5 });
   const overLoss = finalPlay({ game: 'Other @ Teams', awayTeam: 'Other', homeTeam: 'Teams', openingLine: 53.5 });

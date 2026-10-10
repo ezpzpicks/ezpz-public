@@ -82,17 +82,33 @@ test('Sharp Over and Under qualify at a 25-point gap without requiring opening-l
  for(const overrides of [
   {moneyPct:43.9},{moneyPct:null},{moneyPct:''},{moneyPct:101},{betsPct:null},{betsPct:''},
   {betsPct:-1},{line:null},{line:0},{side:'',selection:''},
-  {market:'Spread',selection:'FIU',openingLine:null},
+  {market:'Moneyline',selection:'FIU',openingLine:null},
  ])assert.equal(select([{...total,openingLine:null,betsPct:19,moneyPct:44,...overrides}]).length,0,JSON.stringify(overrides));
 });
 
-test('Sharp totals are third priority regardless of their score, with the existing price cap',()=>{
+test('Sharp favorites, underdogs and pick-em spreads qualify without opening-line movement',()=>{
+ for(const line of [-3.5,1.5,7,0]){
+  const picks=select([{...spread,openingLine:null,openingBetsPct:null,line,betsPct:29,moneyPct:54}]);
+  assert.equal(picks.length,1);assert.equal(picks[0].tier,'Sharp');assert.equal(picks[0].line,line);
+ }
+ for(const overrides of [{moneyPct:53.9},{line:null},{selection:''},{selection:'Over'},
+  {moneyPct:101},{betsPct:null},{moneyPct:null}]){
+  assert.equal(select([{...spread,openingLine:null,betsPct:29,moneyPct:54,...overrides}]).length,0);
+ }
+});
+
+test('Sharp spreads and totals are first priority regardless of score, with the existing price cap',()=>{
  const sharp=select([{...total,side:'Under',betsPct:19,moneyPct:44}])[0];
  assert.equal(sharp.tier,'Sharp');
+ const sharpSpread=select([{...spread,openingLine:null,betsPct:29,moneyPct:73}])[0];
  const momentum=select([spread])[0];const drop=select([total])[0];
- const ranked=(picks)=>policy.selectNcaafEzpzPicks(picks.map(p=>({...p,score:p.tier==='Sharp'?100:0})));
- assert.equal(ranked([sharp,momentum,drop])[0].tier,'Total Drop Fade');
- assert.equal(ranked([sharp,momentum])[0].tier,'Spread Ticket Momentum');
+ const ranked=(picks)=>policy.selectNcaafEzpzPicks(picks.map(p=>({...p,score:p.tier==='Sharp'?0:100})));
+ for(const candidate of [sharp,sharpSpread]){
+  assert.equal(ranked([candidate,momentum,drop]).length,1);
+  assert.equal(ranked([candidate,momentum,drop])[0].tier,'Sharp');
+  assert.equal(ranked([{...candidate,odds:'-151'},momentum,drop])[0].tier,'Total Drop Fade');
+ }
+ assert.equal(ranked([sharp,momentum])[0].tier,'Sharp');
  assert.equal(ranked([sharp,{...momentum,odds:'-151'}])[0].tier,'Sharp');
  assert.equal(ranked([{...sharp,odds:'-150'}]).length,1);
  assert.equal(ranked([{...sharp,odds:'-151'}]).length,0);
@@ -103,7 +119,11 @@ test('Sharp totals are third priority regardless of their score, with the existi
  const locked=select([{...total,side:'Under',betsPct:19,moneyPct:44,snapshotStatus:'FINAL_PREGAME',
   frozenAt:'2026-10-08T19:15:00Z',updatedAt:'2026-10-08T19:20:00Z'}])[0];
  assert.equal(locked.lockedAt,'2026-10-08T19:15:00Z');
- assert.equal(select([{...total,betsPct:19,moneyPct:44}])[0].tier,'Total Drop Fade');
+ assert.equal(select([{...total,betsPct:19,moneyPct:44}])[0].tier,'Sharp');
+ assert.equal(select([{...spread,betsPct:47,moneyPct:72}])[0].tier,'Sharp');
+ assert.equal(policy.classifyNcaafMovement({...total,betsPct:19,moneyPct:44}).labels[0],'Total Drop Fade');
+ // Sharp Under takes the single published slot over a simultaneous Drop Fade Over.
+ assert.equal(select([total,{...total,side:'Under',selection:'Under',betsPct:19,moneyPct:44}])[0].selection,'Under 54');
 });
 test('LIVE candidates stay out of official records; final candidates remain eligible',()=>{
  const live=select([total])[0];assert.equal(policy.selectNcaafEzpzPicks([live],true).length,0);
@@ -154,4 +174,25 @@ test('Sharp published history needs the same verified final decision and cannot 
   {...row,Selection:'Over'},{...row,Date:'2026-10-07'},{...row,'Public Money %':'43'},
  ])assert.equal(policy.selectNcaafEzpzPicks([historyApi.evidence(pick,[wrong])],true).length,0,JSON.stringify(wrong));
  assert.equal(policy.selectNcaafEzpzPicks([historyApi.evidence({...pick,lockedAt:''},[row])],true).length,0);
+});
+
+test('Sharp spread history verifies the selected team, signed line and exact final capture',()=>{
+ const historyApi={};
+ vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(__dirname,'../lib/footballPublicDataHistory.ts'),'utf8')+'\nexports.evidence=ncaafSharpHistoryEvidence;',{
+  compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022},
+ }).outputText,{exports:historyApi,require:name=>name==='./ncaafEzpzPolicy'?policy:name==='./ncaafTrendRecordPolicy'?recordPolicy:{},Date,console});
+ const stamp='2026-10-08T19:15:00Z';
+ const pick={source:'Trend Play',market:'Spread',date:day,game:spread.game,selection:'FIU +1.5',line:1.5,
+  odds:'-110',tier:'Sharp',betsPct:0,moneyPct:100,lockedAt:stamp,snapshotStatus:'FINAL_PREGAME'};
+ const row={Date:day,Game:spread.game,Market:'Spread',Selection:'FIU','Public Split Line':'1.5',
+  'Public Bets %':'29','Public Money %':'73','Snapshot Status':'FINAL_PREGAME',
+  'Public Split Snapshot Time':stamp,'Record Snapshot Policy':recordPolicy.NCAAF_TREND_RECORD_POLICY};
+ const verified=historyApi.evidence(pick,[row]);
+ assert.equal(verified.betsPct,29);assert.equal(verified.moneyPct,73);
+ assert.equal(policy.selectNcaafEzpzPicks([verified],true).length,1);
+ for(const wrong of [{...row,Selection:'NMSU'},{...row,'Public Split Line':'-1.5'},
+  {...row,'Snapshot Status':'LIVE'},{...row,'Record Snapshot Policy':''},
+  {...row,'Public Split Snapshot Time':'2026-10-08T19:20:00Z'},{...row,'Public Money %':'53'}]){
+  assert.equal(policy.selectNcaafEzpzPicks([historyApi.evidence(pick,[wrong])],true).length,0,JSON.stringify(wrong));
+ }
 });

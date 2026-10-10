@@ -645,12 +645,12 @@ function ncaafSpreadHistoryEvidence(pick: AnyPick, trendRows: SheetRow[]): AnyPi
 }
 
 function ncaafSharpHistoryEvidence(pick: AnyPick, trendRows: SheetRow[]): AnyPick {
-  if (textKey(pick.market) !== "total" || !/\bSharp\b/i.test(`${pick.tier || ""} ${pick.qualification || ""}`)) return pick;
+  if (!["total", "spread"].includes(textKey(pick.market)) || !/\bSharp\b/i.test(`${pick.tier || ""} ${pick.qualification || ""}`)) return pick;
   const selectedLine = finiteNcaafNumber(pick.line) ?? lineNumber(pick.selection);
   const pickStamp = String(pick.lockedAt || pick.updatedAt || "").trim();
   const history: SheetRow = {
     Date: String(pick.date || ""), Game: String(pick.game || ""),
-    Market: "Total", Selection: String(pick.selection || ""),
+    Market: String(pick.market), Selection: String(pick.selection || ""),
   };
   const match = trendRows.find(row => {
     if (!isVerifiedNcaafTrendRecord(row) || !rowMatchesHistory(row, history, "NCAAF")) return false;
@@ -1145,7 +1145,7 @@ export async function buildFootballPublicData(
         ...(core.aiSelectorStatus || {}),
         message: enrichedCurrentPicks.length
           ? NCAAF_EZPZ_RULE
-          : "No NCAAF Total Drop Fade, Spread Ticket Momentum, or Sharp total currently qualifies. " + NCAAF_EZPZ_RULE,
+          : "No NCAAF Sharp spread or total, Total Drop Fade, or Spread Ticket Momentum currently qualifies. " + NCAAF_EZPZ_RULE,
         candidateCount: (Array.isArray(core.trendPlays) ? core.trendPlays : [])
           .filter((play: AnyPick) => isoDate(play.date || play.recordDate || play.Date || today) === today).length,
         selectedCount: enrichedCurrentPicks.length,
