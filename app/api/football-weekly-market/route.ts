@@ -4,6 +4,10 @@ import { rescoreNcaafWeeklyMarket } from "../../../lib/footballTrendRescore";
 import { applyFootballTrendV2 } from "../../../lib/footballTrendV2Lifecycle";
 import type { FootballSport } from "../../../lib/sportSheets";
 import { withTursoReadCache } from "../../../lib/tursoStore";
+import { readSportWorksheet } from "../../../lib/sportSheets";
+import { selectFootballPublicWeek } from "../../../lib/footballPublicWeeks";
+import { captureFootballCatalog } from "../../../lib/footballTrendCatalogStore";
+import { compactFootballPublicDisplay } from "../../../lib/footballPublicDisplay";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,16 +21,32 @@ async function readMarket(request: NextRequest) {
   }
   try {
     const sport = raw as FootballSport;
+    const today = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit",
+    }).format(new Date());
+    const week = sport === "NCAAF"
+      ? selectFootballPublicWeek(await readSportWorksheet(sport, "posted_games"), today,
+          request.nextUrl.searchParams.get("week") || "")
+      : null;
     // NCAAF's background tracker owns raw odds_snapshot hydration and persists
     // the complete movementHistory on weekly_market_trends. Public reads should
     // use that persisted history instead of reloading hundreds of thousands of
     // archive rows on every page refresh.
     const result = await readWeeklyFootballMarket(
       sport,
-      sport === "NCAAF" ? { hydrateHistory: false } : {},
+      week ? { dateKeys: week.dateKeys, hydrateHistory: false } : {},
     );
     const rescored = await rescoreNcaafWeeklyMarket(sport, result);
     const scored = await applyFootballTrendV2(sport, rescored);
+    if (week) {
+      // Evaluate from complete observations once on the server. Badge rendering
+      // can reuse these frozen memberships without replaying charts per tile.
+      const catalog = await captureFootballCatalog(sport, [], scored.trendPlays, false);
+      return NextResponse.json(compactFootballPublicDisplay({
+        ...scored, trendPlays: catalog.plays,
+        availableWeeks: week.availableWeeks, selectedWeek: week.selectedWeek,
+      }), { headers: { "Cache-Control": "no-store, max-age=0" } });
+    }
     return NextResponse.json(scored, { headers: { "Cache-Control": "no-store, max-age=0" } });
   } catch (error) {
     console.error("Football weekly market read failed", error);

@@ -174,7 +174,15 @@ function resolver(all: Side[], anchor: Side, sport: string) {
       const other=opposite(s),points=history(s),opp=other?history(other):[];
       // An inconsistent supplied path is rejected, not repaired by dropping an
       // inconvenient point. Both sides must describe the same source quote.
-      pathCache.set(s,points.every(p => paired(s,p,opp.find(q=>Math.abs(q.time-p.time)<=60_000))) ? points : []);
+      // Both paths are sorted. Preserve the first quote within the existing
+      // one-minute tolerance without rescanning the opposite path per point.
+      let oppositeIndex = 0;
+      const consistent = points.every(p => {
+        while (oppositeIndex < opp.length && opp[oppositeIndex].time < p.time - 60_000) oppositeIndex++;
+        const q = opp[oppositeIndex];
+        return paired(s, p, q && q.time <= p.time + 60_000 ? q : undefined);
+      });
+      pathCache.set(s, consistent ? points : []);
     }
     return pathCache.get(s)!;
   };

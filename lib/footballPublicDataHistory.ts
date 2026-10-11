@@ -1007,7 +1007,7 @@ async function readHistory(sport: FootballSport) {
 
 export async function buildFootballPublicData(
   sport: FootballSport,
-  options: { forceFresh?: boolean; persist?: boolean } = {},
+  options: { forceFresh?: boolean; persist?: boolean; publicDisplay?: boolean } = {},
 ) {
   let core: AnyPick;
   try {

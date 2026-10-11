@@ -508,7 +508,7 @@ function hardenDirectTrendRecordRows(rows: SheetRow[], sport: FootballSport) {
 
 export async function buildFootballPublicData(
   sport: FootballSport,
-  options: { forceFresh?: boolean; persist?: boolean } = {},
+  options: { forceFresh?: boolean; persist?: boolean; publicDisplay?: boolean } = {},
 ): Promise<Record<string, any>> {
   const data = (await buildFootballPublicDataWithHistory(sport, options)) as Record<string, any>;
   const trendRows = Array.isArray(data.trendRecordRows) ? data.trendRecordRows as SheetRow[] : [];

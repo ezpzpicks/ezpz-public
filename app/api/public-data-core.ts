@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readWorksheet as readWorksheetUncached } from "../../lib/mlbStore";
 import { buildFootballPublicData } from "../../lib/footballPublicData";
-import { appendTursoDataset, isTursoConfigured, patchTursoDatasetRows, readTursoDataset, readTursoDatasetByDateKeys, replaceTursoDataset } from "../../lib/tursoStore";
+import { compactFootballPublicDisplay } from "../../lib/footballPublicDisplay";
+import { appendTursoDataset, isTursoConfigured, patchTursoDatasetRows, readTursoDataset, readTursoDatasetByDateKeys, replaceTursoDataset, withTursoReadCache } from "../../lib/tursoStore";
 import {
   SCORES_AND_ODDS_SOURCE,
   loadScoresAndOddsConsensus,
@@ -12620,10 +12621,11 @@ export async function buildPublicDataResponse(request: NextRequest) {
 
     try {
       return NextResponse.json(
-        await buildFootballPublicData(requestedSport, {
+        compactFootballPublicDisplay(await withTursoReadCache(() => buildFootballPublicData(requestedSport, {
           forceFresh: forceFreshFootball,
           persist: scheduledFootball,
-        }),
+          publicDisplay: !scheduledFootball,
+        }))),
       );
     } catch (error) {
       console.error(`${requestedSport} public data failed`, error);

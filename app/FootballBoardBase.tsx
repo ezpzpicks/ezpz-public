@@ -102,6 +102,8 @@ type WeeklyMarketData = {
   trendPlays: TrendPlay[];
   splits: DraftKingsSplit[];
   updatedAt?: string;
+  availableWeeks?: string[];
+  selectedWeek?: string;
 };
 
 function footballEzpzRecord(
@@ -1486,16 +1488,32 @@ function SlateCard({ row, splits, sport }: { row: SheetRow; splits: DraftKingsSp
 export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab: Tab; data: FootballData }) {
   const [weeklyData, setWeeklyData] = useState<WeeklyMarketData | null>(null);
   const [selectedWeek, setSelectedWeek] = useState("");
+  const [weeklyLoading, setWeeklyLoading] = useState(false);
+  const [weeklyError, setWeeklyError] = useState("");
+  const [weeklyRetry, setWeeklyRetry] = useState(0);
+  const requestedMarketWeek = sport === "NCAAF" ? selectedWeek : "";
+  const needsWeeklyMarket = sport !== "NCAAF" || tab === "Public Betting Splits";
 
   useEffect(() => {
+    if (!needsWeeklyMarket) return;
     let active = true;
+    let timedOut = false;
     const controller = new AbortController();
-    fetch(`/api/football-weekly-market?sport=${sport}`, { cache: "no-store", signal: controller.signal })
-      .then((response) => response.ok ? response.json() : null)
-      .then((result) => { if (active && result?.ok) setWeeklyData(result as WeeklyMarketData); })
-      .catch(() => undefined);
-    return () => { active = false; controller.abort(); };
-  }, [sport, data.lastUpdated]);
+    const timeout = sport === "NCAAF" ? window.setTimeout(() => { timedOut = true; controller.abort(); }, 30_000) : null;
+    setWeeklyLoading(true);
+    setWeeklyError("");
+    const weekQuery = requestedMarketWeek ? `&week=${encodeURIComponent(requestedMarketWeek)}` : "";
+    fetch(`/api/football-weekly-market?sport=${sport}${weekQuery}`, { cache: "no-store", signal: controller.signal })
+      .then(async response => {
+        const result = await response.json();
+        if (!response.ok || !result?.ok) throw new Error(result?.error || "Failed to load saved markets");
+        return result;
+      })
+      .then(result => { if (active && !controller.signal.aborted) setWeeklyData(result as WeeklyMarketData); })
+      .catch(error => { if (active) setWeeklyError(timedOut ? "Saved markets took too long to load. Try again." : error instanceof Error ? error.message : "Failed to load saved markets"); })
+      .finally(() => { if (timeout != null) window.clearTimeout(timeout); if (active) setWeeklyLoading(false); });
+    return () => { active = false; if (timeout != null) window.clearTimeout(timeout); controller.abort(); };
+  }, [sport, needsWeeklyMarket, data.lastUpdated, requestedMarketWeek, weeklyRetry]);
 
   const scoresAndOddsFresh = data.draftKings?.status === "LIVE" && !data.draftKings?.stale && data.draftKings?.displayMode !== "STALE_FALLBACK";
   const scoresAndOddsStatus = data.draftKings?.stale || data.draftKings?.displayMode === "STALE_FALLBACK"
@@ -1513,14 +1531,16 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
     return [...map.values()];
   }, [data.draftKings?.splits, weeklyData?.splits]);
 
-  const trends = weeklyData?.trendPlays?.length ? weeklyData.trendPlays : (data.trendPlays || []);
-  const fallbackWeek = defaultWeek(trends, data.today) || defaultStoredWeek(weeklyData?.games || [], data.today);
+  const currentWeeklyData = sport === "NCAAF" && selectedWeek && weeklyData?.selectedWeek !== selectedWeek ? null : weeklyData;
+  const trends = currentWeeklyData?.trendPlays?.length ? currentWeeklyData.trendPlays : (data.trendPlays || []);
+  const fallbackWeek = currentWeeklyData?.selectedWeek || defaultWeek(trends, data.today) || defaultStoredWeek(weeklyData?.games || [], data.today);
   const nextTrackedWeek = sport === "NFL" ? nextRegularSeasonWeekLabel(fallbackWeek) : "";
   const trendWeeks = useMemo(() => [...new Set([
     ...trends.map(weekLabel),
+    ...(weeklyData?.availableWeeks || []),
     ...(weeklyData?.games || []).map((row) => String(row.Week || "").trim()).filter(Boolean),
     ...(nextTrackedWeek ? [nextTrackedWeek] : []),
-  ])].sort((a, b) => weekSort(a) - weekSort(b) || a.localeCompare(b)), [trends, weeklyData?.games, nextTrackedWeek]);
+  ])].sort((a, b) => weekSort(a) - weekSort(b) || a.localeCompare(b)), [trends, weeklyData?.games, weeklyData?.availableWeeks, nextTrackedWeek]);
   const activeWeek = selectedWeek && trendWeeks.includes(selectedWeek) ? selectedWeek : fallbackWeek;
   const weekTrends = activeWeek ? trends.filter((play) => weekLabel(play) === activeWeek) : trends;
   const filteredTrends = weekTrends;
@@ -1652,7 +1672,9 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
           <label><span>View market week</span><select value={activeWeek} onChange={(event) => setSelectedWeek(event.target.value)} disabled={!trendWeeks.length}>{trendWeeks.length ? trendWeeks.map((week) => <option key={week} value={week}>{week}</option>) : <option value="">No weeks yet</option>}</select></label>
         </div>
       </div>
-      {displayedTrendGroups.length ? <FootballTrendMarketBoard groups={displayedTrendGroups} sport={sport} ncaafLeaderboard={publicLeaderboard} nflLeaderboard={publicLeaderboard} /> : <div className="empty footballEmpty">No {sport} ScoresAndOdds Spread/Total markets are stored for {activeWeek || "this week"} yet.</div>}
+      {weeklyLoading ? <div role="status" className="empty footballEmpty">Loading saved {sport} markets…</div> : null}
+      {weeklyError ? <div role="alert" className="empty footballEmpty">{weeklyError} <button type="button" className="refreshBtn" onClick={() => setWeeklyRetry(value => value + 1)}>Try again</button></div> : null}
+      {displayedTrendGroups.length ? <FootballTrendMarketBoard groups={displayedTrendGroups} sport={sport} ncaafLeaderboard={publicLeaderboard} nflLeaderboard={publicLeaderboard} /> : !weeklyLoading && !weeklyError ? <div className="empty footballEmpty">No {sport} ScoresAndOdds Spread/Total markets are stored for {activeWeek || "this week"} yet.</div> : null}
       <div className="directTrendRecordWrap"><DirectTrendRecords rows={data.trendRecordRows || []} trendPlays={data.trendPlays || []} today={data.today} sport={sport} ncaafLeaderboard={publicLeaderboard} nflLeaderboard={publicLeaderboard} /></div>
     </>;
   } else if (tab === "EZPZ Picks") {
