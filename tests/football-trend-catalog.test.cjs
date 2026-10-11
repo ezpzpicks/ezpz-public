@@ -79,8 +79,9 @@ test('capture persists all definitions and uncapped hidden memberships independe
  const tables={},writes=[];
  const storage={readSportWorksheet:async(_,tab)=>tables[tab]||[],upsertSportRows:async(_,tab,headers,entries,k)=>{writes.push(tab);const m=new Map((tables[tab]||[]).map(r=>[k(r),r]));for(const r of entries)m.set(k(r),r);tables[tab]=[...m.values()];}};
  const exports={};vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(root,'lib/footballTrendCatalogStore.ts'),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,Date,Intl,require:name=>name==='./sportSheets'?storage:load(path.join(root,'lib',name+'.ts'))});
- const p=fixture();let result=await exports.captureFootballCatalog('NFL',[],p,true);
+ const p=fixture();p.forEach(side=>delete side.source);let result=await exports.captureFootballCatalog('NFL',[],p,true);
  assert.equal(tables.football_catalog_definitions.length,1058);assert.equal(tables.football_catalog_memberships.length,4);assert.ok(result.status.matchedMemberships>20);
+ assert.ok(result.plays[0].catalogEvaluation.memberships.every(m=>m.filters.includes('scoresandodds-source')));
  const original=tables.football_catalog_memberships.map(r=>r['Catalog Membership JSON']);
  const settled=rows(p);settled[0]['Public Bets %']='1';await exports.captureFootballCatalog('NFL',settled,[],true);
  assert.deepEqual(tables.football_catalog_memberships.map(r=>r['Catalog Membership JSON']),original);assert.equal(tables.football_catalog_memberships[0].Result,'W');

@@ -46,7 +46,7 @@ function rowForPlay(p:Side):SheetRow {
     'Opening Public %':String(p.openingBetsPct??''),'Opening Sharp %':String(p.openingMoneyPct??''),
     'Opening Public Split Line':String(p.openingLine??''),'Opening Public Split Odds':String(p.openingOdds||''),
     'Opening Public Split Snapshot Time':String(p.openingSnapshotTime||p.firstTrackedAt||''),
-    'Public Split Snapshot Time':String(p.frozenAt||p.updatedAt||''),'Public Split Source':String(p.marketSource||p.source||(p.date<'2026-09-21'?'Retained legacy feed':'ScoresAndOdds')),
+    'Public Split Snapshot Time':String(p.frozenAt||p.updatedAt||''),'Public Split Source':String(p.publicSplitSource||p.marketSource||(p.date<'2026-09-21'?'Retained legacy feed':'ScoresAndOdds')),
     'Observed Price Missing':p.observedPriceMissing||p.oddsSource==='DEFAULT_110'?'TRUE':'FALSE',
     'Snapshot Status':String(p.snapshotStatus||''),'Record Snapshot Policy':'verified-final-snapshot-v1',
     'Public Change %':String(p.publicMovementPct??''),'Sharp Change %':String(p.sharpMovementPct??''),
@@ -57,7 +57,11 @@ function rowForPlay(p:Side):SheetRow {
 
 export async function captureFootballCatalog(sport:FootballSport,rows:SheetRow[],plays:Side[],persist=false) {
   const verified=rows.filter(isVerifiedNcaafTrendRecord);
-  const rowEvaluations=annotate(verified,sport),playEvaluations=annotate(plays,sport);
+  // The collector's feed policy is explicit and separate from a pick's
+  // workflow source ("Trend Play"). Keep this same source on live and final
+  // memberships so source-cohort subsets cannot change at settlement.
+  const sourcedPlays=plays.map(p=>({...p,publicSplitSource:p.publicSplitSource||p.marketSource||(p.date<'2026-09-21'?'Retained legacy feed':'ScoresAndOdds')}));
+  const rowEvaluations=annotate(verified,sport),playEvaluations=annotate(sourcedPlays,sport);
   const config=footballCatalog(sport);
   const annotatedRows=verified.map(row=>{
     const next:SheetRow={...row,'Catalog Membership JSON':JSON.stringify(rowEvaluations.get(row))};
@@ -66,7 +70,7 @@ export async function captureFootballCatalog(sport:FootballSport,rows:SheetRow[]
     delete next['Movement History JSON'];
     return next;
   });
-  const annotatedPlays:Side[]=plays.map(p=>({...p,catalogEvaluation:playEvaluations.get(p)}));
+  const annotatedPlays:Side[]=sourcedPlays.map(p=>({...p,catalogEvaluation:playEvaluations.get(p)}));
   const entries=new Map<string,SheetRow>();
   for(const row of annotatedRows){const k=entryKey(row,sport);entries.set(k,{...row,'Entry Key':k,'Definition Version':config.version,'Capture Mode':String(row.Date)<='2026-10-10'?'HISTORICAL_REPLAY':'FORWARD'});}
   for(const p of annotatedPlays) {

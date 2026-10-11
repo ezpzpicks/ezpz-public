@@ -36,7 +36,7 @@ function epoch(x: unknown) { const n = Date.parse(String(x || '').replace(/ EDT$
 function json(x: unknown): any { try { return typeof x === 'string' ? JSON.parse(x) : x; } catch { return null; } }
 function isRow(x: Side) { return Boolean(x.Market); }
 export function catalogSide(x: Side): Side {
-  if (!isRow(x)) return x;
+  if (!isRow(x)) return { ...x, source: x.publicSplitSource || x.marketSource || x.source };
   const details = json(x['Catalog Evidence JSON']) || {};
   return { ...details, date: x.Date, game: x.Game, gameKey: x['Game Key'], gameTime: x['Game Time'],
     awayTeam: x['Away Team'], homeTeam: x['Home Team'], market: x.Market,
