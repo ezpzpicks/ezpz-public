@@ -1011,7 +1011,25 @@ export async function buildFootballPublicData(
   sport: FootballSport,
   options: { forceFresh?: boolean; persist?: boolean } = {},
 ) {
-  const core = await buildLegacyFootballPublicData(sport, options) as AnyPick;
+  let core: AnyPick;
+  try {
+    core = await buildLegacyFootballPublicData(sport, options) as AnyPick;
+  } catch (error) {
+    if (options.persist) {
+      try {
+        // Fresh-feed failures must not stop settlement or recording of genuine
+        // quotes already captured before kickoff. The retained build is read-only;
+        // capture still admits only verified final snapshots and frozen memberships.
+        const retained = await buildLegacyFootballPublicData(sport, { forceFresh: false, persist: false }) as AnyPick;
+        await captureFootballCatalog(sport, retained.trendRecordRows || [], retained.trendPlays || [], true);
+      } catch (captureError) {
+        console.error(`${sport} retained catalog capture failed`, captureError);
+      }
+    }
+    // Preserve the original feed failure for monitoring; retained records do not
+    // make an unavailable live feed healthy.
+    throw error;
+  }
   const catalogCapture = await captureFootballCatalog(sport, core.trendRecordRows || [], core.trendPlays || [], Boolean(options.persist));
   core.trendRecordRows = catalogCapture.rows;
   core.trendPlays = catalogCapture.plays;
