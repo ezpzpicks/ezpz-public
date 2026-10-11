@@ -38,6 +38,20 @@ test('weekly display loads only one selected week and still lists the full archi
   assert.equal(weeks.selectFootballPublicWeek([],'2026-10-11').dateKeys.length,0);
 });
 
+test('compact catalog responses restore every membership and diagnostic without duplicating filter lists', () => {
+  const filters=Array.from({length:60},(_,i)=>`saved-filter-${i}`);
+  const evaluation={version:'frozen-v1',memberships:Array.from({length:100},(_,i)=>({pair:`rule-${i}`,direction:i%2,filters})),
+    missing:['needs-weather'],ambiguous:['paired-source'],invalid:'test-diagnostic'};
+  const payload={trendPlays:[{catalogEvaluation:evaluation}],trendRecordRows:[{'Catalog Membership JSON':JSON.stringify(evaluation)}],
+    aiPicks:[{catalogEvaluation:evaluation}],aiPickRecordRows:[{catalogEvaluation:evaluation}]};
+  const wire=display.compactFootballPublicDisplay(payload,true);
+  assert.ok(JSON.stringify(wire).length<JSON.stringify(payload).length/5);
+  const restored=display.restoreFootballPublicDisplay(JSON.parse(JSON.stringify(wire)));
+  assert.equal(JSON.stringify(restored),JSON.stringify(payload));
+  assert.equal(payload.trendPlays[0].catalogEvaluation,evaluation);
+  assert.equal(wire.catalogFilterGroups.length,3);
+});
+
 test('public NCAAF reads use the verified final ledger and never replay archived charts; audit cache stays separate', async () => {
   const final = {Date:'2026-10-10',Game:'Army @ Temple','Away Team':'Army','Home Team':'Temple',Market:'Total',Selection:'Over',
     'Public Split Line':'50','Public Split Odds':'-110','Actual Away Runs':'30','Actual Home Runs':'25',Result:'W',

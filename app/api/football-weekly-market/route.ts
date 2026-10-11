@@ -45,7 +45,7 @@ async function readMarket(request: NextRequest) {
       return NextResponse.json(compactFootballPublicDisplay({
         ...scored, trendPlays: catalog.plays,
         availableWeeks: week.availableWeeks, selectedWeek: week.selectedWeek,
-      }), { headers: { "Cache-Control": "no-store, max-age=0" } });
+      }, request.nextUrl.searchParams.get("compact") === "1"), { headers: { "Cache-Control": "no-store, max-age=0" } });
     }
     return NextResponse.json(scored, { headers: { "Cache-Control": "no-store, max-age=0" } });
   } catch (error) {

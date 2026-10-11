@@ -12620,13 +12620,16 @@ export async function buildPublicDataResponse(request: NextRequest) {
     }
 
     try {
-      return NextResponse.json(
-        compactFootballPublicDisplay(await withTursoReadCache(() => buildFootballPublicData(requestedSport, {
+      const started = Date.now();
+      const payload = compactFootballPublicDisplay(await withTursoReadCache(() => buildFootballPublicData(requestedSport, {
           forceFresh: forceFreshFootball,
           persist: scheduledFootball,
           publicDisplay: !scheduledFootball,
-        }))),
-      );
+        })), request.nextUrl.searchParams.get("compact") === "1");
+      const body = JSON.stringify(payload);
+      console.info("[football-public-display]", JSON.stringify({ sport: requestedSport,
+        elapsedMs: Date.now() - started, bytes: Buffer.byteLength(body), compact: request.nextUrl.searchParams.get("compact") === "1" }));
+      return new NextResponse(body, { headers: { "Content-Type": "application/json", "Cache-Control": "no-store, max-age=0" } });
     } catch (error) {
       console.error(`${requestedSport} public data failed`, error);
       return NextResponse.json(

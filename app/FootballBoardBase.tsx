@@ -5,6 +5,7 @@ import { MatchupWithLogos, SelectionWithTeamLogo, TeamLogoName } from "./TeamLog
 import { DirectTrendRecords, FootballTrendMarketBoard } from "./FootballTrendMarketBoard";
 import { buildNcaafPublicTrendLeaderboard, type NcaafPublicTrendSubtype } from "../lib/ncaafPublicTrendLeaderboard";
 import { buildNflPublicTrendLeaderboard } from "../lib/nflPublicTrendLeaderboard";
+import { restoreFootballPublicDisplay } from "../lib/footballPublicDisplay";
 import { NCAAF_SPREAD_TICKET_MOMENTUM_RULE } from "../lib/ncaafEzpzPolicy";
 
 type SheetRow = Record<string, string>;
@@ -1503,11 +1504,11 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
     setWeeklyLoading(true);
     setWeeklyError("");
     const weekQuery = requestedMarketWeek ? `&week=${encodeURIComponent(requestedMarketWeek)}` : "";
-    fetch(`/api/football-weekly-market?sport=${sport}${weekQuery}`, { cache: "no-store", signal: controller.signal })
+    fetch(`/api/football-weekly-market?sport=${sport}${weekQuery}${sport === "NCAAF" ? "&compact=1" : ""}`, { cache: "no-store", signal: controller.signal })
       .then(async response => {
         const result = await response.json();
         if (!response.ok || !result?.ok) throw new Error(result?.error || "Failed to load saved markets");
-        return result;
+        return restoreFootballPublicDisplay(result);
       })
       .then(result => { if (active && !controller.signal.aborted) setWeeklyData(result as WeeklyMarketData); })
       .catch(error => { if (active) setWeeklyError(timedOut ? "Saved markets took too long to load. Try again." : error instanceof Error ? error.message : "Failed to load saved markets"); })

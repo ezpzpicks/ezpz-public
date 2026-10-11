@@ -2,6 +2,7 @@
 
 import FootballBoard from "./FootballBoard";
 import { buildNflEzpzRecords } from "../lib/nflEzpzRecords";
+import { restoreFootballPublicDisplay } from "../lib/footballPublicDisplay";
 import { DirectTrendRecords, FootballTrendMarketBoard } from "./FootballTrendMarketBoard";
 import { MatchupWithLogos, SelectionWithTeamLogo } from "./TeamLogoName";
 
@@ -6925,7 +6926,7 @@ export default function Home() {
       try {
         const endpoint =
           activeSport === "NFL" || activeSport === "NCAAF"
-            ? `/api/public-data-v2?sport=${activeSport}${forceFresh ? "&refresh=1" : ""}`
+            ? `/api/public-data-v2?sport=${activeSport}&compact=1${forceFresh ? "&refresh=1" : ""}`
             : forceFresh
               ? "/api/public-data-v2?refresh=1"
               : "/api/public-data-v2";
@@ -6933,7 +6934,7 @@ export default function Home() {
           cache: "no-store",
           signal: controller.signal,
         });
-        const json = (await response.json()) as ApiData;
+        const json = restoreFootballPublicDisplay((await response.json()) as ApiData);
         if (!response.ok || !json.ok) {
           throw new Error(json.error || "Failed to load EZPZ data");
         }
