@@ -9,6 +9,7 @@ const load = require('./load-typescript.cjs');
 const root = path.join(__dirname, '..');
 const policy = load(path.join(root, 'lib/ncaafTrendRecordPolicy.ts'));
 const movement = load(path.join(root, 'lib/ncaafEzpzPolicy.ts'));
+const leaderboard = load(path.join(root, 'lib/ncaafPublicTrendLeaderboard.ts'));
 
 function moduleWithStubs(file, imports = {}, appended = '') {
   const exports = {};
@@ -28,6 +29,7 @@ const core = moduleWithStubs('lib/footballPublicDataCore.ts', {
 }, '\nexport const recordsTest = { buildNcaafFinalTrendRecordRows, buildFootballEzpzRecordRows };').recordsTest;
 const marketBoard = moduleWithStubs('app/FootballTrendMarketBoard.tsx', {
   '../lib/ncaafEzpzPolicy': movement, '../lib/ncaafTrendRecordPolicy': policy,
+  '../lib/ncaafPublicTrendLeaderboard': leaderboard,
 });
 const tile = moduleWithStubs('app/FootballBoard.tsx', {
   '../lib/ncaafEzpzPolicy': movement, '../lib/ncaafTrendRecordPolicy': policy,
@@ -85,7 +87,7 @@ test('duplicate storage IDs count one decision and movement is recalculated from
   assert.equal(rows.length, 1);
   assert.equal(rows[0]['Line Movement Value'], '-2');
   assert.equal(rows[0]['Public Change %'], '10');
-  assert.match(recordHtml(rows), /Total Drop Fade - Overall/);
+  assert.match(recordHtml(rows), /Total Drop Fade - Over/);
   assert.match(recordHtml(rows), /1-0-0/);
 });
 
@@ -164,7 +166,7 @@ test('every NCAAF signal uses the verified ledger in the overall table and exact
   const html = recordHtml([...rows, ...legacy]);
   for (const [signal, betType] of [['RLM', 'Under'], ['Sharp', 'Over'], ['Public Fade', 'Under'],
     ['Total Drop Fade', 'Over'], ['Spread Ticket Momentum', 'Favorite']]) {
-    assert.match(html, new RegExp(signal + ' - Overall'));
+    assert.match(html, new RegExp(signal + ' - ' + (betType === 'Favorite' ? 'Favorite Spread' : betType)));
     const actual = tile.directTrendRecord(rows, 'NCAAF', signal, betType, '2026-10-08');
     const withLegacy = tile.directTrendRecord([...rows, ...legacy], 'NCAAF', signal, betType, '2026-10-08');
     assert.ok(actual.totalBets > 0, signal);
@@ -183,11 +185,13 @@ test('the production wrapper preserves verified records without overlaying old p
   const publicData = moduleWithStubs('lib/footballPublicData.ts', {
     './footballPublicDataHistory': { buildFootballPublicData: async () => data },
     './sportSheets': { readSportWorksheet: async () => [] }, './ncaafTrendRecordPolicy': policy,
+    './ncaafPublicTrendLeaderboard': leaderboard,
   });
   const response = await publicData.buildFootballPublicData('NCAAF');
   assert.equal(response.trendRecordPolicy, policy.NCAAF_TREND_RECORD_POLICY);
   assert.equal(response.trendRecordRows.length, 1);
   assert.equal(response.trendRecordRows[0].Result, 'W');
+  assert.ok(response.ncaafPublicTrendLeaderboard.length > 0);
 });
 
 test('separate RLM totals on the same date remain separate final-snapshot decisions', () => {
@@ -197,6 +201,7 @@ test('separate RLM totals on the same date remain separate final-snapshot decisi
   const rows = build([first, opposite(first), second, opposite(second)], [score(),
     score({ Game: second.game, 'Away Team': second.awayTeam, 'Home Team': second.homeTeam })]);
   const html = recordHtml(rows);
-  assert.match(html, /RLM - Overall<\/strong><\/td><td[^>]*>0-2-0<\/td>/);
+  assert.match(html, /RLM - Under<\/strong><\/td><td[^>]*>0-2-0<\/td>/);
   assert.equal(tile.directTrendRecord(rows, 'NCAAF', 'RLM', 'Under', '2026-10-08').record, '0-2-0');
 });
+

@@ -2,6 +2,7 @@ import { buildFootballPublicData as buildFootballPublicDataWithHistory } from ".
 import { overlayPublishedDirectTrendRows } from "./footballDirectTrendLedger";
 import { isVerifiedNcaafTrendRecord, NCAAF_TREND_RECORD_POLICY } from "./ncaafTrendRecordPolicy";
 import { buildNflEzpzRecords } from "./nflEzpzRecords";
+import { buildNcaafPublicTrendLeaderboard } from "./ncaafPublicTrendLeaderboard";
 import {
   readSportWorksheet,
   upsertSportRows,
@@ -542,9 +543,11 @@ export async function buildFootballPublicData(
   if (sport === "NCAAF") {
     // Saved pick history must never replace or supplement the validated market
     // ledger: old FINAL labels and old prices/lines are not final-snapshot proof.
+    const verifiedTrendRows = hardenDirectTrendRecordRows(trendRows.filter(isVerifiedNcaafTrendRecord), sport);
     return {
       ...data, aiPicks, aiPickRecordRows: backfilledRecordRows,
-      trendRecordRows: hardenDirectTrendRecordRows(trendRows.filter(isVerifiedNcaafTrendRecord), sport),
+      trendRecordRows: verifiedTrendRows,
+      ncaafPublicTrendLeaderboard: buildNcaafPublicTrendLeaderboard(verifiedTrendRows),
       trendRecordPolicy: NCAAF_TREND_RECORD_POLICY,
     };
   }
@@ -574,5 +577,6 @@ export async function buildFootballPublicData(
     trendRecordRows: hardenDirectTrendRecordRows(directTrendRecordRows, sport),
   };
 }
+
 
 

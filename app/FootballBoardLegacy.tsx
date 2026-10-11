@@ -6,6 +6,7 @@ import FootballGameTabs from "./FootballGameTabs";
 import { DirectTrendRecords } from "./FootballTrendMarketBoard";
 import { MatchupWithLogos, SelectionWithTeamLogo, TeamLogoName } from "./TeamLogoName";
 import { buildNflEzpzRecords } from "../lib/nflEzpzRecords";
+import { type NcaafPublicTrendSubtype } from "../lib/ncaafPublicTrendLeaderboard";
 
 type Tab = "Today’s Model Plays" | "Public Betting Splits" | "EZPZ Picks" | "Full Slate" | "Records";
 type Sport = "NFL" | "NCAAF";
@@ -83,6 +84,7 @@ type FootballData = {
   aiSelectorStatus?: { message?: string };
   betTrackerRows?: SheetRow[];
   trendRecordRows?: SheetRow[];
+  ncaafPublicTrendLeaderboard?: NcaafPublicTrendSubtype[];
   trendPlays?: any[];
   recordSummary?: Summary[];
   last7RecordSummary?: Summary[];
@@ -531,7 +533,7 @@ function FootballRecords({ sport, data }: { sport: Sport; data: FootballData }) 
         </div>
         <div className="sectionHead"><div><h2>Betting Split Records</h2></div></div>
         <div className="recordsDropdownStack advancedRecordsStack">
-          <DirectTrendRecords rows={data.trendRecordRows || []} trendPlays={data.trendPlays || []} aiPickRows={data.aiPickRecordRows || []} today={data.today || ""} sport={sport} />
+          <DirectTrendRecords rows={data.trendRecordRows || []} trendPlays={data.trendPlays || []} aiPickRows={data.aiPickRecordRows || []} today={data.today || ""} sport={sport} ncaafLeaderboard={data.ncaafPublicTrendLeaderboard} />
         </div>
         <div className="sectionHead"><div><h2>Bet Type Records</h2></div></div>
         <div className="advancedRecordsStack">
@@ -569,3 +571,4 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
     </>
   );
 }
+

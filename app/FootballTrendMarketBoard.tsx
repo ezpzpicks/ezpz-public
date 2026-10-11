@@ -2,6 +2,12 @@
 
 import { classifyNcaafMovement } from "../lib/ncaafEzpzPolicy";
 import { isVerifiedNcaafTrendRecord } from "../lib/ncaafTrendRecordPolicy";
+import {
+  buildNcaafPublicTrendLeaderboard,
+  rankNcaafPublicTrendSubtypes,
+  visibleNcaafTrendBadges,
+  type NcaafPublicTrendSubtype,
+} from "../lib/ncaafPublicTrendLeaderboard";
 import { SelectionWithTeamLogo, TeamLogoName } from "./TeamLogoName";
 
 type SheetRow = Record<string, string>;
@@ -671,8 +677,17 @@ function MovementChart({ play }: { play: TrendPlay }) {
   );
 }
 
-function MarketRow({ play, plays, sport }: { play: TrendPlay; plays: TrendPlay[]; sport: Sport }) {
-  const labels = labelsFor(play, plays, sport);
+function publicLabelsFor(play: TrendPlay, plays: TrendPlay[], sport: Sport, leaderboard: readonly NcaafPublicTrendSubtype[]) {
+  return sport === "NCAAF"
+    ? visibleNcaafTrendBadges(play, plays, leaderboard).map(subtype => subtype.signal)
+    : labelsFor(play, plays, sport);
+}
+
+function MarketRow({ play, plays, sport, leaderboard }: {
+  play: TrendPlay; plays: TrendPlay[]; sport: Sport; leaderboard: readonly NcaafPublicTrendSubtype[];
+}) {
+  const labels = publicLabelsFor(play, plays, sport, leaderboard);
+  const badges = sport === "NCAAF" ? visibleNcaafTrendBadges(play, plays, leaderboard) : [];
   const rlmPublicSide = labels.includes("RLM") ? opposite(play, plays) : null;
   const rlmSummary = rlmPublicSide ? rlmBadgeSummary(rlmPublicSide) : null;
   return (
@@ -700,7 +715,11 @@ function MarketRow({ play, plays, sport }: { play: TrendPlay; plays: TrendPlay[]
       <div className="dkTrendBadges">
         {labels.map((label) => (
           <div className="dkTrendBadgeGroup" key={label}>
-            <span className={`directTrendBadge ${directTrendBadgeClass(label)}`}>{label}</span>
+            <span
+              className={`directTrendBadge ${directTrendBadgeClass(label)}`}
+              data-trend-subtype={badges.find(subtype => subtype.signal === label)?.id}
+              title={badges.find(subtype => subtype.signal === label)?.label}
+            >{label}</span>
             {label === "RLM" && rlmSummary ? (
               <div
                 className="rlmMovementMini"
@@ -801,13 +820,15 @@ function matchupTeams(game: string, sport: Sport) {
   };
 }
 
-function GameCard({ group, sport }: { group: Group; sport: Sport }) {
+function GameCard({ group, sport, leaderboard }: {
+  group: Group; sport: Sport; leaderboard: readonly NcaafPublicTrendSubtype[];
+}) {
   const ordered = [...group.plays].sort((a, b) => {
     if (a.market !== b.market) return isSpreadMarket(a.market) ? -1 : 1;
     if (a.market === "Total" && a.side !== b.side) return a.side === "Over" ? -1 : 1;
     return pickLabel(a).localeCompare(pickLabel(b));
   });
-  const qualifying = ordered.filter((play) => labelsFor(play, ordered, sport).length > 0);
+  const qualifying = ordered.filter((play) => publicLabelsFor(play, ordered, sport, leaderboard).length > 0);
   const gameTime = ordered.find((play) => play.gameTime)?.gameTime || "";
   const gameDate = ordered.find((play) => play.date)?.date || "";
   const sideMarketRefs = ordered.filter((play) => isSpreadMarket(play.market) || play.market === "Moneyline");
@@ -844,6 +865,7 @@ function GameCard({ group, sport }: { group: Group; sport: Sport }) {
             play={play}
             plays={ordered}
             sport={sport}
+            leaderboard={leaderboard}
           />
         ))}
       </div>
@@ -1081,18 +1103,58 @@ type DirectTrendPickRecord = {
   selectorVersion?: string;
 };
 
-export function DirectTrendRecords({
-  rows,
-  trendPlays = [],
-  aiPickRows = [],
-  sport,
-}: {
+type DirectTrendRecordProps = {
   rows: SheetRow[];
   trendPlays?: TrendPlay[];
   aiPickRows?: DirectTrendPickRecord[];
   today?: string;
   sport: Sport;
-}) {
+  ncaafLeaderboard?: NcaafPublicTrendSubtype[];
+};
+
+export function DirectTrendRecords({ ncaafLeaderboard, ...props }: DirectTrendRecordProps) {
+  if (props.sport !== "NCAAF") return <LegacyDirectTrendRecords {...props} />;
+  const leaderboard = ncaafLeaderboard
+    ? rankNcaafPublicTrendSubtypes(ncaafLeaderboard)
+    : buildNcaafPublicTrendLeaderboard(props.rows);
+  return (
+    <details className="recordsDropdown directTrendRecords" open>
+      <summary className="recordsSummary">
+        <div>
+          <div className="recordsSummaryTitle">Top 20 NCAAF Sub Bet Types</div>
+          <small>Final snapshots only · All-time win %; ties favor more settled bets. Pushes excluded from win %.</small>
+        </div>
+        <span className="recordsCount">{leaderboard.length} types</span>
+      </summary>
+      {leaderboard.length ? (
+        <div className="tableWrap">
+          <table className="recordsTable">
+            <thead><tr><th>Rank</th><th>Sub Bet Type</th><th>Record</th><th>Win %</th><th>Units</th><th>ROI</th><th>Bets</th></tr></thead>
+            <tbody>{leaderboard.map((subtype, index) => {
+              const { id, label, totals } = subtype;
+              const rowTone = tone(totals);
+              return (
+                <tr className={`recordPerformanceRow ${rowTone}`} key={id} data-trend-subtype={id}>
+                  <td>{index + 1}</td><td><strong>{label}</strong></td><td>{totals.record}</td>
+                  <td><span className={`recordWinPctPill ${rowTone}`}>{totals.winPct.toFixed(1)}%</span></td>
+                  <td>{totals.unitsWon > 0 ? "+" : ""}{totals.unitsWon.toFixed(2)}u</td>
+                  <td>{totals.roiPct > 0 ? "+" : ""}{totals.roiPct.toFixed(1)}%</td><td>{totals.totalBets}</td>
+                </tr>
+              );
+            })}</tbody>
+          </table>
+        </div>
+      ) : <div className="empty insideDropdown">No sub bet types have a settled win or loss from a verified final snapshot yet.</div>}
+    </details>
+  );
+}
+
+function LegacyDirectTrendRecords({
+  rows,
+  trendPlays = [],
+  aiPickRows = [],
+  sport,
+}: DirectTrendRecordProps) {
   const grouped = new Map<string, SheetRow[]>();
   rows.forEach((row) => {
     if (sport === "NCAAF" && !isVerifiedNcaafTrendRecord(row)) return;
@@ -1332,15 +1394,19 @@ export function DirectTrendRecords({
   );
 }
 
-export function FootballTrendMarketBoard({ groups, sport }: { groups: Group[]; sport: Sport }) {
+export function FootballTrendMarketBoard({ groups, sport, ncaafLeaderboard = [] }: {
+  groups: Group[]; sport: Sport; ncaafLeaderboard?: NcaafPublicTrendSubtype[];
+}) {
+  const leaderboard = sport === "NCAAF" ? rankNcaafPublicTrendSubtypes(ncaafLeaderboard) : [];
   const sortedGroups = [...groups].sort((a, b) => {
     const timeDifference = trendGroupSortValue(a) - trendGroupSortValue(b);
     if (Number.isFinite(timeDifference) && timeDifference !== 0) return timeDifference;
     return a.game.localeCompare(b.game);
   });
   return sortedGroups.length
-    ? <div className="dkTrendGameGrid">{sortedGroups.map((group) => <GameCard key={group.plays[0]?.gameKey || group.game} group={group} sport={sport} />)}</div>
+    ? <div className="dkTrendGameGrid">{sortedGroups.map((group) => <GameCard key={group.plays[0]?.gameKey || group.game} group={group} sport={sport} leaderboard={leaderboard} />)}</div>
     : null;
 }
+
 
 

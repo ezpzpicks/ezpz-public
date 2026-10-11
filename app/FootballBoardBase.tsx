@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { MatchupWithLogos, SelectionWithTeamLogo, TeamLogoName } from "./TeamLogoName";
 import { DirectTrendRecords, FootballTrendMarketBoard } from "./FootballTrendMarketBoard";
+import { buildNcaafPublicTrendLeaderboard, type NcaafPublicTrendSubtype } from "../lib/ncaafPublicTrendLeaderboard";
 import { NCAAF_SPREAD_TICKET_MOMENTUM_RULE } from "../lib/ncaafEzpzPolicy";
 
 type SheetRow = Record<string, string>;
@@ -87,6 +88,7 @@ type FootballSignalHistoryRow = {
 type FootballData = {
   today: string; lastUpdated: string; database?: string; bestPlays: Play[]; slateToday: SheetRow[];
   betTrackerRows?: SheetRow[]; trendRecordRows?: SheetRow[]; draftKingsSignalRows?: FootballSignalHistoryRow[];
+  ncaafPublicTrendLeaderboard?: NcaafPublicTrendSubtype[];
   trendPlays?: TrendPlay[]; aiPicks?: EzpzPick[]; aiPickRecordRows?: EzpzPick[]; recordSummary?: Summary[];
   last7RecordSummary?: Summary[]; aiSelectorStatus?: { message?: string };
   draftKings?: { status: string; updatedAt: string; splits: DraftKingsSplit[]; errors?: string[]; stale?: boolean; displayMode?: string; source?: string };
@@ -1604,6 +1606,9 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
 }, [weeklyData?.games, data.slateToday, data.today]);
 
   const summaryMap = new Map<string, Summary>((data.recordSummary || []).map((row) => [row.betType, row]));
+  const ncaafLeaderboard = useMemo(() => sport === "NCAAF"
+    ? data.ncaafPublicTrendLeaderboard || buildNcaafPublicTrendLeaderboard(data.trendRecordRows || [])
+    : [], [sport, data.ncaafPublicTrendLeaderboard, data.trendRecordRows]);
   const last7Map = new Map<string, Summary>((data.last7RecordSummary || []).map((row) => [row.betType, row]));
   const trackerRows = data.betTrackerRows || [];
   const todayByType = fbTodayRecordMap(trackerRows, data.today, sport);
@@ -1644,8 +1649,8 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
           <label><span>View market week</span><select value={activeWeek} onChange={(event) => setSelectedWeek(event.target.value)} disabled={!trendWeeks.length}>{trendWeeks.length ? trendWeeks.map((week) => <option key={week} value={week}>{week}</option>) : <option value="">No weeks yet</option>}</select></label>
         </div>
       </div>
-      {displayedTrendGroups.length ? <FootballTrendMarketBoard groups={displayedTrendGroups} sport={sport} /> : <div className="empty footballEmpty">No {sport} ScoresAndOdds Spread/Total markets are stored for {activeWeek || "this week"} yet.</div>}
-      <div className="directTrendRecordWrap"><DirectTrendRecords rows={data.trendRecordRows || []} trendPlays={data.trendPlays || []} today={data.today} sport={sport} /></div>
+      {displayedTrendGroups.length ? <FootballTrendMarketBoard groups={displayedTrendGroups} sport={sport} ncaafLeaderboard={ncaafLeaderboard} /> : <div className="empty footballEmpty">No {sport} ScoresAndOdds Spread/Total markets are stored for {activeWeek || "this week"} yet.</div>}
+      <div className="directTrendRecordWrap"><DirectTrendRecords rows={data.trendRecordRows || []} trendPlays={data.trendPlays || []} today={data.today} sport={sport} ncaafLeaderboard={ncaafLeaderboard} /></div>
     </>;
   } else if (tab === "EZPZ Picks") {
     content = <>
@@ -1708,7 +1713,7 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
       </div>
       <div className="sectionHead"><div><h2>Betting Split Records</h2><p>Only the three active market signals: Public Fade, RLM, and Sharp</p></div></div>
       <div className="advancedRecordsStack">
-        <DirectTrendRecords rows={trendRows} trendPlays={data.trendPlays || []} today={data.today} sport={sport} />
+        <DirectTrendRecords rows={trendRows} trendPlays={data.trendPlays || []} today={data.today} sport={sport} ncaafLeaderboard={ncaafLeaderboard} />
       </div>
       <div className="sectionHead"><div><h2>Bet Type Records</h2><p>Exact A/B grade + market + direction subsets used by HOT / COLD / SMALL SAMPLE</p></div></div>
       <div className="advancedRecordsStack">
@@ -1785,3 +1790,4 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
     </section>
   );
 }
+
