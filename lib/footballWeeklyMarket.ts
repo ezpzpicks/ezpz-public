@@ -2926,7 +2926,14 @@ export async function readWeeklyFootballMarket(
         play = { ...play, gameTime };
         if (play.snapshotStatus !== "FINAL_PREGAME" && play.date <= todayET()) {
           const sideHistory = persistedNcaafMarketHistoryRowsForPlay(play);
-          play = resolveNcaafSnapshot(play, sideHistory, nflRecordHistory);
+          const resolved = resolveNcaafSnapshot(play, sideHistory, nflRecordHistory);
+          // The resolver rebuilds live quotes without their chart series. Keep
+          // the saved observations through the resolved timestamp so public
+          // reads preserve the full path and cannot include post-lock quotes.
+          play = {
+            ...resolved,
+            movementHistory: movementHistoryForPlay(resolved, ncaafHistoryForPlay(resolved, sideHistory)),
+          };
         }
         if (options.finalSnapshotsOnly && !isValidNflFinalSnapshot(play)) continue;
       }

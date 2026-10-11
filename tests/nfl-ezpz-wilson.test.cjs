@@ -219,12 +219,19 @@ test('scheduled NFL collection saves the newest live observation once and freeze
   assert.equal(stored.line, 47.5);
   assert.equal(stored.snapshotStatus, 'LIVE');
   assert.equal(writes.filter(w => w.tab === 'weekly_market_trends').at(-1).count, 1);
+  assert.equal(stored.movementHistory.length, 2);
+  const writesBeforeRead = writes.length;
+  let displayed = await collector.readWeeklyFootballMarket('NFL', { hydrateHistory: false });
+  assert.deepEqual(Array.from(displayed.trendPlays[0].movementHistory, point => point.line), [46.5, 47.5]);
+  assert.equal(writes.length, writesBeforeRead);
   clock = Date.parse(`${today}T16:46:00Z`);
   feed[0].line = 48.5;
   await collector.syncPostedFootballMarkets('NFL');
   stored = JSON.parse(tables.weekly_market_trends[0]['Details JSON']);
   assert.equal(stored.line, 48.5);
   assert.equal(stored.snapshotStatus, 'LIVE');
+  displayed = await collector.readWeeklyFootballMarket('NFL', { hydrateHistory: false });
+  assert.deepEqual(Array.from(displayed.trendPlays[0].movementHistory, point => point.line), [46.5, 47.5, 48.5]);
   clock = Date.parse(`${today}T16:50:00Z`);
   feed[0].line = 50;
   await collector.syncPostedFootballMarkets('NFL');
@@ -233,6 +240,9 @@ test('scheduled NFL collection saves the newest live observation once and freeze
   assert.equal(stored.snapshotStatus, 'FINAL_PREGAME');
   assert.equal(Date.parse(stored.frozenAt), Date.parse(`${today}T16:46:00Z`));
   assert.equal(collector.isValidNflFinalSnapshot(stored), true);
+  displayed = await collector.readWeeklyFootballMarket('NFL', { hydrateHistory: false });
+  assert.deepEqual(Array.from(displayed.trendPlays[0].movementHistory, point => point.line), [46.5, 47.5, 48.5]);
+  assert.equal(displayed.trendPlays[0].line, 48.5);
   clock = Date.parse(`${today}T16:50:00Z`);
 });
 
