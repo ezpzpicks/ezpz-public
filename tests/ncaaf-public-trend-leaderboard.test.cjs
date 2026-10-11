@@ -37,6 +37,7 @@ function moduleWithStubs(file, imports = {}) {
   return exports;
 }
 const board = moduleWithStubs('app/FootballTrendMarketBoard.tsx', {
+  '../lib/footballTrendCatalog': load(path.join(root,'lib/footballTrendCatalog.ts')),
   '../lib/ncaafEzpzPolicy': load(path.join(root, 'lib/ncaafEzpzPolicy.ts')),
   '../lib/ncaafTrendRecordPolicy': load(path.join(root, 'lib/ncaafTrendRecordPolicy.ts')),
   '../lib/ncaafPublicTrendLeaderboard': leaderboard,
@@ -50,7 +51,7 @@ test('the public list ranks exact win rates, then decisions, then stable IDs, wi
     subtype('Rounded higher', 501, 500), subtype('Rounded lower', 1, 1)];
   const before = JSON.stringify(rows);
   const ranked = leaderboard.rankNcaafPublicTrendSubtypes(rows);
-  assert.deepEqual(Array.from(ranked, row => row.signal), ['Small', 'Large', 'A', 'B', 'Rounded higher', 'Rounded lower']);
+  assert.deepEqual(Array.from(ranked, row => row.signal), ['Small', 'Large', 'A', 'B']);
   assert.equal(JSON.stringify(rows), before);
 });
 
@@ -60,7 +61,7 @@ test('verified subtype records remain separate by side; pushes and duplicate sto
     verifiedRow('Three @ Game', 'P'), verifiedRow('Four @ Game', 'Pending'),
     verifiedRow('Legacy @ Game', 'L', { 'Record Snapshot Policy': '' }),
     verifiedRow('Under @ Game', 'W', { Side: 'Under', Selection: 'Under' })];
-  const ranked = leaderboard.buildNcaafPublicTrendLeaderboard(rows);
+  const ranked = leaderboard.buildNcaafTrendSubtypes(rows);
   const over = ranked.find(row => row.id === 'sharp|over');
   const under = ranked.find(row => row.id === 'sharp|under');
   assert.equal(over.totals.record, '1-1-1');
@@ -100,7 +101,8 @@ test('changing the viewed market week does not rerank badges from that week; the
   const rows = [verifiedRow('Old @ Game', 'W', { Date: '2026-09-26' }), verifiedRow('New @ Game', 'L')];
   const allTime = leaderboard.buildNcaafPublicTrendLeaderboard(rows);
   const oldPlay = { market: 'Total', side: 'Over', selection: 'Over', line: 52.5, betsPct: 30, moneyPct: 60 };
-  assert.equal(leaderboard.visibleNcaafTrendBadges(oldPlay, [oldPlay], allTime)[0].totals.record, '1-1-0');
+  assert.equal(leaderboard.visibleNcaafTrendBadges(oldPlay, [oldPlay], allTime).length, 0);
+  assert.equal(leaderboard.buildNcaafTrendSubtypes(rows)[0].totals.record, '1-1-0');
 });
 
 test('NFL record and badge behavior does not depend on the NCAAF leaderboard', () => {

@@ -16,7 +16,7 @@ export function nflTrendSignals(play: TrendSide, siblings: TrendSide[]): string[
   const canonical = (side: TrendSide) => String(side.market).toLowerCase() === "spread"
     ? { ...side, selection: nflTrendTeamKey(side.selectionTeam || side.selection),
       selectionTeam: nflTrendTeamKey(side.selectionTeam || side.selection) } : side;
-  const labels = ncaafTrendSignals(canonical(play), siblings.map(canonical));
+  const labels = ncaafTrendSignals(canonical(play), siblings.map(canonical), "NFL");
   if (!ncaafTrendCategory(play)) return labels;
   const market = String(play.market).toLowerCase();
   const lineMove = finiteNcaafNumber(play.lineMovementValue);
@@ -37,7 +37,7 @@ export function nflTrendSignals(play: TrendSide, siblings: TrendSide[]): string[
 }
 
 export function buildNflTrendSubtypes(rows: SheetRow[]): NflPublicTrendSubtype[] {
-  return buildNcaafTrendSubtypes(rows, { signalsFor: nflTrendSignals, gameIdentity: nflTrendGameIdentity });
+  return buildNcaafTrendSubtypes(rows, { signalsFor: nflTrendSignals, gameIdentity: nflTrendGameIdentity, sport: "NFL" });
 }
 
 export function buildNflPublicTrendLeaderboard(rows: SheetRow[]) {
@@ -48,5 +48,6 @@ export function visibleNflTrendBadges(play: TrendSide, siblings: TrendSide[], le
   const category = ncaafTrendCategory(play);
   const signals = new Set(nflTrendSignals(play, siblings));
   return leaderboard.slice(0, NFL_PUBLIC_TREND_LIMIT)
-    .filter(subtype => subtype.category === category && signals.has(subtype.signal));
+    .filter(subtype => subtype.totals.wins * 5 > (subtype.totals.wins + subtype.totals.losses) * 3
+      && subtype.category === category && signals.has(subtype.signal));
 }

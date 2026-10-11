@@ -1,5 +1,7 @@
 "use client";
 
+import { catalogSignalLabel } from "../lib/footballTrendCatalog";
+
 import { classifyNcaafMovement } from "../lib/ncaafEzpzPolicy";
 import { isVerifiedNcaafTrendRecord } from "../lib/ncaafTrendRecordPolicy";
 import { buildNflPublicTrendLeaderboard, visibleNflTrendBadges } from "../lib/nflPublicTrendLeaderboard";
@@ -722,7 +724,7 @@ function MarketRow({ play, plays, sport, leaderboard }: {
               className={`directTrendBadge ${directTrendBadgeClass(label)}`}
               data-trend-subtype={badges.find(subtype => subtype.signal === label)?.id}
               title={badges.find(subtype => subtype.signal === label)?.label}
-            >{label}</span>
+            >{catalogSignalLabel(label)}</span>
             {label === "RLM" && rlmSummary ? (
               <div
                 className="rlmMovementMini"
@@ -1126,7 +1128,7 @@ export function DirectTrendRecords({ ncaafLeaderboard, nflLeaderboard, ...props 
       <summary className="recordsSummary">
         <div>
           <div className="recordsSummaryTitle">Top 20 {props.sport} Sub Bet Types</div>
-          <small>Final snapshots only · All-time win %; ties favor more settled bets. Pushes excluded from win %.</small>
+          <small>Final snapshots only · Above 60% wins · All-time win %; ties favor more settled bets. Pushes excluded from win %.</small>
         </div>
         <span className="recordsCount">{leaderboard.length} types</span>
       </summary>
@@ -1148,7 +1150,7 @@ export function DirectTrendRecords({ ncaafLeaderboard, nflLeaderboard, ...props 
             })}</tbody>
           </table>
         </div>
-      ) : <div className="empty insideDropdown">No sub bet types have a settled win or loss from a verified final snapshot yet.</div>}
+      ) : <div className="empty insideDropdown">No sub bet types currently exceed 60% wins from verified final snapshots.</div>}
     </details>
   );
 }

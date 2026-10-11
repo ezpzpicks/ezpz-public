@@ -36,6 +36,7 @@ const core = moduleWithStubs('lib/footballPublicDataCore.ts', {
   './nflTrendIdentity': identity,
 }, '\nexport const testRecords = buildFootballFinalTrendRecordRows;', FixedDate);
 const board = moduleWithStubs('app/FootballTrendMarketBoard.tsx', {
+  '../lib/footballTrendCatalog': load(path.join(root,'lib/footballTrendCatalog.ts')),
   '../lib/ncaafEzpzPolicy': ncaaPolicy, '../lib/ncaafTrendRecordPolicy': finalPolicy,
   '../lib/ncaafPublicTrendLeaderboard': ncaa, '../lib/nflPublicTrendLeaderboard': nfl,
   './TeamLogoName': { SelectionWithTeamLogo: p => p.selection, TeamLogoName: p => p.team },
@@ -258,7 +259,8 @@ test('the NFL API freezes the original decision, grades it later, and preserves 
   const api = moduleWithStubs('lib/footballPublicDataHistory.ts', {
     './ncaafEzpzPolicy': ncaaPolicy, './ncaafTrendRecordPolicy': finalPolicy,
     './nflEzpzPolicy': policy, './nflEzpzWilson': wilson, './nflEzpzRecords': records, './nflTrendIdentity': identity,
-    './ezpzPublicSplitEligibility': eligibility, './footballPublicDataLegacy': { buildFootballPublicData: async () => data },
+    './ezpzPublicSplitEligibility': eligibility, './footballTrendCatalogStore': { captureFootballCatalog: async (_s, rows, plays) => ({ rows, plays, status: {} }) },
+    './footballPublicDataLegacy': { buildFootballPublicData: async () => data },
     './sportSheets': { readSportWorksheet: async () => stored,
       upsertSportRows: async (_sport, _tab, _headers, rows) => {
         const merged = new Map(stored.map(r => [r['Pick Key'], r]));
@@ -289,7 +291,8 @@ test('the NFL API freezes the original decision, grades it later, and preserves 
 test('NFL previews stay out of official history until final; the card displays its captured score and last seven', () => {
   const saved = select([play()], history(4, 1))[0];
   const tile = moduleWithStubs('app/FootballBoard.tsx', {
-    '../lib/ncaafEzpzPolicy': ncaaPolicy, '../lib/ncaafTrendRecordPolicy': finalPolicy,
+    '../lib/footballTrendCatalog': load(path.join(root,'lib/footballTrendCatalog.ts')),
+  '../lib/ncaafEzpzPolicy': ncaaPolicy, '../lib/ncaafTrendRecordPolicy': finalPolicy,
     '../lib/nflEzpzPolicy': policy, '../lib/ezpzPublicSplitEligibility': eligibility,
     './TeamLogoName': { TeamLogoName: p => p.team, MatchupWithLogos: p => p.game, SelectionWithTeamLogo: p => p.selection },
   }, '\nexport const cardTest = HistoryPickCard;');

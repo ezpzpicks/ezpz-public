@@ -544,7 +544,7 @@ export async function buildFootballPublicData(
   if (sport === "NCAAF") {
     // Saved pick history must never replace or supplement the validated market
     // ledger: old FINAL labels and old prices/lines are not final-snapshot proof.
-    const verifiedTrendRows = hardenDirectTrendRecordRows(trendRows.filter(isVerifiedNcaafTrendRecord), sport);
+    const verifiedTrendRows = trendRows.filter(isVerifiedNcaafTrendRecord);
     return {
       ...data, aiPicks, aiPickRecordRows: backfilledRecordRows,
       trendRecordRows: verifiedTrendRows,

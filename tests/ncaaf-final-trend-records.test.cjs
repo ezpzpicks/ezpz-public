@@ -28,6 +28,7 @@ const core = moduleWithStubs('lib/footballPublicDataCore.ts', {
   './footballWeeklyMarket': weekly, './ncaafEzpzPolicy': movement, './ncaafTrendRecordPolicy': policy,
 }, '\nexport const recordsTest = { buildNcaafFinalTrendRecordRows, buildFootballEzpzRecordRows };').recordsTest;
 const marketBoard = moduleWithStubs('app/FootballTrendMarketBoard.tsx', {
+  '../lib/footballTrendCatalog': load(path.join(root, 'lib/footballTrendCatalog.ts')),
   '../lib/ncaafEzpzPolicy': movement, '../lib/ncaafTrendRecordPolicy': policy,
   '../lib/ncaafPublicTrendLeaderboard': leaderboard,
 });
@@ -147,7 +148,7 @@ test('Sharp tile badges and Over/Under records use separate verified final sampl
   assert.equal(tile.directTrendRecord([...rows, legacy], 'NCAAF', 'Sharp', 'Under', '2026-10-09').record, '1-0-0');
 });
 
-test('every NCAAF signal uses the verified ledger in the overall table and exact-type last-seven records', () => {
+test('every NCAAF signal uses the verified ledger even when it falls outside the public top 20', () => {
   const over = finalPlay();
   const under = finalPlay({ side: 'Under', selection: 'Under', betsPct: 40, moneyPct: 10, openingBetsPct: 20 });
   const favorite = finalPlay({ game: 'UCLA @ Maryland', awayTeam: 'UCLA', homeTeam: 'Maryland', market: 'Spread',
@@ -164,14 +165,17 @@ test('every NCAAF signal uses the verified ledger in the overall table and exact
     score({ Game: publicSide.game, 'Away Team': 'Public', 'Home Team': 'Fade' })]);
   const legacy = rows.map(row => ({ ...row, 'Record Snapshot Policy': '', Result: 'L' }));
   const html = recordHtml([...rows, ...legacy]);
+  const full = leaderboard.buildNcaafTrendSubtypes([...rows, ...legacy]);
+  assert.ok(leaderboard.buildNcaafPublicTrendLeaderboard(rows).every(type => type.totals.winPct > 60));
   for (const [signal, betType] of [['RLM', 'Under'], ['Sharp', 'Over'], ['Public Fade', 'Under'],
     ['Total Drop Fade', 'Over'], ['Spread Ticket Momentum', 'Favorite']]) {
-    assert.match(html, new RegExp(signal + ' - ' + (betType === 'Favorite' ? 'Favorite Spread' : betType)));
+    assert.ok(full.some(type => type.signal === signal && type.category === (betType === 'Favorite' ? 'Favorite Spread' : betType)), signal);
     const actual = tile.directTrendRecord(rows, 'NCAAF', signal, betType, '2026-10-08');
     const withLegacy = tile.directTrendRecord([...rows, ...legacy], 'NCAAF', signal, betType, '2026-10-08');
     assert.ok(actual.totalBets > 0, signal);
     assert.equal(actual.record, withLegacy.record, signal);
   }
+  assert.doesNotMatch(html, /RLM - Under/);
   assert.deepEqual(Array.from(tile.directTrendTypes({ qualification: 'Total Drop Fade' })), ['Total Drop Fade']);
   assert.deepEqual(Array.from(tile.directTrendTypes({ qualification: 'Spread Ticket Momentum' })), ['Spread Ticket Momentum']);
 });
@@ -201,7 +205,9 @@ test('separate RLM totals on the same date remain separate final-snapshot decisi
   const rows = build([first, opposite(first), second, opposite(second)], [score(),
     score({ Game: second.game, 'Away Team': second.awayTeam, 'Home Team': second.homeTeam })]);
   const html = recordHtml(rows);
-  assert.match(html, /RLM - Under<\/strong><\/td><td[^>]*>0-2-0<\/td>/);
+  const hidden = leaderboard.buildNcaafTrendSubtypes(rows).find(type => type.signal === 'RLM' && type.category === 'Under');
+  assert.equal(hidden.totals.record, '0-2-0');
+  assert.doesNotMatch(html, /RLM - Under/);
   assert.equal(tile.directTrendRecord(rows, 'NCAAF', 'RLM', 'Under', '2026-10-08').record, '0-2-0');
 });
 

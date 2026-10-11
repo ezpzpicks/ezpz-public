@@ -1,3 +1,4 @@
+import { catalogSide, catalogSelectionIdentity, catalogEvaluationFor, catalogSignals, catalogSignalLabel, catalogEventKey, evaluateFootballCatalogGroup } from "./footballTrendCatalog";
 import { classifyNcaafMovement, finiteNcaafNumber, isNcaafSharpPlay } from "./ncaafEzpzPolicy";
 import { isVerifiedNcaafTrendRecord } from "./ncaafTrendRecordPolicy";
 
@@ -32,7 +33,7 @@ function textKey(value: unknown) {
 }
 
 export function ncaafTrendSubtypeId(signal: string, category: NcaafTrendCategory) {
-  return `${textKey(signal)}|${textKey(category)}`;
+  return `${signal.startsWith("catalog:") ? signal : textKey(signal)}|${textKey(category)}`;
 }
 
 export function ncaafTrendCategory(play: TrendSide): NcaafTrendCategory | null {
@@ -60,9 +61,9 @@ function percentage(value: unknown) {
 
 // These are memberships, not pick eligibility. Hidden and losing signals keep
 // their records; presentation filters only after all memberships are graded.
-export function ncaafTrendSignals(play: TrendSide, siblings: TrendSide[]): string[] {
+export function ncaafTrendSignals(play: TrendSide, siblings: TrendSide[], sport = "NCAAF"): string[] {
   if (!ncaafTrendCategory(play)) return [];
-  const labels: string[] = [];
+  const labels: string[] = catalogSignals(catalogEvaluationFor(play, siblings, sport), sport);
   if (isNcaafSharpPlay(play)) labels.push("Sharp");
   labels.push(...classifyNcaafMovement(play).labels);
 
@@ -86,25 +87,7 @@ export function ncaafTrendSignals(play: TrendSide, siblings: TrendSide[]): strin
   return labels;
 }
 
-function recordSide(row: SheetRow): TrendSide {
-  return {
-    market: row.Market,
-    selection: row["Public Split Selection"] || row.Selection,
-    selectionTeam: row["Public Split Selection"] || row.Selection,
-    side: row.Side || row.Selection,
-    line: row["Public Split Line"] || row.Line,
-    openingLine: row["Opening Public Split Line"] || row["Opening Line"] || row["Opening Total"],
-    betsPct: row["Public Bets %"] || row["Current Public %"],
-    moneyPct: row["Public Money %"] || row["Current Sharp %"],
-    openingBetsPct: row["Opening Public %"] || row["Opening Bets %"],
-    publicMovementPct: row["Public Change %"],
-    lineMovementValue: row["Line Movement Value"],
-    lineMovementBasis: row["Line Movement Basis"],
-    openingMoneyPct: row["Opening Sharp %"] || row["Opening Money %"],
-    openingSnapshotTime: row["Opening Public Split Snapshot Time"],
-    updatedAt: row["Public Split Snapshot Time"],
-  };
-}
+function recordSide(row: SheetRow): TrendSide { return catalogSide(row); }
 
 function resultCode(row: SheetRow) {
   const result = String(row.Result || row.Status || "").toUpperCase().trim();
@@ -139,7 +122,7 @@ function recordTotals(rows: SheetRow[]): NcaafTrendTotals {
 // Rank exact fractions before rounding the displayed percentage. Push-only and
 // ungraded types have no win percentage and cannot earn a public badge.
 export function rankNcaafPublicTrendSubtypes(subtypes: NcaafPublicTrendSubtype[]) {
-  return subtypes.filter(row => row.totals.wins + row.totals.losses > 0)
+  return subtypes.filter(row => row.totals.wins * 5 > (row.totals.wins + row.totals.losses) * 3)
     .sort((a, b) => {
       const aDecisions = a.totals.wins + a.totals.losses;
       const bDecisions = b.totals.wins + b.totals.losses;
@@ -152,16 +135,17 @@ export function rankNcaafPublicTrendSubtypes(subtypes: NcaafPublicTrendSubtype[]
 export function buildNcaafTrendSubtypes(rows: SheetRow[], options: {
   signalsFor?: typeof ncaafTrendSignals;
   gameIdentity?: (row: Record<string, any>) => string;
+  sport?: string;
 } = {}): NcaafPublicTrendSubtype[] {
   const signalsFor = options.signalsFor || ncaafTrendSignals;
-  const gameIdentity = options.gameIdentity || ((row: SheetRow) => `${row.Date}|${textKey(row.Game || row["Game Key"])}`);
+  const sport = options.sport || "NCAAF";
+  const gameIdentity = options.gameIdentity || ((row: SheetRow) => catalogEventKey(row, sport));
   const groups = new Map<string, Map<string, SheetRow>>();
   for (const row of rows) {
     if (!isVerifiedNcaafTrendRecord(row) || !resultCode(row)) continue;
-    const groupKey = options.gameIdentity ? `${gameIdentity(row)}|${textKey(row.Market)}`
-      : row["Direct Trend Group Key"] || [row.Date, textKey(row.Game), textKey(row.Market)].join("|");
+    const groupKey = gameIdentity(row);
     const group = groups.get(groupKey) || new Map<string, SheetRow>();
-    const selection = sideKey(recordSide(row));
+    const selection = `${textKey(row.Market)}|${catalogSelectionIdentity(row, sport)}`;
     if (!selection) continue;
     if (!group.has(selection)) group.set(selection, row);
     groups.set(groupKey, group);
@@ -170,6 +154,8 @@ export function buildNcaafTrendSubtypes(rows: SheetRow[], options: {
   for (const group of groups.values()) {
     const uniqueRows = [...group.values()];
     const plays = uniqueRows.map(recordSide);
+    const evaluations = plays.every(play => play.catalogEvaluation) ? [] : evaluateFootballCatalogGroup(plays, sport);
+    plays.forEach((play, i) => { if (!play.catalogEvaluation) play.catalogEvaluation = evaluations[i]; });
     for (let i = 0; i < uniqueRows.length; i++) {
       const category = ncaafTrendCategory(plays[i]);
       if (!category) continue;
@@ -188,7 +174,7 @@ export function buildNcaafTrendSubtypes(rows: SheetRow[], options: {
   }
   return [...buckets].map(([id, bucket]) => ({
     id, signal: bucket.signal, category: bucket.category,
-    label: `${bucket.signal} - ${bucket.category}`, totals: recordTotals(bucket.rows),
+    label: `${catalogSignalLabel(bucket.signal)} - ${bucket.category}`, totals: recordTotals(bucket.rows),
     lastSevenTotals: recordTotals([...bucket.rows].sort((a, b) =>
       (Date.parse(b["Game Time"] || b["Public Split Snapshot Time"] || "") || 0)
       - (Date.parse(a["Game Time"] || a["Public Split Snapshot Time"] || "") || 0)
@@ -208,5 +194,6 @@ export function visibleNcaafTrendBadges(
   if (!category) return [];
   const signals = new Set(ncaafTrendSignals(play, siblings));
   return leaderboard.slice(0, NCAAF_PUBLIC_TREND_LIMIT)
-    .filter(subtype => subtype.category === category && signals.has(subtype.signal));
+    .filter(subtype => subtype.totals.wins * 5 > (subtype.totals.wins + subtype.totals.losses) * 3
+      && subtype.category === category && signals.has(subtype.signal));
 }

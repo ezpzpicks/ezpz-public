@@ -161,7 +161,10 @@ test('RLM can become EZPZ using its own graded subtype; an opposite side from an
   const a = play({ market: 'Spread', side: '', selection: 'Alpha', selectionTeam: 'Alpha', line: -4.5, betsPct: 45, moneyPct: 45 });
   const b = { ...a, selection: 'Beta', selectionTeam: 'Beta', line: 4.5, betsPct: 55, moneyPct: 55,
     openingBetsPct: 40, publicMovementPct: 15, lineMovementValue: -2, lineMovementBasis: 'Spread Line' };
-  assert.equal(select([a, b], records)[0].trendSubtypeId, 'rlm|favorite spread');
+  const chosen = select([a, b], records)[0];
+  assert.equal(chosen.selection, 'Alpha -4.5');
+  assert.equal(chosen.rankingRecord, '4-1-0');
+  assert.equal(leaderboard.buildNcaafTrendSubtypes(records).find(s => s.id === 'rlm|favorite spread').totals.record, '4-1-0');
   assert.equal(select([a, { ...b, game: 'Different @ Game' }], records).length, 0);
 });
 
@@ -216,6 +219,7 @@ test('the production history layer selects, persists and grades the Wilson pick 
   const api = moduleWithStubs('lib/footballPublicDataHistory.ts', {
     './ncaafEzpzPolicy': policy, './ncaafEzpzWilson': wilson, './ncaafTrendRecordPolicy': recordPolicy,
     './nflEzpzPolicy': load(path.join(root, 'lib/nflEzpzPolicy.ts')),
+    './footballTrendCatalogStore': { captureFootballCatalog: async (_s, rows, plays) => ({ rows, plays, status: {} }) },
     './footballPublicDataLegacy': { buildFootballPublicData: async () => core },
     './ezpzPublicSplitEligibility': eligibility,
     './sportSheets': { readSportWorksheet: async () => stored,
@@ -253,7 +257,8 @@ test('the production history layer selects, persists and grades the Wilson pick 
 test('the EZPZ card displays the saved Wilson evidence and last-seven record; records count actual saved picks', () => {
   const original = select([play()], sharpHistory(4, 1))[0];
   const tiles = moduleWithStubs('app/FootballBoard.tsx', {
-    '../lib/ncaafEzpzPolicy': policy, '../lib/ncaafTrendRecordPolicy': recordPolicy,
+    '../lib/footballTrendCatalog': load(path.join(root,'lib/footballTrendCatalog.ts')),
+  '../lib/ncaafEzpzPolicy': policy, '../lib/ncaafTrendRecordPolicy': recordPolicy,
     '../lib/ezpzPublicSplitEligibility': eligibility,
     './TeamLogoName': { TeamLogoName: p => p.team, MatchupWithLogos: p => p.game, SelectionWithTeamLogo: p => p.selection },
   }, '\nexport const cardTest = HistoryPickCard;');

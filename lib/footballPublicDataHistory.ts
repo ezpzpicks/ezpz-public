@@ -1,3 +1,4 @@
+import { captureFootballCatalog } from "./footballTrendCatalogStore";
 import { finiteNcaafNumber, selectNcaafEzpzPicks, NCAAF_EZPZ_RULE, NCAAF_EZPZ_POLICY_VERSION } from "./ncaafEzpzPolicy";
 import { isVerifiedNcaafTrendRecord } from "./ncaafTrendRecordPolicy";
 import { buildNcaafEzpzLeaderboard, isNcaafWilsonArchivedPick, selectNcaafWilsonEzpzPicks } from "./ncaafEzpzWilson";
@@ -1011,6 +1012,10 @@ export async function buildFootballPublicData(
   options: { forceFresh?: boolean; persist?: boolean } = {},
 ) {
   const core = await buildLegacyFootballPublicData(sport, options) as AnyPick;
+  const catalogCapture = await captureFootballCatalog(sport, core.trendRecordRows || [], core.trendPlays || [], Boolean(options.persist));
+  core.trendRecordRows = catalogCapture.rows;
+  core.trendPlays = catalogCapture.plays;
+  core.catalogTracking = catalogCapture.status;
   const today = isoDate(core.today) || new Date().toISOString().slice(0, 10);
   let history = await readHistory(sport);
   const selectionTime = Date.now();

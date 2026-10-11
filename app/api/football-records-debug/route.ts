@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ALL_GAME_TRENDS_HEADERS, PUBLIC_SPLIT_HEADERS } from "../../../lib/footballPublicData";
 import { readSportWorksheet, type FootballSport } from "../../../lib/sportSheets";
+import { footballCatalog } from "../../../lib/footballTrendCatalog";
+import { CATALOG_ENTRIES_TAB, CATALOG_DEFINITIONS_TAB } from "../../../lib/footballTrendCatalogStore";
+
+export const dynamic = "force-dynamic";
 
 function code(value: unknown) {
   const text = String(value || "").trim().toUpperCase();
@@ -61,6 +65,26 @@ function detail(row: Record<string, string>) {
 export async function GET(request: NextRequest) {
   const requested = String(request.nextUrl.searchParams.get("sport") || "NCAAF").toUpperCase();
   const sport: FootballSport = requested === "NFL" ? "NFL" : "NCAAF";
+  if (request.nextUrl.searchParams.get("catalog") === "1") {
+    const config = footballCatalog(sport);
+    const [storedEntries, storedDefinitions] = await Promise.all([
+      readSportWorksheet(sport, CATALOG_ENTRIES_TAB),
+      readSportWorksheet(sport, CATALOG_DEFINITIONS_TAB),
+    ]);
+    const entries = storedEntries.filter(row => row["Definition Version"] === config.version);
+    const definitions = storedDefinitions.filter(row => row["Definition Version"] === config.version);
+    return NextResponse.json({
+      sport, version: config.version, registeredDirections: config.rules.length * 2,
+      storedDirections: definitions.length, storedMarketEntries: entries.length,
+      uniqueMarketEntries: new Set(entries.map(row => row["Entry Key"])).size,
+      trackingDirections: definitions.filter(row => row.Status === "TRACKING").length,
+      waitingForInputs: definitions.filter(row => row.Status === "WAITING_FOR_INPUTS").length,
+      matchedMemberships: definitions.reduce((n, row) => n + Number(row.Entries || 0), 0),
+      gradedMemberships: definitions.reduce((n, row) => n + Number(row.Wins || 0) + Number(row.Losses || 0) + Number(row.Pushes || 0), 0),
+      pendingMarketEntries: entries.filter(row => !code(row.Result)).length,
+      publicLimit: 20, publicWinPctExclusiveMinimum: 60,
+    }, { headers: { "Cache-Control": "no-store, max-age=0" } });
+  }
   const debugDate = String(request.nextUrl.searchParams.get("date") || "").trim();
   const debugPlayer = textKey(request.nextUrl.searchParams.get("player") || "");
   const worksheetNames = sport === "NFL"
