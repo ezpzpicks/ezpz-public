@@ -100,6 +100,9 @@ function recordSide(row: SheetRow): TrendSide {
     publicMovementPct: row["Public Change %"],
     lineMovementValue: row["Line Movement Value"],
     lineMovementBasis: row["Line Movement Basis"],
+    openingMoneyPct: row["Opening Sharp %"] || row["Opening Money %"],
+    openingSnapshotTime: row["Opening Public Split Snapshot Time"],
+    updatedAt: row["Public Split Snapshot Time"],
   };
 }
 
@@ -146,11 +149,17 @@ export function rankNcaafPublicTrendSubtypes(subtypes: NcaafPublicTrendSubtype[]
 }
 
 // Build the full graded catalog before any presentation or EZPZ ranking cap.
-export function buildNcaafTrendSubtypes(rows: SheetRow[]): NcaafPublicTrendSubtype[] {
+export function buildNcaafTrendSubtypes(rows: SheetRow[], options: {
+  signalsFor?: typeof ncaafTrendSignals;
+  gameIdentity?: (row: Record<string, any>) => string;
+} = {}): NcaafPublicTrendSubtype[] {
+  const signalsFor = options.signalsFor || ncaafTrendSignals;
+  const gameIdentity = options.gameIdentity || ((row: SheetRow) => `${row.Date}|${textKey(row.Game || row["Game Key"])}`);
   const groups = new Map<string, Map<string, SheetRow>>();
   for (const row of rows) {
     if (!isVerifiedNcaafTrendRecord(row) || !resultCode(row)) continue;
-    const groupKey = row["Direct Trend Group Key"] || [row.Date, textKey(row.Game), textKey(row.Market)].join("|");
+    const groupKey = options.gameIdentity ? `${gameIdentity(row)}|${textKey(row.Market)}`
+      : row["Direct Trend Group Key"] || [row.Date, textKey(row.Game), textKey(row.Market)].join("|");
     const group = groups.get(groupKey) || new Map<string, SheetRow>();
     const selection = sideKey(recordSide(row));
     if (!selection) continue;
@@ -164,11 +173,11 @@ export function buildNcaafTrendSubtypes(rows: SheetRow[]): NcaafPublicTrendSubty
     for (let i = 0; i < uniqueRows.length; i++) {
       const category = ncaafTrendCategory(plays[i]);
       if (!category) continue;
-      for (const signal of ncaafTrendSignals(plays[i], plays)) {
+      for (const signal of signalsFor(plays[i], plays)) {
         const id = ncaafTrendSubtypeId(signal, category);
         const bucket = buckets.get(id) || { signal, category, rows: [], games: new Set<string>() };
         const row = uniqueRows[i];
-        const game = `${row.Date}|${textKey(row.Game || row["Game Key"])}`;
+        const game = gameIdentity(row);
         if (!bucket.games.has(game)) {
           bucket.rows.push(row);
           bucket.games.add(game);

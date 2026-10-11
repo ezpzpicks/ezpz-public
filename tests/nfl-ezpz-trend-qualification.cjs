@@ -5,6 +5,7 @@ const path = require("node:path");
 const vm = require("node:vm");
 const ts = require("typescript");
 
+// Preserve checks for the published pre-Wilson NFL selector.
 const source = fs.readFileSync(path.join(__dirname, "../lib/footballPublicDataHistory.ts"), "utf8")
   + "\nexport const testFunctions = { directNflTrendPick, directNflTrendPicks };\n";
 const compiled = ts.transpileModule(source, {
@@ -13,7 +14,8 @@ const compiled = ts.transpileModule(source, {
 const moduleExports = {};
 vm.runInNewContext(compiled.outputText, {
   exports: moduleExports,
-  require: () => ({}),
+  require: name => name === "./nflEzpzPolicy"
+    ? require("./load-typescript.cjs")(path.join(__dirname, "../lib/nflEzpzPolicy.ts")) : {},
   Date, Intl, console,
 });
 const { directNflTrendPick, directNflTrendPicks } = moduleExports.testFunctions;
@@ -145,3 +147,4 @@ test("Week 4 remains on the prior selector so finished games are not retroactive
   assert.equal(picks.length, 1);
   assert.equal(picks[0].tier, "Sharp + Public Fade");
 });
+

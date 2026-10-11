@@ -7,6 +7,7 @@ import FootballModelFormBadges from "./FootballModelFormBadges";
 import { isPublicSplitEzpzPick } from "../lib/ezpzPublicSplitEligibility";
 import { selectNflEzpzHistory } from "../lib/nflEzpzRecords";
 import { classifyNcaafMovement, NCAAF_EZPZ_POLICY_VERSION } from "../lib/ncaafEzpzPolicy";
+import { NFL_EZPZ_POLICY_VERSION } from "../lib/nflEzpzPolicy";
 import { isVerifiedNcaafTrendRecord } from "../lib/ncaafTrendRecordPolicy";
 
 type Tab = "Today’s Model Plays" | "Public Betting Splits" | "EZPZ Picks" | "Full Slate" | "Records";
@@ -653,15 +654,16 @@ function HistoryPickCard({ pick, sport, viewingToday, data }: { pick: EzpzPick; 
   const directBetType = directTrendBetTypeForPick(pick);
   const matchup = matchupTeams(pick.game);
   const gameTimeLabel = ezpzGameTimeInfo(pick.gameTime).label;
-  const wilsonPick = sport === "NCAAF" && pick.selectorVersion === NCAAF_EZPZ_POLICY_VERSION;
+  const wilsonPick = Boolean(pick.selectorVersion)
+    && pick.selectorVersion === (sport === "NFL" ? NFL_EZPZ_POLICY_VERSION : NCAAF_EZPZ_POLICY_VERSION);
 
   if (!isProp && primaryTrend) {
     // Selection priority chooses the posted pick, never the historical sample.
     // Each displayed signal uses all settled results of the matching bet type.
-    const recordSignals = sport === "NFL" ? trendTypes : [primaryTrend];
+    const recordSignals = sport === "NFL" && !wilsonPick ? trendTypes : [primaryTrend];
     const trendRecords = recordSignals.map((signal) => ({
       signal,
-      label: trendRecordTitle(signal, sport, directBetType),
+      label: wilsonPick ? pick.tier || trendRecordTitle(signal, sport, directBetType) : trendRecordTitle(signal, sport, directBetType),
       record: wilsonPick && pick.rankingLastSeven ? {
         record: pick.rankingLastSeven.record, totalBets: pick.rankingLastSeven.totalBets,
         units: pick.rankingLastSeven.unitsWon, roi: pick.rankingLastSeven.roiPct,

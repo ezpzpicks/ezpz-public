@@ -1280,9 +1280,6 @@ function signalBreakdown(signalKey: string, signal: string, tone: Tone, market: 
 const MAX_MISSED_LOCK_FRESHNESS_MINUTES = 20;
 const NCAAF_FINAL_TARGET_MINUTES = 15;
 const NCAAF_FINAL_WINDOW_MINUTES = 5;
-const MAX_LOCK_FALLBACK_AGE_MINUTES = 18 * 60;
-// DraftKings can remove a game from the splits table hours before kickoff.
-// At lock, preserve the last real pregame snapshot instead of discarding it solely because DK stopped publishing it.
 
 function storedSnapshotEpoch(value: unknown) {
   return Date.parse(String(value || "").trim().replace(/ EDT$/, " -0400").replace(/ EST$/, " -0500"));
@@ -1373,6 +1370,23 @@ export function isValidNcaafFinalSnapshot(play: {
   const lead = kickoff - captured;
   return Number.isFinite(kickoff) && Number.isFinite(captured)
     && lead >= 10 * 60_000 && lead <= 20 * 60_000
+    && Date.now() >= kickoff - 10 * 60_000;
+}
+
+// NFL stores both ET wall clocks and ISO timestamps. Resolve them against the
+// game's date before validating a capture or handing it to the Wilson selector.
+export function nflKickoffIso(date: string, eventTime: string) {
+  const kickoff = ncaafKickoffEpoch(date, eventTime);
+  return Number.isFinite(kickoff) ? new Date(kickoff).toISOString() : "";
+}
+
+export function isValidNflFinalSnapshot(play: {
+  date: string; gameTime: string; snapshotStatus?: string; frozenAt?: string; updatedAt?: string;
+}) {
+  const kickoff = Date.parse(nflKickoffIso(play.date, play.gameTime));
+  const captured = storedSnapshotEpoch(play.frozenAt || play.updatedAt);
+  return play.snapshotStatus === "FINAL_PREGAME" && Number.isFinite(kickoff) && Number.isFinite(captured)
+    && kickoff - captured >= 10 * 60_000 && kickoff - captured <= 20 * 60_000
     && Date.now() >= kickoff - 10 * 60_000;
 }
 
@@ -2420,7 +2434,7 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
   const currentNcaafHistoryByKey = new Map<string, SheetRow>();
 
   for (const split of activeSourceSplits) {
-    if (sport === "NCAAF") {
+    {
       const minutes = ncaafMinutesUntilEvent(split.date, split.eventTime, split.sourceKickoff);
       // T-15 is the target final snapshot, with an accepted ±5-minute
       // window. Keep collecting through T-10 so the closest 10-20 minute
@@ -2445,37 +2459,22 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
 
   const liveCandidates: WeeklyTrendPlay[] = [];
   const handledLockKeys = new Set<string>();
+  const nflHistoryBySide = sport === "NFL" ? indexMarketHistoryBySide(marketHistoryRows) : new Map<string, SheetRow[]>();
 
-  // NFL safety pass: independently reconcile every stored LIVE/MISSED_LOCK row
-  // whose authoritative kickoff has reached the lock window. This runs before
-  // live-source processing so a stale/duplicate ScoresAndOdds side cannot mask
-  // a missed finalization from the prior calendar date.
+  // NFL uses the same T-15 target and T-20 through T-10 capture window.
+  // Reconcile source dropouts from their real retained observations.
   if (sport === "NFL") {
     for (const row of effectiveExistingTrends) {
-      const raw = String(row["Details JSON"] || "").trim();
-      if (!raw) continue;
       try {
-        const saved = JSON.parse(raw) as WeeklyTrendPlay;
+        const saved = JSON.parse(String(row["Details JSON"] || "")) as WeeklyTrendPlay;
         if (saved.snapshotStatus === "FINAL_PREGAME" || saved.date > todayET()) continue;
-        const scheduleRow = canonicalGameRow(
-          { date: saved.date, awayTeam: saved.awayTeam, homeTeam: saved.homeTeam } as Pick<Split, "date" | "awayTeam" | "homeTeam">,
-          sport,
-          canonicalRows,
-        );
-        if (!scheduleRow) continue;
-        const authoritativeGameTime = rowEventTime(scheduleRow);
-        const minutes = minutesUntilEvent(saved.date, authoritativeGameTime);
-        if (minutes == null || minutes > 15) continue;
-        const leadMinutes = snapshotLeadToKickoffMinutes(saved, authoritativeGameTime);
-        if (leadMinutes == null || leadMinutes < 0 || leadMinutes > MAX_LOCK_FALLBACK_AGE_MINUTES) continue;
-        liveCandidates.push({
-          ...saved,
-          gameTime: authoritativeGameTime || saved.gameTime,
-          week: footballWeekLabel(sport, saved.date),
-          snapshotStatus: "FINAL_PREGAME" as const,
-          frozenAt: saved.updatedAt,
-          lockWarning: "Recovered from the last verified pregame snapshot using the authoritative NFL kickoff.",
-        });
+        const scheduleRow = canonicalGameRow(saved as unknown as Split, sport, canonicalRows);
+        const gameTime = nflKickoffIso(saved.date, rowEventTime(scheduleRow || {}) || saved.gameTime);
+        const kickoff = Date.parse(gameTime);
+        if (!Number.isFinite(kickoff) || Date.now() < kickoff - 10 * 60_000) continue;
+        const sideHistory = persistedNcaafMarketHistoryRowsForPlay(saved);
+        const resolved = resolveNcaafSnapshot({ ...saved, gameTime }, sideHistory, history);
+        liveCandidates.push({ ...resolved, movementHistory: movementHistoryForPlay(resolved, ncaafHistoryForPlay(resolved, sideHistory)) });
         handledLockKeys.add(trendKey(row));
       } catch {}
     }
@@ -2527,64 +2526,21 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
       if (JSON.stringify(persisted) !== String(existing?.["Details JSON"] || "")) liveCandidates.push(persisted);
       continue;
     }
-    const nflScheduleRow = sport === "NFL" ? canonicalGameRow(split, sport, canonicalRows) : undefined;
-    const authoritativeEventTime = sport === "NFL"
-      ? rowEventTime(nflScheduleRow || {}) || split.eventTime
-      : split.eventTime;
-    const minutes = sport === "NFL"
-      ? minutesUntilEvent(split.date, authoritativeEventTime)
-      : minutesUntil(split);
-    if (minutes != null && minutes <= 15) {
-      handledLockKeys.add(key);
-      if (minutes < 0) {
-        if (existing && String(existing["Details JSON"] || "").trim()) {
-          try {
-            const saved = JSON.parse(String(existing["Details JSON"])) as WeeklyTrendPlay;
-            if (saved.snapshotStatus !== "FINAL_PREGAME") {
-              const leadMinutes = sport === "NFL"
-                ? snapshotLeadToKickoffMinutes(saved, authoritativeEventTime)
-                : snapshotAgeMinutes(saved);
-              const missedLock = leadMinutes == null || leadMinutes < 0 || leadMinutes > (sport === "NFL" ? MAX_LOCK_FALLBACK_AGE_MINUTES : MAX_MISSED_LOCK_FRESHNESS_MINUTES);
-              liveCandidates.push({
-                ...saved,
-                week: footballWeekLabel(sport, saved.date),
-                movementHistory: Array.isArray(saved.movementHistory)
-                  ? saved.movementHistory
-                  : movementHistoryForPlay(saved, marketHistoryRows),
-                snapshotStatus: missedLock ? "MISSED_LOCK" as const : "FINAL_PREGAME" as const,
-                frozenAt: missedLock ? undefined : saved.updatedAt,
-                lockWarning: missedLock
-                  ? `Lock capture missed — last verified ${saved.updatedAt}.`
-                  : "Finalized from the last verified pregame snapshot after ScoresAndOdds stopped updating.",
-              });
-            }
-          } catch { }
-        }
-        continue;
-      }
-      if (existing && String(existing["Details JSON"] || "").trim()) {
-        try {
-          const saved = JSON.parse(String(existing["Details JSON"])) as WeeklyTrendPlay;
-          if (saved.snapshotStatus === "FINAL_PREGAME") continue;
-        } catch { }
-      }
-      const freshLock = buildPlay(split, existing, history, marketHistoryRows);
-      liveCandidates.push({
-        ...freshLock,
-        week: footballWeekLabel(sport, split.date),
-        movementHistory: movementHistoryForPlay(freshLock, marketHistoryRows),
-        snapshotStatus: "FINAL_PREGAME" as const,
-        frozenAt: freshLock.updatedAt,
-        lockWarning: undefined,
-      });
-      continue;
-    }
-    const livePlay = buildPlay(split, existing, history, marketHistoryRows);
-    liveCandidates.push({
-      ...livePlay,
+    handledLockKeys.add(key);
+    if (existing) handledLockKeys.add(trendKey(existing));
+    const scheduleRow = canonicalGameRow(split, sport, canonicalRows);
+    const gameTime = nflKickoffIso(split.date, rowEventTime(scheduleRow || {}) || split.eventTime);
+    let saved: WeeklyTrendPlay | undefined;
+    try { saved = JSON.parse(String(existing?.["Details JSON"] || "")); } catch {}
+    if (saved?.snapshotStatus === "FINAL_PREGAME") continue;
+    const sideKey = splitTrendKey(split);
+    const sideHistory = nflHistoryBySide.get(sideKey) || [];
+    const base = saved ? { ...saved, gameTime } : {
+      ...buildPlay({ ...split, eventTime: gameTime }, existing, history, sideHistory),
       week: footballWeekLabel(sport, split.date),
-      movementHistory: movementHistoryForPlay(livePlay, marketHistoryRows),
-    });
+    };
+    const resolved = resolveNcaafSnapshot(base, sideHistory, history);
+    liveCandidates.push({ ...resolved, movementHistory: movementHistoryForPlay(resolved, ncaafHistoryForPlay(resolved, sideHistory)) });
   }
 
   for (const row of effectiveExistingTrends) {
@@ -2623,35 +2579,12 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
         if (JSON.stringify(displayed) !== raw) liveCandidates.push(displayed);
         continue;
       }
-      if (saved.snapshotStatus === "FINAL_PREGAME") continue;
-      // Re-check today's NFL MISSED_LOCK rows too so a source-dropout fallback can repair them.
-      if (saved.snapshotStatus === "MISSED_LOCK" && sport !== "NFL") continue;
-      if (sport === "NFL" ? saved.date > todayET() : saved.date !== todayET()) continue;
-      const savedScheduleRow = sport === "NFL"
-        ? canonicalGameRow(
-            { date: saved.date, awayTeam: saved.awayTeam, homeTeam: saved.homeTeam } as Pick<Split, "date" | "awayTeam" | "homeTeam">,
-            sport,
-            canonicalRows,
-          )
-        : undefined;
-      const authoritativeGameTime = sport === "NFL"
-        ? rowEventTime(savedScheduleRow || {}) || saved.gameTime
-        : saved.gameTime;
-      const minutes = minutesUntilEvent(saved.date, authoritativeGameTime);
-      if (minutes == null || minutes > 15) continue;
-      const leadMinutes = sport === "NFL"
-        ? snapshotLeadToKickoffMinutes(saved, authoritativeGameTime)
-        : snapshotAgeMinutes(saved);
-      const missedLock = leadMinutes == null || leadMinutes < 0 || leadMinutes > (sport === "NFL" ? MAX_LOCK_FALLBACK_AGE_MINUTES : MAX_MISSED_LOCK_FRESHNESS_MINUTES);
-      liveCandidates.push({
-        ...saved,
-        week: footballWeekLabel(sport, saved.date),
-        snapshotStatus: missedLock ? "MISSED_LOCK" as const : "FINAL_PREGAME" as const,
-        frozenAt: missedLock ? undefined : saved.updatedAt,
-        lockWarning: missedLock
-          ? `Lock capture missed — last verified ${saved.updatedAt}.`
-          : "ScoresAndOdds was unavailable at lock; finalized from the last verified pregame snapshot.",
-      });
+      if (saved.snapshotStatus === "FINAL_PREGAME" || saved.date > todayET()) continue;
+      const scheduleRow = canonicalGameRow(saved as unknown as Split, sport, canonicalRows);
+      const gameTime = nflKickoffIso(saved.date, rowEventTime(scheduleRow || {}) || saved.gameTime);
+      const sideHistory = persistedNcaafMarketHistoryRowsForPlay(saved);
+      const resolved = resolveNcaafSnapshot({ ...saved, gameTime }, sideHistory, history);
+      liveCandidates.push({ ...resolved, movementHistory: movementHistoryForPlay(resolved, ncaafHistoryForPlay(resolved, sideHistory)) });
     } catch { }
   }
   const scored = headToHead(liveCandidates);
@@ -2980,38 +2913,22 @@ export async function readWeeklyFootballMarket(
     ? indexNcaafMarketHistoryByCanonicalSide(marketHistoryRows, canonicalRows)
     : new Map<string, SheetRow[]>();
   const ncaafRecordHistory = sport === "NCAAF" ? historyFromAllGameTrends(allGameTrends) : [];
+  const nflRecordHistory = sport === "NFL" ? historyFromAllGameTrends(allGameTrends) : [];
   const trendPlays: WeeklyTrendPlay[] = [];
   for (const row of sourceRows) {
     const raw = String(row["Details JSON"] || "").trim();
     if (!raw) continue;
     try {
       let play = JSON.parse(raw) as WeeklyTrendPlay;
-      if (sport === "NFL" && play.snapshotStatus !== "FINAL_PREGAME" && play.date <= todayET()) {
-        const scheduleRow = canonicalGameRow(
-          { date: play.date, awayTeam: play.awayTeam, homeTeam: play.homeTeam } as Pick<Split, "date" | "awayTeam" | "homeTeam">,
-          sport,
-          canonicalRows,
-        );
-        const authoritativeGameTime = scheduleRow ? rowEventTime(scheduleRow) : "";
-        const minutes = authoritativeGameTime ? minutesUntilEvent(play.date, authoritativeGameTime) : null;
-        const leadMinutes = authoritativeGameTime
-          ? snapshotLeadToKickoffMinutes(play, authoritativeGameTime)
-          : null;
-        if (
-          minutes != null &&
-          minutes <= 15 &&
-          leadMinutes != null &&
-          leadMinutes >= 0 &&
-          leadMinutes <= MAX_LOCK_FALLBACK_AGE_MINUTES
-        ) {
-          play = {
-            ...play,
-            gameTime: authoritativeGameTime,
-            snapshotStatus: "FINAL_PREGAME",
-            frozenAt: play.updatedAt,
-            lockWarning: "Recovered from the last verified pregame snapshot using the authoritative NFL kickoff.",
-          };
+      if (sport === "NFL") {
+        const scheduleRow = canonicalGameRow(play as unknown as Split, sport, canonicalRows);
+        const gameTime = nflKickoffIso(play.date, rowEventTime(scheduleRow || {}) || play.gameTime);
+        play = { ...play, gameTime };
+        if (play.snapshotStatus !== "FINAL_PREGAME" && play.date <= todayET()) {
+          const sideHistory = persistedNcaafMarketHistoryRowsForPlay(play);
+          play = resolveNcaafSnapshot(play, sideHistory, nflRecordHistory);
         }
+        if (options.finalSnapshotsOnly && !isValidNflFinalSnapshot(play)) continue;
       }
       let ncaafDisplayTime = "";
       if (sport === "NCAAF") {
@@ -3304,7 +3221,8 @@ export async function readWeeklyFootballMarket(
   // A missing price must not manufacture an implied-probability line movement.
   const displayTrendPlays = (sport === "NCAAF"
     ? dedupeNcaafReadTrendPlays(trendPlays, canonicalRows)
-    : trendPlays).map(play => ({ ...play, odds: String(play.odds || "").trim() || "-110" }));
+    : trendPlays).filter(play => !options.finalSnapshotsOnly || sport !== "NFL" || isValidNflFinalSnapshot(play))
+    .map(play => ({ ...play, odds: String(play.odds || "").trim() || "-110" }));
 
   const splits = displayTrendPlays.map((play) => ({
     game: play.game,
@@ -3870,3 +3788,4 @@ export async function readExternalFootballMarket(
     updatedAt: nowET(),
   };
 }
+

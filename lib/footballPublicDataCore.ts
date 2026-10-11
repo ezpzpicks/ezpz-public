@@ -7,8 +7,9 @@ import {
   sportDatabaseLabel,
   upsertSportRows,
 } from "./sportSheets";
-import { isValidNcaafFinalSnapshot, readWeeklyFootballMarket } from "./footballWeeklyMarket";
+import { isValidNcaafFinalSnapshot, isValidNflFinalSnapshot, nflKickoffIso, readWeeklyFootballMarket } from "./footballWeeklyMarket";
 import { NCAAF_TREND_RECORD_POLICY } from "./ncaafTrendRecordPolicy";
+import { nflTrendTeamKey } from "./nflTrendIdentity";
 import {
   SCORES_AND_ODDS_SOURCE,
   assessScoresAndOddsMarketCoverage,
@@ -118,6 +119,7 @@ type TrendSignal = {
 };
 
 type TrendPlay = {
+  firstTrackedAt?: string;
   date: string;
   game: string;
   gameKey: string;
@@ -2447,12 +2449,12 @@ function historicalTrendSplitFromRow(row: SheetRow, sport: FootballSport): Draft
 }
 
 // NCAAF_FINAL_SNAPSHOT_RECORDS_PATCH
-function completedNcaafScoreRow(play: TrendPlay, trendRows: SheetRow[]) {
+function completedNcaafScoreRow(play: TrendPlay, trendRows: SheetRow[], sport: FootballSport = "NCAAF") {
   return trendRows.find((row) => {
     if (isoDate(row.Date || row["Game Date"] || "") !== play.date) return false;
     const sameGame = textKey(row.Game) === textKey(play.game) || (
-      sameTeam(row["Away Team"], play.awayTeam, "NCAAF") &&
-      sameTeam(row["Home Team"], play.homeTeam, "NCAAF")
+      sameTeam(row["Away Team"], play.awayTeam, sport) &&
+      sameTeam(row["Home Team"], play.homeTeam, sport)
     );
     return sameGame && Boolean(resultCode(row.Result || row.Status))
       && finiteSnapshotNumber(row["Actual Away Runs"]) != null
@@ -2460,8 +2462,8 @@ function completedNcaafScoreRow(play: TrendPlay, trendRows: SheetRow[]) {
   });
 }
 
-function gradeFinalNcaafTrendPlay(play: TrendPlay, trendRows: SheetRow[]): ResultCode | "" {
-  const scoreRow = completedNcaafScoreRow(play, trendRows);
+function gradeFinalNcaafTrendPlay(play: TrendPlay, trendRows: SheetRow[], sport: FootballSport = "NCAAF"): ResultCode | "" {
+  const scoreRow = completedNcaafScoreRow(play, trendRows, sport);
   if (scoreRow && play.line != null) {
     const away = finiteSnapshotNumber(scoreRow["Actual Away Runs"]);
     const home = finiteSnapshotNumber(scoreRow["Actual Home Runs"]);
@@ -2472,8 +2474,8 @@ function gradeFinalNcaafTrendPlay(play: TrendPlay, trendRows: SheetRow[]): Resul
         if (Math.abs(diff) < 0.001) return "P";
         return play.side === "Over" ? (diff > 0 ? "W" : "L") : (diff < 0 ? "W" : "L");
       }
-      const selectedAway = sameTeam(play.selectionTeam || play.selection, play.awayTeam, "NCAAF");
-      const selectedHome = sameTeam(play.selectionTeam || play.selection, play.homeTeam, "NCAAF");
+      const selectedAway = sameTeam(play.selectionTeam || play.selection, play.awayTeam, sport);
+      const selectedHome = sameTeam(play.selectionTeam || play.selection, play.homeTeam, sport);
       if (selectedAway || selectedHome) {
         const margin = selectedAway ? away - home : home - away;
         const adjusted = margin + play.line;
@@ -2486,20 +2488,25 @@ function gradeFinalNcaafTrendPlay(play: TrendPlay, trendRows: SheetRow[]): Resul
 }
 
 function buildNcaafFinalTrendRecordRows(plays: TrendPlay[], scoreRows: SheetRow[]): SheetRow[] {
+  return buildFootballFinalTrendRecordRows(plays, scoreRows, "NCAAF");
+}
+
+function buildFootballFinalTrendRecordRows(plays: TrendPlay[], scoreRows: SheetRow[], sport: FootballSport): SheetRow[] {
   const records = new Map<string, SheetRow>();
   for (const play of plays) {
-    if (!isValidNcaafFinalSnapshot(play)) continue;
+    if (!(sport === "NFL" ? isValidNflFinalSnapshot(play) : isValidNcaafFinalSnapshot(play))) continue;
     const line = finiteSnapshotNumber(play.line);
     const bets = finiteSnapshotNumber(play.betsPct);
     const money = finiteSnapshotNumber(play.moneyPct);
     if (line == null || bets == null || money == null || bets < 0 || bets > 100 || money < 0 || money > 100) continue;
-    const scoreRow = completedNcaafScoreRow(play, scoreRows);
+    const scoreRow = completedNcaafScoreRow(play, scoreRows, sport);
     if (!scoreRow) continue;
-    const result = gradeFinalNcaafTrendPlay(play, [scoreRow]);
+    const result = gradeFinalNcaafTrendPlay(play, [scoreRow], sport);
     if (!result) continue;
     const selection = play.market === "Total" ? play.side : play.selectionTeam || play.selection;
-    const groupKey = [play.date, textKey(play.awayTeam), textKey(play.homeTeam), play.market].join("|");
-    const key = `${groupKey}|${textKey(selection)}`;
+    const teamKey = sport === "NFL" ? nflTrendTeamKey : textKey;
+    const groupKey = [play.date, teamKey(play.awayTeam), teamKey(play.homeTeam), play.market].join("|");
+    const key = `${groupKey}|${play.market === "Spread" ? teamKey(selection) : textKey(selection)}`;
     const openingBets = finiteSnapshotNumber(play.openingBetsPct);
     const validOpening = openingBets != null && openingBets > 0 && openingBets < 100;
     const openingLine = validOpening ? finiteSnapshotNumber(play.openingLine) : null;
@@ -2507,7 +2514,8 @@ function buildNcaafFinalTrendRecordRows(plays: TrendPlay[], scoreRows: SheetRow[
     const lineMove = openingLine == null ? null : play.market === "Spread" || play.side === "Under"
       ? openingLine - line : line - openingLine;
     records.set(key, {
-      Date: play.date, "Game Key": play.gameKey, Game: play.game, "Game Time": play.gameTime,
+      Date: play.date, "Game Key": play.gameKey, Game: play.game,
+      "Game Time": sport === "NFL" ? nflKickoffIso(play.date, play.gameTime) : play.gameTime,
       "Away Team": play.awayTeam, "Home Team": play.homeTeam,
       "Direct Trend Group Key": groupKey, Market: play.market, Selection: selection, Side: play.side,
       Line: String(line), Odds: play.odds, "Public Split Selection": selection,
@@ -2520,6 +2528,7 @@ function buildNcaafFinalTrendRecordRows(plays: TrendPlay[], scoreRows: SheetRow[
       "Sharp Change %": openingMoney == null ? "" : String(money - openingMoney),
       "Opening Public Split Line": openingLine == null ? "" : String(openingLine),
       "Opening Public Split Odds": play.openingOdds || "",
+      "Opening Public Split Snapshot Time": String(play.firstTrackedAt || ""),
       "Line Movement Basis": lineMove == null ? "" : play.market === "Spread" ? "Spread Line" : "Total Line",
       "Line Movement Value": lineMove == null ? "" : String(lineMove),
       "Public Split Snapshot Time": String(play.frozenAt || play.updatedAt),
@@ -3014,13 +3023,11 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
   const displayTrendPlays = Array.isArray(weeklyMarket.trendPlays)
     ? weeklyMarket.trendPlays as unknown as TrendPlay[]
     : [];
-  const completedTrendDates = sport === "NCAAF"
-    ? [...new Set(trendRows
+  const completedTrendDates = [...new Set(trendRows
         .filter((row) => Boolean(resultCode(row.Result || row.Status)))
         .map((row) => isoDate(row.Date || row["Game Date"] || ""))
-        .filter(Boolean))]
-    : [];
-  const recordWeeklyMarket = sport === "NCAAF" && completedTrendDates.length
+        .filter(Boolean))];
+  const recordWeeklyMarket = completedTrendDates.length
     ? await readWeeklyFootballMarket(sport, { dateKeys: completedTrendDates, hydrateHistory: false, finalSnapshotsOnly: true })
     : weeklyMarket;
   const recordTrendPlays = Array.isArray(recordWeeklyMarket.trendPlays)
@@ -3087,11 +3094,9 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
       "Line Movement Value": play.lineMovementValue == null ? "" : String(play.lineMovementValue),
     };
   });
-  // All NCAAF trends share the same saved final-snapshot ledger. Regrade the
+  // Both football sports share the same saved final-snapshot ledger. Regrade the
   // selected snapshot line from the completed score instead of cached W/L codes.
-  const publicTrendRows = sport === "NCAAF"
-    ? buildNcaafFinalTrendRecordRows(recordTrendPlays, trendRows)
-    : legacyPublicTrendRows;
+  const publicTrendRows = buildFootballFinalTrendRecordRows(recordTrendPlays, trendRows, sport);
   // EZPZ is a daily card, even though the football trend board tracks the full market week.
   // Keep the weekly trend payload for the Trend Plays tab, but only today's games may enter EZPZ.
   const liveTodaySchedule=liveSchedule.filter((row)=>isoDate(row.Date||row["Game Date"]||"")===today);
@@ -3272,4 +3277,5 @@ export async function buildFootballPublicData(
 
 // Small pure exports used by CI to guarantee football follows the MLB trend contract.
 export const __test__ = { warningFor, movementForSplit, trendRecord, windows, windowMetrics, signalBreakdown, headToHead, parseBettingSplits, footballWeekBounds, minutesUntilKickoff, settleTrendRows, settleTrendRowsFromTracker, historyFromTrendRows, buildTrendPlay };
+
 

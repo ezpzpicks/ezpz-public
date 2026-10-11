@@ -40,6 +40,7 @@ const board = moduleWithStubs('app/FootballTrendMarketBoard.tsx', {
   '../lib/ncaafEzpzPolicy': load(path.join(root, 'lib/ncaafEzpzPolicy.ts')),
   '../lib/ncaafTrendRecordPolicy': load(path.join(root, 'lib/ncaafTrendRecordPolicy.ts')),
   '../lib/ncaafPublicTrendLeaderboard': leaderboard,
+  '../lib/nflPublicTrendLeaderboard': load(path.join(root, 'lib/nflPublicTrendLeaderboard.ts')),
   './TeamLogoName': { SelectionWithTeamLogo: props => props.selection, TeamLogoName: props => props.team },
 });
 
@@ -105,10 +106,13 @@ test('changing the viewed market week does not rerank badges from that week; the
 test('NFL record and badge behavior does not depend on the NCAAF leaderboard', () => {
   const row = verifiedRow('One @ Game', 'W');
   const html = renderToStaticMarkup(board.DirectTrendRecords({ rows: [row], sport: 'NFL' }));
-  assert.match(html, /Sharp - Overall/);
+  assert.match(html, /Sharp - Over/);
+  assert.match(html, /Top 20 NFL/);
   assert.doesNotMatch(html, /Top 20 NCAAF/);
   const play = { game: 'One @ Game', gameKey: 'one', market: 'Total', side: 'Over', selection: 'Over',
     line: 52.5, odds: '-110', betsPct: 30, moneyPct: 60 };
-  const splits = renderToStaticMarkup(board.FootballTrendMarketBoard({ groups: [{ game: play.game, plays: [play] }], sport: 'NFL' }));
+  const splits = renderToStaticMarkup(board.FootballTrendMarketBoard({ groups: [{ game: play.game, plays: [play] }], sport: 'NFL',
+    nflLeaderboard: [{ id: 'sharp|over', signal: 'Sharp', category: 'Over', label: 'Sharp - Over',
+      totals: { wins: 1, losses: 0 } }] }));
   assert.match(splits, /directTrendBadge sharp/);
 });

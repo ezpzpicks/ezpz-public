@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { MatchupWithLogos, SelectionWithTeamLogo, TeamLogoName } from "./TeamLogoName";
 import { DirectTrendRecords, FootballTrendMarketBoard } from "./FootballTrendMarketBoard";
 import { buildNcaafPublicTrendLeaderboard, type NcaafPublicTrendSubtype } from "../lib/ncaafPublicTrendLeaderboard";
+import { buildNflPublicTrendLeaderboard } from "../lib/nflPublicTrendLeaderboard";
 import { NCAAF_SPREAD_TICKET_MOMENTUM_RULE } from "../lib/ncaafEzpzPolicy";
 
 type SheetRow = Record<string, string>;
@@ -89,6 +90,7 @@ type FootballData = {
   today: string; lastUpdated: string; database?: string; bestPlays: Play[]; slateToday: SheetRow[];
   betTrackerRows?: SheetRow[]; trendRecordRows?: SheetRow[]; draftKingsSignalRows?: FootballSignalHistoryRow[];
   ncaafPublicTrendLeaderboard?: NcaafPublicTrendSubtype[];
+  nflPublicTrendLeaderboard?: NcaafPublicTrendSubtype[];
   trendPlays?: TrendPlay[]; aiPicks?: EzpzPick[]; aiPickRecordRows?: EzpzPick[]; recordSummary?: Summary[];
   last7RecordSummary?: Summary[]; aiSelectorStatus?: { message?: string };
   draftKings?: { status: string; updatedAt: string; splits: DraftKingsSplit[]; errors?: string[]; stale?: boolean; displayMode?: string; source?: string };
@@ -1606,9 +1608,10 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
 }, [weeklyData?.games, data.slateToday, data.today]);
 
   const summaryMap = new Map<string, Summary>((data.recordSummary || []).map((row) => [row.betType, row]));
-  const ncaafLeaderboard = useMemo(() => sport === "NCAAF"
+  const publicLeaderboard = useMemo(() => sport === "NCAAF"
     ? data.ncaafPublicTrendLeaderboard || buildNcaafPublicTrendLeaderboard(data.trendRecordRows || [])
-    : [], [sport, data.ncaafPublicTrendLeaderboard, data.trendRecordRows]);
+    : data.nflPublicTrendLeaderboard || buildNflPublicTrendLeaderboard(data.trendRecordRows || []),
+    [sport, data.ncaafPublicTrendLeaderboard, data.nflPublicTrendLeaderboard, data.trendRecordRows]);
   const last7Map = new Map<string, Summary>((data.last7RecordSummary || []).map((row) => [row.betType, row]));
   const trackerRows = data.betTrackerRows || [];
   const todayByType = fbTodayRecordMap(trackerRows, data.today, sport);
@@ -1633,13 +1636,13 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
             <small>View signal definitions</small>
           </summary>
           <div className="directTrendRules betTrendGlossaryBody">
-            <span><b>Public Fade</b> {sport === "NFL" ? "Fade the opposite side when 80%+ of bets are on one side." : "Fade the opposite side when the public side has more than 75% of bets and at least a 55-point Bets/Money gap."}</span>
+            <span><b>Public Fade</b> Take the opposite side when the public side has more than 75% of bets and at least a 55-point Bets/Money gap.</span>
             <span><b>RLM</b> Public bets rise 5+ points while the spread or total moves 1.5+ points against that side.</span>
             <span><b>Sharp</b> Money share exceeds bet share by 25+ points.</span>
-            {sport === "NFL" ? <span><b>Market Move</b> Follow a total when the total line moves 1.0+ point in that direction.</span> : null}
-            {sport === "NFL" ? <span><b>Money Momentum</b> Money share rises 10+ points while the spread or total moves 0.5+ point toward that side.</span> : null}
-            {sport === "NCAAF" ? <span><b>Total Drop Fade</b> Take the Over when the game total has dropped at least 1.5 points from its opening line.</span> : null}
-            {sport === "NCAAF" ? <span><b>Spread Ticket Momentum</b> {NCAAF_SPREAD_TICKET_MOMENTUM_RULE}</span> : null}
+            {sport === "NFL" ? <span><b>Market Move</b> Follow a total when the total line moves 1.0+ point in that direction, with at least one hour of tracked history.</span> : null}
+            {sport === "NFL" ? <span><b>Money Momentum</b> Money share rises 10+ points while the spread or total moves 0.5+ point toward that side, with at least one hour of tracked history.</span> : null}
+            <span><b>Total Drop Fade</b> Take the Over when the game total has dropped at least 1.5 points from its opening line.</span>
+            <span><b>Spread Ticket Momentum</b> {NCAAF_SPREAD_TICKET_MOMENTUM_RULE}</span>
           </div>
         </details>
         <div className="trendGamesCountRow">
@@ -1649,8 +1652,8 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
           <label><span>View market week</span><select value={activeWeek} onChange={(event) => setSelectedWeek(event.target.value)} disabled={!trendWeeks.length}>{trendWeeks.length ? trendWeeks.map((week) => <option key={week} value={week}>{week}</option>) : <option value="">No weeks yet</option>}</select></label>
         </div>
       </div>
-      {displayedTrendGroups.length ? <FootballTrendMarketBoard groups={displayedTrendGroups} sport={sport} ncaafLeaderboard={ncaafLeaderboard} /> : <div className="empty footballEmpty">No {sport} ScoresAndOdds Spread/Total markets are stored for {activeWeek || "this week"} yet.</div>}
-      <div className="directTrendRecordWrap"><DirectTrendRecords rows={data.trendRecordRows || []} trendPlays={data.trendPlays || []} today={data.today} sport={sport} ncaafLeaderboard={ncaafLeaderboard} /></div>
+      {displayedTrendGroups.length ? <FootballTrendMarketBoard groups={displayedTrendGroups} sport={sport} ncaafLeaderboard={publicLeaderboard} nflLeaderboard={publicLeaderboard} /> : <div className="empty footballEmpty">No {sport} ScoresAndOdds Spread/Total markets are stored for {activeWeek || "this week"} yet.</div>}
+      <div className="directTrendRecordWrap"><DirectTrendRecords rows={data.trendRecordRows || []} trendPlays={data.trendPlays || []} today={data.today} sport={sport} ncaafLeaderboard={publicLeaderboard} nflLeaderboard={publicLeaderboard} /></div>
     </>;
   } else if (tab === "EZPZ Picks") {
     content = <>
@@ -1713,7 +1716,7 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
       </div>
       <div className="sectionHead"><div><h2>Betting Split Records</h2><p>Only the three active market signals: Public Fade, RLM, and Sharp</p></div></div>
       <div className="advancedRecordsStack">
-        <DirectTrendRecords rows={trendRows} trendPlays={data.trendPlays || []} today={data.today} sport={sport} ncaafLeaderboard={ncaafLeaderboard} />
+        <DirectTrendRecords rows={trendRows} trendPlays={data.trendPlays || []} today={data.today} sport={sport} ncaafLeaderboard={publicLeaderboard} nflLeaderboard={publicLeaderboard} />
       </div>
       <div className="sectionHead"><div><h2>Bet Type Records</h2><p>Exact A/B grade + market + direction subsets used by HOT / COLD / SMALL SAMPLE</p></div></div>
       <div className="advancedRecordsStack">

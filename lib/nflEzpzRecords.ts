@@ -1,5 +1,6 @@
 import { isPublicSplitEzpzPick } from "./ezpzPublicSplitEligibility";
-import { NFL_CORE_SELECTOR_EFFECTIVE_DATE, savedNflCoreClass } from "./nflEzpzPolicy";
+import { NFL_CORE_SELECTOR_EFFECTIVE_DATE, NFL_EZPZ_POLICY_VERSION, NFL_WILSON_EFFECTIVE_AT, savedNflCoreClass } from "./nflEzpzPolicy";
+import { isNflWilsonArchivedPick } from "./nflEzpzWilson";
 
 type Pick = Record<string, any>;
 
@@ -63,6 +64,8 @@ function finalSnapshot(pick: Pick) {
 function eligible(pick: Pick) {
   if (pick.qualified === false || pick.ezpzEligible === false || americanOdds(pick.odds) < -150) return false;
   if (/^(?:rejected|cancelled|canceled|pass|skipped|void)/.test(textKey(pick.snapshotStatus))) return false;
+  if (pick.selectorVersion === NFL_EZPZ_POLICY_VERSION) return isNflWilsonArchivedPick(pick);
+  if (String(pick.selectorVersion || "").startsWith("nfl-wilson-")) return false;
   const trend = isPublicSplitEzpzPick(pick);
   if (pick.date >= NFL_CORE_SELECTOR_EFFECTIVE_DATE) {
     return trend && Boolean(savedNflCoreClass(pick.market, pick.tier)) && finalSnapshot(pick);
@@ -86,6 +89,19 @@ function preferPick(left: Pick, right: Pick) {
   // A frozen decision owns the game even if its grade is still pending.
   const finalDiff = Number(finalSnapshot(right)) - Number(finalSnapshot(left));
   if (finalDiff) return finalDiff > 0 ? right : left;
+  if (left.selectorVersion === NFL_EZPZ_POLICY_VERSION || right.selectorVersion === NFL_EZPZ_POLICY_VERSION) {
+    const legacy = left.selectorVersion === NFL_EZPZ_POLICY_VERSION ? right : left;
+    if (legacy.selectorVersion !== NFL_EZPZ_POLICY_VERSION && decisionTime(legacy) < Date.parse(NFL_WILSON_EFFECTIVE_AT)) return legacy;
+    if (left.selectorVersion !== right.selectorVersion) return left.selectorVersion === NFL_EZPZ_POLICY_VERSION ? left : right;
+    const lockedDiff = Date.parse(String(right.lockedAt)) - Date.parse(String(left.lockedAt));
+    if (lockedDiff) return lockedDiff < 0 ? right : left;
+    // The same captured decision may later acquire its result. Its stored
+    // score cannot be replaced by a fresh ranking after a loss.
+    if (left.selection === right.selection && Boolean(resultCode(left.result)) !== Boolean(resultCode(right.result))) {
+      return resultCode(right.result) ? right : left;
+    }
+    return left;
+  }
   if (left.date >= NFL_CORE_SELECTOR_EFFECTIVE_DATE) {
     const priorityDiff = savedNflCoreClass(right.market, right.tier)!.priority - savedNflCoreClass(left.market, left.tier)!.priority;
     if (priorityDiff) return priorityDiff < 0 ? right : left;
@@ -151,3 +167,4 @@ export function buildNflEzpzRecords(rows: Pick[], today: string) {
     overall: recordTotals(settled, "EZPZ Picks - Running Total"),
   };
 }
+

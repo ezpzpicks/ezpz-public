@@ -87,6 +87,7 @@ type FootballData = {
   betTrackerRows?: SheetRow[];
   trendRecordRows?: SheetRow[];
   ncaafPublicTrendLeaderboard?: NcaafPublicTrendSubtype[];
+  nflPublicTrendLeaderboard?: NcaafPublicTrendSubtype[];
   trendPlays?: any[];
   recordSummary?: Summary[];
   last7RecordSummary?: Summary[];
@@ -549,7 +550,7 @@ function FootballRecords({ sport, data }: { sport: Sport; data: FootballData }) 
         </div>
         <div className="sectionHead"><div><h2>Betting Split Records</h2></div></div>
         <div className="recordsDropdownStack advancedRecordsStack">
-          <DirectTrendRecords rows={data.trendRecordRows || []} trendPlays={data.trendPlays || []} aiPickRows={data.aiPickRecordRows || []} today={data.today || ""} sport={sport} ncaafLeaderboard={data.ncaafPublicTrendLeaderboard} />
+          <DirectTrendRecords rows={data.trendRecordRows || []} trendPlays={data.trendPlays || []} aiPickRows={data.aiPickRecordRows || []} today={data.today || ""} sport={sport} ncaafLeaderboard={data.ncaafPublicTrendLeaderboard} nflLeaderboard={data.nflPublicTrendLeaderboard} />
         </div>
         <div className="sectionHead"><div><h2>Bet Type Records</h2></div></div>
         <div className="advancedRecordsStack">

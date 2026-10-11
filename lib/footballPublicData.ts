@@ -3,6 +3,7 @@ import { overlayPublishedDirectTrendRows } from "./footballDirectTrendLedger";
 import { isVerifiedNcaafTrendRecord, NCAAF_TREND_RECORD_POLICY } from "./ncaafTrendRecordPolicy";
 import { buildNflEzpzRecords } from "./nflEzpzRecords";
 import { buildNcaafPublicTrendLeaderboard } from "./ncaafPublicTrendLeaderboard";
+import { buildNflPublicTrendLeaderboard } from "./nflPublicTrendLeaderboard";
 import {
   readSportWorksheet,
   upsertSportRows,
@@ -548,6 +549,19 @@ export async function buildFootballPublicData(
       ...data, aiPicks, aiPickRecordRows: backfilledRecordRows,
       trendRecordRows: verifiedTrendRows,
       ncaafPublicTrendLeaderboard: buildNcaafPublicTrendLeaderboard(verifiedTrendRows),
+      trendRecordPolicy: NCAAF_TREND_RECORD_POLICY,
+    };
+  }
+
+  if (sport === "NFL") {
+    // Use original verified observations for memberships. Published pick
+    // labels must never manufacture percentages or movement history.
+    const verifiedTrendRows = trendRows.filter(isVerifiedNcaafTrendRecord);
+    return {
+      ...data, aiPicks, aiPickRecordRows: backfilledRecordRows,
+      ezpzRecords: buildNflEzpzRecords(backfilledRecordRows, String(data.today || "")),
+      trendRecordRows: verifiedTrendRows,
+      nflPublicTrendLeaderboard: buildNflPublicTrendLeaderboard(verifiedTrendRows),
       trendRecordPolicy: NCAAF_TREND_RECORD_POLICY,
     };
   }

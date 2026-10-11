@@ -38,7 +38,7 @@ test("combined total outranks spread; a pending chosen pick cannot be replaced b
 });
 
 test("a frozen final owns the game before settlement, even over a higher-priority live preview", () => {
-  const summary = records([falcons(), under({ snapshotStatus: "FINAL_PREGAME", result: "" })], today);
+  const summary = records([falcons({ snapshotStatus: "LIVE" }), under({ snapshotStatus: "FINAL_PREGAME", result: "" })], today);
   assert.equal(summary.last7Days.totalBets, 0);
   assert.equal(summary.history[0].selection, "Under 47.5");
 });
@@ -88,3 +88,4 @@ test("legacy Strong and Regular yardage history remains, obsolete A/B and Lean d
   assert.equal(summary.last7Days.winPct, 100);
   assert.equal(summary.last7Days.roiPct, 60);
 });
+

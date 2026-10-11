@@ -5,7 +5,7 @@ const vm = require("node:vm");
 const { test } = require("node:test");
 const ts = require("typescript");
 
-// Exercise the production selector without initializing storage or network clients.
+// Exercise the preserved pre-Wilson selector without storage or network clients.
 const source = fs.readFileSync(path.join(__dirname, "../lib/footballPublicDataHistory.ts"), "utf8");
 const exportsForTest = {};
 vm.runInNewContext(ts.transpileModule(source + "\nexports.select = directNflTrendPicks;", {
@@ -14,7 +14,7 @@ vm.runInNewContext(ts.transpileModule(source + "\nexports.select = directNflTren
   exports: exportsForTest,
   require(name) {
     if (name === "./nflEzpzPolicy") return require("./load-typescript.cjs")(path.join(__dirname, "../lib/nflEzpzPolicy.ts"));
-    assert.ok(["./footballPublicDataLegacy", "./ezpzPublicSplitEligibility", "./sportSheets", "./ncaafEzpzPolicy", "./ncaafTrendRecordPolicy"].includes(name));
+    assert.ok(["./footballPublicDataLegacy", "./ezpzPublicSplitEligibility", "./sportSheets", "./ncaafEzpzPolicy", "./ncaafTrendRecordPolicy", "./ncaafEzpzWilson", "./nflEzpzWilson", "./nflEzpzRecords", "./nflTrendIdentity"].includes(name));
     return {};
   },
 });
@@ -99,3 +99,4 @@ test("missing football spread and total prices use -110 and keep signal priority
   assert.equal(select(priced)[0].odds, "-125");
   assert.equal(select(priced)[0].oddsSource, "SNAPSHOT");
 });
+
