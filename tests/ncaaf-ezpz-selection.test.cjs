@@ -8,6 +8,8 @@ const load = require('./load-typescript.cjs');
 const policy = load(path.join(__dirname,'../lib/ncaafEzpzPolicy.ts'));
 const { isPublicSplitEzpzPick } = load(path.join(__dirname,'../lib/ezpzPublicSplitEligibility.ts'));
 const recordPolicy = load(path.join(__dirname,'../lib/ncaafTrendRecordPolicy.ts'));
+// Protect the legacy decision reconstruction. Current Wilson selection and
+// the production history/persistence path are covered in ncaaf-ezpz-wilson.test.cjs.
 const api = {};
 vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(__dirname,'../lib/footballPublicDataCore.ts'),'utf8')+'\nexport const regression = { buildFootballEzpzPicks };', {
   compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022},
@@ -196,3 +198,4 @@ test('Sharp spread history verifies the selected team, signed line and exact fin
   assert.equal(policy.selectNcaafEzpzPicks([historyApi.evidence(pick,[wrong])],true).length,0,JSON.stringify(wrong));
  }
 });
+

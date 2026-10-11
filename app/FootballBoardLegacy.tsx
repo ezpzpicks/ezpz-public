@@ -7,6 +7,7 @@ import { DirectTrendRecords } from "./FootballTrendMarketBoard";
 import { MatchupWithLogos, SelectionWithTeamLogo, TeamLogoName } from "./TeamLogoName";
 import { buildNflEzpzRecords } from "../lib/nflEzpzRecords";
 import { type NcaafPublicTrendSubtype } from "../lib/ncaafPublicTrendLeaderboard";
+import { isPublicSplitEzpzPick } from "../lib/ezpzPublicSplitEligibility";
 
 type Tab = "Today’s Model Plays" | "Public Betting Splits" | "EZPZ Picks" | "Full Slate" | "Records";
 type Sport = "NFL" | "NCAAF";
@@ -80,6 +81,7 @@ type FootballData = {
   bestPlays?: NflPlay[];
   aiPicks?: NflEzpzPick[];
   aiPickRecordRows?: any[];
+  ncaafEzpzTrendLeaderboard?: unknown[];
   ezpzRecords?: ReturnType<typeof buildNflEzpzRecords>;
   aiSelectorStatus?: { message?: string };
   betTrackerRows?: SheetRow[];
@@ -452,6 +454,20 @@ function ezpzHistoryKey(row: SheetRow) {
   return `${date}|${game}|spread|${team}`;
 }
 function footballEzpzHistoryRows(data: FootballData, sport: Sport) {
+  // The Wilson stream is the saved card, including older posted decisions.
+  // Reconstructing retired qualifications would add picks that were never posted.
+  if (sport === "NCAAF" && Array.isArray(data.ncaafEzpzTrendLeaderboard)) {
+    const saved = new Map<string, SheetRow>();
+    for (const pick of data.aiPickRecordRows || []) {
+      if (!isPublicSplitEzpzPick(pick) || pick.snapshotStatus !== "FINAL_PREGAME" || !resultCode(pick.result)) continue;
+      const row: SheetRow = { Date: String(pick.date || ""), Game: String(pick.game || ""),
+        Market: String(pick.market || ""), Selection: String(pick.selection || ""),
+        Odds: String(pick.odds || "-110"), Result: resultCode(pick.result) };
+      const identity = ezpzHistoryKey(row);
+      if (identity && !saved.has(identity)) saved.set(identity, row);
+    }
+    return [...saved.values()];
+  }
   const modelRows = ezpzModelHistoryRows(data.betTrackerRows || [], sport);
   const trendRows = sport === "NCAAF" ? ezpzCfbTrendHistoryRows(data.trendRecordRows || []) : [];
   const merged = new Map<string, SheetRow>();

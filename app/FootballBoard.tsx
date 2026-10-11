@@ -6,7 +6,7 @@ import { MatchupWithLogos, SelectionWithTeamLogo, TeamLogoName } from "./TeamLog
 import FootballModelFormBadges from "./FootballModelFormBadges";
 import { isPublicSplitEzpzPick } from "../lib/ezpzPublicSplitEligibility";
 import { selectNflEzpzHistory } from "../lib/nflEzpzRecords";
-import { classifyNcaafMovement } from "../lib/ncaafEzpzPolicy";
+import { classifyNcaafMovement, NCAAF_EZPZ_POLICY_VERSION } from "../lib/ncaafEzpzPolicy";
 import { isVerifiedNcaafTrendRecord } from "../lib/ncaafTrendRecordPolicy";
 
 type Tab = "Today’s Model Plays" | "Public Betting Splits" | "EZPZ Picks" | "Full Slate" | "Records";
@@ -50,6 +50,13 @@ type EzpzPick = {
   snapshotStatus?: string;
   result?: ResultCode | string;
   resultUpdated?: string;
+  selectorVersion?: string;
+  trendSubtypeId?: string;
+  trendRank?: number;
+  wilsonScore?: number;
+  rankingRecord?: string;
+  rankingWinPct?: number;
+  rankingLastSeven?: { record: string; totalBets: number; unitsWon: number; roiPct: number };
 };
 
 type FootballData = Record<string, any> & {
@@ -646,6 +653,7 @@ function HistoryPickCard({ pick, sport, viewingToday, data }: { pick: EzpzPick; 
   const directBetType = directTrendBetTypeForPick(pick);
   const matchup = matchupTeams(pick.game);
   const gameTimeLabel = ezpzGameTimeInfo(pick.gameTime).label;
+  const wilsonPick = sport === "NCAAF" && pick.selectorVersion === NCAAF_EZPZ_POLICY_VERSION;
 
   if (!isProp && primaryTrend) {
     // Selection priority chooses the posted pick, never the historical sample.
@@ -654,7 +662,10 @@ function HistoryPickCard({ pick, sport, viewingToday, data }: { pick: EzpzPick; 
     const trendRecords = recordSignals.map((signal) => ({
       signal,
       label: trendRecordTitle(signal, sport, directBetType),
-      record: directTrendRecord(
+      record: wilsonPick && pick.rankingLastSeven ? {
+        record: pick.rankingLastSeven.record, totalBets: pick.rankingLastSeven.totalBets,
+        units: pick.rankingLastSeven.unitsWon, roi: pick.rankingLastSeven.roiPct,
+      } : directTrendRecord(
         data.trendRecordRows || [],
         sport,
         signal,
@@ -689,6 +700,13 @@ function HistoryPickCard({ pick, sport, viewingToday, data }: { pick: EzpzPick; 
           </div>
           <strong className="footballHistoryTrendOdds">{displayOdds(pick.odds)}</strong>
         </div>
+
+        {wilsonPick ? <div className="footballHistoryTrendRecordInline" data-wilson-subtype={pick.trendSubtypeId}>
+          <span className="footballHistoryTrendRecordLabel">Wilson ranking • #{pick.trendRank}</span>
+          <strong>{Number(pick.wilsonScore).toFixed(1)}</strong>
+          <span>{pick.rankingRecord}</span>
+          <span>{Number(pick.rankingWinPct).toFixed(1)}% wins</span>
+        </div> : null}
 
         {trendRecords.map(({ signal, label, record }) => (
           <div className="footballHistoryTrendRecordInline" key={signal}>
@@ -817,4 +835,5 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
   if (tab !== "EZPZ Picks") return <LegacyFootballBoard sport={sport} tab={tab} data={data as any} />;
   return <FootballEzpzHistory sport={sport} data={data} />;
 }
+
 

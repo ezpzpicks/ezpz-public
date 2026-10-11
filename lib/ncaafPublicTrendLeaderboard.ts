@@ -15,6 +15,7 @@ export type NcaafTrendTotals = {
   winPct: number;
   unitsWon: number;
   roiPct: number;
+  netUnits?: number;
 };
 export type NcaafPublicTrendSubtype = {
   id: string;
@@ -22,6 +23,7 @@ export type NcaafPublicTrendSubtype = {
   category: NcaafTrendCategory;
   label: string;
   totals: NcaafTrendTotals;
+  lastSevenTotals?: NcaafTrendTotals;
 };
 
 function textKey(value: unknown) {
@@ -127,6 +129,7 @@ function recordTotals(rows: SheetRow[]): NcaafTrendTotals {
     winPct: decisions ? Math.round(wins / decisions * 1000) / 10 : 0,
     unitsWon: Math.round(units * 100) / 100,
     roiPct: totalBets ? Math.round(units / totalBets * 1000) / 10 : 0,
+    netUnits: units,
   };
 }
 
@@ -142,7 +145,8 @@ export function rankNcaafPublicTrendSubtypes(subtypes: NcaafPublicTrendSubtype[]
     }).slice(0, NCAAF_PUBLIC_TREND_LIMIT);
 }
 
-export function buildNcaafPublicTrendLeaderboard(rows: SheetRow[]): NcaafPublicTrendSubtype[] {
+// Build the full graded catalog before any presentation or EZPZ ranking cap.
+export function buildNcaafTrendSubtypes(rows: SheetRow[]): NcaafPublicTrendSubtype[] {
   const groups = new Map<string, Map<string, SheetRow>>();
   for (const row of rows) {
     if (!isVerifiedNcaafTrendRecord(row) || !resultCode(row)) continue;
@@ -153,7 +157,7 @@ export function buildNcaafPublicTrendLeaderboard(rows: SheetRow[]): NcaafPublicT
     if (!group.has(selection)) group.set(selection, row);
     groups.set(groupKey, group);
   }
-  const buckets = new Map<string, { signal: string; category: NcaafTrendCategory; rows: SheetRow[] }>();
+  const buckets = new Map<string, { signal: string; category: NcaafTrendCategory; rows: SheetRow[]; games: Set<string> }>();
   for (const group of groups.values()) {
     const uniqueRows = [...group.values()];
     const plays = uniqueRows.map(recordSide);
@@ -162,16 +166,30 @@ export function buildNcaafPublicTrendLeaderboard(rows: SheetRow[]): NcaafPublicT
       if (!category) continue;
       for (const signal of ncaafTrendSignals(plays[i], plays)) {
         const id = ncaafTrendSubtypeId(signal, category);
-        const bucket = buckets.get(id) || { signal, category, rows: [] };
-        bucket.rows.push(uniqueRows[i]);
+        const bucket = buckets.get(id) || { signal, category, rows: [], games: new Set<string>() };
+        const row = uniqueRows[i];
+        const game = `${row.Date}|${textKey(row.Game || row["Game Key"])}`;
+        if (!bucket.games.has(game)) {
+          bucket.rows.push(row);
+          bucket.games.add(game);
+        }
         buckets.set(id, bucket);
       }
     }
   }
-  return rankNcaafPublicTrendSubtypes([...buckets].map(([id, bucket]) => ({
+  return [...buckets].map(([id, bucket]) => ({
     id, signal: bucket.signal, category: bucket.category,
     label: `${bucket.signal} - ${bucket.category}`, totals: recordTotals(bucket.rows),
-  })));
+    lastSevenTotals: recordTotals([...bucket.rows].sort((a, b) =>
+      (Date.parse(b["Game Time"] || b["Public Split Snapshot Time"] || "") || 0)
+      - (Date.parse(a["Game Time"] || a["Public Split Snapshot Time"] || "") || 0)
+      || (Date.parse(b["Result Updated"] || "") || 0) - (Date.parse(a["Result Updated"] || "") || 0)
+      || String(a.Game).localeCompare(String(b.Game))).slice(0, 7)),
+  }));
+}
+
+export function buildNcaafPublicTrendLeaderboard(rows: SheetRow[]): NcaafPublicTrendSubtype[] {
+  return rankNcaafPublicTrendSubtypes(buildNcaafTrendSubtypes(rows));
 }
 
 export function visibleNcaafTrendBadges(

@@ -1,7 +1,8 @@
-export const NCAAF_EZPZ_POLICY_VERSION = "ncaaf-movement-v6-sharp-first";
+export const NCAAF_EZPZ_POLICY_VERSION = "ncaaf-wilson-v7-top20";
+export const NCAAF_WILSON_EFFECTIVE_AT = "2026-10-11T05:54:20Z";
 export const NCAAF_SHARP_MIN_MONEY_OVER_BETS_PCT = 25;
 export const NCAAF_SPREAD_TICKET_MOMENTUM_RULE = "Follow the spread side when the line moves at least 1 point toward it and its ticket share rises at least 7 percentage points, and either the selected team is a favorite laying less than 15 points or its ticket share rises by more than 20 percentage points. Either condition qualifies; both are not required.";
-export const NCAAF_EZPZ_RULE = "NCAAF EZPZ Picks: one pick per game, Sharp spreads and totals first, then Total Drop Fade (Over after a 1.5+ point total drop), then Spread Ticket Momentum. " + NCAAF_SPREAD_TICKET_MOMENTUM_RULE + " Sharp selects a spread team, Over, or Under when its money share is at least 25 percentage points above its bet share. Odds must be -150 or better; missing spread/total odds default to -110. RLM and Public Fade remain tracked only. Records use verified final snapshots only.";
+export const NCAAF_EZPZ_RULE = "NCAAF EZPZ Picks: up to 20 tracked trend subtypes ranked by the one-sided 95% Wilson lower-bound score. Subtypes require an actual win rate above 60% and positive ROI, with no fixed minimum number of bets. One pick per game uses the highest-ranked qualifying subtype. Only verified final-snapshot results settled before the decision count; the supporting record and rank are saved when the pick locks. Odds must be -150 or better; missing spread/total odds default to -110.";
 
 type MovementPlay = {
   market?: unknown;
@@ -72,7 +73,7 @@ export function isNcaafSharpPlay(play: MovementPlay) {
     && money - bets >= NCAAF_SHARP_MIN_MONEY_OVER_BETS_PCT;
 }
 
-// Public movement badges remain independent; EZPZ gives Sharp first priority.
+// Legacy classification is retained for decisions posted before the Wilson policy.
 export function classifyNcaafEzpzTrend(play: MovementPlay) {
   if (isNcaafSharpPlay(play)) return { labels: ["Sharp"], score: 100 };
   return classifyNcaafMovement(play);
@@ -102,6 +103,8 @@ export function ncaafPickPriority(pick: NcaafPick) {
 }
 
 export function selectNcaafEzpzPicks<T extends NcaafPick>(picks: T[], finalOnly = false): T[] {
+  // Preserve pre-Wilson posted decisions. Current live selection is implemented
+  // in ncaafEzpzWilson and uses graded subtype records rather than these priorities.
   const eligible = picks.map(pick => String(pick.odds ?? "").trim()
     ? pick
     : { ...pick, odds: "-110" }
@@ -121,3 +124,4 @@ export function selectNcaafEzpzPicks<T extends NcaafPick>(picks: T[], finalOnly 
     return true;
   });
 }
+
