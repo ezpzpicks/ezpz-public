@@ -1,6 +1,7 @@
 import { captureFootballCatalog } from "./footballTrendCatalogStore";
 import { finiteNcaafNumber, selectNcaafEzpzPicks, NCAAF_EZPZ_RULE, NCAAF_EZPZ_POLICY_VERSION } from "./ncaafEzpzPolicy";
 import { isVerifiedNcaafTrendRecord } from "./ncaafTrendRecordPolicy";
+import type { buildNcaafTrendSubtypes } from "./ncaafPublicTrendLeaderboard";
 import { buildNcaafEzpzLeaderboard, isNcaafWilsonArchivedPick, selectNcaafWilsonEzpzPicks } from "./ncaafEzpzWilson";
 import { NFL_CORE_PICK_CLASSES, NFL_CORE_SELECTOR_EFFECTIVE_DATE, NFL_EZPZ_POLICY_VERSION, NFL_EZPZ_RULE } from "./nflEzpzPolicy";
 import { buildNflEzpzLeaderboard, selectNflWilsonEzpzPicks } from "./nflEzpzWilson";
@@ -1007,7 +1008,7 @@ async function readHistory(sport: FootballSport) {
 
 export async function buildFootballPublicData(
   sport: FootballSport,
-  options: { forceFresh?: boolean; persist?: boolean; publicDisplay?: boolean } = {},
+  options: { forceFresh?: boolean; persist?: boolean; publicDisplay?: boolean; buildSubtypes?: typeof buildNcaafTrendSubtypes } = {},
 ) {
   let core: AnyPick;
   try {
@@ -1036,7 +1037,7 @@ export async function buildFootballPublicData(
   let history = await readHistory(sport);
   const selectionTime = Date.now();
   const ncaafEzpzTrendLeaderboard = sport === "NCAAF"
-    ? buildNcaafEzpzLeaderboard(core.trendRecordRows || [], selectionTime) : [];
+    ? buildNcaafEzpzLeaderboard(core.trendRecordRows || [], selectionTime, undefined, { buildSubtypes: options.buildSubtypes }) : [];
   const nflEzpzTrendLeaderboard = sport === "NFL"
     ? buildNflEzpzLeaderboard(core.trendRecordRows || [], selectionTime) : [];
 
@@ -1047,7 +1048,7 @@ export async function buildFootballPublicData(
   const rows = Array.isArray(core.trendRecordRows) ? core.trendRecordRows : [];
   const currentPicks = sport === "NFL"
     ? selectNflWilsonEzpzPicks(plays, rows, today, selectionTime, archived)
-    : selectNcaafWilsonEzpzPicks(plays, rows, today, selectionTime, archived);
+    : selectNcaafWilsonEzpzPicks(plays, rows, today, selectionTime, archived, { buildSubtypes: options.buildSubtypes });
   // NCAAF_FINAL_ONLY_HISTORY_PATCH
   const existingByKey = new Map(history.map((row) => [String(row["Pick Key"] || pickKey(row, row.Date)), row]));
   const historyEligibleCurrentPicks = currentPicks.filter((pick: AnyPick) => textKey(pick.snapshotStatus) === "final pregame");

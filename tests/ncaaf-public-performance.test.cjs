@@ -9,6 +9,9 @@ const root = path.join(__dirname, '..');
 const display = load(path.join(root, 'lib/footballPublicDisplay.ts'));
 const weeks = load(path.join(root, 'lib/footballPublicWeeks.ts'));
 const policy = load(path.join(root, 'lib/ncaafTrendRecordPolicy.ts'));
+const leaderboard = load(path.join(root, 'lib/ncaafPublicTrendLeaderboard.ts'));
+const wilson = load(path.join(root, 'lib/ncaafEzpzWilson.ts'));
+const catalog = load(path.join(root, 'lib/footballTrendCatalog.ts'));
 
 test('chart presentation retains endpoints and every change without mutating observations or memberships', () => {
   const points = Array.from({length: 1000}, (_, i) => ({ snapshotTime: String(i),
@@ -50,6 +53,23 @@ test('compact catalog responses restore every membership and diagnostic without 
   assert.equal(JSON.stringify(restored),JSON.stringify(payload));
   assert.equal(payload.trendPlays[0].catalogEvaluation,evaluation);
   assert.equal(wire.catalogFilterGroups.length,3);
+});
+
+test('request subtype reuse preserves decision cutoffs when the eligible record set changes', () => {
+  const config=catalog.footballCatalog('NCAAF');
+  const evaluation={version:config.version,memberships:[{pair:config.rules[0].id,direction:0,filters:[]}],missing:[],ambiguous:[]};
+  const base={Date:'2026-10-10',Market:'Total',Selection:'Over',Side:'Over','Public Split Line':'50','Public Split Odds':'-110',
+    Result:'W','Record Snapshot Policy':policy.NCAAF_TREND_RECORD_POLICY,'Snapshot Status':'FINAL_PREGAME',
+    'Public Split Snapshot Time':'2026-10-10T14:45:00Z','Game Time':'2026-10-10T15:00:00Z','Catalog Membership JSON':JSON.stringify(evaluation)};
+  const rows=[{...base,Game:'Army @ Temple','Result Updated':'2026-10-10T18:00:00Z'},
+    {...base,Game:'Duke @ Virginia','Result Updated':'2026-10-10T19:00:00Z'}];
+  const build=leaderboard.createNcaafSubtypeBuilder();
+  const all=build(rows);
+  assert.equal(build([...rows]),all);
+  const before=build(wilson.ncaafRowsBeforeDecision(rows,Date.parse('2026-10-10T18:30:00Z')));
+  assert.equal(before[0].totals.wins,1);
+  assert.equal(all[0].totals.wins,2);
+  assert.equal(build(rows),all);
 });
 
 test('public NCAAF reads use the verified final ledger and never replay archived charts; audit cache stays separate', async () => {

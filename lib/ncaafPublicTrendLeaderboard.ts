@@ -162,8 +162,23 @@ export function buildNcaafTrendSubtypes(rows: SheetRow[], options: {
   }));
 }
 
-export function buildNcaafPublicTrendLeaderboard(rows: SheetRow[]): NcaafPublicTrendSubtype[] {
-  return rankNcaafPublicTrendSubtypes(buildNcaafTrendSubtypes(rows));
+export function createNcaafSubtypeBuilder(): typeof buildNcaafTrendSubtypes {
+  const entries: Array<{ rows: SheetRow[]; options: Parameters<typeof buildNcaafTrendSubtypes>[1]; result: NcaafPublicTrendSubtype[] }> = [];
+  return (rows, options) => {
+    const eligible = rows.filter(row => isVerifiedNcaafTrendRecord(row) && resultCode(row));
+    const cached = entries.find(entry => entry.options?.signalsFor === options?.signalsFor
+      && entry.options?.gameIdentity === options?.gameIdentity && entry.options?.sport === options?.sport
+      && entry.rows.length === eligible.length && entry.rows.every((row, i) => row === eligible[i]));
+    if (cached) return cached.result;
+    const result = buildNcaafTrendSubtypes(eligible, options);
+    entries.push({ rows: eligible, options, result });
+    if (entries.length > 4) entries.shift();
+    return result;
+  };
+}
+
+export function buildNcaafPublicTrendLeaderboard(rows: SheetRow[], builder = buildNcaafTrendSubtypes): NcaafPublicTrendSubtype[] {
+  return rankNcaafPublicTrendSubtypes(builder(rows));
 }
 
 export function visibleNcaafTrendBadges(
