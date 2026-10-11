@@ -304,3 +304,43 @@ test('NFL previews stay out of official history until final; the card displays i
   assert.doesNotMatch(html, /L7 0-7-0/);
   assert.equal(records.buildNflEzpzRecords([{ ...saved, snapshotStatus: 'LIVE', result: 'W' }], today).history.length, 0);
 });
+
+const catalogCard = moduleWithStubs('app/FootballBoard.tsx', {
+  '../lib/ncaafEzpzPolicy': ncaaPolicy, '../lib/ncaafTrendRecordPolicy': finalPolicy,
+  '../lib/nflEzpzPolicy': policy, '../lib/ezpzPublicSplitEligibility': eligibility,
+  './TeamLogoName': { TeamLogoName: p => p.team, MatchupWithLogos: p => p.game, SelectionWithTeamLogo: p => p.selection },
+}, '\nexport const cardTest = HistoryPickCard;');
+
+for (const example of [
+  { tier: 'Spread: Public 60% Fade + Half Point Quote - Underdog Spread', market: 'Spread', selection: 'TEN +6.5', record: '7-0-0', totalBets: 7 },
+  { tier: 'Total: Ticket Growth 15 to Below 25 pp Fade + Afternoon ET - Under', market: 'Total', selection: 'Under 41.5', record: '6-0-0', totalBets: 6 },
+  { tier: 'Home Spread + Gap -10 to Below 10 pp - Underdog Spread', market: 'Spread', selection: 'NO +2.5', record: '5-0-1', totalBets: 6 },
+]) {
+  for (const sport of ['NFL', 'NCAAF']) test(`${sport} catalog card shows exact subtype evidence for ${example.tier}`, () => {
+    const pick = {
+      ...select([play()], history(4, 1))[0], ...example, qualification: example.tier,
+      selectorVersion: sport === 'NFL' ? policy.NFL_EZPZ_POLICY_VERSION : ncaaPolicy.NCAAF_EZPZ_POLICY_VERSION,
+      rankingRecord: '8-0-1', rankingLastSeven: { ...example, unitsWon: 4.59, roiPct: 76.5 },
+    };
+    for (const viewingToday of [true, false]) {
+      const html = renderToStaticMarkup(catalogCard.cardTest({ pick, sport, viewingToday,
+        data: { today, trendRecordRows: history(0, 7) } }));
+      assert.match(html, /footballHistoryTrendCard/);
+      assert.ok(html.includes(`${example.tier} • Last 7`));
+      assert.ok(html.includes(`L7 ${example.record}`));
+      assert.match(html, /Wilson ranking/);
+      assert.match(html, /\+4\.59u/);
+      assert.match(html, /ROI \+76\.5%/);
+      assert.equal((html.match(/>L7 /g) || []).length, 1);
+      assert.doesNotMatch(html, /L7 8-0-1|L7 0-7-0/);
+    }
+  });
+}
+
+test('a ranked subtype never substitutes a broad legacy record when captured last-seven evidence is missing', () => {
+  const pick = { ...select([play()], history(4, 1))[0], rankingLastSeven: undefined };
+  const html = renderToStaticMarkup(catalogCard.cardTest({ pick, sport: 'NFL', viewingToday: true,
+    data: { today, trendRecordRows: history(0, 7) } }));
+  assert.match(html, /Record unavailable/);
+  assert.doesNotMatch(html, /L7 0-7-0/);
+});
