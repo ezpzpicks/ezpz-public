@@ -28,6 +28,13 @@ function annotate(plays:Side[],sport:string) {
   for(const p of plays){const k=catalogEventKey(p,sport);groups.set(k,[...(groups.get(k)||[]),p]);}
   const evaluated=new Map<Side,CatalogEvaluation>();
   for(const group of groups.values()) {
+    // These rows are the collector's immutable saved memberships. Replaying a
+    // chartless copy on each visitor request cannot improve their evidence.
+    if (group.every(p => isVerifiedNcaafTrendRecord(p)
+      && catalogSide(p).catalogEvaluation?.version === footballCatalog(sport).version)) {
+      for (const p of group) evaluated.set(p, catalogSide(p).catalogEvaluation);
+      continue;
+    }
     // Repeated source aliases must not make a paired market look like four sides.
     const unique=new Map<string,Side>();
     for(const p of group){const s=catalogSide(p);const k=`${s.market}|${catalogSelectionIdentity(s,sport)}`;if(!unique.has(k))unique.set(k,p);}

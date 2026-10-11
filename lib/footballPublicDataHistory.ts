@@ -1078,6 +1078,19 @@ export async function buildFootballPublicData(
     ? await readSportWorksheet("NFL", "schedule")
     : [];
   const nflSummaryCache = new Map<string, Promise<AnyPick | null>>();
+  const byDate = (rows: SheetRow[]) => {
+    const grouped = new Map<string, SheetRow[]>();
+    for (const row of rows) {
+      const date = isoDate(row.Date || row["Game Date"]);
+      const group = grouped.get(date) || [];
+      group.push(row);
+      grouped.set(date, group);
+    }
+    return grouped;
+  };
+  const trendRowsByDate = byDate(core.trendRecordRows || []);
+  const trackerRowsByDate = byDate(core.betTrackerRows || []);
+  const trendRowsFor = (date: unknown) => trendRowsByDate.get(isoDate(date)) || [];
 
   const gradedHistory = await Promise.all(history.map(async (row) => {
     const finalNflTrend = sport === "NFL" ? finalNflTrendSnapshotForHistory(row, core) : null;
@@ -1101,7 +1114,10 @@ export async function buildFootballPublicData(
         }),
       };
     }
-    let settled = settledResultForHistory(workingRow, core, sport);
+    const date = isoDate(workingRow.Date);
+    let settled = settledResultForHistory(workingRow, sport === "NCAAF" ? {
+      ...core, trendRecordRows: trendRowsFor(date), betTrackerRows: trackerRowsByDate.get(date) || [],
+    } : core, sport);
     if (
       !settled.result &&
       sport === "NFL" &&
@@ -1146,8 +1162,8 @@ export async function buildFootballPublicData(
 
   const aiPickRecordRows = gradedHistory
     .map(historyPickFromRow)
-    .map(pick => sport === "NCAAF" && pick.selectorVersion !== NCAAF_EZPZ_POLICY_VERSION ? ncaafSpreadHistoryEvidence(pick, Array.isArray(core.trendRecordRows) ? core.trendRecordRows : []) : pick)
-    .map(pick => sport === "NCAAF" && pick.selectorVersion !== NCAAF_EZPZ_POLICY_VERSION ? ncaafSharpHistoryEvidence(pick, Array.isArray(core.trendRecordRows) ? core.trendRecordRows : []) : pick)
+    .map(pick => sport === "NCAAF" && pick.selectorVersion !== NCAAF_EZPZ_POLICY_VERSION ? ncaafSpreadHistoryEvidence(pick, trendRowsFor(pick.date)) : pick)
+    .map(pick => sport === "NCAAF" && pick.selectorVersion !== NCAAF_EZPZ_POLICY_VERSION ? ncaafSharpHistoryEvidence(pick, trendRowsFor(pick.date)) : pick)
     .filter((pick) => sport !== "NCAAF" || (
       textKey(pick.snapshotStatus) === "final pregame" &&
       isPublicSplitEzpzPick(pick) &&
