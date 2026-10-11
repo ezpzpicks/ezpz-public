@@ -119,6 +119,18 @@ export function buildNcaafTrendSubtypes(rows: SheetRow[], options: {
     groups.set(groupKey, group);
   }
   const buckets = new Map<string, { signal: string; category: NcaafTrendCategory; rows: SheetRow[]; games: Set<string> }>();
+  const sortKeys = new Map<SheetRow, { playedAt: number; settledAt: number }>();
+  const sortKey = (row: SheetRow) => {
+    let value = sortKeys.get(row);
+    if (!value) {
+      value = {
+        playedAt: Date.parse(row["Game Time"] || row["Public Split Snapshot Time"] || "") || 0,
+        settledAt: Date.parse(row["Result Updated"] || "") || 0,
+      };
+      sortKeys.set(row, value);
+    }
+    return value;
+  };
   for (const group of groups.values()) {
     const uniqueRows = [...group.values()];
     const plays = uniqueRows.map(recordSide);
@@ -144,9 +156,8 @@ export function buildNcaafTrendSubtypes(rows: SheetRow[], options: {
     id, signal: bucket.signal, category: bucket.category,
     label: `${catalogSignalLabel(bucket.signal)} - ${bucket.category}`, totals: recordTotals(bucket.rows),
     lastSevenTotals: recordTotals([...bucket.rows].sort((a, b) =>
-      (Date.parse(b["Game Time"] || b["Public Split Snapshot Time"] || "") || 0)
-      - (Date.parse(a["Game Time"] || a["Public Split Snapshot Time"] || "") || 0)
-      || (Date.parse(b["Result Updated"] || "") || 0) - (Date.parse(a["Result Updated"] || "") || 0)
+      sortKey(b).playedAt - sortKey(a).playedAt
+      || sortKey(b).settledAt - sortKey(a).settledAt
       || String(a.Game).localeCompare(String(b.Game))).slice(0, 7)),
   }));
 }
