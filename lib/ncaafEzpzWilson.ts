@@ -114,7 +114,10 @@ export function selectNcaafWilsonEzpzPicks(
   const effectiveAt = policy?.effectiveAt || NCAAF_WILSON_EFFECTIVE_AT;
   const selected = new Map<string, AnyPick>();
   for (const pick of archived) {
-    if (pick.date === today && isFootballWilsonArchivedPick(pick, version, effectiveAt) && Number(stamp(pick.lockedAt)) <= now && !selected.has(identity(pick))) {
+    // Broad legacy subtypes remain valid historical decisions, but cannot be
+    // carried into the current catalog-only card.
+    if (pick.date === today && String(pick.trendSubtypeId || "").startsWith("catalog:")
+      && isFootballWilsonArchivedPick(pick, version, effectiveAt) && Number(stamp(pick.lockedAt)) <= now && !selected.has(identity(pick))) {
       selected.set(identity(pick), pick);
     }
   }

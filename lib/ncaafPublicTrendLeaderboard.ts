@@ -1,5 +1,5 @@
 import { catalogSide, catalogSelectionIdentity, catalogEvaluationFor, catalogSignals, catalogSignalLabel, catalogEventKey, evaluateFootballCatalogGroup } from "./footballTrendCatalog";
-import { classifyNcaafMovement, finiteNcaafNumber, isNcaafSharpPlay } from "./ncaafEzpzPolicy";
+import { finiteNcaafNumber } from "./ncaafEzpzPolicy";
 import { isVerifiedNcaafTrendRecord } from "./ncaafTrendRecordPolicy";
 
 export const NCAAF_PUBLIC_TREND_LIMIT = 20;
@@ -48,43 +48,11 @@ export function ncaafTrendCategory(play: TrendSide): NcaafTrendCategory | null {
   return line < 0 ? "Favorite Spread" : line > 0 ? "Underdog Spread" : "Pick'em Spread";
 }
 
-function sideKey(play: TrendSide) {
-  return textKey(textKey(play.market) === "total"
-    ? play.side || play.selection
-    : play.selectionTeam || play.selection);
-}
-
-function percentage(value: unknown) {
-  const n = finiteNcaafNumber(value);
-  return n != null && n >= 0 && n <= 100 ? n : null;
-}
-
 // These are memberships, not pick eligibility. Hidden and losing signals keep
 // their records; presentation filters only after all memberships are graded.
 export function ncaafTrendSignals(play: TrendSide, siblings: TrendSide[], sport = "NCAAF"): string[] {
   if (!ncaafTrendCategory(play)) return [];
-  const labels: string[] = catalogSignals(catalogEvaluationFor(play, siblings, sport), sport);
-  if (isNcaafSharpPlay(play)) labels.push("Sharp");
-  labels.push(...classifyNcaafMovement(play).labels);
-
-  const ownKey = sideKey(play);
-  const publicSide = siblings.find(candidate =>
-    textKey(candidate.market) === textKey(play.market) && sideKey(candidate) !== ownKey);
-  if (!publicSide) return labels;
-
-  const bets = percentage(publicSide.betsPct);
-  const money = percentage(publicSide.moneyPct);
-  if (bets != null && money != null && bets > 75 && bets - money >= 55) labels.push("Public Fade");
-
-  const openingBets = percentage(publicSide.openingBetsPct);
-  const publicMove = finiteNcaafNumber(publicSide.publicMovementPct);
-  const lineMove = finiteNcaafNumber(publicSide.lineMovementValue);
-  const basis = String(publicSide.lineMovementBasis || "");
-  const lineMarketMatches = textKey(play.market) === "spread"
-    ? basis.includes("Spread") : basis.includes("Total Line");
-  if (lineMarketMatches && openingBets != null && openingBets > 0 && openingBets < 100
-    && publicMove != null && publicMove >= 5 && lineMove != null && lineMove <= -1.5) labels.push("RLM");
-  return labels;
+  return catalogSignals(catalogEvaluationFor(play, siblings, sport), sport);
 }
 
 function recordSide(row: SheetRow): TrendSide { return catalogSide(row); }

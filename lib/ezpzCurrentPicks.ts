@@ -5,6 +5,8 @@ import {
   type TursoSport,
 } from "./tursoStore";
 import { isPublicSplitEzpzPick } from "./ezpzPublicSplitEligibility";
+import { NFL_EZPZ_POLICY_VERSION } from "./nflEzpzPolicy";
+import { NCAAF_EZPZ_POLICY_VERSION } from "./ncaafEzpzPolicy";
 
 export type EzpzCurrentSport = Extract<TursoSport, "MLB" | "NFL" | "NCAAF">;
 
@@ -56,12 +58,19 @@ function parseJson(value: unknown): AnyRow | null {
   }
 }
 
+function currentPickEligible(pick: AnyRow, sport: EzpzCurrentSport) {
+  if (sport === "MLB") return true;
+  const version = sport === "NFL" ? NFL_EZPZ_POLICY_VERSION : NCAAF_EZPZ_POLICY_VERSION;
+  return pick.selectorVersion === version && String(pick.trendSubtypeId || "").startsWith("catalog:")
+    && (sport !== "NCAAF" || isPublicSplitEzpzPick(pick));
+}
+
 export async function persistEzpzCurrentPicks(
   sport: EzpzCurrentSport,
   payload: AnyRow,
 ) {
   const picks = (Array.isArray(payload?.aiPicks) ? payload.aiPicks : [])
-    .filter((pick: AnyRow) => sport !== "NCAAF" || isPublicSplitEzpzPick(pick));
+    .filter((pick: AnyRow) => currentPickEligible(pick, sport));
   const date = normalizedDate(firstValue(payload?.today, payload?.date));
   const updatedAt = new Date().toISOString();
   const sourceUpdatedAt = String(firstValue(payload?.lastUpdated, payload?.generatedAt, updatedAt));
@@ -97,14 +106,14 @@ export async function readEzpzCurrentPicks(sport: EzpzCurrentSport) {
     .filter((row) => String(row.Kind || "").toUpperCase() === "PICK")
     .map((row) => parseJson(row["Details JSON"]))
     .filter((row): row is AnyRow => Boolean(row))
-    .filter((pick) => sport !== "NCAAF" || isPublicSplitEzpzPick(pick));
+    .filter((pick) => currentPickEligible(pick, sport));
 
   return {
     sport,
     date: String(meta.Date || ""),
     updatedAt: String(meta["Updated At"] || ""),
     sourceUpdatedAt: String(meta["Source Updated At"] || ""),
-    pickCount: sport === "NCAAF" ? picks.length : Number(meta["Pick Count"] || picks.length || 0),
+    pickCount: sport === "MLB" ? Number(meta["Pick Count"] || picks.length || 0) : picks.length,
     picks,
   };
 }

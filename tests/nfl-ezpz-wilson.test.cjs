@@ -16,6 +16,12 @@ const ncaa = load(path.join(root, 'lib/ncaafPublicTrendLeaderboard.ts'));
 const ncaaPolicy = load(path.join(root, 'lib/ncaafEzpzPolicy.ts'));
 const finalPolicy = load(path.join(root, 'lib/ncaafTrendRecordPolicy.ts'));
 const eligibility = load(path.join(root, 'lib/ezpzPublicSplitEligibility.ts'));
+const catalog = load(path.join(root, 'lib/footballTrendCatalog.ts'));
+function membership(market = 'Total') {
+  return { version: catalog.footballCatalog('NFL').version,
+    memberships: [{ pair: `sharp-current-${market.toLowerCase()}`, direction: 0, filters: [] }], missing: [], ambiguous: [] };
+}
+function signal(market = 'Total') { return catalog.catalogSignals(membership(market), 'NFL')[0]; }
 const today = '2026-10-18';
 let clock = Date.parse(`${today}T16:50:00Z`);
 class FixedDate extends Date { constructor(...args) { super(...(args.length ? args : [clock])); } static now() { return clock; } }
@@ -43,7 +49,8 @@ const board = moduleWithStubs('app/FootballTrendMarketBoard.tsx', {
 });
 
 function row(i, result = 'W', overrides = {}) {
-  return { Date: '2026-10-04', Game: `Visitor${i} @ Host${i}`, 'Game Key': `game-${i}`,
+  return { 'Catalog Membership JSON': JSON.stringify(membership(overrides.Market)),
+    Date: '2026-10-04', Game: `Visitor${i} @ Host${i}`, 'Game Key': `game-${i}`,
     'Game Time': '2026-10-04T17:00:00Z', Market: 'Total', Side: 'Over', Selection: 'Over',
     'Public Split Selection': 'Over', 'Public Split Line': '46.5', 'Public Split Odds': '-110',
     'Public Bets %': '20', 'Public Money %': '50', 'Opening Public %': '20',
@@ -56,7 +63,7 @@ function history(wins, losses, market = 'Total', prefix = '') {
     market === 'Spread' ? { Market: 'Spread', Side: '', Selection: 'Visitor', 'Public Split Selection': 'Visitor', 'Public Split Line': '3' } : {}));
 }
 function play(overrides = {}) {
-  return { date: today, game: 'KC @ LV', gameKey: 'kc-lv', gameTime: `${today}T17:00:00Z`,
+  return { catalogEvaluation: membership(overrides.market), date: today, game: 'KC @ LV', gameKey: 'kc-lv', gameTime: `${today}T17:00:00Z`,
     awayTeam: 'KC', homeTeam: 'LV', market: 'Total', side: 'Over', selection: 'Over', line: 46.5,
     betsPct: 20, moneyPct: 50, odds: '-110', snapshotStatus: 'FINAL_PREGAME',
     frozenAt: `${today}T16:45:00Z`, updatedAt: `${today}T16:45:00Z`, ...overrides };
@@ -75,28 +82,17 @@ test('NFL uses the same one-sided 95% score, strict >60% gate, positive profit, 
   assert.equal(wilson.rankNflEzpzSubtypes(Array.from({ length: 1000 }, (_, i) => subtype(`type${i}`, 4, 1))).length, 20);
 });
 
-test('the NCAAF Sharp, Public Fade, RLM, total-drop, and spread-ticket predicates apply to NFL unchanged', () => {
-  const examples = [
-    [play()],
-    [play({ openingLine: 48 })],
-    [play({ market: 'Spread', side: '', selection: 'KC', line: -3, openingLine: -2,
-      openingBetsPct: 40, betsPct: 47, moneyPct: 47 })],
-    [play({ betsPct: 20, moneyPct: 20 }), play({ side: 'Under', selection: 'Under', betsPct: 80, moneyPct: 20 })],
-    [play({ betsPct: 20, moneyPct: 20 }), play({ side: 'Under', selection: 'Under', betsPct: 60, moneyPct: 60,
-      openingBetsPct: 50, publicMovementPct: 10, lineMovementValue: -1.5, lineMovementBasis: 'Total Line' })],
-  ];
-  for (const plays of examples) assert.deepEqual(Array.from(nfl.nflTrendSignals(plays[0], plays)), Array.from(ncaa.ncaafTrendSignals(plays[0], plays)));
-  assert.ok(nfl.nflTrendSignals(examples[3][0], examples[3]).includes('Public Fade'));
-  examples[3][1].moneyPct = 30;
-  assert.equal(nfl.nflTrendSignals(examples[3][0], examples[3]).includes('Public Fade'), false);
+test('NFL uses its own captured catalog version and does not borrow NCAAF memberships', () => {
+  const p = play();
+  assert.deepEqual(Array.from(nfl.nflTrendSignals(p, [p])), [signal()]);
+  assert.deepEqual(Array.from(ncaa.ncaafTrendSignals(p, [p])), []);
 });
 
-test('NFL movement cohorts retain their one-hour observation definition and never become automatic picks', () => {
+test('the retired NFL movement cohorts do not qualify a play outside the new catalog', () => {
   const p = play({ openingMoneyPct: 30, lineMovementBasis: 'Total Line', lineMovementValue: 1,
-    firstTrackedAt: `${today}T15:45:00Z` });
-  assert.deepEqual(Array.from(nfl.nflTrendSignals(p, [p])), ['Sharp', 'Market Move', 'Total Money Momentum', 'Market Move + Total Money Momentum']);
-  assert.equal(nfl.nflTrendSignals({ ...p, firstTrackedAt: `${today}T15:45:01Z` }, [p]).includes('Market Move'), false);
-  assert.equal(select([p], []).length, 0);
+    firstTrackedAt: `${today}T15:45:00Z`, catalogEvaluation: undefined });
+  assert.deepEqual(Array.from(nfl.nflTrendSignals(p, [p])), []);
+  assert.equal(select([p], history(4, 1)).length, 0);
 });
 
 test('verified records count one physical NFL game across abbreviations, full names, and reversed matchup labels', () => {
@@ -108,8 +104,8 @@ test('verified records count one physical NFL game across abbreviations, full na
 });
 
 test('both NFL public tables and badges use the same top-20 list, independent of NCAAF data', () => {
-  const list = Array.from({ length: 30 }, (_, i) => ({ id: `type${i}`, signal: i === 0 ? 'Sharp' : `Type ${i}`,
-    category: 'Over', label: i === 0 ? 'Sharp - Over' : `Type ${i} - Over`,
+  const list = Array.from({ length: 30 }, (_, i) => ({ id: `type${i}`, signal: i === 0 ? signal() : `Type ${i}`,
+    category: 'Over', label: i === 0 ? 'Total: Sharp Follow - Over' : `Type ${i} - Over`,
     totals: { wins: 30 - i, losses: 1, pushes: 0, record: `${30 - i}-1-0`, totalBets: 31 - i,
       winPct: (30 - i) / (31 - i) * 100, unitsWon: 1, roiPct: 1 } }));
   const html = renderToStaticMarkup(board.DirectTrendRecords({ sport: 'NFL', rows: [], nflLeaderboard: list,
@@ -140,7 +136,7 @@ test('Wilson ordering selects a better-supported NFL spread over the retired com
   const picks = select([total, spread], [...history(4, 1), ...history(10, 5, 'Spread', 'spread')]);
   assert.equal(picks.length, 1);
   assert.equal(picks[0].selection, 'KC +3');
-  assert.equal(picks[0].trendSubtypeId, 'sharp|underdog spread');
+  assert.equal(picks[0].trendSubtypeId, `${signal('Spread')}|underdog spread`);
   assert.equal(picks[0].trendRank, 1);
   assert.equal(picks[0].rankingRecord, '10-5-0');
 });

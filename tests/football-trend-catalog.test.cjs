@@ -63,11 +63,23 @@ test('raw endpoint percentages, hidden losing directions and both mirrors remain
  assert.equal(win.totals.record,'1-0-0');assert.equal(lose.totals.record,'0-1-0');
  const visible=nc.rankNcaafPublicTrendSubtypes(full);assert.equal(visible.length,20);assert.ok(!visible.some(x=>x.id===lose.id));
 });
+test('NFL and NCAAF use only catalog memberships without appending the retired rule set',()=>{
+ for(const [sport,api] of [['NFL',nfl],['NCAAF',nc]]){
+  const plays=fixture(),evaluations=catalog.evaluateFootballCatalogGroup(plays,sport);
+  const signals=sport==='NFL'?api.nflTrendSignals:api.ncaafTrendSignals;
+  plays.forEach((play,i)=>assert.deepEqual(asArray(signals(play,plays)),asArray(catalog.catalogSignals(evaluations[i],sport))));
+  const subtypes=sport==='NFL'?api.buildNflTrendSubtypes(rows(plays)):api.buildNcaafTrendSubtypes(rows(plays));
+  assert.ok(subtypes.length>0);
+  assert.ok(subtypes.every(row=>row.signal.startsWith('catalog:')));
+ }
+});
 test('the strict badge gate uses exact W/(W+L), excludes pushes, filters before taking the top 20, and guards stale lists',()=>{
- const row=(id,w,l,p=0)=>({id,signal:'Sharp',category:'Over',label:id,totals:{wins:w,losses:l,pushes:p,winPct:60,totalBets:w+l+p}});
+ const plays=fixture(),evaluation=catalog.evaluateFootballCatalogGroup(plays,'NCAAF')[2];
+ const signal=catalog.catalogSignals(evaluation,'NCAAF').find(s=>s.endsWith(':sharp-current-total:0:'));
+ const row=(id,w,l,p=0)=>({id,signal,category:'Over',label:id,totals:{wins:w,losses:l,pushes:p,winPct:60,totalBets:w+l+p}});
  const list=[row('exactly60',3,2),row('belowButRounded60',2999,2000),row('aboveButRounded60',3001,2000),row('pushOnly',0,0,10),row('good',4,1,100)];
  const ranked=nc.rankNcaafPublicTrendSubtypes(list);assert.deepEqual(Array.from(ranked,x=>x.id),['good','aboveButRounded60']);
- const p=fixture()[2];assert.equal(nc.visibleNcaafTrendBadges(p,[p],list).length,2);
+ const p={...plays[2],catalogEvaluation:evaluation};assert.equal(nc.visibleNcaafTrendBadges(p,[p],list).length,2);
 });
 test('context rules wait for actual pre-decision facts rather than inferred weather, injury or model labels',()=>{
  const p=fixture();let e=catalog.evaluateFootballCatalogGroup(p,'NFL');assert.ok(e[2].missing.includes('windy-game-total'));assert.equal(match(e[2],'model-total-edge-3-total'),undefined);

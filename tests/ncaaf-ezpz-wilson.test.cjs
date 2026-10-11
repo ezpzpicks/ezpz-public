@@ -12,6 +12,13 @@ const policy = load(path.join(root, 'lib/ncaafEzpzPolicy.ts'));
 const leaderboard = load(path.join(root, 'lib/ncaafPublicTrendLeaderboard.ts'));
 const eligibility = load(path.join(root, 'lib/ezpzPublicSplitEligibility.ts'));
 const recordPolicy = load(path.join(root, 'lib/ncaafTrendRecordPolicy.ts'));
+const catalog = load(path.join(root, 'lib/footballTrendCatalog.ts'));
+function membership(market = 'Total') {
+  return { version: catalog.footballCatalog('NCAAF').version,
+    memberships: [{ pair: market === 'Spread' ? 'spread-ticket-current-spread' : 'sharp-current-total', direction: 0, filters: [] }],
+    missing: [], ambiguous: [] };
+}
+function signal(market = 'Total') { return catalog.catalogSignals(membership(market), 'NCAAF')[0]; }
 const today = '2026-10-13';
 const now = Date.parse('2026-10-13T18:50:00Z');
 
@@ -23,7 +30,8 @@ function subtype(name, wins, losses, overrides = {}) {
 }
 
 function row(i, result = 'W', overrides = {}) {
-  return { Date: '2026-10-10', Game: `Team ${i} @ Other ${i}`, 'Game Key': `game-${i}`,
+  return { 'Catalog Membership JSON': JSON.stringify(membership(overrides.Market)),
+    Date: '2026-10-10', Game: `Team ${i} @ Other ${i}`, 'Game Key': `game-${i}`,
     'Direct Trend Group Key': `2026-10-10|Team ${i} @ Other ${i}|Total`,
     'Game Time': '2026-10-10T12:00:00Z', Market: 'Total', Side: 'Over', Selection: 'Over',
     'Public Split Selection': 'Over', 'Public Split Line': '54', 'Public Split Odds': '-110',
@@ -49,7 +57,7 @@ function momentumHistory(wins = 5, losses = 1) {
 }
 
 function play(overrides = {}) {
-  return { date: today, game: 'Alpha @ Beta', gameKey: 'alpha-beta', gameTime: `${today}T19:00:00Z`,
+  return { catalogEvaluation: membership(overrides.market), date: today, game: 'Alpha @ Beta', gameKey: 'alpha-beta', gameTime: `${today}T19:00:00Z`,
     awayTeam: 'Alpha', homeTeam: 'Beta', market: 'Total', side: 'Over', selection: 'Over', line: 54,
     betsPct: 20, moneyPct: 50, odds: '-110', snapshotStatus: 'FINAL_PREGAME',
     frozenAt: `${today}T18:45:00Z`, updatedAt: `${today}T18:45:00Z`, ...overrides };
@@ -117,10 +125,10 @@ test('the verified ledger counts each game once and keeps Over and Under records
   const rows = [...sharpHistory(10, 5), ...sharpHistory(4, 1, 'Under')];
   rows.push({ ...rows[0], 'Direct Trend Group Key': 'duplicate storage group', 'Game Key': 'alias' });
   const ranked = wilson.buildNcaafEzpzLeaderboard(rows, now);
-  assert.equal(ranked[0].id, 'sharp|over');
+  assert.equal(ranked[0].id, `${signal()}|over`);
   assert.equal(ranked[0].totals.record, '10-5-0');
   assert.equal(ranked[1].totals.record, '4-1-0');
-  assert.equal(leaderboard.buildNcaafTrendSubtypes(rows).find(r => r.id === 'sharp|over').totals.totalBets, 15);
+  assert.equal(leaderboard.buildNcaafTrendSubtypes(rows).find(r => r.id === `${signal()}|over`).totals.totalBets, 15);
 });
 
 test('rankings exclude later settlements, missing availability timestamps, early grades, and unverified rows', () => {
@@ -140,7 +148,7 @@ test('one pick per game follows Wilson strength instead of automatic Sharp or To
     line: -5.5, openingLine: -4.5, openingBetsPct: 40, betsPct: 47, moneyPct: 47 });
   const picks = select([play({ openingLine: 56 }), spread], [...sharpHistory(4, 1), ...momentumHistory()]);
   assert.equal(picks.length, 1);
-  assert.equal(picks[0].trendSubtypeId, 'spread ticket momentum|favorite spread');
+  assert.equal(picks[0].trendSubtypeId, `${signal('Spread')}|favorite spread`);
   assert.equal(picks[0].selection, 'Alpha -5.5');
   assert.equal(picks[0].rankingRecord, '5-1-0');
   assert.equal(picks[0].rankingLastSeven.record, '5-1-0');
@@ -152,19 +160,25 @@ test('RLM can become EZPZ using its own graded subtype; an opposite side from an
   for (let i = 0; i < 5; i++) {
     const selected = row('rlm' + i, i < 4 ? 'W' : 'L', { Market: 'Spread', Side: '', Selection: 'Alpha',
       'Public Split Selection': 'Alpha', 'Direct Trend Group Key': `rlm-${i}`,
-      'Public Split Line': '-4.5', 'Public Bets %': '45', 'Public Money %': '45' });
+      'Public Split Line': '-4.5', 'Public Bets %': '45', 'Public Money %': '45',
+      'Opening Public Split Line': '-2.5', 'Opening Public %': '60', 'Opening Sharp %': '60',
+      'Opening Public Split Snapshot Time': '2026-10-10T10:00:00Z', 'Catalog Membership JSON': '' });
     const opposite = { ...selected, Selection: 'Beta', 'Public Split Selection': 'Beta',
       Result: i < 4 ? 'L' : 'W', 'Public Split Line': '4.5', 'Public Bets %': '55', 'Public Money %': '55',
-      'Opening Public %': '40', 'Public Change %': '15', 'Line Movement Basis': 'Spread Line', 'Line Movement Value': '-2' };
+      'Opening Public %': '40', 'Opening Sharp %': '40', 'Opening Public Split Line': '2.5',
+      'Public Change %': '15', 'Line Movement Basis': 'Spread Line', 'Line Movement Value': '-2' };
     records.push(selected, opposite);
   }
-  const a = play({ market: 'Spread', side: '', selection: 'Alpha', selectionTeam: 'Alpha', line: -4.5, betsPct: 45, moneyPct: 45 });
+  const a = play({ market: 'Spread', side: '', selection: 'Alpha', selectionTeam: 'Alpha', line: -4.5, betsPct: 45, moneyPct: 45,
+    openingLine: -2.5, openingBetsPct: 60, openingMoneyPct: 60,
+    openingSnapshotTime: `${today}T17:00:00Z`, catalogEvaluation: undefined });
   const b = { ...a, selection: 'Beta', selectionTeam: 'Beta', line: 4.5, betsPct: 55, moneyPct: 55,
-    openingBetsPct: 40, publicMovementPct: 15, lineMovementValue: -2, lineMovementBasis: 'Spread Line' };
+    openingBetsPct: 40, openingMoneyPct: 40, openingLine: 2.5,
+    publicMovementPct: 15, lineMovementValue: -2, lineMovementBasis: 'Spread Line' };
   const chosen = select([a, b], records)[0];
   assert.equal(chosen.selection, 'Alpha -4.5');
   assert.equal(chosen.rankingRecord, '4-1-0');
-  assert.equal(leaderboard.buildNcaafTrendSubtypes(records).find(s => s.id === 'rlm|favorite spread').totals.record, '4-1-0');
+  assert.equal(leaderboard.buildNcaafTrendSubtypes(records).find(s => s.signal.endsWith(':rlm-current-spread:0:')).totals.record, '4-1-0');
   assert.equal(select([a, { ...b, game: 'Different @ Game' }], records).length, 0);
 });
 
@@ -230,7 +244,7 @@ test('the production history layer selects, persists and grades the Wilson pick 
       } },
   }, '', FixedDate);
   const response = await api.buildFootballPublicData('NCAAF', { persist: true });
-  assert.equal(response.aiPicks[0].trendSubtypeId, 'spread ticket momentum|favorite spread');
+  assert.equal(response.aiPicks[0].trendSubtypeId, `${signal('Spread')}|favorite spread`);
   assert.equal(response.aiSelectorStatus.selectorVersion, policy.NCAAF_EZPZ_POLICY_VERSION);
   assert.equal(response.aiPickRecordRows.find(p => p.game === legacy.game).result, 'L');
   const saved = stored.find(r => r.Game === spread.game);

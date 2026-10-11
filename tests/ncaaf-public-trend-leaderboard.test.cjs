@@ -8,10 +8,16 @@ const { renderToStaticMarkup } = require('react-dom/server');
 const load = require('./load-typescript.cjs');
 const root = path.join(__dirname, '..');
 const leaderboard = load(path.join(root, 'lib/ncaafPublicTrendLeaderboard.ts'));
+const catalog = load(path.join(root, 'lib/footballTrendCatalog.ts'));
+function membership(sport = 'NCAAF') {
+  return { version: catalog.footballCatalog(sport).version,
+    memberships: [{ pair: 'sharp-current-total', direction: 0, filters: [] }], missing: [], ambiguous: [] };
+}
+function signal(sport = 'NCAAF') { return catalog.catalogSignals(membership(sport), sport)[0]; }
 
 function subtype(signal, wins, losses, category = 'Over', pushes = 0) {
   return { id: leaderboard.ncaafTrendSubtypeId(signal, category), signal, category,
-    label: `${signal} - ${category}`, totals: {
+    label: `${catalog.catalogSignalLabel(signal)} - ${category}`, totals: {
       wins, losses, pushes, totalBets: wins + losses + pushes,
       record: `${wins}-${losses}-${pushes}`, winPct: wins + losses ? Math.round(wins / (wins + losses) * 1000) / 10 : 0,
       unitsWon: 0, roiPct: 0,
@@ -19,7 +25,7 @@ function subtype(signal, wins, losses, category = 'Over', pushes = 0) {
 }
 
 function verifiedRow(game, result, overrides = {}) {
-  return { Date: '2026-10-10', Game: game, 'Game Key': game,
+  return { 'Catalog Membership JSON': JSON.stringify(membership()), Date: '2026-10-10', Game: game, 'Game Key': game,
     'Direct Trend Group Key': `2026-10-10|${game}|Total`, Market: 'Total', Side: 'Over', Selection: 'Over',
     'Public Split Line': '52.5', 'Public Split Odds': '-110', 'Public Bets %': '30', 'Public Money %': '60',
     'Snapshot Status': 'FINAL_PREGAME', 'Record Snapshot Policy': 'verified-final-snapshot-v1',
@@ -62,8 +68,8 @@ test('verified subtype records remain separate by side; pushes and duplicate sto
     verifiedRow('Legacy @ Game', 'L', { 'Record Snapshot Policy': '' }),
     verifiedRow('Under @ Game', 'W', { Side: 'Under', Selection: 'Under' })];
   const ranked = leaderboard.buildNcaafTrendSubtypes(rows);
-  const over = ranked.find(row => row.id === 'sharp|over');
-  const under = ranked.find(row => row.id === 'sharp|under');
+  const over = ranked.find(row => row.id === `${signal()}|over`);
+  const under = ranked.find(row => row.id === `${signal()}|under`);
   assert.equal(over.totals.record, '1-1-1');
   assert.equal(over.totals.winPct, 50);
   assert.equal(under.totals.record, '1-0-0');
@@ -73,48 +79,49 @@ test('verified subtype records remain separate by side; pushes and duplicate sto
 
 test('both records consumers and the market badges honor the same twentieth-place boundary', () => {
   const winners = Array.from({ length: 20 }, (_, i) => subtype(`Tracked ${i}`, 20 - i, 0));
-  const sharp = subtype('Sharp', 1, 1);
-  const all = [sharp, ...winners, subtype('Sharp', 0, 1, 'Under')];
+  const sharp = subtype(signal(), 1, 1);
+  const all = [sharp, ...winners, subtype(signal(), 0, 1, 'Under')];
   const publicRows = leaderboard.rankNcaafPublicTrendSubtypes(all);
   assert.equal(publicRows.length, 20);
   const recordsHtml = renderToStaticMarkup(board.DirectTrendRecords({ rows: [], sport: 'NCAAF', ncaafLeaderboard: all }));
   assert.equal((recordsHtml.match(/data-trend-subtype=/g) || []).length, 20);
-  assert.doesNotMatch(recordsHtml, /Sharp - Over|Sharp - Under|Overall/);
+  assert.doesNotMatch(recordsHtml, /Sharp Follow - Over|Sharp Follow - Under|Overall/);
   const play = { game: 'One @ Game', gameKey: 'one', market: 'Total', side: 'Over', selection: 'Over',
-    line: 52.5, odds: '-110', betsPct: 30, moneyPct: 60 };
+    line: 52.5, odds: '-110', betsPct: 30, moneyPct: 60, catalogEvaluation: membership() };
   const hiddenHtml = renderToStaticMarkup(board.FootballTrendMarketBoard({
     groups: [{ game: play.game, plays: [play] }], sport: 'NCAAF', ncaafLeaderboard: all,
   }));
   assert.doesNotMatch(hiddenHtml, /data-trend-subtype=|dkSignalCount|directTrendBadge sharp/);
   assert.match(hiddenHtml, /One|52.5/); // The split market remains visible.
 
-  const promoted = [subtype('Sharp', 30, 0), ...winners];
+  const promoted = [subtype(signal(), 30, 0), ...winners];
   const shownHtml = renderToStaticMarkup(board.FootballTrendMarketBoard({
     groups: [{ game: play.game, plays: [play] }], sport: 'NCAAF', ncaafLeaderboard: promoted,
   }));
-  assert.match(shownHtml, /data-trend-subtype="sharp\|over"/);
+  assert.ok(shownHtml.includes(`data-trend-subtype="${signal()}|over"`));
   assert.match(shownHtml, /dkSignalCount/);
-  assert.deepEqual(Array.from(leaderboard.visibleNcaafTrendBadges(play, [play], [subtype('Sharp', 10, 0, 'Under')])), []);
+  assert.deepEqual(Array.from(leaderboard.visibleNcaafTrendBadges(play, [play], [subtype(signal(), 10, 0, 'Under')])), []);
 });
 
 test('changing the viewed market week does not rerank badges from that week; the all-time list is shared', () => {
   const rows = [verifiedRow('Old @ Game', 'W', { Date: '2026-09-26' }), verifiedRow('New @ Game', 'L')];
   const allTime = leaderboard.buildNcaafPublicTrendLeaderboard(rows);
-  const oldPlay = { market: 'Total', side: 'Over', selection: 'Over', line: 52.5, betsPct: 30, moneyPct: 60 };
+  const oldPlay = { market: 'Total', side: 'Over', selection: 'Over', line: 52.5, betsPct: 30, moneyPct: 60,
+    catalogEvaluation: membership() };
   assert.equal(leaderboard.visibleNcaafTrendBadges(oldPlay, [oldPlay], allTime).length, 0);
   assert.equal(leaderboard.buildNcaafTrendSubtypes(rows)[0].totals.record, '1-1-0');
 });
 
 test('NFL record and badge behavior does not depend on the NCAAF leaderboard', () => {
-  const row = verifiedRow('One @ Game', 'W');
+  const row = verifiedRow('One @ Game', 'W', { 'Catalog Membership JSON': JSON.stringify(membership('NFL')) });
   const html = renderToStaticMarkup(board.DirectTrendRecords({ rows: [row], sport: 'NFL' }));
-  assert.match(html, /Sharp - Over/);
+  assert.match(html, /Total: Sharp Follow - Over/);
   assert.match(html, /Top 20 NFL/);
   assert.doesNotMatch(html, /Top 20 NCAAF/);
   const play = { game: 'One @ Game', gameKey: 'one', market: 'Total', side: 'Over', selection: 'Over',
-    line: 52.5, odds: '-110', betsPct: 30, moneyPct: 60 };
+    line: 52.5, odds: '-110', betsPct: 30, moneyPct: 60, catalogEvaluation: membership('NFL') };
   const splits = renderToStaticMarkup(board.FootballTrendMarketBoard({ groups: [{ game: play.game, plays: [play] }], sport: 'NFL',
-    nflLeaderboard: [{ id: 'sharp|over', signal: 'Sharp', category: 'Over', label: 'Sharp - Over',
+    nflLeaderboard: [{ id: `${signal('NFL')}|over`, signal: signal('NFL'), category: 'Over', label: 'Total: Sharp Follow - Over',
       totals: { wins: 1, losses: 0 } }] }));
-  assert.match(splits, /directTrendBadge sharp/);
+  assert.ok(splits.includes(`data-trend-subtype="${signal('NFL')}|over"`));
 });

@@ -2,10 +2,8 @@ import { captureFootballCatalog } from "./footballTrendCatalogStore";
 import { finiteNcaafNumber, selectNcaafEzpzPicks, NCAAF_EZPZ_RULE, NCAAF_EZPZ_POLICY_VERSION } from "./ncaafEzpzPolicy";
 import { isVerifiedNcaafTrendRecord } from "./ncaafTrendRecordPolicy";
 import { buildNcaafEzpzLeaderboard, isNcaafWilsonArchivedPick, selectNcaafWilsonEzpzPicks } from "./ncaafEzpzWilson";
-import { NFL_CORE_PICK_CLASSES, NFL_CORE_SELECTOR_EFFECTIVE_DATE, NFL_EZPZ_POLICY_VERSION, NFL_WILSON_EFFECTIVE_AT, NFL_EZPZ_RULE } from "./nflEzpzPolicy";
+import { NFL_CORE_PICK_CLASSES, NFL_CORE_SELECTOR_EFFECTIVE_DATE, NFL_EZPZ_POLICY_VERSION, NFL_EZPZ_RULE } from "./nflEzpzPolicy";
 import { buildNflEzpzLeaderboard, selectNflWilsonEzpzPicks } from "./nflEzpzWilson";
-import { selectNflEzpzHistory } from "./nflEzpzRecords";
-import { nflTrendGameIdentity } from "./nflTrendIdentity";
 import {
   buildFootballPublicData as buildLegacyFootballPublicData,
 } from "./footballPublicDataLegacy";
@@ -684,8 +682,8 @@ function directTrendSideKey(play: AnyPick) {
     : nflTeamIdentity(selection);
 }
 
-// Legacy public-split signals remain fully tracked. They are used only as
-// contradiction guards by the new NFL EZPZ selector after the effective date.
+// Preserve the pre-Wilson classifier for historical compatibility. The current
+// catalog-only selector does not call this path.
 function directNflTrendLabels(play: AnyPick, plays: AnyPick[]) {
   const labels: string[] = [];
 
@@ -1042,44 +1040,17 @@ export async function buildFootballPublicData(
   const nflEzpzTrendLeaderboard = sport === "NFL"
     ? buildNflEzpzLeaderboard(core.trendRecordRows || [], selectionTime) : [];
 
-  const baseCurrentPicks = (Array.isArray(core.aiPicks) ? core.aiPicks : [])
-    .map((pick: AnyPick) => ({ ...pick, date: isoDate(pick.date) || today }));
-  const directTrendPicks = sport === "NFL" && selectionTime < Date.parse(NFL_WILSON_EFFECTIVE_AT)
-    ? directNflTrendPicks(core, today) : [];
-  // Each sport uses its full graded catalog before the top-20 Wilson cap.
-  // Previously posted final decisions retain ownership of their games.
+  // Current selection uses only the new catalog. Old decisions remain in the
+  // history ledger for grading without being added to today's card.
+  const archived = history.map(historyPickFromRow).filter(pick => pick.date === today);
+  const plays = Array.isArray(core.trendPlays) ? core.trendPlays : [];
+  const rows = Array.isArray(core.trendRecordRows) ? core.trendRecordRows : [];
   const currentPicks = sport === "NFL"
-    ? (() => {
-        if (selectionTime < Date.parse(NFL_WILSON_EFFECTIVE_AT)) return directTrendPicks;
-        const archived = history.map(historyPickFromRow).filter(pick => pick.date === today);
-        const legacyLocked = selectNflEzpzHistory(archived.filter(pick => pick.selectorVersion !== NFL_EZPZ_POLICY_VERSION), today)
-          .filter(pick => textKey(pick.snapshotStatus).startsWith("final"));
-        const lockedGames = new Set(legacyLocked.map(nflTrendGameIdentity));
-        const ranked = selectNflWilsonEzpzPicks(
-          Array.isArray(core.trendPlays) ? core.trendPlays : [], core.trendRecordRows || [],
-          today, selectionTime, archived,
-        );
-        return [...legacyLocked, ...ranked.filter(pick => !lockedGames.has(nflTrendGameIdentity(pick)))];
-      })()
-    : (() => {
-        const archived = history.map(historyPickFromRow).filter(pick => pick.date === today);
-        const legacyLocked = selectNcaafEzpzPicks(archived
-          .filter(pick => pick.selectorVersion !== NCAAF_EZPZ_POLICY_VERSION)
-          .map(pick => ncaafSpreadHistoryEvidence(pick, core.trendRecordRows || []))
-          .map(pick => ncaafSharpHistoryEvidence(pick, core.trendRecordRows || [])), true);
-        const lockedGames = new Set(legacyLocked.map(pick => normalizedGame(pick.game)));
-        const ranked = selectNcaafWilsonEzpzPicks(
-          Array.isArray(core.trendPlays) ? core.trendPlays : [],
-          Array.isArray(core.trendRecordRows) ? core.trendRecordRows : [],
-          today, selectionTime, archived,
-        );
-        return [...legacyLocked, ...ranked.filter(pick => !lockedGames.has(normalizedGame(pick.game)))];
-      })();
+    ? selectNflWilsonEzpzPicks(plays, rows, today, selectionTime, archived)
+    : selectNcaafWilsonEzpzPicks(plays, rows, today, selectionTime, archived);
   // NCAAF_FINAL_ONLY_HISTORY_PATCH
   const existingByKey = new Map(history.map((row) => [String(row["Pick Key"] || pickKey(row, row.Date)), row]));
-  const historyEligibleCurrentPicks = sport === "NCAAF" || selectionTime >= Date.parse(NFL_WILSON_EFFECTIVE_AT)
-    ? currentPicks.filter((pick: AnyPick) => textKey(pick.snapshotStatus) === "final pregame")
-    : currentPicks;
+  const historyEligibleCurrentPicks = currentPicks.filter((pick: AnyPick) => textKey(pick.snapshotStatus) === "final pregame");
   const currentRows = historyEligibleCurrentPicks
     .map((pick: AnyPick) => historyRowFromPick(pick, today, existingByKey.get(pickKey(pick, today))))
     .filter((row: SheetRow) => Boolean(row["Pick Key"]));
