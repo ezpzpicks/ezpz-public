@@ -7,6 +7,7 @@ import {
 import { isPublicSplitEzpzPick } from "./ezpzPublicSplitEligibility";
 import { NFL_EZPZ_POLICY_VERSION } from "./nflEzpzPolicy";
 import { NCAAF_EZPZ_POLICY_VERSION } from "./ncaafEzpzPolicy";
+import { captureEzpzFinalPickEvents } from "./ezpzMcpEvents";
 
 export type EzpzCurrentSport = Extract<TursoSport, "MLB" | "NFL" | "NCAAF">;
 
@@ -17,6 +18,7 @@ const HEADERS = [
   "Updated At",
   "Source Updated At",
   "Pick Count",
+  "Source Stale",
   "Details JSON",
 ];
 
@@ -74,6 +76,8 @@ export async function persistEzpzCurrentPicks(
   const date = normalizedDate(firstValue(payload?.today, payload?.date));
   const updatedAt = new Date().toISOString();
   const sourceUpdatedAt = String(firstValue(payload?.lastUpdated, payload?.generatedAt, updatedAt));
+  const sourceStale = payload?.stale === true || payload?.draftKings?.stale === true
+    || payload?.draftKings?.displayMode === "STALE_FALLBACK";
 
   const rows: TursoRow[] = [
     {
@@ -82,6 +86,7 @@ export async function persistEzpzCurrentPicks(
       "Updated At": updatedAt,
       "Source Updated At": sourceUpdatedAt,
       "Pick Count": String(picks.length),
+      "Source Stale": sourceStale ? "TRUE" : "FALSE",
       "Details JSON": "",
     },
     ...picks.map((pick: AnyRow) => ({
@@ -95,6 +100,12 @@ export async function persistEzpzCurrentPicks(
   ];
 
   await replaceTursoDataset(sport, DATASET, rows, HEADERS);
+  // The durable snapshot owns the trigger. Delivery failures must not invalidate a saved pick.
+  try {
+    if (!sourceStale) await captureEzpzFinalPickEvents(sport, picks);
+  } catch {
+    console.warn("[ezpz-mcp] final-pick event capture deferred", { sport });
+  }
 }
 
 export async function readEzpzCurrentPicks(sport: EzpzCurrentSport) {
@@ -113,6 +124,7 @@ export async function readEzpzCurrentPicks(sport: EzpzCurrentSport) {
     date: String(meta.Date || ""),
     updatedAt: String(meta["Updated At"] || ""),
     sourceUpdatedAt: String(meta["Source Updated At"] || ""),
+    sourceStale: String(meta["Source Stale"] || "").toUpperCase() === "TRUE",
     pickCount: sport === "MLB" ? Number(meta["Pick Count"] || picks.length || 0) : picks.length,
     picks,
   };
