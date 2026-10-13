@@ -141,6 +141,33 @@ function compactSnapshotTime(value: unknown) {
   }).format(new Date(stamp)) + " ET";
 }
 
+function isFinalSnapshot(play: TrendPlay) {
+  return play.snapshotStatus === "FINAL_PREGAME" || Boolean(String(play.frozenAt || "").trim());
+}
+
+function recordedSnapshotTime(play: TrendPlay) {
+  const hasTime = (value: string | undefined): value is string =>
+    Boolean(value && /\d{1,2}:\d{2}/.test(value) && Number.isFinite(snapshotEpoch(value)));
+  const current = [isFinalSnapshot(play) ? play.frozenAt : undefined, play.updatedAt].find(hasTime);
+  if (current) return current;
+  return (play.movementHistory || []).reduce((latest, point) =>
+    hasTime(point.snapshotTime) && (!latest || snapshotEpoch(point.snapshotTime) > snapshotEpoch(latest))
+      ? point.snapshotTime : latest,
+  "");
+}
+
+function snapshotSummary(plays: TrendPlay[]) {
+  const timestamp = plays.reduce((latest, play) => {
+    const current = recordedSnapshotTime(play);
+    return current && (!latest || snapshotEpoch(current) > snapshotEpoch(latest)) ? current : latest;
+  }, "");
+  return {
+    final: plays.length > 0 && plays.every(isFinalSnapshot),
+    timestamp,
+    display: compactSnapshotTime(timestamp),
+  };
+}
+
 function trendDateParts(value: unknown) {
   const raw = String(value || "").trim();
   const iso = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
@@ -567,15 +594,7 @@ function MovementChart({ play }: { play: TrendPlay }) {
   const minLine = rawMin - padding;
   const maxLine = rawMax + padding;
   const latest = points[points.length - 1];
-  const latestSnapshotRaw = String(latest?.snapshotTime || "").trim();
-  const latestSnapshotHasTime =
-    /(?:^|[\\s,])\\d{1,2}:\\d{2}(?::\\d{2})?\\s*(?:AM|PM)\\b/i.test(latestSnapshotRaw) ||
-    Number.isFinite(Date.parse(latestSnapshotRaw));
-  const lastSnapshotDisplay = compactSnapshotTime(
-    latestSnapshotHasTime ? latestSnapshotRaw : play.updatedAt,
-  );
-  const isFinalSnapshot =
-    play.snapshotStatus === "FINAL_PREGAME" || Boolean(String(play.frozenAt || "").trim());
+  const snapshot = snapshotSummary([play]);
   const markers = movementMarkerIndexes(lines);
   const dates = dateAxis(points);
   const lineTicks = Array.from({ length: 5 }, (_, index) => maxLine - ((maxLine - minLine) / 4) * index);
@@ -594,12 +613,12 @@ function MovementChart({ play }: { play: TrendPlay }) {
           <span className="dkMovementCurrentPrice">{play.market === "Moneyline" ? (latest?.odds || play.odds) : `${lineLabel(play, latest?.line)} ${latest?.odds || play.odds}`}</span>
           <span
             className="dkSnapshotHeartbeat"
-            title={isFinalSnapshot
+            title={snapshot.final
               ? "Official frozen final pregame ScoresAndOdds snapshot for this market"
               : "Most recent successful ScoresAndOdds snapshot for this market"}
           >
             <i aria-hidden="true" />
-            {isFinalSnapshot ? "Final snapshot" : "Last snapshot"} {lastSnapshotDisplay}
+            {snapshot.final ? "Final snapshot" : "Last snapshot"} {snapshot.display}
           </span>
         </div>
       </div>
@@ -839,6 +858,7 @@ function GameCard({ group, sport, leaderboard }: {
   const sideMarketRefs = ordered.filter((play) => isSpreadMarket(play.market) || play.market === "Moneyline");
   const totalRefs = ordered.filter((play) => play.market === "Total");
   const matchup = matchupTeams(group.game, sport);
+  const snapshot = snapshotSummary(ordered);
 
   return (
     <article className={`dkTrendGame ${qualifying.length ? "hasSignal" : ""}`}>
@@ -853,11 +873,20 @@ function GameCard({ group, sport, leaderboard }: {
           ) : <div className="dkTrendGameTitle">{group.game}</div>}
           <small className="dkTrendGameDateTime">{trendGameDateTimeLabel(gameDate, gameTime)}</small>
         </div>
-        {qualifying.length ? (
-          <span className="dkSignalCount">
-            {qualifying.length} split {qualifying.length === 1 ? "signal" : "signals"}
+        <div className="dkTrendGameMeta">
+          <span
+            className="dkSnapshotHeartbeat"
+            title={snapshot.timestamp || "No recorded snapshot time is available"}
+          >
+            <i aria-hidden="true" />
+            {snapshot.final ? "Final snapshot" : "Last snapshot"} {snapshot.display}
           </span>
-        ) : null}
+          {qualifying.length ? (
+            <span className="dkSignalCount">
+              {qualifying.length} split {qualifying.length === 1 ? "signal" : "signals"}
+            </span>
+          ) : null}
+        </div>
       </div>
 
       <div className="dkTrendMarketBoard">
