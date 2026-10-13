@@ -899,7 +899,7 @@ function assessTrackingSlateCoverage(
     expected.set(key, `${String(row["Away Team"] || "")} @ ${String(row["Home Team"] || "")}`);
   }
 
-  return assessScoresAndOddsMarketCoverage(
+  const coverage = assessScoresAndOddsMarketCoverage(
     expected,
     splits,
     (split) => splitCoverageGameKey(split.date, split.awayTeam, split.homeTeam, sport),
@@ -908,6 +908,18 @@ function assessTrackingSlateCoverage(
       ? normalizeTeam(split.selectionTeam, sport)
       : split.side,
   );
+  // A known slate can legitimately have no games left requiring live coverage.
+  // Keep an absent schedule or an unknown current/future kickoff unverified.
+  const allGamesAtCutoff = slate.length > 0 && slate.every((row) => {
+    const date = isoDate(row.Date || row["Game Date"] || "");
+    if (!date) return false;
+    if (date < today) return true;
+    const minutes = minutesUntilKickoff(row);
+    return minutes != null && minutes <= 15;
+  });
+  return coverage.expectedGames === 0 && allGamesAtCutoff
+    ? { ...coverage, ok: true }
+    : coverage;
 }
 
 function trackingCoverageFailure(report: ScoresAndOddsMarketCoverage) {

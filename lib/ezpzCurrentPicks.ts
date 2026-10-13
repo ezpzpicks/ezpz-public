@@ -8,6 +8,7 @@ import { isPublicSplitEzpzPick } from "./ezpzPublicSplitEligibility";
 import { NFL_EZPZ_POLICY_VERSION } from "./nflEzpzPolicy";
 import { NCAAF_EZPZ_POLICY_VERSION } from "./ncaafEzpzPolicy";
 import { captureEzpzFinalPickEvents } from "./ezpzMcpEvents";
+import { isVerifiedFrozenFootballMcpPick } from "./ezpzMcpPicks";
 
 export type EzpzCurrentSport = Extract<TursoSport, "MLB" | "NFL" | "NCAAF">;
 
@@ -102,7 +103,11 @@ export async function persistEzpzCurrentPicks(
   await replaceTursoDataset(sport, DATASET, rows, HEADERS);
   // The durable snapshot owns the trigger. Delivery failures must not invalidate a saved pick.
   try {
-    if (!sourceStale) await captureEzpzFinalPickEvents(sport, picks);
+    const eventPicks = sourceStale
+      ? picks.filter((pick: AnyRow) => isVerifiedFrozenFootballMcpPick(sport, pick))
+      : picks;
+    const capture = await captureEzpzFinalPickEvents(sport, eventPicks);
+    console.info("[ezpz-mcp] final-pick capture", { sport, sourceStale, ...capture });
   } catch {
     console.warn("[ezpz-mcp] final-pick event capture deferred", { sport });
   }

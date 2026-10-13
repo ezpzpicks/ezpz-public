@@ -58,3 +58,14 @@ export function normalizeMcpPick(sport: McpSport, pick: AnyPick, now = Date.now(
     sourceUrl: "https://ezpzpicks.com",
   };
 }
+
+// A recently read, selected football pick owns its frozen snapshot independently
+// of unrelated LIVE markets. A FINAL label alone is insufficient on a stale feed.
+export function isVerifiedFrozenFootballMcpPick(sport: McpSport, raw: AnyPick, now = Date.now()): boolean {
+  if (sport === "MLB") return false;
+  const pick = normalizeMcpPick(sport, raw, now);
+  if (!pick || pick.snapshotStatus !== "FINAL_PREGAME" || !pick.finalizedAt) return false;
+  const captured = Date.parse(pick.finalizedAt);
+  const lead = Date.parse(pick.gameTime) - captured;
+  return captured <= now && lead >= 10 * 60_000 && lead <= 20 * 60_000;
+}

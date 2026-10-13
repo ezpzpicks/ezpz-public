@@ -1,6 +1,6 @@
 import { readEzpzCurrentPicks } from "./ezpzCurrentPicks";
 import { FINAL_PICK_EVENT, subscribeFinalPicks, unsubscribeFinalPicks, McpEventError, subscriptionSports } from "./ezpzMcpEvents";
-import { MCP_SPORTS, normalizeMcpPick, type McpPick, type McpSport } from "./ezpzMcpPicks";
+import { MCP_SPORTS, normalizeMcpPick, isVerifiedFrozenFootballMcpPick, type McpPick, type McpSport } from "./ezpzMcpPicks";
 import { McpCallbackError } from "./ezpzMcpWebhook";
 
 export const MCP_VERSION = "2026-07-28";
@@ -32,7 +32,7 @@ export const EZPZ_MCP_TOOLS = [
   },
   {
     name: "get_finalized_pick", title: "Verify a finalized EZPZ pick",
-    description: "Retrieve one final pick by the stable pickId supplied by ezpz.pick.finalized. Verify fresh data, FINAL_PREGAME status, eligibleForPosting, exact line and game time before a Buffer post. Returns unavailable if the feed is stale or the selection disappeared; does not publish anything.",
+    description: "Retrieve one final pick by the stable pickId supplied by ezpz.pick.finalized. Verify fresh saved data, FINAL_PREGAME status, eligibleForPosting, exact line and game time before a Buffer post. A verified frozen football capture remains readable when unrelated live markets are stale. Returns unavailable if the saved pick feed is expired, unverified or the selection disappeared; does not publish anything.",
     inputSchema: { type: "object", properties: { pickId: { type: "string", pattern: "^ezpz_[a-f0-9]{32}$" } }, required: ["pickId"], additionalProperties: false },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   },
@@ -53,10 +53,16 @@ export async function readMcpPicks(sports: McpSport[], finalOnly = true, now = D
     try {
       const snapshot = await readEzpzCurrentPicks(sport);
       const updated = Date.parse(snapshot?.updatedAt || "");
-      if (!snapshot || snapshot.sourceStale || !Number.isFinite(updated) || updated > now + 60_000 || now - updated > MAX_SNAPSHOT_AGE_MS) {
+      if (!snapshot || !Number.isFinite(updated) || updated > now + 60_000 || now - updated > MAX_SNAPSHOT_AGE_MS) {
         unavailableSports.push(sport); return;
       }
-      for (const raw of snapshot.picks) {
+      const readable = snapshot.sourceStale
+        ? snapshot.picks.filter(raw => isVerifiedFrozenFootballMcpPick(sport, raw, now))
+        : snapshot.picks;
+      if (snapshot.sourceStale && !readable.length) {
+        unavailableSports.push(sport); return;
+      }
+      for (const raw of readable) {
         const pick = normalizeMcpPick(sport, raw, now);
         if (pick && (!finalOnly || pick.eligibleForPosting)) picks.push(pick);
       }
