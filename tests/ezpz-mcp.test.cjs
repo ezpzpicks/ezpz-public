@@ -19,19 +19,22 @@ const rawPick = {
   tier: 'Total: Money Majority 60% Follow - Over', rankingLastSeven: { record: '5-2-0', wins: 5, losses: 2, pushes: 0 },
 };
 
-function harness() {
+function harness({ realCurrentPicks = false } = {}) {
   let clock = start;
   let acceptance = 200;
   let badChallenge = false;
   let addresses = [{ address: '104.18.34.172', family: 4 }];
   let dnsCalls = 0;
   const sends = [], sockets = [], snapshots = {};
+  const datasets = new Map();
   const database = new DatabaseSync(':memory:');
   const cache = new Map();
   class Clock extends Date { constructor(...args) { super(...(args.length ? args : [clock])); } static now() { return clock; } }
   const stubs = {
     './tursoStore': {
       isTursoConfigured: () => true,
+      readTursoDataset: async (sport, dataset) => datasets.get(`${sport}:${dataset}`) || [],
+      replaceTursoDataset: async (sport, dataset, rows) => { datasets.set(`${sport}:${dataset}`, rows); },
       runTursoSql: async statements => statements.map(sql => database.prepare(sql).all().map(row =>
         Object.fromEntries(Object.entries(row).map(([key, value]) => [key, value == null ? '' : String(value)])))),
     },
@@ -56,6 +59,7 @@ function harness() {
       return req;
     } },
   };
+  if (realCurrentPicks) delete stubs['./ezpzCurrentPicks'];
   function load(relative) {
     const filename = path.resolve(root, relative);
     if (cache.has(filename)) return cache.get(filename);
@@ -64,7 +68,7 @@ function harness() {
       compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
     }).outputText;
     vm.runInNewContext(source, {
-      exports, Buffer, URL, Date: Clock, Intl, console: { ...console, warn: () => {} }, process,
+      exports, Buffer, URL, Date: Clock, Intl, console: { ...console, warn: () => {}, info: () => {} }, process,
       setTimeout, clearTimeout, queueMicrotask, Promise, TextDecoder, Request, Response, Headers,
       require: name => stubs[name] || (name.startsWith('.') ? load(path.relative(root, path.resolve(path.dirname(filename), `${name}.ts`))) : require(name)),
     }, { filename });
@@ -100,13 +104,86 @@ test('only fresh selected finalized picks are eligible; LIVE and expired feeds c
   assert.equal(response.result.structuredContent.picks.length, 1);
   assert.equal(response.result.structuredContent.picks[0].lastSeven.record, '5-2-0');
   h.snapshots.NFL.sourceStale = true;
+  h.snapshots.NFL.picks = [{ ...rawPick, snapshotStatus: 'LIVE' }];
   const unhealthy = await api.handleEzpzMcp({ jsonrpc: '2.0', id: 5, method: 'tools/call', params: { name: 'get_ezpz_picks', arguments: { sport: 'NFL' } } });
   assert.equal(unhealthy.result.isError, true);
   h.snapshots.NFL.sourceStale = false;
+  h.snapshots.NFL.picks = [rawPick];
   h.snapshots.NFL.updatedAt = new Date(h.now() - 21 * 60_000).toISOString();
   const stale = await api.handleEzpzMcp({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'get_ezpz_picks', arguments: { sport: 'NFL' } } });
   assert.equal(stale.result.isError, true);
   assert.equal(stale.result.structuredContent.unavailableSports[0], 'NFL');
+});
+
+test('fresh verified NFL and NCAAF final captures stay readable when unrelated live markets fail', async () => {
+  for (const sport of ['NFL', 'NCAAF']) {
+    const h = harness(), api = h.load('lib/ezpzMcp.ts');
+    h.setTime(Date.parse('2026-10-13T00:00:30Z'));
+    h.snapshots[sport] = { sourceStale: true, updatedAt: new Date(h.now()).toISOString(),
+      picks: [rawPick, { ...rawPick, gameKey: 'live', snapshotStatus: 'LIVE' },
+        { ...rawPick, gameKey: 'unverified', lockedAt: '' }] };
+    const response = await api.readMcpPicks([sport]);
+    assert.equal(response.unavailableSports.length, 0);
+    assert.equal(response.picks.length, 1);
+    assert.equal(response.picks[0].selection, rawPick.selection);
+    assert.equal(response.picks[0].lastSeven.record, '5-2-0');
+    const verified = await api.handleEzpzMcp({ jsonrpc: '2.0', id: 1, method: 'tools/call',
+      params: { name: 'get_finalized_pick', arguments: { pickId: response.picks[0].pickId } } });
+    assert.equal(verified.result.structuredContent.pick.eligibleForPosting, true);
+    h.snapshots[sport].updatedAt = new Date(h.now() - 21 * 60_000).toISOString();
+    assert.equal((await api.readMcpPicks([sport])).unavailableSports[0], sport);
+  }
+});
+
+test('stale LIVE, missing or invalid frozen captures and MLB fallback remain unavailable', async () => {
+  for (const variant of [
+    { ...rawPick, snapshotStatus: 'LIVE' },
+    { ...rawPick, lockedAt: '' },
+    { ...rawPick, lockedAt: 'invalid' },
+    { ...rawPick, lockedAt: '2026-10-12T23:45:00Z' },
+    { ...rawPick, lockedAt: '2026-10-13T00:06:00Z' },
+    { ...rawPick, selected: false },
+    { ...rawPick, protectionStatus: 'BLOCKED' },
+  ]) {
+    const h = harness(), api = h.load('lib/ezpzMcp.ts');
+    h.setTime(Date.parse('2026-10-13T00:00:30Z'));
+    h.snapshots.NFL = { sourceStale: true, updatedAt: new Date(h.now()).toISOString(), picks: [variant] };
+    assert.equal((await api.readMcpPicks(['NFL'])).unavailableSports[0], 'NFL');
+  }
+  const h = harness(), api = h.load('lib/ezpzMcp.ts');
+  h.setTime(Date.parse('2026-10-13T00:00:30Z'));
+  h.snapshots.MLB = { sourceStale: true, updatedAt: new Date(h.now()).toISOString(), picks: [rawPick] };
+  assert.equal((await api.readMcpPicks(['MLB'])).unavailableSports[0], 'MLB');
+});
+
+test('persisting a verified final football pick during fallback emits one signed event and verifies the saved decision', async () => {
+  const h = harness({ realCurrentPicks: true });
+  const events = h.load('lib/ezpzMcpEvents.ts'), current = h.load('lib/ezpzCurrentPicks.ts'), mcp = h.load('lib/ezpzMcp.ts');
+  await events.subscribeFinalPicks(h.subscription());
+  h.setTime(Date.parse('2026-10-13T00:05:30Z'));
+  const policy = h.load('lib/nflEzpzPolicy.ts');
+  const pick = { ...rawPick, lockedAt: '2026-10-12T23:56:35Z',
+    source: 'Trend Play', selectorVersion: policy.NFL_EZPZ_POLICY_VERSION, trendSubtypeId: 'catalog:test' };
+  const payload = { today: '2026-10-12', draftKings: { stale: true, displayMode: 'STALE_FALLBACK' },
+    aiPicks: [pick, { ...pick, gameKey: 'live', snapshotStatus: 'LIVE' }, { ...pick, gameKey: 'unverified', lockedAt: '' }] };
+  await current.persistEzpzCurrentPicks('NFL', payload);
+  await current.persistEzpzCurrentPicks('NFL', payload);
+  assert.equal(h.events().length, 1);
+  assert.equal(h.events()[0].payload.data.pick.finalizedAt, '2026-10-12T23:56:35.000Z');
+  const saved = await current.readEzpzCurrentPicks('NFL');
+  assert.equal(saved.sourceStale, true);
+  assert.equal(saved.picks.length, 3);
+  const verified = await mcp.handleEzpzMcp({ jsonrpc: '2.0', id: 1, method: 'tools/call',
+    params: { name: 'get_finalized_pick', arguments: { pickId: h.events()[0].payload.data.pick.pickId } } });
+  assert.equal(verified.result.structuredContent.pick.eligibleForPosting, true);
+  assert.equal(verified.result.structuredContent.pick.selection, rawPick.selection);
+  assert.equal(verified.result.structuredContent.pick.lastSeven.record, '5-2-0');
+  h.setTime(Date.parse(rawPick.gameTime));
+  await current.persistEzpzCurrentPicks('NFL', payload);
+  assert.equal(h.events().length, 1);
+  const started = await mcp.readMcpPicks(['NFL'], false);
+  assert.equal(started.picks[0].eligibleForPosting, false);
+  assert.equal((await mcp.readMcpPicks(['NFL'])).picks.length, 0);
 });
 
 test('callback signature matches Standard Webhooks; private destinations and redirects are not followed', async () => {

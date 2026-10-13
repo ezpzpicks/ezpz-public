@@ -159,16 +159,17 @@ async function deliverPending(sport: McpSport, now: number) {
 }
 
 export async function captureEzpzFinalPickEvents(sport: McpSport, rawPicks: Record<string, any>[], now = Date.now()) {
-  if (!isTursoConfigured()) return { delivered: 0 };
+  if (!isTursoConfigured()) return { delivered: 0, subscriptions: 0, eligiblePicks: 0 };
   await ensureSchema();
   const subscriptions = await sql(`SELECT * FROM ezpz_mcp_subscriptions WHERE active=1 AND (expires_at IS NULL OR expires_at>${now})`);
-  if (!subscriptions.length) return { delivered: 0 };
   const picks = rawPicks.map(pick => normalizeMcpPick(sport, pick, now)).filter((pick): pick is McpPick => Boolean(pick?.eligibleForPosting));
+  const matchingSubscriptions = subscriptions.filter(sub => (JSON.parse(sub.sports_json) as McpSport[]).includes(sport));
+  if (!matchingSubscriptions.length) return { delivered: 0, subscriptions: 0, eligiblePicks: picks.length };
   await enqueueFinalPicks(sport, picks, subscriptions, now);
   const delivered = await deliverPending(sport, now);
   // Expire pregame alerts once kickoff passes; never publish a retry as a new in-game pick.
   await sql(`UPDATE ezpz_mcp_deliveries SET status='expired',lease_until=0 WHERE sport=${q(sport)} AND kickoff<=${now} AND status IN ('pending','delivering')`);
   // Retain a week of delivery IDs across refreshes and cold starts; older games can no longer produce eligible events.
   await sql(`DELETE FROM ezpz_mcp_deliveries WHERE kickoff<${now - DEFAULT_TTL}`);
-  return { delivered };
+  return { delivered, subscriptions: matchingSubscriptions.length, eligiblePicks: picks.length };
 }
