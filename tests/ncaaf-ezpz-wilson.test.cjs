@@ -291,3 +291,64 @@ test('the EZPZ card displays the saved Wilson evidence and last-seven record; re
   assert.equal(rows.length, 1);
   assert.equal(rows[0].Result, 'L');
 });
+
+test('a qualifying catalog public-follow pick survives persistence, the EZPZ tab and saved history', async () => {
+  // WKU at Sam Houston's Oct 14 signal used this catalog name, which the
+  // retired Sharp/RLM whitelist incorrectly rejected after Wilson selection.
+  const evaluated = { version: catalog.footballCatalog('NCAAF').version,
+    memberships: [{ pair: 'bd-band-65-total', direction: 0, filters: ['monday-through-friday'] }],
+    missing: [], ambiguous: [] };
+  const records = Array.from({ length: 5 }, (_, i) => row('public-follow-' + i, 'W', {
+    'Catalog Membership JSON': JSON.stringify(evaluated),
+  }));
+  records.push(row('public-follow-weekend', 'L', {
+    'Catalog Membership JSON': JSON.stringify({ ...evaluated,
+      memberships: [{ pair: 'bd-band-65-total', direction: 0, filters: [] }] }),
+  }));
+  const original = select([play({ catalogEvaluation: evaluated })], records)[0];
+  assert.match(original.tier, /Moderate Public Follow \+ Monday through Friday/);
+  assert.equal(original.rankingRecord, '5-0-0');
+  assert.equal(eligibility.isPublicSplitEzpzPick(original), true);
+  for (const change of [{ source: 'Best Play' }, { playerName: 'Player' },
+    { propMarket: 'Passing Yards' }, { market: 'Moneyline' },
+    { selectorVersion: 'retired-selector' }, { trendSubtypeId: 'catalog:unknown:rule:0:|over' },
+    { trendSubtypeId: original.trendSubtypeId.replace('bd-band-65-total', 'unknown-rule') },
+    { trendSubtypeId: original.trendSubtypeId.replace('monday-through-friday', 'unknown-filter') },
+    { trendSubtypeId: original.trendSubtypeId.replace('|over', '|favorite spread') }]) {
+    assert.equal(eligibility.isPublicSplitEzpzPick({ ...original, ...change }), false, JSON.stringify(change));
+  }
+  const policyImports = {
+    './ncaafEzpzPolicy': policy,
+    './nflEzpzPolicy': load(path.join(root, 'lib/nflEzpzPolicy.ts')),
+    './ezpzPublicSplitEligibility': eligibility,
+  };
+  let stored = [];
+  const current = moduleWithStubs('lib/ezpzCurrentPicks.ts', {
+    ...policyImports,
+    './tursoStore': { replaceTursoDataset: async (_s, _d, rows) => { stored = rows; },
+      readTursoDataset: async () => stored },
+    './ezpzMcpEvents': { captureEzpzFinalPickEvents: async () => ({}) },
+  });
+  await current.persistEzpzCurrentPicks('NCAAF', { today, aiPicks: [original] });
+  const saved = await current.readEzpzCurrentPicks('NCAAF');
+  assert.equal(saved.pickCount, 1);
+  assert.equal(saved.picks[0].trendSubtypeId, original.trendSubtypeId);
+  assert.equal(saved.picks[0].rankingLastSeven.record, '5-0-0');
+  const board = moduleWithStubs('app/FootballBoard.tsx', {
+    '../lib/footballTrendCatalog': catalog,
+    '../lib/ncaafEzpzPolicy': policy, '../lib/ncaafTrendRecordPolicy': recordPolicy,
+    '../lib/ezpzPublicSplitEligibility': eligibility,
+    './TeamLogoName': { TeamLogoName: p => p.team, MatchupWithLogos: p => p.game,
+      SelectionWithTeamLogo: p => p.selection },
+  });
+  const html = renderToStaticMarkup(require('react').createElement(board.default,
+    { sport: 'NCAAF', tab: 'EZPZ Picks', data: { today, aiPicks: saved.picks } }));
+  assert.match(html, /Over 54/);
+  assert.match(html, /L7 5-0-0/);
+  assert.doesNotMatch(html, /No NCAAF EZPZ Picks right now/);
+  const history = moduleWithStubs('app/FootballBoardLegacy.tsx', {
+    '../lib/ezpzPublicSplitEligibility': eligibility,
+  }, '\nexport const recordsTest = footballEzpzHistoryRows;');
+  assert.equal(history.recordsTest({ ncaafEzpzTrendLeaderboard: [],
+    aiPickRecordRows: [{ ...original, result: 'W' }] }, 'NCAAF').length, 1);
+});
