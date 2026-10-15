@@ -6920,7 +6920,7 @@ export default function Home() {
     activeLoadControllerRef.current = controller;
     let timedOut = false;
     const timeout = activeSport === "NCAAF"
-      ? window.setTimeout(() => { timedOut = true; controller.abort(); }, 30_000) : null;
+      ? window.setTimeout(() => { timedOut = true; controller.abort(); }, 60_000) : null;
 
     const request = (async () => {
       try {
