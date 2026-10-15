@@ -123,7 +123,11 @@ export async function captureFootballCatalog(sport:FootballSport,rows:SheetRow[]
   }));
   if(persist)await upsertSportRows(sport,CATALOG_DEFINITIONS_TAB,DEFINITION_HEADERS,definitions,r=>r['Definition Key']);
   const frozenRows:SheetRow[]=annotatedRows.map(row=>entries.get(entryKey(row,sport)) || row);
-  for(const row of entries.values()) if(result(row.Result) && !frozenRows.some(r=>entryKey(r,sport)===row['Entry Key'])) frozenRows.push(row);
+  const frozenKeys=new Set(frozenRows.map(row=>entryKey(row,sport)));
+  for(const row of entries.values()) if(result(row.Result) && !frozenKeys.has(row['Entry Key'])) {
+    frozenRows.push(row);
+    frozenKeys.add(row['Entry Key']);
+  }
   const frozenPlays=annotatedPlays.map(p=>{const saved=entries.get(entryKey(p,sport));return saved && p.snapshotStatus==='FINAL_PREGAME'?{...p,catalogEvaluation:JSON.parse(saved['Catalog Membership JSON'])}:p;});
   return {rows:frozenRows,plays:frozenPlays,status:{version:config.version,registeredDirections:config.rules.length*2,
     subsetFilters:config.filters.length,combinedDefinitions:config.combinations.length*2,

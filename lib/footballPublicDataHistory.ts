@@ -1010,6 +1010,7 @@ export async function buildFootballPublicData(
   sport: FootballSport,
   options: { forceFresh?: boolean; persist?: boolean; publicDisplay?: boolean; buildSubtypes?: typeof buildNcaafTrendSubtypes } = {},
 ) {
+  const historyRead = options.publicDisplay && !options.persist ? readHistory(sport) : null;
   let core: AnyPick;
   try {
     core = await buildLegacyFootballPublicData(sport, options) as AnyPick;
@@ -1034,7 +1035,7 @@ export async function buildFootballPublicData(
   core.trendPlays = catalogCapture.plays;
   core.catalogTracking = catalogCapture.status;
   const today = isoDate(core.today) || new Date().toISOString().slice(0, 10);
-  let history = await readHistory(sport);
+  let history = await (historyRead || readHistory(sport));
   const selectionTime = Date.now();
   const ncaafEzpzTrendLeaderboard = sport === "NCAAF"
     ? buildNcaafEzpzLeaderboard(core.trendRecordRows || [], selectionTime, undefined, { buildSubtypes: options.buildSubtypes }) : [];

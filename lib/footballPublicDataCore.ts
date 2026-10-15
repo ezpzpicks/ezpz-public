@@ -2901,6 +2901,12 @@ function buildFootballEzpzPicks(
 async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false,publicDisplay=false}:{persist?:boolean;publicDisplay?:boolean}={}){
   let readStage = "stored-tables";
   try {
+  // Start the independent final-ledger read while the current board is built.
+  // Capture a rejection here so a slow live feed cannot leave it unhandled.
+  const savedLedgerRead = sport === "NCAAF" && publicDisplay && !persist
+    ? readSportWorksheet(sport, "football_catalog_memberships").then(
+        rows => ({ rows }), error => ({ error }),
+      ) : null;
   const today=todayET(); const trackingWeek=footballWeekBounds(sport,today); if(persist) await Promise.all([ensureSportWorksheet(sport,"all_game_trends",ALL_GAME_TRENDS_HEADERS),ensureSportWorksheet(sport,"public_split_snapshots",PUBLIC_SPLIT_HEADERS)]);
   const [slateAll,trackerRaw,schedule,trendExisting,snapshotExisting,propProjectionRows]=await Promise.all([readSportWorksheet(sport,"daily_slate"),readSportWorksheet(sport,"bet_tracker"),readSportWorksheet(sport,"schedule"),readSportWorksheet(sport,"all_game_trends",ALL_GAME_TRENDS_HEADERS),readSportWorksheet(sport,"public_split_snapshots",PUBLIC_SPLIT_HEADERS),sport==="NFL"?readSportWorksheet(sport,"prop_projections"):Promise.resolve([] as SheetRow[])]);
   readStage = "current-schedule";
@@ -3045,9 +3051,10 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false,p
   // The collector already stores timestamp-validated final quotes and frozen
   // catalog memberships. Visitors can read that ledger instead of replaying
   // every archived chart. Collector/audit builds retain the complete replay.
-  const savedRecordRows = sport === "NCAAF" && publicDisplay && !persist
-    ? (await readSportWorksheet(sport, "football_catalog_memberships")).filter(isVerifiedNcaafTrendRecord)
-    : [];
+  const savedLedger = await savedLedgerRead;
+  if (savedLedger && "error" in savedLedger) throw savedLedger.error;
+  const savedRecordRows = savedLedger && "rows" in savedLedger
+    ? savedLedger.rows.filter(isVerifiedNcaafTrendRecord) : [];
   const recordWeeklyMarket = savedRecordRows.length
     ? { trendPlays: [] }
     : completedTrendDates.length
