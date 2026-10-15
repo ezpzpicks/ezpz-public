@@ -182,6 +182,11 @@ function queryRows(result: PipelineResult | undefined) {
   });
 }
 
+/** Server-only statements for small durable integration tables, separate from sports datasets. */
+export async function runTursoSql(statements: string[]): Promise<TursoRow[][]> {
+  return (await pipeline(statements)).map(queryRows);
+}
+
 function comparableRow(value: unknown): TursoRow {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   const result: TursoRow = {};

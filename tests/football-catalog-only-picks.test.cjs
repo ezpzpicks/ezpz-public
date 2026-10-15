@@ -76,7 +76,7 @@ for (const sport of ['NFL', 'NCAAF']) {
     const legacy = { ...current, selectorVersion: undefined, trendSubtypeId: undefined, tier: 'Market Move' };
     let stored = [{ Kind: 'META', Date: today, 'Updated At': new Date(now).toISOString(), 'Pick Count': '3' },
       ...[legacy, broad, current].map(pick => ({ Kind: 'PICK', 'Details JSON': JSON.stringify(pick) }))];
-    const api = withStubs('lib/ezpzCurrentPicks.ts', { './tursoStore': {
+    const api = withStubs('lib/ezpzCurrentPicks.ts', { './ezpzMcpEvents': { captureEzpzFinalPickEvents: async () => ({ delivered: 0 }) }, './tursoStore': {
       readTursoDataset: async () => stored,
       replaceTursoDataset: async (_sport, _dataset, rows) => { stored = rows; },
     } });
