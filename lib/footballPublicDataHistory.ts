@@ -1,6 +1,7 @@
 import { captureFootballCatalog } from "./footballTrendCatalogStore";
 import { finiteNcaafNumber, selectNcaafEzpzPicks, NCAAF_EZPZ_RULE, NCAAF_EZPZ_POLICY_VERSION } from "./ncaafEzpzPolicy";
 import { isVerifiedNcaafTrendRecord } from "./ncaafTrendRecordPolicy";
+import type { buildNcaafTrendSubtypes } from "./ncaafPublicTrendLeaderboard";
 import { buildNcaafEzpzLeaderboard, isNcaafWilsonArchivedPick, selectNcaafWilsonEzpzPicks } from "./ncaafEzpzWilson";
 import { NFL_CORE_PICK_CLASSES, NFL_CORE_SELECTOR_EFFECTIVE_DATE, NFL_EZPZ_POLICY_VERSION, NFL_EZPZ_RULE } from "./nflEzpzPolicy";
 import { buildNflEzpzLeaderboard, selectNflWilsonEzpzPicks } from "./nflEzpzWilson";
@@ -1007,8 +1008,9 @@ async function readHistory(sport: FootballSport) {
 
 export async function buildFootballPublicData(
   sport: FootballSport,
-  options: { forceFresh?: boolean; persist?: boolean } = {},
+  options: { forceFresh?: boolean; persist?: boolean; publicDisplay?: boolean; buildSubtypes?: typeof buildNcaafTrendSubtypes } = {},
 ) {
+  const historyRead = options.publicDisplay && !options.persist ? readHistory(sport) : null;
   let core: AnyPick;
   try {
     core = await buildLegacyFootballPublicData(sport, options) as AnyPick;
@@ -1033,10 +1035,10 @@ export async function buildFootballPublicData(
   core.trendPlays = catalogCapture.plays;
   core.catalogTracking = catalogCapture.status;
   const today = isoDate(core.today) || new Date().toISOString().slice(0, 10);
-  let history = await readHistory(sport);
+  let history = await (historyRead || readHistory(sport));
   const selectionTime = Date.now();
   const ncaafEzpzTrendLeaderboard = sport === "NCAAF"
-    ? buildNcaafEzpzLeaderboard(core.trendRecordRows || [], selectionTime) : [];
+    ? buildNcaafEzpzLeaderboard(core.trendRecordRows || [], selectionTime, undefined, { buildSubtypes: options.buildSubtypes }) : [];
   const nflEzpzTrendLeaderboard = sport === "NFL"
     ? buildNflEzpzLeaderboard(core.trendRecordRows || [], selectionTime) : [];
 
@@ -1047,7 +1049,7 @@ export async function buildFootballPublicData(
   const rows = Array.isArray(core.trendRecordRows) ? core.trendRecordRows : [];
   const currentPicks = sport === "NFL"
     ? selectNflWilsonEzpzPicks(plays, rows, today, selectionTime, archived)
-    : selectNcaafWilsonEzpzPicks(plays, rows, today, selectionTime, archived);
+    : selectNcaafWilsonEzpzPicks(plays, rows, today, selectionTime, archived, { buildSubtypes: options.buildSubtypes });
   // NCAAF_FINAL_ONLY_HISTORY_PATCH
   const existingByKey = new Map(history.map((row) => [String(row["Pick Key"] || pickKey(row, row.Date)), row]));
   const historyEligibleCurrentPicks = currentPicks.filter((pick: AnyPick) => textKey(pick.snapshotStatus) === "final pregame");
@@ -1078,6 +1080,19 @@ export async function buildFootballPublicData(
     ? await readSportWorksheet("NFL", "schedule")
     : [];
   const nflSummaryCache = new Map<string, Promise<AnyPick | null>>();
+  const byDate = (rows: SheetRow[]) => {
+    const grouped = new Map<string, SheetRow[]>();
+    for (const row of rows) {
+      const date = isoDate(row.Date || row["Game Date"]);
+      const group = grouped.get(date) || [];
+      group.push(row);
+      grouped.set(date, group);
+    }
+    return grouped;
+  };
+  const trendRowsByDate = byDate(core.trendRecordRows || []);
+  const trackerRowsByDate = byDate(core.betTrackerRows || []);
+  const trendRowsFor = (date: unknown) => trendRowsByDate.get(isoDate(date)) || [];
 
   const gradedHistory = await Promise.all(history.map(async (row) => {
     const finalNflTrend = sport === "NFL" ? finalNflTrendSnapshotForHistory(row, core) : null;
@@ -1101,7 +1116,10 @@ export async function buildFootballPublicData(
         }),
       };
     }
-    let settled = settledResultForHistory(workingRow, core, sport);
+    const date = isoDate(workingRow.Date);
+    let settled = settledResultForHistory(workingRow, sport === "NCAAF" ? {
+      ...core, trendRecordRows: trendRowsFor(date), betTrackerRows: trackerRowsByDate.get(date) || [],
+    } : core, sport);
     if (
       !settled.result &&
       sport === "NFL" &&
@@ -1146,8 +1164,8 @@ export async function buildFootballPublicData(
 
   const aiPickRecordRows = gradedHistory
     .map(historyPickFromRow)
-    .map(pick => sport === "NCAAF" && pick.selectorVersion !== NCAAF_EZPZ_POLICY_VERSION ? ncaafSpreadHistoryEvidence(pick, Array.isArray(core.trendRecordRows) ? core.trendRecordRows : []) : pick)
-    .map(pick => sport === "NCAAF" && pick.selectorVersion !== NCAAF_EZPZ_POLICY_VERSION ? ncaafSharpHistoryEvidence(pick, Array.isArray(core.trendRecordRows) ? core.trendRecordRows : []) : pick)
+    .map(pick => sport === "NCAAF" && pick.selectorVersion !== NCAAF_EZPZ_POLICY_VERSION ? ncaafSpreadHistoryEvidence(pick, trendRowsFor(pick.date)) : pick)
+    .map(pick => sport === "NCAAF" && pick.selectorVersion !== NCAAF_EZPZ_POLICY_VERSION ? ncaafSharpHistoryEvidence(pick, trendRowsFor(pick.date)) : pick)
     .filter((pick) => sport !== "NCAAF" || (
       textKey(pick.snapshotStatus) === "final pregame" &&
       isPublicSplitEzpzPick(pick) &&

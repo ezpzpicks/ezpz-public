@@ -2,6 +2,7 @@
 
 import FootballBoard from "./FootballBoard";
 import { buildNflEzpzRecords } from "../lib/nflEzpzRecords";
+import { restoreFootballPublicDisplay } from "../lib/footballPublicDisplay";
 import { DirectTrendRecords, FootballTrendMarketBoard } from "./FootballTrendMarketBoard";
 import { MatchupWithLogos, SelectionWithTeamLogo } from "./TeamLogoName";
 
@@ -5295,7 +5296,7 @@ function AiPickSelectorCard({
     pick.bestPlayType &&
       pick.snapshotStatus === "FINAL_PREGAME" &&
       (pick.dataStatus || []).some((item) =>
-        item.startsWith("EZPZ Best Play is final for the full day"),
+        item.startsWith("Model EZPZ Pick is final for the full day"),
       ),
   );
   const bestPlayGate = pick.bestPlayType
@@ -5328,7 +5329,7 @@ function AiPickSelectorCard({
     ...(pick.dataStatus || []),
     pick.snapshotStatus === "FINAL_PREGAME"
       ? isImmediateBestPlayFinal
-        ? `EZPZ Best Play saved as final for the full day ${pick.lockedAt || pick.updatedAt}`
+        ? `Model EZPZ Pick saved as final for the full day ${pick.lockedAt || pick.updatedAt}`
         : `Final pregame selection locked ${pick.lockedAt || pick.updatedAt}`
       : "Live selector preview; the final decision can change before the pregame lock",
     aiExternalReviewLabel(pick.externalReviewStatus),
@@ -5384,7 +5385,7 @@ function AiPickSelectorCard({
             <div className="aiPickQualificationGateHead">
               <div>
                 <span>Model Play Record Snapshot</span>
-                <strong>{normalizeType(pick.bestPlayType || "Best Play")}</strong>
+                <strong>{normalizeType(pick.bestPlayType || "Model EZPZ Pick")}</strong>
               </div>
               <span className={"formPill " + bestPlayGate.className}>
                 {bestPlayGate.className === "hot" ? "🔥 " : ""}
@@ -6917,12 +6918,15 @@ export default function Home() {
     if (!silent) setRefreshing(true);
     const controller = new AbortController();
     activeLoadControllerRef.current = controller;
+    let timedOut = false;
+    const timeout = activeSport === "NCAAF"
+      ? window.setTimeout(() => { timedOut = true; controller.abort(); }, 30_000) : null;
 
     const request = (async () => {
       try {
         const endpoint =
           activeSport === "NFL" || activeSport === "NCAAF"
-            ? `/api/public-data-v2?sport=${activeSport}${forceFresh ? "&refresh=1" : ""}`
+            ? `/api/public-data-v2?sport=${activeSport}&compact=1${forceFresh ? "&refresh=1" : ""}`
             : forceFresh
               ? "/api/public-data-v2?refresh=1"
               : "/api/public-data-v2";
@@ -6930,10 +6934,11 @@ export default function Home() {
           cache: "no-store",
           signal: controller.signal,
         });
-        const json = (await response.json()) as ApiData;
+        const json = restoreFootballPublicDisplay((await response.json()) as ApiData);
         if (!response.ok || !json.ok) {
           throw new Error(json.error || "Failed to load EZPZ data");
         }
+        if (controller.signal.aborted) return;
         setData(json);
         setError("");
 
@@ -6949,8 +6954,9 @@ export default function Home() {
           setDraftKingsError("ScoresAndOdds feed unavailable");
         }
       } catch (err) {
-        if (err instanceof Error && err.name === "AbortError") return;
-        setError(err instanceof Error ? err.message : "Failed to load EZPZ data");
+        if (activeLoadControllerRef.current !== controller) return;
+        if (controller.signal.aborted && !timedOut) return;
+        setError(timedOut ? "NCAAF data took too long to load. Please try again." : err instanceof Error ? err.message : "Failed to load EZPZ data");
       }
     })();
 
@@ -6958,6 +6964,7 @@ export default function Home() {
     try {
       await request;
     } finally {
+      if (timeout != null) window.clearTimeout(timeout);
       const isCurrentRequest = activeLoadRef.current === request;
       if (isCurrentRequest) activeLoadRef.current = null;
       if (activeLoadControllerRef.current === controller) {

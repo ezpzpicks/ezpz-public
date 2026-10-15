@@ -785,7 +785,7 @@ function dedupeEzpzPicks(picks: NflEzpzPick[]) {
 
 export async function buildFootballPublicData(
   sport: FootballSport,
-  options: { forceFresh?: boolean; persist?: boolean } = {},
+  options: { forceFresh?: boolean; persist?: boolean; publicDisplay?: boolean } = {},
 ) {
   const core = await buildCoreFootballPublicData(sport, options) as any;
   if (sport !== "NFL") return core;

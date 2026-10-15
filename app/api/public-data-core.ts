@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readWorksheet as readWorksheetUncached } from "../../lib/mlbStore";
 import { buildFootballPublicData } from "../../lib/footballPublicData";
-import { appendTursoDataset, isTursoConfigured, patchTursoDatasetRows, readTursoDataset, readTursoDatasetByDateKeys, replaceTursoDataset } from "../../lib/tursoStore";
+import { compactFootballPublicDisplay } from "../../lib/footballPublicDisplay";
+import { appendTursoDataset, isTursoConfigured, patchTursoDatasetRows, readTursoDataset, readTursoDatasetByDateKeys, replaceTursoDataset, withTursoReadCache } from "../../lib/tursoStore";
 import {
   SCORES_AND_ODDS_SOURCE,
   loadScoresAndOddsConsensus,
@@ -12619,12 +12620,16 @@ export async function buildPublicDataResponse(request: NextRequest) {
     }
 
     try {
-      return NextResponse.json(
-        await buildFootballPublicData(requestedSport, {
+      const started = Date.now();
+      const payload = compactFootballPublicDisplay(await withTursoReadCache(() => buildFootballPublicData(requestedSport, {
           forceFresh: forceFreshFootball,
           persist: scheduledFootball,
-        }),
-      );
+          publicDisplay: !scheduledFootball,
+        })), request.nextUrl.searchParams.get("compact") === "1");
+      const body = JSON.stringify(payload);
+      console.info("[football-public-display]", JSON.stringify({ sport: requestedSport,
+        elapsedMs: Date.now() - started, bytes: Buffer.byteLength(body), compact: request.nextUrl.searchParams.get("compact") === "1" }));
+      return new NextResponse(body, { headers: { "Content-Type": "application/json", "Cache-Control": "no-store, max-age=0" } });
     } catch (error) {
       console.error(`${requestedSport} public data failed`, error);
       return NextResponse.json(

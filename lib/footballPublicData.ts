@@ -2,7 +2,7 @@ import { buildFootballPublicData as buildFootballPublicDataWithHistory } from ".
 import { overlayPublishedDirectTrendRows } from "./footballDirectTrendLedger";
 import { isVerifiedNcaafTrendRecord, NCAAF_TREND_RECORD_POLICY } from "./ncaafTrendRecordPolicy";
 import { buildNflEzpzRecords } from "./nflEzpzRecords";
-import { buildNcaafPublicTrendLeaderboard } from "./ncaafPublicTrendLeaderboard";
+import { buildNcaafPublicTrendLeaderboard, createNcaafSubtypeBuilder } from "./ncaafPublicTrendLeaderboard";
 import { buildNflPublicTrendLeaderboard } from "./nflPublicTrendLeaderboard";
 import {
   readSportWorksheet,
@@ -506,11 +506,14 @@ function hardenDirectTrendRecordRows(rows: SheetRow[], sport: FootballSport) {
   });
 }
 
-export async function buildFootballPublicData(
+async function buildFootballPublicDataFresh(
   sport: FootballSport,
-  options: { forceFresh?: boolean; persist?: boolean } = {},
+  options: { forceFresh?: boolean; persist?: boolean; publicDisplay?: boolean } = {},
 ): Promise<Record<string, any>> {
-  const data = (await buildFootballPublicDataWithHistory(sport, options)) as Record<string, any>;
+  // One immutable final ledger supplies both rankings. Share its subtype totals
+  // within this request while retaining each Wilson decision's row cutoff.
+  const subtypeBuilder = sport === "NCAAF" ? createNcaafSubtypeBuilder() : undefined;
+  const data = (await buildFootballPublicDataWithHistory(sport, { ...options, buildSubtypes: subtypeBuilder })) as Record<string, any>;
   const trendRows = Array.isArray(data.trendRecordRows) ? data.trendRecordRows as SheetRow[] : [];
   const trackerRows = Array.isArray(data.betTrackerRows) ? data.betTrackerRows as SheetRow[] : [];
   const scheduleRows = sport === "NCAAF"
@@ -548,7 +551,7 @@ export async function buildFootballPublicData(
     return {
       ...data, aiPicks, aiPickRecordRows: backfilledRecordRows,
       trendRecordRows: verifiedTrendRows,
-      ncaafPublicTrendLeaderboard: buildNcaafPublicTrendLeaderboard(verifiedTrendRows),
+      ncaafPublicTrendLeaderboard: buildNcaafPublicTrendLeaderboard(verifiedTrendRows, subtypeBuilder),
       trendRecordPolicy: NCAAF_TREND_RECORD_POLICY,
     };
   }
@@ -590,6 +593,29 @@ export async function buildFootballPublicData(
     ...(sport === "NFL" ? { ezpzRecords: buildNflEzpzRecords(backfilledRecordRows, String(data.today || "")) } : {}),
     trendRecordRows: hardenDirectTrendRecordRows(directTrendRecordRows, sport),
   };
+}
+
+const publicNcaafCache = new Map<FootballSport, { savedAt: number; data: Awaited<ReturnType<typeof buildFootballPublicDataFresh>> }>();
+const publicNcaafInFlight = new Map<FootballSport, Promise<Awaited<ReturnType<typeof buildFootballPublicDataFresh>>>>();
+
+export async function buildFootballPublicData(sport: FootballSport, options: Parameters<typeof buildFootballPublicDataFresh>[1] = {}) {
+  if (sport !== "NCAAF" || !options.publicDisplay || options.persist || options.forceFresh) {
+    if (options.forceFresh || options.persist) publicNcaafCache.delete(sport);
+    return buildFootballPublicDataFresh(sport, options);
+  }
+  // Reuse the complete public result for the same one-minute freshness window
+  // as the core. Visitors need not rebuild 40,000+ subtype totals per click.
+  const cached = publicNcaafCache.get(sport);
+  if (cached && Date.now() - cached.savedAt < 60_000) return cached.data;
+  const active = publicNcaafInFlight.get(sport);
+  if (active) return active;
+  const request = buildFootballPublicDataFresh(sport, options).then(data => {
+    publicNcaafCache.set(sport, { savedAt: Date.now(), data });
+    return data;
+  });
+  publicNcaafInFlight.set(sport, request);
+  try { return await request; }
+  finally { if (publicNcaafInFlight.get(sport) === request) publicNcaafInFlight.delete(sport); }
 }
 
 

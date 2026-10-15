@@ -237,6 +237,28 @@ function projectColumns(row: TursoRow, columns?: string[]) {
   return projected;
 }
 
+async function readIndexedDataset(sport: TursoSport, dataset: string, dateKeys?: string[]) {
+  const dateFilter = dateKeys ? ` AND date_key IN (${dateKeys.map(sqlText).join(",")})` : "";
+  const where = `sport=${sqlText(sport)} AND dataset=${sqlText(dataset)}${dateFilter}`;
+  // A saved football chart row can exceed 150 KB. Read bounded pages rather
+  // than asking Hrana to serialize the entire growing archive in one response.
+  if (dataset !== "weekly_market_trends") {
+    const results = await pipeline([`SELECT row_index,payload_json FROM dataset_rows WHERE ${where} ORDER BY row_index ASC`]);
+    return indexedRowsFromResult(results[0]);
+  }
+  const rows: TursoIndexedRow[] = [];
+  let lastIndex = 0;
+  while (true) {
+    const results = await pipeline([
+      `SELECT row_index,payload_json FROM dataset_rows WHERE ${where} AND row_index>${lastIndex} ORDER BY row_index ASC LIMIT 32`,
+    ]);
+    const page = indexedRowsFromResult(results[0]);
+    rows.push(...page);
+    if (page.length < 32) return rows;
+    lastIndex = page[page.length - 1].index;
+  }
+}
+
 export async function readTursoDataset(
   sport: TursoSport,
   dataset: string,
@@ -245,10 +267,7 @@ export async function readTursoDataset(
   let indexed = getScopedRows(sport, dataset);
   let rowsRead = 0;
   if (!indexed) {
-    const results = await pipeline([
-      `SELECT row_index,payload_json FROM dataset_rows WHERE sport=${sqlText(sport)} AND dataset=${sqlText(dataset)} ORDER BY row_index ASC`,
-    ]);
-    indexed = indexedRowsFromResult(results[0]);
+    indexed = await readIndexedDataset(sport, dataset);
     rowsRead = indexed.length;
     setScopedRows(sport, dataset, indexed);
   }
@@ -282,11 +301,7 @@ export async function readTursoDatasetByDateKeys(
     const allowed = new Set(normalizedDateKeys);
     indexed = scoped.filter((item) => allowed.has(firstRowValue(item.row, ["Date", "date", "Record Date"])));
   } else {
-    const dateSql = normalizedDateKeys.map((value) => sqlText(value)).join(",");
-    const results = await pipeline([
-      `SELECT row_index,payload_json FROM dataset_rows WHERE sport=${sqlText(sport)} AND dataset=${sqlText(dataset)} AND date_key IN (${dateSql}) ORDER BY row_index ASC`,
-    ]);
-    indexed = indexedRowsFromResult(results[0]);
+    indexed = await readIndexedDataset(sport, dataset, normalizedDateKeys);
     rowsRead = indexed.length;
   }
 

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { buildFootballPublicData } from "../../../lib/footballPublicData";
 import { repairNcaafFinalScores } from "../../../lib/ncaafFinalScoreRepair";
+import { withTursoReadCache } from "../../../lib/tursoStore";
+import { compactFootballPublicDisplay } from "../../../lib/footballPublicDisplay";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -76,10 +78,11 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const data = await buildFootballPublicData("NCAAF", {
+    const data = await withTursoReadCache(() => buildFootballPublicData("NCAAF", {
       forceFresh,
       persist: scheduled,
-    });
+      publicDisplay: !scheduled,
+    }));
 
     // Keep read-only record verification small enough to inspect without the
     // full model, live feed, and movement-chart payload.
@@ -104,7 +107,7 @@ export async function GET(request: NextRequest) {
     );
 
     return NextResponse.json({
-      ...data,
+      ...compactFootballPublicDisplay(data),
       finalScoreRepair,
       bestPlays,
       aiPicks,

@@ -23,6 +23,20 @@ export type CatalogEvaluation = {
 type Side = Record<string, any>;
 type Point = { time: number; line: number | null; bets: number | null; money: number | null; odds: number | null };
 const catalogs: Record<string, CatalogDefinition> = { NFL: nflCatalog, NCAAF: ncaafCatalog };
+const catalogIndexes = new Map(Object.values(catalogs).map(config => {
+  const rules = new Map(config.rules.map(rule => [rule.id, rule]));
+  const filters = new Map(config.filters.map(filter => [filter.id, filter]));
+  const combinations = new Map<string, CatalogDefinition['combinations']>();
+  for (const combination of config.combinations) {
+    const group = combinations.get(combination.parent) || [];
+    group.push(combination);
+    combinations.set(combination.parent, group);
+  }
+  return [config.version, { rules, filters, combinations }] as const;
+}));
+const kickoffFormatter = new Intl.DateTimeFormat('en-US', {
+  timeZone:'America/New_York', weekday:'short', hour:'numeric', hourCycle:'h23',
+});
 export function footballCatalog(sport: string) { return catalogs[sport] || ncaafCatalog; }
 const key = (x: unknown) => String(x ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 export function catalogNumber(x: unknown): number | null {
@@ -77,18 +91,19 @@ export function catalogSelectionIdentity(input: Side, sport: string) { const s=c
 export function catalogSignals(evaluation: CatalogEvaluation | undefined, sport: string): string[] {
   if (!evaluation || evaluation.version !== footballCatalog(sport).version || evaluation.invalid) return [];
   const config = footballCatalog(sport);
+  const combinations = catalogIndexes.get(config.version)?.combinations;
   return evaluation.memberships.flatMap(m => {
-    const groups = [[], ...m.filters.map(f => [f]), ...config.combinations.filter(c => c.parent === m.pair && c.filters.every(f => m.filters.includes(f))).map(c => c.filters)];
+    const groups = [[], ...m.filters.map(f => [f]), ...(combinations?.get(m.pair) || []).filter(c => c.filters.every(f => m.filters.includes(f))).map(c => c.filters)];
     return [...new Set(groups.map(filters => `catalog:${evaluation.version}:${m.pair}:${m.direction}:${filters.slice().sort().join(',')}`))];
   });
 }
 export function catalogSignalLabel(signal: string) {
   if (!signal.startsWith('catalog:')) return signal;
   const [, version, id, direction, filterIds] = signal.split(':');
-  const config = Object.values(catalogs).find(c => c.version === version);
-  const rule = config?.rules.find(r => r.id === id);
-  if (!rule || !config) return signal;
-  const filters = (filterIds || '').split(',').filter(Boolean).map(id => config.filters.find(f => f.id === id)?.label || id);
+  const index = catalogIndexes.get(version);
+  const rule = index?.rules.get(id);
+  if (!rule || !index) return signal;
+  const filters = (filterIds || '').split(',').filter(Boolean).map(id => index.filters.get(id)?.label || id);
   return [rule.names[Number(direction)], ...filters].join(' + ');
 }
 export function catalogEvaluationFor(play: Side, siblings: Side[], sport: string) {
@@ -174,7 +189,15 @@ function resolver(all: Side[], anchor: Side, sport: string) {
       const other=opposite(s),points=history(s),opp=other?history(other):[];
       // An inconsistent supplied path is rejected, not repaired by dropping an
       // inconvenient point. Both sides must describe the same source quote.
-      pathCache.set(s,points.every(p => paired(s,p,opp.find(q=>Math.abs(q.time-p.time)<=60_000))) ? points : []);
+      // Both paths are sorted. Preserve the first quote within the existing
+      // one-minute tolerance without rescanning the opposite path per point.
+      let oppositeIndex = 0;
+      const consistent = points.every(p => {
+        while (oppositeIndex < opp.length && opp[oppositeIndex].time < p.time - 60_000) oppositeIndex++;
+        const q = opp[oppositeIndex];
+        return paired(s, p, q && q.time <= p.time + 60_000 ? q : undefined);
+      });
+      pathCache.set(s, consistent ? points : []);
     }
     return pathCache.get(s)!;
   };
@@ -315,7 +338,7 @@ function filterMatch(id: string, anchor: Side, all: Side[], sport: string, value
   if(id==='integer-quote' || id==='half-point-quote')return line==null?null:Math.abs(line)%1===(id==='integer-quote'?0:0.5);
   const kick=epoch(anchor.gameTime);
   if(['monday-through-friday','saturday','sunday','tuesday-or-wednesday','friday','morning-et','afternoon-et','evening-et'].includes(id)) {
-    if(kick==null)return null;const parts=new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',weekday:'short',hour:'numeric',hourCycle:'h23'}).formatToParts(new Date(kick));const day=parts.find(x=>x.type==='weekday')?.value, hour=Number(parts.find(x=>x.type==='hour')?.value);
+    if(kick==null)return null;const parts=kickoffFormatter.formatToParts(new Date(kick));const day=parts.find(x=>x.type==='weekday')?.value, hour=Number(parts.find(x=>x.type==='hour')?.value);
     return id==='saturday'?day==='Sat':id==='sunday'?day==='Sun':id==='friday'?day==='Fri':id==='tuesday-or-wednesday'?day==='Tue'||day==='Wed':id==='monday-through-friday'?day!=='Sat'&&day!=='Sun':id==='morning-et'?hour<12:id==='afternoon-et'?hour>=12&&hour<18:hour>=18;
   }
   if(id==='legacy-source' || id==='scoresandodds-source'){if(!anchor.source || !validOpening(anchor))return null;return id==='scoresandodds-source'?anchor.date>='2026-09-21'&&String(anchor.source).includes('ScoresAndOdds'):anchor.date<'2026-09-21'&&!String(anchor.source).includes('ScoresAndOdds');}

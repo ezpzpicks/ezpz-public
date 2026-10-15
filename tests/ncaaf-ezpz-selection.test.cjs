@@ -137,7 +137,11 @@ test("the NCAAF API keeps today's public-split pick without a saved model slate"
  const fixture={today:day,slateToday:[],bestPlays:[],aiPicks:[{...select([total])[0],date:day},{...select([total])[0],date:'2026-10-09'}]};
  vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(__dirname,'../app/api/ncaaf-public-data/route.ts'),'utf8'),{
   compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022},
- }).outputText,{exports:result,require:name=>name==='next/server'?require(name):name.endsWith('footballPublicData')?{buildFootballPublicData:async()=>fixture}:{},Date,console});
+ }).outputText,{exports:result,require:name=>name==='next/server'?require(name)
+  :name.endsWith('footballPublicData')?{buildFootballPublicData:async()=>fixture}
+  :name.endsWith('tursoStore')?{withTursoReadCache:callback=>callback()}
+  :name.endsWith('footballPublicDisplay')?load(path.join(__dirname,'../lib/footballPublicDisplay.ts'))
+  :{},Date,console});
  const response=await result.GET({nextUrl:{searchParams:new URLSearchParams()}});
  const body=await response.json();assert.equal(body.aiPicks.length,1);assert.equal(body.aiPicks[0].tier,'Total Drop Fade');
 });

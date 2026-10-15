@@ -2866,20 +2866,25 @@ export async function readWeeklyFootballMarket(
   sport: FootballSport,
   options: { dateKeys?: string[]; hydrateHistory?: boolean; finalSnapshotsOnly?: boolean } = {},
 ) {
-  await Promise.all([
+  const requestedDates = new Set(
+    (options.dateKeys || []).map((value) => String(value || "").trim()).filter(Boolean),
+  );
+  // Filter the large saved chart rows in SQL, before they cross the network.
+  // Read-only display requests do not need to ensure an existing dataset.
+  if (options.hydrateHistory !== false) await Promise.all([
     ensureSportWorksheet(sport, POSTED_GAMES_TAB, POSTED_GAME_HEADERS),
     ensureSportWorksheet(sport, WEEKLY_TRENDS_TAB, WEEKLY_TREND_HEADERS),
   ]);
   const [games, rows, scheduleRows, slateRows, allGameTrends] = await Promise.all([
     readSportWorksheet(sport, POSTED_GAMES_TAB, POSTED_GAME_HEADERS),
-    readSportWorksheet(sport, WEEKLY_TRENDS_TAB, WEEKLY_TREND_HEADERS),
+    requestedDates.size
+      ? readSportWorksheetByDateKeys(sport, WEEKLY_TRENDS_TAB, [...requestedDates], WEEKLY_TREND_HEADERS)
+      : options.dateKeys ? Promise.resolve([] as SheetRow[])
+      : readSportWorksheet(sport, WEEKLY_TRENDS_TAB, WEEKLY_TREND_HEADERS),
     readSportWorksheet(sport, "schedule"),
     readSportWorksheet(sport, "daily_slate"),
     readSportWorksheet(sport, "all_game_trends"),
   ]);
-  const requestedDates = new Set(
-    (options.dateKeys || []).map((value) => String(value || "").trim()).filter(Boolean),
-  );
   // Public NCAAF reads can use the movement history already persisted in
   // weekly_market_trends. Raw odds_snapshot hydration is reserved for the
   // background market tracker/audit path, where the full archive is actually
@@ -2888,7 +2893,7 @@ export async function readWeeklyFootballMarket(
   const hydrateHistory = options.hydrateHistory !== false;
   const sourceGames = games
     .filter(isScoresAndOddsCutoverRow)
-    .filter((row) => !requestedDates.size || requestedDates.has(canonicalScheduleDate(row) || String(row.Date || "").trim()));
+    .filter((row) => !options.dateKeys || requestedDates.has(canonicalScheduleDate(row) || String(row.Date || "").trim()));
   const sourceRows = rows
     .filter((row) => isWeeklyTrendSourceRow(row, sport))
     .filter((row) => !requestedDates.size || requestedDates.has(String(row.Date || "").trim()));

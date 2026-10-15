@@ -119,6 +119,18 @@ export function buildNcaafTrendSubtypes(rows: SheetRow[], options: {
     groups.set(groupKey, group);
   }
   const buckets = new Map<string, { signal: string; category: NcaafTrendCategory; rows: SheetRow[]; games: Set<string> }>();
+  const sortKeys = new Map<SheetRow, { playedAt: number; settledAt: number }>();
+  const sortKey = (row: SheetRow) => {
+    let value = sortKeys.get(row);
+    if (!value) {
+      value = {
+        playedAt: Date.parse(row["Game Time"] || row["Public Split Snapshot Time"] || "") || 0,
+        settledAt: Date.parse(row["Result Updated"] || "") || 0,
+      };
+      sortKeys.set(row, value);
+    }
+    return value;
+  };
   for (const group of groups.values()) {
     const uniqueRows = [...group.values()];
     const plays = uniqueRows.map(recordSide);
@@ -127,11 +139,13 @@ export function buildNcaafTrendSubtypes(rows: SheetRow[], options: {
     for (let i = 0; i < uniqueRows.length; i++) {
       const category = ncaafTrendCategory(plays[i]);
       if (!category) continue;
+      const row = uniqueRows[i];
+      // Every matched subtype belongs to the same game. Resolve its identity
+      // once instead of reparsing the saved membership JSON per subtype.
+      const game = gameIdentity(row);
       for (const signal of signalsFor(plays[i], plays)) {
         const id = ncaafTrendSubtypeId(signal, category);
         const bucket = buckets.get(id) || { signal, category, rows: [], games: new Set<string>() };
-        const row = uniqueRows[i];
-        const game = gameIdentity(row);
         if (!bucket.games.has(game)) {
           bucket.rows.push(row);
           bucket.games.add(game);
@@ -144,15 +158,29 @@ export function buildNcaafTrendSubtypes(rows: SheetRow[], options: {
     id, signal: bucket.signal, category: bucket.category,
     label: `${catalogSignalLabel(bucket.signal)} - ${bucket.category}`, totals: recordTotals(bucket.rows),
     lastSevenTotals: recordTotals([...bucket.rows].sort((a, b) =>
-      (Date.parse(b["Game Time"] || b["Public Split Snapshot Time"] || "") || 0)
-      - (Date.parse(a["Game Time"] || a["Public Split Snapshot Time"] || "") || 0)
-      || (Date.parse(b["Result Updated"] || "") || 0) - (Date.parse(a["Result Updated"] || "") || 0)
+      sortKey(b).playedAt - sortKey(a).playedAt
+      || sortKey(b).settledAt - sortKey(a).settledAt
       || String(a.Game).localeCompare(String(b.Game))).slice(0, 7)),
   }));
 }
 
-export function buildNcaafPublicTrendLeaderboard(rows: SheetRow[]): NcaafPublicTrendSubtype[] {
-  return rankNcaafPublicTrendSubtypes(buildNcaafTrendSubtypes(rows));
+export function createNcaafSubtypeBuilder(): typeof buildNcaafTrendSubtypes {
+  const entries: Array<{ rows: SheetRow[]; options: Parameters<typeof buildNcaafTrendSubtypes>[1]; result: NcaafPublicTrendSubtype[] }> = [];
+  return (rows, options) => {
+    const eligible = rows.filter(row => isVerifiedNcaafTrendRecord(row) && resultCode(row));
+    const cached = entries.find(entry => entry.options?.signalsFor === options?.signalsFor
+      && entry.options?.gameIdentity === options?.gameIdentity && entry.options?.sport === options?.sport
+      && entry.rows.length === eligible.length && entry.rows.every((row, i) => row === eligible[i]));
+    if (cached) return cached.result;
+    const result = buildNcaafTrendSubtypes(eligible, options);
+    entries.push({ rows: eligible, options, result });
+    if (entries.length > 4) entries.shift();
+    return result;
+  };
+}
+
+export function buildNcaafPublicTrendLeaderboard(rows: SheetRow[], builder = buildNcaafTrendSubtypes): NcaafPublicTrendSubtype[] {
+  return rankNcaafPublicTrendSubtypes(builder(rows));
 }
 
 export function visibleNcaafTrendBadges(

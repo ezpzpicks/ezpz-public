@@ -514,9 +514,9 @@ function clampPct(value: unknown) {
   return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : 0;
 }
 
-function chartX(index: number, count: number, left: number, right: number) {
+function chartX(index: number, count: number, left: number, right: number, positions?: number[]) {
   if (count <= 1) return (left + right) / 2;
-  return left + (index / (count - 1)) * (right - left);
+  return left + (positions?.[index] ?? index / (count - 1)) * (right - left);
 }
 
 function chartY(value: number, min: number, max: number, top: number, bottom: number) {
@@ -524,17 +524,17 @@ function chartY(value: number, min: number, max: number, top: number, bottom: nu
   return bottom - ((value - min) / spread) * (bottom - top);
 }
 
-function chartPolyline(values: number[], left: number, right: number, top: number, bottom: number, min: number, max: number) {
+function chartPolyline(values: number[], left: number, right: number, top: number, bottom: number, min: number, max: number, positions?: number[]) {
   return values.map((value, index) =>
-    `${chartX(index, values.length, left, right).toFixed(1)},${chartY(value, min, max, top, bottom).toFixed(1)}`
+    `${chartX(index, values.length, left, right, positions).toFixed(1)},${chartY(value, min, max, top, bottom).toFixed(1)}`
   ).join(" ");
 }
 
-function stepPolyline(values: number[], left: number, right: number, top: number, bottom: number, min: number, max: number) {
+function stepPolyline(values: number[], left: number, right: number, top: number, bottom: number, min: number, max: number, positions?: number[]) {
   if (!values.length) return "";
   const points: string[] = [];
   values.forEach((value, index) => {
-    const x = chartX(index, values.length, left, right);
+    const x = chartX(index, values.length, left, right, positions);
     const y = chartY(value, min, max, top, bottom);
     if (index === 0) {
       points.push(`${x.toFixed(1)},${y.toFixed(1)}`);
@@ -564,6 +564,11 @@ function movementMarkerIndexes(values: number[]) {
 
 function dateAxis(points: ReturnType<typeof historyPoints>) {
   if (!points.length) return [] as string[];
+  const first = snapshotEpoch(points[0].snapshotTime);
+  const last = snapshotEpoch(points[points.length - 1].snapshotTime);
+  if (Number.isFinite(first) && Number.isFinite(last) && last > first) {
+    return [0, .25, .5, .75, 1].map(ratio => compactDate(new Date(first + ratio * (last - first)).toISOString()));
+  }
   const indexes = [0, .25, .5, .75, 1]
     .map((ratio) => Math.round((points.length - 1) * ratio));
   return [...new Set(indexes)].map((index) => compactDate(points[index]?.snapshotTime));
@@ -571,6 +576,11 @@ function dateAxis(points: ReturnType<typeof historyPoints>) {
 
 function MovementChart({ play }: { play: TrendPlay }) {
   const points = historyPoints(play);
+  const stamps = points.map(point => snapshotEpoch(point.snapshotTime));
+  const start = stamps[0], end = stamps[stamps.length - 1];
+  // Use actual time spacing so compacted unchanged runs keep their duration.
+  const positions = stamps.every(Number.isFinite) && end > start
+    ? stamps.map(stamp => (stamp - start) / (end - start)) : undefined;
   const width = 560;
   const height = 156;
   const left = 38;
@@ -639,8 +649,8 @@ function MovementChart({ play }: { play: TrendPlay }) {
                 </g>
               );
             })}
-            <polyline points={chartPolyline(bets, left, right, top, bottom, 0, 100)} className="dkChartBets" />
-            <polyline points={chartPolyline(money, left, right, top, bottom, 0, 100)} className="dkChartMoney" />
+            <polyline points={chartPolyline(bets, left, right, top, bottom, 0, 100, positions)} className="dkChartBets" />
+            <polyline points={chartPolyline(money, left, right, top, bottom, 0, 100, positions)} className="dkChartMoney" />
             <g className="dkChartEndTag betsTag" transform={`translate(506 ${Math.max(2, Math.min(height - 22, latestBetsY - 10))})`}>
               <rect width="50" height="20" rx="7" />
               <text x="25" y="14" textAnchor="middle">{Math.round(clampPct(latest?.betsPct))}%</text>
@@ -669,11 +679,11 @@ function MovementChart({ play }: { play: TrendPlay }) {
               );
             })}
             <polyline
-              points={stepPolyline(lines, left, right, top, bottom, minLine, maxLine)}
+              points={stepPolyline(lines, left, right, top, bottom, minLine, maxLine, positions)}
               className="dkChartLine"
             />
             {markers.map((index) => {
-              const x = chartX(index, lines.length, left, right);
+              const x = chartX(index, lines.length, left, right, positions);
               const y = chartY(lines[index], minLine, maxLine, top, bottom);
               const label = play.market === "Moneyline"
                 ? (points[index]?.odds || "-")

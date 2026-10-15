@@ -8,7 +8,7 @@ import {
   upsertSportRows,
 } from "./sportSheets";
 import { isValidNcaafFinalSnapshot, isValidNflFinalSnapshot, nflKickoffIso, readWeeklyFootballMarket } from "./footballWeeklyMarket";
-import { NCAAF_TREND_RECORD_POLICY } from "./ncaafTrendRecordPolicy";
+import { isVerifiedNcaafTrendRecord, NCAAF_TREND_RECORD_POLICY } from "./ncaafTrendRecordPolicy";
 import { nflTrendTeamKey } from "./nflTrendIdentity";
 import {
   SCORES_AND_ODDS_SOURCE,
@@ -473,7 +473,7 @@ async function loadFootballWeekSchedule(sport: FootballSport, start: string, end
     url.searchParams.set("limit", "1000");
     if (sport === "NCAAF") url.searchParams.set("groups", "80");
     try {
-      const response = await fetch(url, { headers: { Accept: "application/json" }, cache: "no-store" });
+      const response = await fetch(url, { headers: { Accept: "application/json" }, cache: "no-store", signal: AbortSignal.timeout(8_000) });
       if (!response.ok) return null;
       return await response.json() as any;
     } catch {
@@ -2898,9 +2898,15 @@ function buildFootballEzpzPicks(
 }
 
 
-async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:{persist?:boolean}={}){
+async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false,publicDisplay=false}:{persist?:boolean;publicDisplay?:boolean}={}){
   let readStage = "stored-tables";
   try {
+  // Start the independent final-ledger read while the current board is built.
+  // Capture a rejection here so a slow live feed cannot leave it unhandled.
+  const savedLedgerRead = sport === "NCAAF" && publicDisplay && !persist
+    ? readSportWorksheet(sport, "football_catalog_memberships").then(
+        rows => ({ rows }), error => ({ error }),
+      ) : null;
   const today=todayET(); const trackingWeek=footballWeekBounds(sport,today); if(persist) await Promise.all([ensureSportWorksheet(sport,"all_game_trends",ALL_GAME_TRENDS_HEADERS),ensureSportWorksheet(sport,"public_split_snapshots",PUBLIC_SPLIT_HEADERS)]);
   const [slateAll,trackerRaw,schedule,trendExisting,snapshotExisting,propProjectionRows]=await Promise.all([readSportWorksheet(sport,"daily_slate"),readSportWorksheet(sport,"bet_tracker"),readSportWorksheet(sport,"schedule"),readSportWorksheet(sport,"all_game_trends",ALL_GAME_TRENDS_HEADERS),readSportWorksheet(sport,"public_split_snapshots",PUBLIC_SPLIT_HEADERS),sport==="NFL"?readSportWorksheet(sport,"prop_projections"):Promise.resolve([] as SheetRow[])]);
   readStage = "current-schedule";
@@ -3042,7 +3048,16 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
         .filter((row) => Boolean(resultCode(row.Result || row.Status)))
         .map((row) => isoDate(row.Date || row["Game Date"] || ""))
         .filter(Boolean))];
-  const recordWeeklyMarket = completedTrendDates.length
+  // The collector already stores timestamp-validated final quotes and frozen
+  // catalog memberships. Visitors can read that ledger instead of replaying
+  // every archived chart. Collector/audit builds retain the complete replay.
+  const savedLedger = await savedLedgerRead;
+  if (savedLedger && "error" in savedLedger) throw savedLedger.error;
+  const savedRecordRows = savedLedger && "rows" in savedLedger
+    ? savedLedger.rows.filter(isVerifiedNcaafTrendRecord) : [];
+  const recordWeeklyMarket = savedRecordRows.length
+    ? { trendPlays: [] }
+    : completedTrendDates.length
     ? await readWeeklyFootballMarket(sport, { dateKeys: completedTrendDates, hydrateHistory: false, finalSnapshotsOnly: true })
     : weeklyMarket;
   const recordTrendPlays = Array.isArray(recordWeeklyMarket.trendPlays)
@@ -3111,7 +3126,9 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false}:
   });
   // Both football sports share the same saved final-snapshot ledger. Regrade the
   // selected snapshot line from the completed score instead of cached W/L codes.
-  const publicTrendRows = buildFootballFinalTrendRecordRows(recordTrendPlays, trendRows, sport);
+  const publicTrendRows = savedRecordRows.length
+    ? savedRecordRows
+    : buildFootballFinalTrendRecordRows(recordTrendPlays, trendRows, sport);
   // EZPZ is a daily card, even though the football trend board tracks the full market week.
   // Keep the weekly trend payload for the Trend Plays tab, but only today's games may enter EZPZ.
   const liveTodaySchedule=liveSchedule.filter((row)=>isoDate(row.Date||row["Game Date"]||"")===today);
@@ -3238,33 +3255,35 @@ const FOOTBALL_PUBLIC_DATA_CACHE_TTL_MS = 60_000;
 const FOOTBALL_PUBLIC_DATA_STALE_MS = 30 * 60_000;
 type FootballPublicPayload = Awaited<ReturnType<typeof buildFootballPublicDataFresh>>;
 type FootballPublicCacheEntry = { savedAt: number; data: FootballPublicPayload };
-const footballPublicDataCache = new Map<FootballSport, FootballPublicCacheEntry>();
+const footballPublicDataCache = new Map<string, FootballPublicCacheEntry>();
 const footballPublicDataInFlight = new Map<string, Promise<FootballPublicPayload>>();
 
 export async function buildFootballPublicData(
   sport: FootballSport,
-  options: { forceFresh?: boolean; persist?: boolean } = {},
+  options: { forceFresh?: boolean; persist?: boolean; publicDisplay?: boolean } = {},
 ) {
   const forceFresh = options.forceFresh === true;
   const persist = options.persist === true;
-  const cached = footballPublicDataCache.get(sport);
+  const publicDisplay = options.publicDisplay === true && !persist;
+  const cacheKey = `${sport}|${publicDisplay ? "display" : "replay"}`;
+  const cached = footballPublicDataCache.get(cacheKey);
   const now = Date.now();
 
   if (!forceFresh && cached && now - cached.savedAt < FOOTBALL_PUBLIC_DATA_CACHE_TTL_MS) {
     return cached.data;
   }
 
-  const inFlightKey = `${sport}|${persist ? "persist" : "read"}`;
+  const inFlightKey = `${cacheKey}|${persist ? "persist" : "read"}`;
   const active = footballPublicDataInFlight.get(inFlightKey);
   if (active) return active;
 
   const operation = (async () => {
     try {
-      const data = await buildFootballPublicDataFresh(sport, { persist });
-      footballPublicDataCache.set(sport, { savedAt: Date.now(), data });
+      const data = await buildFootballPublicDataFresh(sport, { persist, publicDisplay });
+      footballPublicDataCache.set(cacheKey, { savedAt: Date.now(), data });
       return data;
     } catch (error) {
-      const fallback = footballPublicDataCache.get(sport);
+      const fallback = footballPublicDataCache.get(cacheKey);
       if (fallback && Date.now() - fallback.savedAt < FOOTBALL_PUBLIC_DATA_STALE_MS) {
         console.warn(`Using last successful ${sport} public payload after refresh failure.`, error);
         return {

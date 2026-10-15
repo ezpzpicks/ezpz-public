@@ -103,3 +103,21 @@ test('a failed history transaction rolls back rows and never reports success', a
   assert.equal(f.rows().length,1);
   assert.equal(f.count(),1);
 });
+
+test('large saved weekly charts are paged in order and date reads do not poison the full request cache', async () => {
+  const f=fixture();
+  const saved=Array.from({length:81},(_,i)=>({Date:i<65?'2026-10-10':'2026-10-17',Selection:String(i),
+    'Details JSON':JSON.stringify({movementHistory:Array.from({length:100},(_,j)=>({snapshotTime:String(j),line:50}))})}));
+  await f.store.appendTursoDataset('NCAAF','weekly_market_trends',saved);
+  await f.store.withTursoReadCache(async()=>{
+    const selected=await f.store.readTursoDatasetByDateKeys('NCAAF','weekly_market_trends',['2026-10-10']);
+    assert.equal(selected.length,65);
+    assert.equal(selected.at(-1).Selection,'64');
+    const all=await f.store.readTursoDataset('NCAAF','weekly_market_trends');
+    assert.equal(all.length,81);
+    assert.equal(all.at(-1).Selection,'80');
+    const next=await f.store.readTursoDatasetByDateKeys('NCAAF','weekly_market_trends',['2026-10-17']);
+    assert.equal(next.length,16);
+    assert.equal(next[0].Selection,'65');
+  });
+});

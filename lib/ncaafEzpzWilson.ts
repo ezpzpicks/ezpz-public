@@ -65,7 +65,7 @@ export function ncaafRowsBeforeDecision(rows: SheetRow[], asOf: number, excludeG
   });
 }
 
-export function buildNcaafEzpzLeaderboard(rows: SheetRow[], asOf = Date.now(), excludeGame?: AnyPick, policy?: FootballWilsonPolicy) {
+export function buildNcaafEzpzLeaderboard(rows: SheetRow[], asOf = Date.now(), excludeGame?: AnyPick, policy?: Partial<FootballWilsonPolicy>) {
   return rankNcaafEzpzSubtypes((policy?.buildSubtypes || buildNcaafTrendSubtypes)(
     ncaafRowsBeforeDecision(rows, asOf, excludeGame, policy?.gameIdentity || gameKey),
   ));
@@ -106,7 +106,7 @@ export function isNcaafWilsonArchivedPick(pick: AnyPick) {
 
 export function selectNcaafWilsonEzpzPicks(
   plays: AnyPick[], rows: SheetRow[], today: string, now = Date.now(), archived: AnyPick[] = [],
-  policy?: FootballWilsonPolicy,
+  policy?: Partial<FootballWilsonPolicy>,
 ): AnyPick[] {
   const identity = policy?.gameIdentity || gameKey;
   const signalsFor = policy?.signalsFor || ncaafTrendSignals;

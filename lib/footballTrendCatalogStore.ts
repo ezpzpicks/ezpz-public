@@ -28,6 +28,13 @@ function annotate(plays:Side[],sport:string) {
   for(const p of plays){const k=catalogEventKey(p,sport);groups.set(k,[...(groups.get(k)||[]),p]);}
   const evaluated=new Map<Side,CatalogEvaluation>();
   for(const group of groups.values()) {
+    // These rows are the collector's immutable saved memberships. Replaying a
+    // chartless copy on each visitor request cannot improve their evidence.
+    if (group.every(p => isVerifiedNcaafTrendRecord(p)
+      && catalogSide(p).catalogEvaluation?.version === footballCatalog(sport).version)) {
+      for (const p of group) evaluated.set(p, catalogSide(p).catalogEvaluation);
+      continue;
+    }
     // Repeated source aliases must not make a paired market look like four sides.
     const unique=new Map<string,Side>();
     for(const p of group){const s=catalogSide(p);const k=`${s.market}|${catalogSelectionIdentity(s,sport)}`;if(!unique.has(k))unique.set(k,p);}
@@ -116,7 +123,11 @@ export async function captureFootballCatalog(sport:FootballSport,rows:SheetRow[]
   }));
   if(persist)await upsertSportRows(sport,CATALOG_DEFINITIONS_TAB,DEFINITION_HEADERS,definitions,r=>r['Definition Key']);
   const frozenRows:SheetRow[]=annotatedRows.map(row=>entries.get(entryKey(row,sport)) || row);
-  for(const row of entries.values()) if(result(row.Result) && !frozenRows.some(r=>entryKey(r,sport)===row['Entry Key'])) frozenRows.push(row);
+  const frozenKeys=new Set(frozenRows.map(row=>entryKey(row,sport)));
+  for(const row of entries.values()) if(result(row.Result) && !frozenKeys.has(row['Entry Key'])) {
+    frozenRows.push(row);
+    frozenKeys.add(row['Entry Key']);
+  }
   const frozenPlays=annotatedPlays.map(p=>{const saved=entries.get(entryKey(p,sport));return saved && p.snapshotStatus==='FINAL_PREGAME'?{...p,catalogEvaluation:JSON.parse(saved['Catalog Membership JSON'])}:p;});
   return {rows:frozenRows,plays:frozenPlays,status:{version:config.version,registeredDirections:config.rules.length*2,
     subsetFilters:config.filters.length,combinedDefinitions:config.combinations.length*2,
