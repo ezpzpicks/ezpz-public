@@ -139,11 +139,13 @@ export function buildNcaafTrendSubtypes(rows: SheetRow[], options: {
     for (let i = 0; i < uniqueRows.length; i++) {
       const category = ncaafTrendCategory(plays[i]);
       if (!category) continue;
+      const row = uniqueRows[i];
+      // Every matched subtype belongs to the same game. Resolve its identity
+      // once instead of reparsing the saved membership JSON per subtype.
+      const game = gameIdentity(row);
       for (const signal of signalsFor(plays[i], plays)) {
         const id = ncaafTrendSubtypeId(signal, category);
         const bucket = buckets.get(id) || { signal, category, rows: [], games: new Set<string>() };
-        const row = uniqueRows[i];
-        const game = gameIdentity(row);
         if (!bucket.games.has(game)) {
           bucket.rows.push(row);
           bucket.games.add(game);
