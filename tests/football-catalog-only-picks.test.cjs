@@ -39,6 +39,26 @@ function historyRow(pick) {
     Odds: pick.odds, Source: pick.source, 'Snapshot Status': pick.snapshotStatus,
     'Pick Key': `${pick.date}|${pick.game}`, Result: pick.result || '', 'Details JSON': JSON.stringify(pick) };
 }
+test('public tile reads use the complete cached season without refreshing external history', async () => {
+  const { play, rows } = fixture('NCAAF');
+  const games = require('./fixtures/football-team-season-2026.json').games;
+  const source = load(path.join(root, 'lib/footballTeamSeasonHistory.ts'));
+  const cached = games.map(g => source.parseEspnTeamSeasonGame(g.summary, 'NCAAF', g.schedule, now));
+  let refreshCalls = 0;
+  const api = withStubs('lib/footballPublicDataHistory.ts', {
+    './footballTeamSeasonHistory': { TEAM_SEASON_HISTORY_TAB: 'team_season_history',
+      refreshFootballTeamSeasonHistory: async () => { refreshCalls++; return []; } },
+    './footballTrendCatalogStore': { captureFootballCatalog: async (_s, rows, plays) => ({ rows, plays, status: {} }) },
+    './footballPublicDataLegacy': { buildFootballPublicData: async () => ({ today,
+      trendPlays: [{ ...play, game: 'East Carolina @ UAB' }], trendRecordRows: rows,
+      teamTrendScheduleRows: games.map(g => g.schedule) }) },
+    './sportSheets': { readSportWorksheet: async (_sport, tab) => tab === 'team_season_history' ? cached : [] },
+  });
+  const response = await api.buildFootballPublicData('NCAAF', { publicDisplay: true });
+  assert.equal(response.aiPicks[0].teamTrendScore.score.toFixed(1), '18.7');
+  assert.equal(refreshCalls, 0);
+  assert.equal(response.teamTrendScheduleRows, undefined);
+});
 for (const sport of ['NFL', 'NCAAF']) {
   test(`${sport} team-trend records are persisted with the final pick and remain frozen`, async () => {
     const { play, rows } = fixture(sport);

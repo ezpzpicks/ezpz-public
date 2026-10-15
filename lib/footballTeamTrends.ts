@@ -1,5 +1,6 @@
 import { nflTrendTeamKey } from "./nflTrendIdentity";
 import { isVerifiedNcaafTrendRecord } from "./ncaafTrendRecordPolicy";
+import { COLLEGE_FOOTBALL_TEAMS } from "./collegeFootballTeamAliases";
 
 type Row = Record<string, any>;
 type Sport = "NFL" | "NCAAF";
@@ -8,7 +9,7 @@ type Venue = "Home" | "Away" | "Neutral";
 type Role = "Favorite" | "Underdog" | "Pick'em";
 type Category = "betType" | "venue" | "recent";
 
-export const FOOTBALL_TEAM_TREND_VERSION = "team-trends-2026-10-15-v1";
+export const FOOTBALL_TEAM_TREND_VERSION = "team-trends-2026-10-15-v2";
 // Change the version when tuning weights; saved final picks keep their version.
 export const FOOTBALL_TEAM_TREND_WEIGHTS = Object.freeze({ betType: 50, venue: 30, recent: 20 });
 
@@ -33,6 +34,8 @@ export type TeamTrendTeam = {
   score: number;
   hasData: boolean;
   trackedGames: number;
+  seasonGames: number;
+  missingGames: number;
   records: Record<Category, TeamTrendRecord>;
 };
 
@@ -44,7 +47,7 @@ export type FootballTeamTrendScore = {
   capturedAt: string;
   asOfDate: string;
   mode: "preview" | "locked" | "replay";
-  scope: "Tracked current-season games";
+  scope: "Tracked current-season games" | "Current-season games";
   method: "Raw hit rates";
 };
 
@@ -55,6 +58,7 @@ type Game = {
   home: string;
   neutral: boolean;
   identityPriority: number;
+  completed?: boolean;
   spread?: { homeLine: number; homeResult: Result; priority: number; stamp: string };
   total?: { overResult: Result; priority: number; stamp: string };
 };
@@ -85,11 +89,31 @@ const COLLEGE_ALIASES: Record<string, string> = {
   "san jose st": "san jose state", "sac state": "sacramento state",
 };
 
-function teamKey(value: unknown, sport: Sport) {
-  if (sport === "NFL") return nflTrendTeamKey(value);
+function collegeKey(value: unknown) {
   const key = text(value).replace(/\buniversity\b/g, "").trim();
   return COLLEGE_ALIASES[key] || key.replace(/\bst$/g, "state");
 }
+
+const collegeNames = new Map<string, Set<string>>();
+for (const [school, ...aliases] of COLLEGE_FOOTBALL_TEAMS) {
+  const canonical = collegeKey(school);
+  for (const name of [school, ...aliases]) {
+    const alias = text(name);
+    if (!alias) continue;
+    const candidates = collegeNames.get(alias) || new Set<string>();
+    candidates.add(canonical);
+    collegeNames.set(alias, candidates);
+  }
+}
+
+export function footballTeamKey(value: unknown, sport: Sport) {
+  if (sport === "NFL") return nflTrendTeamKey(value);
+  const raw = text(value);
+  if (COLLEGE_ALIASES[raw]) return COLLEGE_ALIASES[raw];
+  const candidates = collegeNames.get(raw);
+  return candidates?.size === 1 ? [...candidates][0] : collegeKey(value);
+}
+const teamKey = footballTeamKey;
 
 function dateKey(value: unknown) {
   const raw = String(value ?? "");
@@ -99,12 +123,24 @@ function dateKey(value: unknown) {
   return us ? `${us[3]}-${us[1].padStart(2, "0")}-${us[2].padStart(2, "0")}` : "";
 }
 
-function teams(row: Row): [string, string] | null {
+export function footballTeamPair(row: Row): [string, string] | null {
   const away = String(row.awayTeam || row["Away Team"] || "").trim();
   const home = String(row.homeTeam || row["Home Team"] || "").trim();
   if (away && home) return [away, home];
   const parts = String(row.game || row.Game || "").split(/\s*(?:@|\bat\b|\bvs\.?\b|\bversus\b)\s*/i).filter(Boolean);
   return parts.length === 2 ? [parts[0].trim(), parts[1].trim()] : null;
+}
+const teams = footballTeamPair;
+
+export function footballTeamGameKey(row: Row, sport: Sport) {
+  const pair = teams(row), date = dateKey(row.date || row.Date || row["Game Date"]);
+  return pair && date ? `${date}|${pair.map(t => teamKey(t, sport)).sort().join("|")}` : "";
+}
+
+function completedSchedule(row: Row) {
+  if (/^(false|no|0)$/i.test(String(row.Completed ?? ""))) return false;
+  const a = number(row["Away Score"]), h = number(row["Home Score"]);
+  return a != null && h != null && (a + h > 0 || /^(true|yes|1)$/i.test(String(row.Completed ?? "")));
 }
 
 function number(value: unknown): number | null {
@@ -133,16 +169,26 @@ function neutral(row: Row) {
 }
 
 /** One observation per physical game/market, not one per trend or source alias. */
-export function buildTeamTrendHistory(sport: Sport, trendRows: Row[] = [], trackerRows: Row[] = [], scheduleRows?: Row[]): TeamTrendHistory {
+export function buildTeamTrendHistory(sport: Sport, trendRows: Row[] = [], trackerRows: Row[] = [], scheduleRows?: Row[], seasonRows: Row[] = []): TeamTrendHistory {
   const history: TeamTrendHistory = new Map();
   const schedule = new Map<string, Row>();
-  for (const row of scheduleRows || []) {
+  for (const row of [...(scheduleRows || []), ...seasonRows]) {
     const pair = teams(row), date = dateKey(row.Date || row["Game Date"]);
     if (!pair || !date) continue;
     const away = teamKey(pair[0], sport), home = teamKey(pair[1], sport);
     const key = `${date}|${[away, home].sort().join("|")}`;
     schedule.set(key, row);
-    history.set(key, { key, date, away, home, neutral: neutral(row), identityPriority: 2 });
+    const priority = row["History Source"] === "ESPN completed-game closing lines" ? 4 : 2;
+    const game: Game = { ...history.get(key), key, date, away, home, neutral: neutral(row), identityPriority: priority,
+      completed: completedSchedule(row) };
+    if (game.completed) {
+      const a = number(row["Away Score"])!, h = number(row["Home Score"])!;
+      const total = number(row.Total), homeLine = number(row["Home Spread"]);
+      const stamp = String(row["History Checked At"] || "");
+      if (total != null && total > 0) game.total = { overResult: grade(a + h - total), priority, stamp };
+      if (homeLine != null) game.spread = { homeLine, homeResult: grade(h - a + homeLine), priority, stamp };
+    }
+    history.set(key, game);
   }
   const consume = (row: Row, verified: boolean) => {
     if (row.Player || row.playerName || row["Prop Market"]) return;
@@ -156,7 +202,7 @@ export function buildTeamTrendHistory(sport: Sport, trendRows: Row[] = [], track
     // Model tracker rows can contain a stale matchup skeleton. When the core
     // supplies its already-loaded schedule, require a real completed matchup.
     if (!verified && scheduleRows !== undefined) {
-      if (!official || number(official["Away Score"]) == null || number(official["Home Score"]) == null) return;
+      if (!official || !completedSchedule(official)) return;
       const officialTeams = teams(official)!;
       away = teamKey(officialTeams[0], sport); home = teamKey(officialTeams[1], sport);
     }
@@ -182,6 +228,7 @@ export function buildTeamTrendHistory(sport: Sport, trendRows: Row[] = [], track
       : number(row["Actual Home Runs"] ?? row["Actual Home"] ?? row["Home Score"]);
     const recorded = result(row.Result || row.result || row.Status);
     if (!recorded && (awayScore == null || homeScore == null)) return;
+    game.completed = true;
     const stamp = String(row["Public Split Snapshot Time"] || row["Result Updated"] || "");
     if (market === "total") {
       const direction = text(selection || row.Side);
@@ -247,8 +294,9 @@ export function scoreFootballTeamTrends(
     const opposing = spread && key !== selected;
     const ownLine = spread ? (opposing ? -selectedLine! : selectedLine!) : null;
     const currentRole = ownLine == null ? null : role(ownLine);
-    const observations = [...history.values()].filter(g => g.date >= seasonStart && g.date < date && (g.away === key || g.home === key))
-      .sort((a, b) => a.date.localeCompare(b.date) || a.key.localeCompare(b.key))
+    const seasonGames = [...history.values()].filter(g => g.date >= seasonStart && g.date < date && g.completed && (g.away === key || g.home === key))
+      .sort((a, b) => a.date.localeCompare(b.date) || a.key.localeCompare(b.key));
+    const observations = seasonGames
       .flatMap(game => {
         const ownHome = game.home === key;
         const own = spread ? game.spread && (ownHome ? game.spread.homeResult : inverse(game.spread.homeResult))
@@ -262,25 +310,29 @@ export function scoreFootballTeamTrends(
     const betType = record(spread ? `${currentRole} ATS` : `Overall ${direction}`,
       spread ? observations.filter(g => ownRole(g.game) === currentRole) : observations, weights.betType, opposing);
     const venueRecord = record(`${venue} ${marketLabel}`, observations.filter(g => ownVenue(g.game) === venue), weights.venue, opposing);
-    const recent = record(`Last 5 ${marketLabel}`, observations.slice(-5), weights.recent, opposing);
+    const recentKeys = new Set(seasonGames.slice(-5).map(g => g.key));
+    const recent = record(`Last 5 ${marketLabel}`, observations.filter(g => recentKeys.has(g.game.key)), weights.recent, opposing);
     const records = { betType, venue: venueRecord, recent };
     const score = Object.values(records).reduce((sum, r) => sum + r.weight * r.supportPct / 100, 0);
     return { team, venue, role: currentRole, opposing, score, hasData: observations.some(g => g.result !== "P"),
-      trackedGames: observations.length, records };
+      trackedGames: observations.length, seasonGames: seasonGames.length, missingGames: seasonGames.length - observations.length, records };
   });
   const start = Date.parse(String(pick.gameTime || ""));
   const final = text(pick.snapshotStatus) === "final pregame";
   const mode = !final ? "preview" : Number.isFinite(start) && now < start ? "locked" : "replay";
   return { version: FOOTBALL_TEAM_TREND_VERSION, weights: { ...FOOTBALL_TEAM_TREND_WEIGHTS },
-    score: scoredTeams.every(t => t.hasData) ? scoredTeams.reduce((sum, t) => sum + t.score, 0) / 2 : null,
+    score: scoredTeams.every(t => t.hasData && !t.missingGames) ? scoredTeams.reduce((sum, t) => sum + t.score, 0) / 2 : null,
     teams: scoredTeams, capturedAt: new Date(now).toISOString(), asOfDate: date, mode,
-    scope: "Tracked current-season games", method: "Raw hit rates" };
+    scope: "Current-season games", method: "Raw hit rates" };
 }
 
 export function withFootballTeamTrends(pick: Row, sport: Sport, history: TeamTrendHistory, saved?: Row, now = Date.now()) {
   // Retain captured evidence and its weight version through settlement and later tuning.
   const captured = saved?.teamTrendScore ?? pick.teamTrendScore;
-  if (isSavedTeamTrendScore(captured)) return { ...pick, teamTrendScore: captured };
+  const start = Date.parse(String(pick.gameTime || ""));
+  if (isSavedTeamTrendScore(captured)
+    && (!Number.isFinite(start) || now >= start || (captured.version === FOOTBALL_TEAM_TREND_VERSION
+      && captured.score != null && captured.teams.every(t => !t.missingGames)))) return { ...pick, teamTrendScore: captured };
   const score = scoreFootballTeamTrends(pick, sport, history, now);
   return score ? { ...pick, teamTrendScore: score } : pick;
 }
