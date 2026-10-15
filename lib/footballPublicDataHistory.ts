@@ -11,6 +11,7 @@ import {
 import { isPublicSplitEzpzPick } from "./ezpzPublicSplitEligibility";
 import { buildTeamTrendHistory, withFootballTeamTrends } from "./footballTeamTrends";
 import { refreshFootballTeamSeasonHistory, TEAM_SEASON_HISTORY_TAB } from "./footballTeamSeasonHistory";
+import { buildTeamTrendTestState, TEAM_TREND_TEST_HEADERS, TEAM_TREND_TEST_TAB } from "./footballTeamTrendPlays";
 import {
   readSportWorksheet,
   upsertSportRows,
@@ -1014,6 +1015,10 @@ export async function buildFootballPublicData(
 ) {
   const historyRead = options.publicDisplay && !options.persist ? readHistory(sport) : null;
   const teamSeasonRead = readSportWorksheet(sport, TEAM_SEASON_HISTORY_TAB).catch(() => [] as SheetRow[]);
+  const teamTestRead = readSportWorksheet(sport, TEAM_TREND_TEST_TAB, TEAM_TREND_TEST_HEADERS).catch(error => {
+    console.error(`${sport} team-trend test history read failed`, error);
+    return null;
+  });
   let core: AnyPick;
   try {
     core = await buildLegacyFootballPublicData(sport, options) as AnyPick;
@@ -1064,6 +1069,18 @@ export async function buildFootballPublicData(
     }
   }
   const teamTrendHistory = buildTeamTrendHistory(sport, rows, core.betTrackerRows || [], core.teamTrendScheduleRows, teamSeasonRows);
+  const storedTeamTests = await teamTestRead;
+  const teamTestInput = { sport, today, markets: plays, history: teamTrendHistory, storedRows: storedTeamTests || [],
+    scheduleRows: [...(core.teamTrendScheduleRows || []), ...teamSeasonRows], now: selectionTime };
+  let teamTests = buildTeamTrendTestState({ ...teamTestInput, capture: Boolean(options.persist && storedTeamTests) });
+  if (options.persist && teamTests.changedRows.length) {
+    try {
+      await upsertSportRows(sport, TEAM_TREND_TEST_TAB, TEAM_TREND_TEST_HEADERS, teamTests.changedRows, row => row["Pick Key"]);
+    } catch (error) {
+      console.error(`${sport} team-trend test capture failed`, error);
+      teamTests = buildTeamTrendTestState({ ...teamTestInput, capture: false });
+    }
+  }
   // Internal schedule context is already loaded by the core, never serialized
   // into the public payload a second time.
   core = { ...core };
@@ -1226,6 +1243,9 @@ export async function buildFootballPublicData(
   return {
     ...core,
     aiPicks: enrichedCurrentPicks,
+    teamTrendTestPicks: teamTests.picks,
+    teamTrendTestRecordRows: teamTests.records,
+    teamTrendTestStatus: teamTests.status,
     aiPickRecordRows: sport === "NCAAF" ? [
       ...selectNcaafEzpzPicks(aiPickRecordRows.filter(pick => pick.selectorVersion !== NCAAF_EZPZ_POLICY_VERSION), true),
       ...aiPickRecordRows.filter(isNcaafWilsonArchivedPick),

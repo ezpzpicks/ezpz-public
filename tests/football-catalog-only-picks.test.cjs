@@ -59,7 +59,49 @@ test('public tile reads use the complete cached season without refreshing extern
   assert.equal(refreshCalls, 0);
   assert.equal(response.teamTrendScheduleRows, undefined);
 });
+test('a failed test-ledger write leaves the play as a preview without counting an unsaved decision', async () => {
+  const { play } = fixture('NFL');
+  const api = withStubs('lib/footballPublicDataHistory.ts', {
+    './footballTrendCatalogStore': { captureFootballCatalog: async (_s, rows, plays) => ({ rows, plays, status: {} }) },
+    './footballPublicDataLegacy': { buildFootballPublicData: async () => ({ today, trendPlays: [play], trendRecordRows: [],
+      betTrackerRows: [{ Date: '2026-10-04', Game: 'KC @ LV', 'Bet Type': 'Total', Selection: 'Over 40', Result: 'W' }] }) },
+    './sportSheets': { readSportWorksheet: async () => [], upsertSportRows: async () => { throw new Error('test write unavailable'); } },
+  });
+  const response = await api.buildFootballPublicData('NFL', { persist: true });
+  assert.equal(response.teamTrendTestPicks[0].savedAt, '');
+  assert.equal(response.teamTrendTestPicks[0].teamTrendScore.mode, 'preview');
+  assert.equal(response.teamTrendTestRecordRows.length, 0);
+  assert.equal(response.teamTrendTestStatus.pending, 0);
+});
 for (const sport of ['NFL', 'NCAAF']) {
+  test(`${sport} team-score-only test plays persist separately without adding an official EZPZ pick`, async () => {
+    const { play } = fixture(sport);
+    const tables = new Map();
+    const pass = { ...play, betsPct: 50, moneyPct: 50, tier: 'Pass',
+      catalogEvaluation: { ...play.catalogEvaluation, memberships: [] } };
+    const api = withStubs('lib/footballPublicDataHistory.ts', {
+      './footballTrendCatalogStore': { captureFootballCatalog: async (_s, rows, plays) => ({ rows, plays, status: {} }) },
+      './footballPublicDataLegacy': { buildFootballPublicData: async () => ({ today, trendPlays: [pass], trendRecordRows: [],
+        betTrackerRows: [{ Date: '2026-10-04', Game: 'KC @ LV', 'Bet Type': 'Total', Selection: 'Over 40', Result: 'W' }] }) },
+      './sportSheets': {
+        readSportWorksheet: async (_sport, tab) => tables.get(tab) || [],
+        upsertSportRows: async (_sport, tab, _headers, rows) => { tables.set(tab, rows.map(r => ({ ...r }))); },
+      },
+    });
+    const preview = await api.buildFootballPublicData(sport, { publicDisplay: true });
+    assert.equal(preview.aiPicks.length, 0);
+    assert.equal(preview.teamTrendTestPicks[0].teamTrendScore.score, 100);
+    assert.equal(preview.teamTrendTestRecordRows.length, 0);
+    assert.equal(tables.size, 0);
+    const saved = await api.buildFootballPublicData(sport, { persist: true });
+    assert.equal(saved.aiPicks.length, 0);
+    assert.equal(saved.aiPickRecordRows.length, 0);
+    assert.equal(saved.teamTrendTestRecordRows.length, 1);
+    assert.equal(saved.teamTrendTestStatus.pending, 1);
+    assert.deepEqual([...tables.keys()], ['team_trend_test_picks']);
+    const reread = await api.buildFootballPublicData(sport, { publicDisplay: true });
+    assert.equal(reread.teamTrendTestPicks[0].savedAt, saved.teamTrendTestPicks[0].savedAt);
+  });
   test(`${sport} team-trend records are persisted with the final pick and remain frozen`, async () => {
     const { play, rows } = fixture(sport);
     let stored = [];
