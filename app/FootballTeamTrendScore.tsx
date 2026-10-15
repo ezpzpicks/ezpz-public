@@ -7,7 +7,7 @@ function RecordLine({ record }: { record: TeamTrendRecord }) {
   </span>;
 }
 
-export default function FootballTeamTrendScore({ score }: { score?: FootballTeamTrendScore }) {
+export default function FootballTeamTrendScore({ score, threshold }: { score?: FootballTeamTrendScore; threshold?: number }) {
   if (!score?.teams?.length) return null;
   const scoreLabel = score.score == null ? "Awaiting records" : `${score.score.toFixed(1)} / 100`;
   const seasonHistory = score.scope === "Current-season games";
@@ -31,7 +31,7 @@ export default function FootballTeamTrendScore({ score }: { score?: FootballTeam
       {seasonHistory ? <p>{score.teams.map(team => `${team.team}: ${team.trackedGames}/${team.seasonGames} games included`).join(" · ")}. {score.teams.some(team => team.missingGames > 0) ? "The score is awaiting missing game lines." : "Each game is graded against its historical spread or total."}</p> : null}
       <p>Raw hit rates: {score.weights.betType}% bet type, {score.weights.venue}% home/away, {score.weights.recent}% last five. Team scores are averaged. Pushes are excluded from hit rates; an empty category contributes a neutral 50%. A dash means no matching games.</p>
       {score.teams.some(team => team.opposing) ? <p>Records show each team’s actual ATS results. The opposing team’s failures to cover support the selected side and are used for its score.</p> : null}
-      <p>This is a testing score, not a win probability. It does not qualify or exclude picks.{score.mode === "replay" ? " This older pick’s records were reconstructed from prior game dates, rather than saved before kickoff." : ""}</p>
+      <p>This is a testing score, not a win probability. {threshold == null ? "It does not qualify or exclude EZPZ Picks." : `Team Trend Plays qualify at ${threshold}/100.`}{score.mode === "replay" ? " This older pick’s records were reconstructed from prior game dates, rather than saved before kickoff." : ""}</p>
     </details>
     <style jsx>{`
       .teamTrendScore{margin-top:13px;padding-top:12px;border-top:1px solid rgba(120,151,191,.16);color:#a9b9ce}
