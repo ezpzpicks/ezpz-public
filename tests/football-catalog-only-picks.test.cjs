@@ -40,6 +40,30 @@ function historyRow(pick) {
     'Pick Key': `${pick.date}|${pick.game}`, Result: pick.result || '', 'Details JSON': JSON.stringify(pick) };
 }
 for (const sport of ['NFL', 'NCAAF']) {
+  test(`${sport} team-trend records are persisted with the final pick and remain frozen`, async () => {
+    const { play, rows } = fixture(sport);
+    let stored = [];
+    let priorResult = 'W';
+    const api = withStubs('lib/footballPublicDataHistory.ts', {
+      './footballTrendCatalogStore': { captureFootballCatalog: async (_s, rows, plays) => ({ rows, plays, status: {} }) },
+      './footballPublicDataLegacy': { buildFootballPublicData: async () => ({ today, trendPlays: [play], trendRecordRows: rows,
+        betTrackerRows: [{ Date: '2026-10-04', Game: 'KC @ LV', 'Bet Type': 'Total', Selection: 'Over 40', Result: priorResult }] }) },
+      './sportSheets': {
+        readSportWorksheet: async (_sport, tab) => tab === 'ezpz_pick_history' ? stored : [],
+        upsertSportRows: async (_sport, _tab, _headers, rows) => { stored = rows.map(r => ({ ...r })); },
+      },
+    });
+    const first = await api.buildFootballPublicData(sport, { persist: true });
+    assert.equal(first.aiPicks[0].teamTrendScore.score, 100);
+    const saved = JSON.parse(stored[0]['Details JSON']).teamTrendScore;
+    assert.equal(saved.mode, 'locked');
+    assert.equal(saved.weights.betType, 50);
+    priorResult = 'L';
+    const second = await api.buildFootballPublicData(sport, { persist: true });
+    assert.equal(second.aiPicks[0].teamTrendScore.score, 100);
+    assert.equal(second.aiPickRecordRows[0].teamTrendScore.score, 100);
+    assert.deepEqual(JSON.parse(stored[0]['Details JSON']).teamTrendScore, saved);
+  });
   test(`${sport} current picks exclude old locked rules while keeping archived results`, async () => {
     const { play, rows } = fixture(sport);
     const legacy = { date: today, game: 'PHI @ JAX', market: 'Total', selection: 'Over 48', odds: '-110',

@@ -4,6 +4,8 @@ import { useMemo, useState } from "react";
 import LegacyFootballBoard from "./FootballBoardLegacy";
 import { MatchupWithLogos, SelectionWithTeamLogo, TeamLogoName } from "./TeamLogoName";
 import FootballModelFormBadges from "./FootballModelFormBadges";
+import FootballTeamTrendScore from "./FootballTeamTrendScore";
+import type { FootballTeamTrendScore as FootballTeamTrendScoreData } from "../lib/footballTeamTrends";
 import { isPublicSplitEzpzPick } from "../lib/ezpzPublicSplitEligibility";
 import { selectNflEzpzHistory } from "../lib/nflEzpzRecords";
 import { classifyNcaafMovement, NCAAF_EZPZ_POLICY_VERSION } from "../lib/ncaafEzpzPolicy";
@@ -58,6 +60,7 @@ type EzpzPick = {
   rankingRecord?: string;
   rankingWinPct?: number;
   rankingLastSeven?: { record: string; totalBets: number; unitsWon: number; roiPct: number };
+  teamTrendScore?: FootballTeamTrendScoreData;
 };
 
 type FootballData = Record<string, any> & {
@@ -725,6 +728,7 @@ function HistoryPickCard({ pick, sport, viewingToday, data }: { pick: EzpzPick; 
             {record?.totalBets ? <span>ROI {record.roi >= 0 ? "+" : ""}{record.roi.toFixed(1)}%</span> : null}
           </div>
         ))}
+        <FootballTeamTrendScore score={pick.teamTrendScore} />
       </article>
     );
   }
@@ -773,6 +777,7 @@ function HistoryPickCard({ pick, sport, viewingToday, data }: { pick: EzpzPick; 
           className="footballHistoryFormBadges"
         />
       ) : null}
+      {!isProp ? <FootballTeamTrendScore score={pick.teamTrendScore} /> : null}
     </article>
   );
 }

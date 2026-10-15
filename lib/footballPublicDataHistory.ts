@@ -9,6 +9,7 @@ import {
   buildFootballPublicData as buildLegacyFootballPublicData,
 } from "./footballPublicDataLegacy";
 import { isPublicSplitEzpzPick } from "./ezpzPublicSplitEligibility";
+import { buildTeamTrendHistory, withFootballTeamTrends } from "./footballTeamTrends";
 import {
   readSportWorksheet,
   upsertSportRows,
@@ -1047,9 +1048,20 @@ export async function buildFootballPublicData(
   const archived = history.map(historyPickFromRow).filter(pick => pick.date === today);
   const plays = Array.isArray(core.trendPlays) ? core.trendPlays : [];
   const rows = Array.isArray(core.trendRecordRows) ? core.trendRecordRows : [];
-  const currentPicks = sport === "NFL"
+  const selectedPicks = sport === "NFL"
     ? selectNflWilsonEzpzPicks(plays, rows, today, selectionTime, archived)
     : selectNcaafWilsonEzpzPicks(plays, rows, today, selectionTime, archived, { buildSubtypes: options.buildSubtypes });
+  const teamTrendHistory = buildTeamTrendHistory(sport, rows, core.betTrackerRows || [], core.teamTrendScheduleRows);
+  // Internal schedule context is already loaded by the core, never serialized
+  // into the public payload a second time.
+  core = { ...core };
+  delete core.teamTrendScheduleRows;
+  const archivedTeamScores = new Map(history.map(row => [String(row["Pick Key"] || pickKey(row, row.Date)), historyPickFromRow(row)]));
+  // Informational only: enrich after selection and save the exact same evidence
+  // in Details JSON at the existing final-pick capture, without extra I/O.
+  const currentPicks = selectedPicks.map((pick: AnyPick) => withFootballTeamTrends(
+    pick, sport, teamTrendHistory, archivedTeamScores.get(pickKey(pick, today)), selectionTime,
+  ));
   // NCAAF_FINAL_ONLY_HISTORY_PATCH
   const existingByKey = new Map(history.map((row) => [String(row["Pick Key"] || pickKey(row, row.Date)), row]));
   const historyEligibleCurrentPicks = currentPicks.filter((pick: AnyPick) => textKey(pick.snapshotStatus) === "final pregame");
@@ -1164,6 +1176,7 @@ export async function buildFootballPublicData(
 
   const aiPickRecordRows = gradedHistory
     .map(historyPickFromRow)
+    .map(pick => withFootballTeamTrends(pick, sport, teamTrendHistory, pick, selectionTime))
     .map(pick => sport === "NCAAF" && pick.selectorVersion !== NCAAF_EZPZ_POLICY_VERSION ? ncaafSpreadHistoryEvidence(pick, trendRowsFor(pick.date)) : pick)
     .map(pick => sport === "NCAAF" && pick.selectorVersion !== NCAAF_EZPZ_POLICY_VERSION ? ncaafSharpHistoryEvidence(pick, trendRowsFor(pick.date)) : pick)
     .filter((pick) => sport !== "NCAAF" || (
