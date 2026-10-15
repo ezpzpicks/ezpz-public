@@ -10,6 +10,7 @@ import {
 } from "./footballPublicDataLegacy";
 import { isPublicSplitEzpzPick } from "./ezpzPublicSplitEligibility";
 import { buildTeamTrendHistory, withFootballTeamTrends } from "./footballTeamTrends";
+import { refreshFootballTeamSeasonHistory, TEAM_SEASON_HISTORY_TAB } from "./footballTeamSeasonHistory";
 import {
   readSportWorksheet,
   upsertSportRows,
@@ -1012,6 +1013,7 @@ export async function buildFootballPublicData(
   options: { forceFresh?: boolean; persist?: boolean; publicDisplay?: boolean; buildSubtypes?: typeof buildNcaafTrendSubtypes } = {},
 ) {
   const historyRead = options.publicDisplay && !options.persist ? readHistory(sport) : null;
+  const teamSeasonRead = readSportWorksheet(sport, TEAM_SEASON_HISTORY_TAB).catch(() => [] as SheetRow[]);
   let core: AnyPick;
   try {
     core = await buildLegacyFootballPublicData(sport, options) as AnyPick;
@@ -1051,7 +1053,17 @@ export async function buildFootballPublicData(
   const selectedPicks = sport === "NFL"
     ? selectNflWilsonEzpzPicks(plays, rows, today, selectionTime, archived)
     : selectNcaafWilsonEzpzPicks(plays, rows, today, selectionTime, archived, { buildSubtypes: options.buildSubtypes });
-  const teamTrendHistory = buildTeamTrendHistory(sport, rows, core.betTrackerRows || [], core.teamTrendScheduleRows);
+  let teamSeasonRows = await teamSeasonRead;
+  if (options.persist && core.teamTrendScheduleRows?.length) {
+    try {
+      // Warm the tracked week's teams before their picks qualify near kickoff.
+      const historyTargets = [...selectedPicks, ...(core.draftKings?.splits || [])];
+      teamSeasonRows = await refreshFootballTeamSeasonHistory(sport, core.teamTrendScheduleRows, historyTargets, teamSeasonRows, selectionTime);
+    } catch (error) {
+      console.warn(`${sport} team season history refresh failed`, error);
+    }
+  }
+  const teamTrendHistory = buildTeamTrendHistory(sport, rows, core.betTrackerRows || [], core.teamTrendScheduleRows, teamSeasonRows);
   // Internal schedule context is already loaded by the core, never serialized
   // into the public payload a second time.
   core = { ...core };
