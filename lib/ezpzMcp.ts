@@ -13,9 +13,6 @@ const PICK_SCHEMA = {
     pickId: { type: "string" }, sport: SPORT_SCHEMA, date: { type: "string" }, game: { type: "string" },
     market: { type: "string" }, selection: { type: "string" }, line: { type: ["string", "number", "null"] },
     odds: { type: ["string", "null"] }, gameTime: { type: "string", format: "date-time" }, pickType: { type: "string" },
-    pickCategory: { type: "string", enum: ["public_bet_trend", "team_trend"] },
-    pickLabel: { type: "string", enum: ["EZPZ Public Bet Trend", "EZPZ Team Trend"] },
-    teamTrendScore: { type: ["number", "null"], minimum: 0, maximum: 100 },
     lastSeven: { type: ["object", "null"], properties: {
       record: { type: "string" }, wins: { type: "integer" }, losses: { type: "integer" },
       pushes: { type: "integer" }, totalBets: { type: "integer" },
@@ -23,7 +20,7 @@ const PICK_SCHEMA = {
     snapshotStatus: { type: "string", enum: ["LIVE", "FINAL_PREGAME"] },
     finalizedAt: { type: ["string", "null"] }, eligibleForPosting: { type: "boolean" }, sourceUrl: { type: "string" },
   },
-  required: ["pickId", "sport", "date", "game", "market", "selection", "line", "odds", "gameTime", "pickType", "pickCategory", "pickLabel", "teamTrendScore", "lastSeven", "snapshotStatus", "finalizedAt", "eligibleForPosting", "sourceUrl"],
+  required: ["pickId", "sport", "date", "game", "market", "selection", "line", "odds", "gameTime", "pickType", "lastSeven", "snapshotStatus", "finalizedAt", "eligibleForPosting", "sourceUrl"],
 };
 
 export const EZPZ_MCP_TOOLS = [
@@ -43,7 +40,7 @@ export const EZPZ_MCP_TOOLS = [
 
 export const EZPZ_MCP_EVENTS = [{
   name: FINAL_PICK_EVENT,
-  description: "A selected EZPZ Public Bet Trend or NFL/NCAAF EZPZ Team Trend pick has been saved as FINAL_PREGAME before game time. Covers MLB, NFL, and NCAAF. Each event carries a category-specific stable pick ID, pickCategory, pickLabel, exact selection and captured score when applicable. Delivery uses existing snapshot jobs, durable deduplication, signed callbacks and bounded retries. Newly created subscriptions watch future finalizations.",
+  description: "A selected EZPZ Public Bet Trend or NFL/NCAAF EZPZ Team Trend pick has been saved as FINAL_PREGAME before game time. Covers MLB, NFL, and NCAAF. Each event carries a category-specific stable pick ID and exact selection; verify with get_finalized_pick for pickCategory, pickLabel and captured team score. Delivery uses existing snapshot jobs, durable deduplication, signed callbacks and bounded retries. Newly created subscriptions watch future finalizations.",
   delivery: ["webhook"],
   inputSchema: { type: "object", properties: { sports: { type: "array", items: SPORT_SCHEMA, minItems: 1, maxItems: 3, uniqueItems: true } }, additionalProperties: false },
   payloadSchema: { type: "object", properties: { pick: PICK_SCHEMA }, required: ["pick"], additionalProperties: false },

@@ -217,6 +217,11 @@ test('both football categories persist, verify, and deliver independently withou
     assert.equal(saved.pickCount, 1, 'legacy public reader count stays public-only');
     const feed = await mcp.readMcpPicks([sport]);
     assert.equal(feed.picks.length, 2); assert.equal(h.events().length, 2);
+    // Existing installed connections reject fields outside their original
+    // event schema. Resolve the richer metadata through the verified ID.
+    const eventKeys = ['pickId', 'sport', 'date', 'game', 'market', 'selection', 'line', 'odds',
+      'gameTime', 'pickType', 'lastSeven', 'snapshotStatus', 'finalizedAt', 'eligibleForPosting', 'sourceUrl'].sort();
+    for (const event of h.events()) assert.deepEqual(Object.keys(event.payload.data.pick).sort(), eventKeys);
     const publicResult = feed.picks.find(p => p.pickCategory === 'public_bet_trend');
     const teamResult = feed.picks.find(p => p.pickCategory === 'team_trend');
     assert.equal(publicResult.pickId, normalize.stablePickId(sport, rawPick));
