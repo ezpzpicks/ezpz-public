@@ -26,7 +26,7 @@ const PICK_SCHEMA = {
 export const EZPZ_MCP_TOOLS = [
   {
     name: "get_ezpz_picks", title: "Read EZPZ Picks",
-    description: "Read fresh public betting trend picks and NFL/NCAAF team trend plays selected on the EZPZ Picks tab. Defaults to finalized, unstarted games. Use pickCategory and pickLabel to distinguish EZPZ Public Bet Trend from EZPZ Team Trend; teamTrendScore is a raw score, not win probability. lastSeven is the exact selected public subtype's last-seven-bet record when available; null means unavailable, never zero wins or seven days.",
+    description: "Read fresh public betting trend picks and NFL/NCAAF team trend plays selected on the EZPZ Picks tab. Defaults to finalized, unstarted games. Use pickCategory and pickLabel to distinguish EZPZ Public Bet Trend from EZPZ Team Trend. teamTrendScore is a raw score, not win probability; teamTrendRecords contains each team's captured website bet-type, venue and last-five labels, W-L-P records and samples. A null record means no matching games. lastSeven is the exact selected public subtype's last-seven-bet record when available; null means unavailable, never zero wins or seven days.",
     inputSchema: { type: "object", properties: { sport: SPORT_SCHEMA, finalOnly: { type: "boolean", default: true } }, additionalProperties: false },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   },

@@ -196,6 +196,20 @@ function teamPick(changes = {}) {
     savedAt: '2026-10-13T00:00:00Z', teamTrendScore: { score: 81.25, mode: 'locked' }, ...changes };
 }
 
+function capturedRecord(label, record) {
+  return { label, record, sample: record.split('-').reduce((n, value) => n + Number(value), 0) };
+}
+const capturedTeams = [
+  { team: 'New York Jets', records: {
+    betType: capturedRecord('Underdog ATS', '3-1-1'), venue: capturedRecord('Away ATS', '1-0-1'),
+    recent: capturedRecord('Last 5 ATS', '3-1-1'),
+  } },
+  { team: 'Buffalo Bills', opposing: true, records: {
+    betType: capturedRecord('Favorite ATS', '0-4-0'), venue: capturedRecord('Home ATS', '0-2-0'),
+    recent: capturedRecord('Last 5 ATS', '0-4-0'),
+  } },
+];
+
 test('both football categories persist, verify, and deliver independently without changing public IDs', async () => {
   for (const sport of ['NFL', 'NCAAF']) {
     const h = harness({ realCurrentPicks: true });
@@ -209,7 +223,8 @@ test('both football categories persist, verify, and deliver independently withou
     const rule = catalog.rules.find(r => r.market.toLowerCase() === 'total');
     const publicPick = { ...rawPick, source: 'Trend Play', selectorVersion: version,
       trendSubtypeId: `catalog:${catalog.version}:${rule.id}:0:|over` };
-    const payload = { today: '2026-10-12', aiPicks: [publicPick], teamTrendTestPicks: [teamPick()] };
+    const payload = { today: '2026-10-12', aiPicks: [publicPick],
+      teamTrendTestPicks: [teamPick({ teamTrendScore: { score: 81.25, mode: 'locked', teams: capturedTeams } })] };
     await current.persistEzpzCurrentPicks(sport, payload);
     await current.persistEzpzCurrentPicks(sport, payload);
     const saved = await current.readEzpzCurrentPicks(sport);
@@ -229,14 +244,37 @@ test('both football categories persist, verify, and deliver independently withou
     assert.equal(publicResult.pickLabel, 'EZPZ Public Bet Trend');
     assert.equal(teamResult.pickLabel, 'EZPZ Team Trend');
     assert.equal(teamResult.teamTrendScore, 81.25);
+    assert.equal(publicResult.teamTrendRecords, null);
+    assert.equal(teamResult.teamTrendRecords[0].betType.record, '3-1-1');
+    assert.equal(teamResult.teamTrendRecords[0].venue.label, 'Away ATS');
+    assert.equal(teamResult.teamTrendRecords[1].betType.record, '0-4-0', 'opponent actual losses must not become wins');
     assert.equal(teamResult.lastSeven, null, 'never copy public or team-history records to the team strategy');
     assert.equal(teamResult.finalizedAt, '2026-10-13T00:00:00.000Z');
     const verified = await mcp.handleEzpzMcp({ jsonrpc: '2.0', id: 1, method: 'tools/call',
       params: { name: 'get_finalized_pick', arguments: { pickId: teamResult.pickId } } });
     assert.equal(verified.result.structuredContent.pick.eligibleForPosting, true);
     assert.equal(verified.result.structuredContent.pick.selection, rawPick.selection);
+    assert.deepEqual(JSON.parse(JSON.stringify(verified.result.structuredContent.pick.teamTrendRecords)),
+      JSON.parse(JSON.stringify(teamResult.teamTrendRecords)));
     assert.equal(normalize.stablePickId(sport, { ...saved.teamTrendPicks[0], selection: 'Over 55.5', line: 55.5 }), teamResult.pickId);
   }
+});
+
+test('team records preserve total direction and no-sample dashes without fabricating missing records', () => {
+  const h = harness(), api = h.load('lib/ezpzMcpPicks.ts');
+  const normalize = teams => api.normalizeMcpPick('NCAAF', teamPick({ pickCategory: 'team_trend',
+    teamTrendScore: { score: 81.25, mode: 'locked', teams } }), Date.parse('2026-10-13T00:00:30Z'));
+  const teams = capturedTeams.map(t => ({ ...t, records: {
+    betType: capturedRecord('Overall Under', '4-1-0'), venue: capturedRecord('Neutral Under', '0-0-0'),
+    recent: capturedRecord('Last 5 Under', '4-1-0'),
+  } }));
+  const result = normalize(teams);
+  assert.equal(result.teamTrendRecords[0].betType.label, 'Overall Under');
+  assert.equal(result.teamTrendRecords[0].venue.record, null);
+  assert.equal(result.teamTrendRecords[0].venue.sample, 0);
+  assert.equal(normalize(undefined).teamTrendRecords, null);
+  const invalid = JSON.parse(JSON.stringify(teams)); invalid[0].records.recent.record = '2-2-0';
+  assert.equal(normalize(invalid).teamTrendRecords, null);
 });
 
 test('only saved team finals can notify; previews, unsupported rules, late or invalid captures cannot', async () => {
