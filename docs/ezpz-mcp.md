@@ -6,6 +6,8 @@ The connected feed includes both **EZPZ Public Bet Trend** (`public_bet_trend`) 
 
 Team plays are stored alongside the public saved snapshot as separate `TEAM_TREND_PICK` rows. The legacy `/api/ezpz-picks` reader and its counts remain public-only. Both connected read tools include the team category; neither runs selection or collection. A team final requires a successfully saved, locked pregame decision. Unsaved previews cannot notify. Snapshot freshness and the verified 10–20 minute fallback checks apply to both football categories.
 
+Verified team plays also provide `teamTrendRecords`: the same two teams and three labeled records shown on the website (bet type, venue and last five), copied from the captured score. A record with no matching games is null and displays as a dash. Opponent ATS records retain their actual W-L-P direction. Posts put both teams' records immediately under Team score. These are team histories, not the strategy's last-seven-bet record. Odds and score explanations are omitted from the post; the selection, matchup and date/time use three consecutive lines.
+
 ## Install in ChatGPT Work
 
 1. Open ChatGPT on the web, then Plugins → + → Add custom MCP server.

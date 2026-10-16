@@ -5,11 +5,16 @@ import { TEAM_TREND_TEST_THRESHOLD, TEAM_TREND_TEST_VERSION } from "./footballTe
 export const MCP_SPORTS = ["MLB", "NFL", "NCAAF"] as const;
 export type McpSport = (typeof MCP_SPORTS)[number];
 type AnyPick = Record<string, any>;
+type McpTeamRecord = { label: string; record: string | null; sample: number };
+export type McpTeamRecords = {
+  team: string; betType: McpTeamRecord; venue: McpTeamRecord; recent: McpTeamRecord;
+};
 
 export type McpPick = {
   pickId: string; sport: McpSport; date: string; game: string; market: string;
   selection: string; line: string | number | null; odds: string | null; gameTime: string;
   pickCategory: "public_bet_trend" | "team_trend"; pickLabel: string; teamTrendScore: number | null;
+  teamTrendRecords: McpTeamRecords[] | null;
   pickType: string; lastSeven: { record: string; wins: number; losses: number; pushes: number; totalBets: number } | null;
   snapshotStatus: "LIVE" | "FINAL_PREGAME"; finalizedAt: string | null;
   eligibleForPosting: boolean; sourceUrl: string;
@@ -50,6 +55,29 @@ function lastSeven(pick: AnyPick): McpPick["lastSeven"] {
   return { record, wins, losses, pushes, totalBets: wins + losses + pushes };
 }
 
+function capturedTeamRecords(pick: AnyPick): McpTeamRecords[] | null {
+  const teams = pick.teamTrendScore?.teams;
+  if (!Array.isArray(teams) || teams.length !== 2) return null;
+  const output: McpTeamRecords[] = [];
+  for (const team of teams) {
+    const name = String(team?.team || "").trim();
+    if (!name) return null;
+    const records: Partial<Record<"betType" | "venue" | "recent", McpTeamRecord>> = {};
+    for (const key of ["betType", "venue", "recent"] as const) {
+      const r = team.records?.[key], label = String(r?.label || "").trim();
+      const match = String(r?.record || "").match(/^(\d+)-(\d+)-(\d+)$/);
+      const sample = r?.sample;
+      if (!label || !match || !Number.isSafeInteger(sample) || sample < 0
+        || match.slice(1).reduce((sum, value) => sum + Number(value), 0) !== sample) return null;
+      records[key] = { label, record: sample ? r.record : null, sample };
+    }
+    // Keep each team's actual results, including the opponent's ATS record;
+    // never invert a record to make it look supportive of the selection.
+    output.push({ team: name, betType: records.betType!, venue: records.venue!, recent: records.recent! });
+  }
+  return output;
+}
+
 export function normalizeMcpPick(sport: McpSport, pick: AnyPick, now = Date.now()): McpPick | null {
   const teamTrend = pick.pickCategory === "team_trend";
   if (teamTrend && (sport === "MLB" || !isSelectedTeamTrendPick(pick))) return null;
@@ -72,6 +100,7 @@ export function normalizeMcpPick(sport: McpSport, pick: AnyPick, now = Date.now(
     pickCategory: teamTrend ? "team_trend" : "public_bet_trend",
     pickLabel: teamTrend ? "EZPZ Team Trend" : "EZPZ Public Bet Trend",
     teamTrendScore: teamTrend ? pick.teamTrendScore.score : null,
+    teamTrendRecords: teamTrend ? capturedTeamRecords(pick) : null,
     pickType: teamTrend ? `Team Trend (score >= ${pick.threshold}/100)`
       : String(pick.tier || pick.trendTier || pick.bestPlayType || pick.source || "").trim(),
     // Team records used by the score are not the strategy's last seven bets.
