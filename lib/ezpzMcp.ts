@@ -13,6 +13,9 @@ const PICK_SCHEMA = {
     pickId: { type: "string" }, sport: SPORT_SCHEMA, date: { type: "string" }, game: { type: "string" },
     market: { type: "string" }, selection: { type: "string" }, line: { type: ["string", "number", "null"] },
     odds: { type: ["string", "null"] }, gameTime: { type: "string", format: "date-time" }, pickType: { type: "string" },
+    pickCategory: { type: "string", enum: ["public_bet_trend", "team_trend"] },
+    pickLabel: { type: "string", enum: ["EZPZ Public Bet Trend", "EZPZ Team Trend"] },
+    teamTrendScore: { type: ["number", "null"], minimum: 0, maximum: 100 },
     lastSeven: { type: ["object", "null"], properties: {
       record: { type: "string" }, wins: { type: "integer" }, losses: { type: "integer" },
       pushes: { type: "integer" }, totalBets: { type: "integer" },
@@ -20,13 +23,13 @@ const PICK_SCHEMA = {
     snapshotStatus: { type: "string", enum: ["LIVE", "FINAL_PREGAME"] },
     finalizedAt: { type: ["string", "null"] }, eligibleForPosting: { type: "boolean" }, sourceUrl: { type: "string" },
   },
-  required: ["pickId", "sport", "date", "game", "market", "selection", "line", "odds", "gameTime", "pickType", "lastSeven", "snapshotStatus", "finalizedAt", "eligibleForPosting", "sourceUrl"],
+  required: ["pickId", "sport", "date", "game", "market", "selection", "line", "odds", "gameTime", "pickType", "pickCategory", "pickLabel", "teamTrendScore", "lastSeven", "snapshotStatus", "finalizedAt", "eligibleForPosting", "sourceUrl"],
 };
 
 export const EZPZ_MCP_TOOLS = [
   {
     name: "get_ezpz_picks", title: "Read EZPZ Picks",
-    description: "Read fresh picks actually selected on the EZPZ Picks tab. Use for current picks or to verify a final-pick notification before publishing through Buffer. Defaults to finalized, unstarted games. Copies the selected trend subtype's last-seven-bet record when present; null means unavailable, never zero wins or seven days.",
+    description: "Read fresh public betting trend picks and NFL/NCAAF team trend plays selected on the EZPZ Picks tab. Defaults to finalized, unstarted games. Use pickCategory and pickLabel to distinguish EZPZ Public Bet Trend from EZPZ Team Trend; teamTrendScore is a raw score, not win probability. lastSeven is the exact selected public subtype's last-seven-bet record when available; null means unavailable, never zero wins or seven days.",
     inputSchema: { type: "object", properties: { sport: SPORT_SCHEMA, finalOnly: { type: "boolean", default: true } }, additionalProperties: false },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   },
@@ -40,7 +43,7 @@ export const EZPZ_MCP_TOOLS = [
 
 export const EZPZ_MCP_EVENTS = [{
   name: FINAL_PICK_EVENT,
-  description: "A selected EZPZ pick has been saved as FINAL_PREGAME before game time. Covers MLB, NFL, and NCAAF. Each event carries one stable pick ID and its exact selected trend/model type. Delivery uses the existing snapshot jobs, durable deduplication, signed callbacks, and bounded retries. Newly created subscriptions watch future finalizations.",
+  description: "A selected EZPZ Public Bet Trend or NFL/NCAAF EZPZ Team Trend pick has been saved as FINAL_PREGAME before game time. Covers MLB, NFL, and NCAAF. Each event carries a category-specific stable pick ID, pickCategory, pickLabel, exact selection and captured score when applicable. Delivery uses existing snapshot jobs, durable deduplication, signed callbacks and bounded retries. Newly created subscriptions watch future finalizations.",
   delivery: ["webhook"],
   inputSchema: { type: "object", properties: { sports: { type: "array", items: SPORT_SCHEMA, minItems: 1, maxItems: 3, uniqueItems: true } }, additionalProperties: false },
   payloadSchema: { type: "object", properties: { pick: PICK_SCHEMA }, required: ["pick"], additionalProperties: false },
@@ -56,9 +59,10 @@ export async function readMcpPicks(sports: McpSport[], finalOnly = true, now = D
       if (!snapshot || !Number.isFinite(updated) || updated > now + 60_000 || now - updated > MAX_SNAPSHOT_AGE_MS) {
         unavailableSports.push(sport); return;
       }
+      const allPicks = [...snapshot.picks, ...(snapshot.teamTrendPicks || [])];
       const readable = snapshot.sourceStale
-        ? snapshot.picks.filter(raw => isVerifiedFrozenFootballMcpPick(sport, raw, now))
-        : snapshot.picks;
+        ? allPicks.filter(raw => isVerifiedFrozenFootballMcpPick(sport, raw, now))
+        : allPicks;
       if (snapshot.sourceStale && !readable.length) {
         unavailableSports.push(sport); return;
       }

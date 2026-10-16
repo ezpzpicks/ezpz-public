@@ -25,6 +25,7 @@ function harness({ realCurrentPicks = false } = {}) {
   let badChallenge = false;
   let addresses = [{ address: '104.18.34.172', family: 4 }];
   let dnsCalls = 0;
+  let failSnapshotWrite = false;
   const sends = [], sockets = [], snapshots = {};
   const datasets = new Map();
   const database = new DatabaseSync(':memory:');
@@ -34,7 +35,10 @@ function harness({ realCurrentPicks = false } = {}) {
     './tursoStore': {
       isTursoConfigured: () => true,
       readTursoDataset: async (sport, dataset) => datasets.get(`${sport}:${dataset}`) || [],
-      replaceTursoDataset: async (sport, dataset, rows) => { datasets.set(`${sport}:${dataset}`, rows); },
+      replaceTursoDataset: async (sport, dataset, rows) => {
+        if (failSnapshotWrite) throw new Error('snapshot write failed');
+        datasets.set(`${sport}:${dataset}`, rows);
+      },
       runTursoSql: async statements => statements.map(sql => database.prepare(sql).all().map(row =>
         Object.fromEntries(Object.entries(row).map(([key, value]) => [key, value == null ? '' : String(value)])))),
     },
@@ -78,6 +82,7 @@ function harness({ realCurrentPicks = false } = {}) {
     load, database, sends, sockets, snapshots,
     now: () => clock, setTime: value => { clock = value; }, setStatus: value => { acceptance = value; },
     setBadChallenge: value => { badChallenge = value; }, setAddresses: value => { addresses = value; }, dnsCalls: () => dnsCalls,
+    setFailSnapshotWrite: value => { failSnapshotWrite = value; },
     subscription: () => ({ name: 'ezpz.pick.finalized', arguments: { sports: ['NFL'] }, delivery: { mode: 'webhook', url: callback, secret } }),
     events: () => sends.filter(item => !item.payload.type),
   };
@@ -184,6 +189,97 @@ test('persisting a verified final football pick during fallback emits one signed
   const started = await mcp.readMcpPicks(['NFL'], false);
   assert.equal(started.picks[0].eligibleForPosting, false);
   assert.equal((await mcp.readMcpPicks(['NFL'])).picks.length, 0);
+});
+
+function teamPick(changes = {}) {
+  return { ...rawPick, strategyVersion: 'team-trend-test-2026-10-15-v1', threshold: 75,
+    savedAt: '2026-10-13T00:00:00Z', teamTrendScore: { score: 81.25, mode: 'locked' }, ...changes };
+}
+
+test('both football categories persist, verify, and deliver independently without changing public IDs', async () => {
+  for (const sport of ['NFL', 'NCAAF']) {
+    const h = harness({ realCurrentPicks: true });
+    const events = h.load('lib/ezpzMcpEvents.ts'), current = h.load('lib/ezpzCurrentPicks.ts');
+    const mcp = h.load('lib/ezpzMcp.ts'), normalize = h.load('lib/ezpzMcpPicks.ts');
+    const subscription = h.subscription(); subscription.arguments.sports = [sport];
+    await events.subscribeFinalPicks(subscription);
+    h.setTime(Date.parse('2026-10-13T00:00:30Z'));
+    const version = h.load(`lib/${sport === 'NFL' ? 'nfl' : 'ncaaf'}EzpzPolicy.ts`)[`${sport}_EZPZ_POLICY_VERSION`];
+    const catalog = h.load('lib/footballTrendCatalog.ts').footballCatalog(sport);
+    const rule = catalog.rules.find(r => r.market.toLowerCase() === 'total');
+    const publicPick = { ...rawPick, source: 'Trend Play', selectorVersion: version,
+      trendSubtypeId: `catalog:${catalog.version}:${rule.id}:0:|over` };
+    const payload = { today: '2026-10-12', aiPicks: [publicPick], teamTrendTestPicks: [teamPick()] };
+    await current.persistEzpzCurrentPicks(sport, payload);
+    await current.persistEzpzCurrentPicks(sport, payload);
+    const saved = await current.readEzpzCurrentPicks(sport);
+    assert.equal(saved.picks.length, 1); assert.equal(saved.teamTrendPicks.length, 1);
+    assert.equal(saved.pickCount, 1, 'legacy public reader count stays public-only');
+    const feed = await mcp.readMcpPicks([sport]);
+    assert.equal(feed.picks.length, 2); assert.equal(h.events().length, 2);
+    const publicResult = feed.picks.find(p => p.pickCategory === 'public_bet_trend');
+    const teamResult = feed.picks.find(p => p.pickCategory === 'team_trend');
+    assert.equal(publicResult.pickId, normalize.stablePickId(sport, rawPick));
+    assert.notEqual(teamResult.pickId, publicResult.pickId);
+    assert.equal(publicResult.pickLabel, 'EZPZ Public Bet Trend');
+    assert.equal(teamResult.pickLabel, 'EZPZ Team Trend');
+    assert.equal(teamResult.teamTrendScore, 81.25);
+    assert.equal(teamResult.lastSeven, null, 'never copy public or team-history records to the team strategy');
+    assert.equal(teamResult.finalizedAt, '2026-10-13T00:00:00.000Z');
+    const verified = await mcp.handleEzpzMcp({ jsonrpc: '2.0', id: 1, method: 'tools/call',
+      params: { name: 'get_finalized_pick', arguments: { pickId: teamResult.pickId } } });
+    assert.equal(verified.result.structuredContent.pick.eligibleForPosting, true);
+    assert.equal(verified.result.structuredContent.pick.selection, rawPick.selection);
+    assert.equal(normalize.stablePickId(sport, { ...saved.teamTrendPicks[0], selection: 'Over 55.5', line: 55.5 }), teamResult.pickId);
+  }
+});
+
+test('only saved team finals can notify; previews, unsupported rules, late or invalid captures cannot', async () => {
+  const h = harness({ realCurrentPicks: true });
+  const events = h.load('lib/ezpzMcpEvents.ts'), current = h.load('lib/ezpzCurrentPicks.ts'), mcp = h.load('lib/ezpzMcp.ts');
+  await events.subscribeFinalPicks(h.subscription()); h.setTime(Date.parse('2026-10-13T00:00:30Z'));
+  const variants = [teamPick({ snapshotStatus: 'LIVE', savedAt: '', teamTrendScore: { score: 81.25, mode: 'preview' } }),
+    teamPick({ savedAt: '' }), teamPick({ savedAt: rawPick.gameTime }),
+    teamPick({ savedAt: '2026-10-12T23:00:00Z' }), teamPick({ savedAt: '2026-10-13T00:01:00Z' }),
+    teamPick({ threshold: 70 }), teamPick({ strategyVersion: 'unknown' }),
+    teamPick({ teamTrendScore: { score: 74.99, mode: 'locked' } }),
+    teamPick({ teamTrendScore: { score: null, mode: 'locked' } }),
+    teamPick({ teamTrendScore: { score: 100, mode: 'preview' } }), teamPick({ result: 'W' })];
+  await current.persistEzpzCurrentPicks('NFL', { today: rawPick.date, teamTrendTestPicks: variants });
+  assert.equal(h.events().length, 0);
+  assert.equal((await mcp.readMcpPicks(['NFL'])).picks.length, 0);
+  await current.persistEzpzCurrentPicks('MLB', { today: rawPick.date, teamTrendTestPicks: [teamPick()] });
+  assert.equal((await current.readEzpzCurrentPicks('MLB')).teamTrendPicks.length, 0);
+});
+
+test('a team-only slate uses saved final evidence during fallback and becomes ineligible at kickoff', async () => {
+  const h = harness({ realCurrentPicks: true });
+  const events = h.load('lib/ezpzMcpEvents.ts'), current = h.load('lib/ezpzCurrentPicks.ts'), mcp = h.load('lib/ezpzMcp.ts');
+  await events.subscribeFinalPicks(h.subscription()); h.setTime(Date.parse('2026-10-13T00:00:30Z'));
+  const payload = { today: rawPick.date, stale: true, teamTrendTestPicks: [teamPick()] };
+  await current.persistEzpzCurrentPicks('NFL', payload);
+  assert.equal(h.events().length, 1);
+  const feed = await mcp.readMcpPicks(['NFL']);
+  assert.equal(feed.unavailableSports.length, 0); assert.equal(feed.picks.length, 1);
+  h.setTime(Date.parse(rawPick.gameTime));
+  await current.persistEzpzCurrentPicks('NFL', payload);
+  assert.equal(h.events().length, 1);
+  assert.equal((await mcp.readMcpPicks(['NFL'])).picks.length, 0);
+  assert.equal((await mcp.readMcpPicks(['NFL'], false)).picks[0].eligibleForPosting, false);
+  h.setTime(h.now() + 21 * 60_000);
+  assert.equal((await mcp.readMcpPicks(['NFL'], false)).unavailableSports[0], 'NFL');
+});
+
+test('a failed snapshot write cannot deliver an unverified team final', async () => {
+  const h = harness({ realCurrentPicks: true });
+  const events = h.load('lib/ezpzMcpEvents.ts'), current = h.load('lib/ezpzCurrentPicks.ts');
+  await events.subscribeFinalPicks(h.subscription()); h.setTime(Date.parse('2026-10-13T00:00:30Z'));
+  h.setFailSnapshotWrite(true);
+  await assert.rejects(current.persistEzpzCurrentPicks('NFL', {
+    today: rawPick.date, teamTrendTestPicks: [teamPick()],
+  }), /snapshot write failed/);
+  assert.equal(h.events().length, 0);
+  assert.equal(await current.readEzpzCurrentPicks('NFL'), null);
 });
 
 test('callback signature matches Standard Webhooks; private destinations and redirects are not followed', async () => {
