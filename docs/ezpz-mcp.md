@@ -39,6 +39,14 @@ Use the exact `pickLabel` as the post header and deduplicate within its category
 
 The first real ChatGPT subscription and first approved live post establish actual end-to-end latency. Local tests and a successful webhook receipt cannot establish a publication-time guarantee.
 
+## Saved results for recaps
+
+`GET /api/ezpz-results?sport=NCAAF&date=2026-10-15` reads the saved game-date ledgers without collecting markets, running selection, settling games, or writing data. `supportedSports` lists the implemented readers. MLB uses `trend_v2_daily_picks`; football reads `ezpz_pick_history` and the separate `team_trend_test_picks` ledger. Model/prop history and live previews are excluded.
+
+Each result includes the category, exact captured selection and line, game date/time, stored W/L/P or null, and explicit SETTLED/PENDING status. A database failure returns 503 rather than an empty successful slate. A result reader is not proof of publication: match each entry against an actually sent Buffer pick, including thread replies and its category, before counting it in a social recap. Never substitute subtype last-seven records or team histories for pick results.
+
+The recap format stacks each full category label above its W-L-P record, with a blank line between categories. Scheduled delivery is managed separately in ChatGPT/Buffer, not by this read endpoint.
+
 ## References
 
 - https://developers.openai.com/plugins/build/mcp-events
