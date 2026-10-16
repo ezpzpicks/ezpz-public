@@ -82,7 +82,20 @@ test('MLB reads only selected durable daily picks and retains pushes', async () 
   const picks = await h.api.readSavedEzpzResults('MLB', date);
   assert.equal(picks.length, 1);
   assert.equal(picks[0].result, 'P');
-  assert.equal(h.reads.length, 1);
+  assert.equal(h.reads.length, 2);
+});
+
+test('MLB legacy selected public trends are readable without promoting models or rejected candidates', async () => {
+  const h = harness();
+  const legacy = { ...publicPick, candidateId: 'direct-mlb', selected: true, protectionStatus: 'PASSED',
+    selection: 'Over', play: 'Over 47.5' };
+  h.datasets.set('MLB:ai_pick_selector', [row(legacy, 'L'),
+    row({ ...legacy, source: 'Best Play', candidateId: 'model' }),
+    row({ ...legacy, selected: false, candidateId: 'rejected' })]);
+  const picks = await h.api.readSavedEzpzResults('MLB', date);
+  assert.equal(picks.length, 1);
+  assert.equal(picks[0].selection, 'Over 47.5');
+  assert.equal(picks[0].result, 'L');
 });
 
 test('read failures and conflicting grades fail closed', async () => {
