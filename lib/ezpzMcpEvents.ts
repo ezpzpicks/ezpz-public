@@ -94,8 +94,11 @@ export async function unsubscribeFinalPicks(value: unknown) {
 }
 
 export function finalPickEvent(pick: McpPick, detectedAt: number) {
+  // Installed connections may retain the original event payload schema. Keep
+  // that wire contract; the read tool resolves category and score from pickId.
+  const { pickCategory: _category, pickLabel: _label, teamTrendScore: _score, ...wirePick } = pick;
   return { eventId: `evt_${pick.pickId}`, name: FINAL_PICK_EVENT,
-    timestamp: pick.finalizedAt || new Date(detectedAt).toISOString(), data: { pick }, cursor: null };
+    timestamp: pick.finalizedAt || new Date(detectedAt).toISOString(), data: { pick: wirePick }, cursor: null };
 }
 
 async function enqueueFinalPicks(sport: McpSport, picks: McpPick[], subscriptions: TursoRow[], now: number) {
