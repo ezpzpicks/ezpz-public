@@ -15,7 +15,7 @@ function resultCode(value: unknown): "W" | "L" | "P" | null {
 }
 
 /** Read captured decisions and their stored grades; never collect, select or settle. */
-export function savedResultFromRow(sport: McpSport, row: Row, category: Category) {
+export function savedResultFromRow(sport: McpSport, row: Row, category: Category, dataset = "") {
   let details: Row = {};
   try {
     const parsed = JSON.parse(String(row["Details JSON"] || "{}"));
@@ -37,11 +37,19 @@ export function savedResultFromRow(sport: McpSport, row: Row, category: Category
   // The MLB daily ledger contains only the durable selected Trend v2 decisions.
   if (sport === "MLB") {
     if (!(row["Candidate ID"] || details.candidateId)) return null;
-    raw.selected = details.selected ?? true;
-    raw.protectionStatus = details.protectionStatus || "PASSED";
-    raw.snapshotStatus = details.snapshotStatus || "FINAL_PREGAME";
+    if (dataset === "ai_pick_selector") {
+      if (!/trend/i.test(String(raw.source || "")) || !["Moneyline", "Total"].includes(raw.market)) return null;
+      raw.selected = row.Selected !== undefined ? /^(true|yes|1)$/i.test(String(row.Selected)) : details.selected;
+      raw.protectionStatus = row["Protection Status"] || details.protectionStatus;
+    } else {
+      raw.selected = details.selected ?? true;
+      raw.protectionStatus = details.protectionStatus || "PASSED";
+      raw.snapshotStatus = details.snapshotStatus || "FINAL_PREGAME";
+      raw.source = "Trend Play";
+    }
     raw.lockedAt = row["Locked At"] || details.lockedAt;
-    raw.source = "Trend Play";
+    raw.selection = row.Play || details.play || raw.selection;
+    if (/^(over|under)$/i.test(raw.selection) && raw.line !== undefined && raw.line !== "") raw.selection += ` ${raw.line}`;
   } else if (category === "public_bet_trend") {
     // Model/prop history shares this ledger but is outside the EZPZ trend recap.
     if (!/trend/i.test(String(raw.source || "")) || row.Player || details.playerName) return null;
@@ -65,10 +73,11 @@ export function savedResultFromRow(sport: McpSport, row: Row, category: Category
 export async function readSavedEzpzResults(sport: McpSport, date: string) {
   const publicDataset = sport === "MLB" ? "trend_v2_daily_picks" : "ezpz_pick_history";
   const sources: Array<[string, Category]> = [[publicDataset, "public_bet_trend"]];
+  if (sport === "MLB") sources.push(["ai_pick_selector", "public_bet_trend"]);
   if (sport !== "MLB") sources.push([TEAM_TREND_TEST_TAB, "team_trend"]);
   const groups = await Promise.all(sources.map(async ([dataset, category]) => {
     const rows = await readTursoDatasetByDateKeys(sport, dataset, [date]);
-    return rows.map(row => savedResultFromRow(sport, row, category))
+    return rows.map(row => savedResultFromRow(sport, row, category, dataset))
       .filter((pick): pick is NonNullable<typeof pick> => Boolean(pick && pick.date === date));
   }));
   const unique = new Map<string, NonNullable<ReturnType<typeof savedResultFromRow>>>();
