@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { parseGameStart, isoDate } from "./mlbTrendV2";
+import { TEAM_TREND_TEST_THRESHOLD, TEAM_TREND_TEST_VERSION } from "./footballTeamTrendPlays";
 
 export const MCP_SPORTS = ["MLB", "NFL", "NCAAF"] as const;
 export type McpSport = (typeof MCP_SPORTS)[number];
@@ -8,6 +9,7 @@ type AnyPick = Record<string, any>;
 export type McpPick = {
   pickId: string; sport: McpSport; date: string; game: string; market: string;
   selection: string; line: string | number | null; odds: string | null; gameTime: string;
+  pickCategory: "public_bet_trend" | "team_trend"; pickLabel: string; teamTrendScore: number | null;
   pickType: string; lastSeven: { record: string; wins: number; losses: number; pushes: number; totalBets: number } | null;
   snapshotStatus: "LIVE" | "FINAL_PREGAME"; finalizedAt: string | null;
   eligibleForPosting: boolean; sourceUrl: string;
@@ -19,7 +21,22 @@ export function stablePickId(sport: McpSport, pick: AnyPick): string {
   const game = String(pick.gameKey || pick.v2GameKey || pick.game || pick.Game || "").trim().toLowerCase();
   const market = String(pick.market || pick.Market || pick.propMarket || "").trim().toLowerCase();
   const player = String(pick.playerName || pick.Player || "").trim().toLowerCase();
-  return `ezpz_${createHash("sha256").update(JSON.stringify([sport, date, game, market, player])).digest("hex").slice(0,32)}`;
+  const identity = [sport, date, game, market, player];
+  // Preserve existing public-pick IDs and their delivery ledger. A team decision
+  // is independently publishable even for the same game, market and direction.
+  if (pick.pickCategory === "team_trend") identity.push("team_trend");
+  return `ezpz_${createHash("sha256").update(JSON.stringify(identity)).digest("hex").slice(0,32)}`;
+}
+
+export function isSelectedTeamTrendPick(pick: AnyPick): boolean {
+  const score = pick.teamTrendScore?.score;
+  if (pick.strategyVersion !== TEAM_TREND_TEST_VERSION || pick.threshold !== TEAM_TREND_TEST_THRESHOLD
+    || typeof score !== "number" || !Number.isFinite(score) || score < TEAM_TREND_TEST_THRESHOLD || score > 100
+    || !["Spread", "Total"].includes(pick.market) || typeof pick.line !== "number" || !Number.isFinite(pick.line)) return false;
+  if (pick.snapshotStatus === "LIVE") return true;
+  const saved = Date.parse(String(pick.savedAt || "")), kickoff = Date.parse(String(pick.gameTime || ""));
+  return pick.snapshotStatus === "FINAL_PREGAME" && pick.teamTrendScore.mode === "locked"
+    && Number.isFinite(saved) && Number.isFinite(kickoff) && saved < kickoff && kickoff - saved <= 20 * 60_000;
 }
 
 function lastSeven(pick: AnyPick): McpPick["lastSeven"] {
@@ -34,6 +51,8 @@ function lastSeven(pick: AnyPick): McpPick["lastSeven"] {
 }
 
 export function normalizeMcpPick(sport: McpSport, pick: AnyPick, now = Date.now()): McpPick | null {
+  const teamTrend = pick.pickCategory === "team_trend";
+  if (teamTrend && (sport === "MLB" || !isSelectedTeamTrendPick(pick))) return null;
   if (pick.selected === false || (pick.protectionStatus && pick.protectionStatus !== "PASSED")) return null;
   // MLB cards explicitly gate selection; football's feed is already the catalog-selected list.
   if (sport === "MLB" && (pick.selected !== true || pick.protectionStatus !== "PASSED")) return null;
@@ -44,14 +63,19 @@ export function normalizeMcpPick(sport: McpSport, pick: AnyPick, now = Date.now(
   const gameStart = parseGameStart(date, pick.gameTime || pick["Game Time"]);
   const status = pick.snapshotStatus === "FINAL_PREGAME" ? "FINAL_PREGAME" : "LIVE";
   if (!date || !game || !market || !selection || gameStart == null) return null;
-  const frozen = Date.parse(String(pick.lockedAt || pick.frozenAt || ""));
+  const frozen = Date.parse(String(teamTrend ? pick.savedAt : pick.lockedAt || pick.frozenAt || ""));
   const result = String(pick.result || pick.Result || "").trim();
   return {
     pickId: stablePickId(sport, pick), sport, date, game, market, selection,
     line: pick.line ?? pick.propLine ?? null, odds: pick.odds == null || pick.odds === "" ? null : String(pick.odds),
     gameTime: new Date(gameStart).toISOString(),
-    pickType: String(pick.tier || pick.trendTier || pick.bestPlayType || pick.source || "").trim(),
-    lastSeven: lastSeven(pick), snapshotStatus: status,
+    pickCategory: teamTrend ? "team_trend" : "public_bet_trend",
+    pickLabel: teamTrend ? "EZPZ Team Trend" : "EZPZ Public Bet Trend",
+    teamTrendScore: teamTrend ? pick.teamTrendScore.score : null,
+    pickType: teamTrend ? `Team Trend (score >= ${pick.threshold}/100)`
+      : String(pick.tier || pick.trendTier || pick.bestPlayType || pick.source || "").trim(),
+    // Team records used by the score are not the strategy's last seven bets.
+    lastSeven: teamTrend ? null : lastSeven(pick), snapshotStatus: status,
     finalizedAt: status === "FINAL_PREGAME" && Number.isFinite(frozen) ? new Date(frozen).toISOString() : null,
     eligibleForPosting: status === "FINAL_PREGAME" && gameStart > now && (!Number.isFinite(frozen) || frozen <= now)
       && !/^(?:W|L|P|WIN|LOSS|PUSH|WON|LOST)$/i.test(result),

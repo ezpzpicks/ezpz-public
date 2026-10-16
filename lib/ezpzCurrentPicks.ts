@@ -8,7 +8,7 @@ import { isPublicSplitEzpzPick } from "./ezpzPublicSplitEligibility";
 import { NFL_EZPZ_POLICY_VERSION } from "./nflEzpzPolicy";
 import { NCAAF_EZPZ_POLICY_VERSION } from "./ncaafEzpzPolicy";
 import { captureEzpzFinalPickEvents } from "./ezpzMcpEvents";
-import { isVerifiedFrozenFootballMcpPick } from "./ezpzMcpPicks";
+import { isSelectedTeamTrendPick, isVerifiedFrozenFootballMcpPick } from "./ezpzMcpPicks";
 
 export type EzpzCurrentSport = Extract<TursoSport, "MLB" | "NFL" | "NCAAF">;
 
@@ -74,6 +74,10 @@ export async function persistEzpzCurrentPicks(
 ) {
   const picks = (Array.isArray(payload?.aiPicks) ? payload.aiPicks : [])
     .filter((pick: AnyRow) => currentPickEligible(pick, sport));
+  const teamTrendPicks = sport === "MLB" ? []
+    : (Array.isArray(payload?.teamTrendTestPicks) ? payload.teamTrendTestPicks : [])
+      .filter(isSelectedTeamTrendPick)
+      .map((pick: AnyRow) => ({ ...pick, pickCategory: "team_trend" }));
   const date = normalizedDate(firstValue(payload?.today, payload?.date));
   const updatedAt = new Date().toISOString();
   const sourceUpdatedAt = String(firstValue(payload?.lastUpdated, payload?.generatedAt, updatedAt));
@@ -98,14 +102,23 @@ export async function persistEzpzCurrentPicks(
       "Pick Count": "",
       "Details JSON": safeJson(pick),
     })),
+    ...teamTrendPicks.map((pick: AnyRow) => ({
+      Kind: "TEAM_TREND_PICK",
+      Date: normalizedDate(firstValue(pick.date, date)),
+      "Updated At": updatedAt,
+      "Source Updated At": sourceUpdatedAt,
+      "Pick Count": "",
+      "Details JSON": safeJson(pick),
+    })),
   ];
 
   await replaceTursoDataset(sport, DATASET, rows, HEADERS);
   // The durable snapshot owns the trigger. Delivery failures must not invalidate a saved pick.
   try {
+    const allPicks = [...picks, ...teamTrendPicks];
     const eventPicks = sourceStale
-      ? picks.filter((pick: AnyRow) => isVerifiedFrozenFootballMcpPick(sport, pick))
-      : picks;
+      ? allPicks.filter((pick: AnyRow) => isVerifiedFrozenFootballMcpPick(sport, pick))
+      : allPicks;
     const capture = await captureEzpzFinalPickEvents(sport, eventPicks);
     console.info("[ezpz-mcp] final-pick capture", { sport, sourceStale, ...capture });
   } catch {
@@ -123,6 +136,10 @@ export async function readEzpzCurrentPicks(sport: EzpzCurrentSport) {
     .map((row) => parseJson(row["Details JSON"]))
     .filter((row): row is AnyRow => Boolean(row))
     .filter((pick) => currentPickEligible(pick, sport));
+  const teamTrendPicks = sport === "MLB" ? [] : rows
+    .filter(row => row.Kind === "TEAM_TREND_PICK")
+    .map(row => parseJson(row["Details JSON"]))
+    .filter((pick): pick is AnyRow => Boolean(pick && pick.pickCategory === "team_trend" && isSelectedTeamTrendPick(pick)));
 
   return {
     sport,
@@ -132,5 +149,6 @@ export async function readEzpzCurrentPicks(sport: EzpzCurrentSport) {
     sourceStale: String(meta["Source Stale"] || "").toUpperCase() === "TRUE",
     pickCount: sport === "MLB" ? Number(meta["Pick Count"] || picks.length || 0) : picks.length,
     picks,
+    teamTrendPicks,
   };
 }
