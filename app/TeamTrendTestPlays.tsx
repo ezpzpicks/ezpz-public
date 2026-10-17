@@ -32,7 +32,7 @@ export default function TeamTrendTestPlays({ sport, today, current = [], records
       <div><span>ROI</span><strong>{status.graded ? `${signed(status.roiPct, 1)}%` : "—"}</strong></div>
       <p>{status.graded} settled · {status.pending} pending · 1 unit risk per play at -110</p>
     </div>
-    <p className="teamTrendTestNote">Live previews can change. Qualifying plays are saved at the final pregame snapshot and graded automatically after the final score.</p>
+    <p className="teamTrendTestNote">Qualifying plays are saved from 8 AM ET on game day as lines and team records become available. Saved plays keep their original line and are graded automatically after the final score.</p>
     <details className="footballHistoryDropdown">
       <summary><div><strong>Team trend history</strong><span>{date}{date === today ? " · Today" : ""} · {picks.length} {picks.length === 1 ? "play" : "plays"}</span></div><b>Choose date ▾</b></summary>
       <div className="footballHistoryControls">

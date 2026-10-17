@@ -76,6 +76,48 @@ test('only a pregame final snapshot in the capture window creates a tracked test
   assert.equal(state({ capture: true, markets: [{ ...market, snapshotStatus: 'LIVE' }, market] }).records.length, 1);
 });
 
+test('ready team picks lock at 8 AM Eastern independently of the public snapshot', () => {
+  const morning = Date.parse(`${today}T12:00:00Z`);
+  const live = { ...market, snapshotStatus: 'LIVE' };
+  const build = (overrides = {}) => state({ markets: [live], capture: true, earlyCapture: true, now: morning, ...overrides });
+  assert.equal(build({ now: morning - 1 }).records.length, 0);
+  assert.equal(build({ earlyCapture: false }).records.length, 0);
+  assert.equal(build({ capture: false }).records.length, 0);
+  assert.equal(build({ today: '2026-10-23', markets: [{ ...live, date: '2026-10-23', gameTime: '2026-10-23T17:00:00Z' }] }).records.length, 0);
+  const saved = build();
+  assert.equal(saved.records.length, 1);
+  assert.equal(saved.records[0].snapshotStatus, 'FINAL_PREGAME');
+  assert.equal(saved.records[0].capturePolicy, 'team-trend-ready-2026-10-17-v1');
+  assert.equal(saved.records[0].savedAt, new Date(morning).toISOString());
+  assert.equal(saved.records[0].teamTrendScore.capturedAt, saved.records[0].savedAt);
+  const moved = build({ storedRows: saved.changedRows, markets: [{ ...live, line: 60 }],
+    history: history(['L']), now: morning + 2 * 3600_000 });
+  assert.equal(moved.changedRows.length, 0);
+  assert.deepEqual(plain(moved.records[0]), plain(saved.records[0]));
+  const graded = state({ markets: [], storedRows: saved.changedRows, scheduleRows: [final(20,25)], now: kickoff + 4 * 3600_000 });
+  assert.equal(graded.records[0].result, 'W', 'grade the early 44.5 total, not a later 60');
+  assert.equal(graded.records[0].selection, 'Over 44.5');
+});
+
+test('new qualifiers after the morning release lock without resaving previous picks', () => {
+  const morning = Date.parse(`${today}T12:00:00Z`), live = { ...market, snapshotStatus: 'LIVE' };
+  const initial = state({ markets: [live], capture: true, earlyCapture: true, now: morning, history: history(['W','L']) });
+  assert.equal(initial.records.length, 0);
+  const later = state({ markets: [live], capture: true, earlyCapture: true, now: morning + 3600_000 });
+  assert.equal(later.records.length, 1);
+  assert.equal(later.records[0].savedAt, new Date(morning + 3600_000).toISOString());
+});
+
+test('morning release follows Eastern daylight and standard time', () => {
+  const posting = load(path.join(root, 'lib/teamTrendPosting.ts'));
+  for (const [date, ready] of [['2026-10-22', '12:00:00Z'], ['2026-11-22', '13:00:00Z']]) {
+    const clock = Date.parse(`${date}T${ready}`);
+    assert.equal(posting.isTeamTrendPostingTime(date, clock - 1), false);
+    assert.equal(posting.isTeamTrendPostingTime(date, clock), true);
+    assert.equal(posting.isTeamTrendPostingTime('2026-10-23', clock), false);
+  }
+});
+
 test('saved pregame picks retain the original side, line, score and evidence across feed changes', () => {
   const saved = state({ capture: true });
   const next = state({ capture: true, storedRows: saved.changedRows,

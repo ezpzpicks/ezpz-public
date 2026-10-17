@@ -74,6 +74,36 @@ test('a failed test-ledger write leaves the play as a preview without counting a
   assert.equal(response.teamTrendTestStatus.pending, 0);
 });
 for (const sport of ['NFL', 'NCAAF']) {
+  test(`${sport} morning locks require a fresh source and survive later line changes`, async () => {
+    const { play } = fixture(sport), tables = new Map();
+    let stale = true, line = 46.5;
+    const api = withStubs('lib/footballPublicDataHistory.ts', {
+      './footballTrendCatalogStore': { captureFootballCatalog: async (_s, rows, plays) => ({ rows, plays, status: {} }) },
+      './footballPublicDataLegacy': { buildFootballPublicData: async () => ({ today, stale, draftKings: { stale },
+        trendPlays: [{ ...play, snapshotStatus: 'LIVE', gameTime: `${today}T23:00:00Z`, line,
+          catalogEvaluation: { ...play.catalogEvaluation, memberships: [] } }], trendRecordRows: [],
+        betTrackerRows: [{ Date: '2026-10-04', Game: 'KC @ LV', 'Bet Type': 'Total', Selection: 'Over 40', Result: 'W' }] }) },
+      './sportSheets': {
+        readSportWorksheet: async (_sport, tab) => tables.get(tab) || [],
+        upsertSportRows: async (_sport, tab, _headers, rows) => { tables.set(tab, rows.map(r => ({ ...r }))); },
+      },
+    });
+    const preview = await api.buildFootballPublicData(sport, { persist: true });
+    assert.equal(preview.teamTrendTestRecordRows.length, 0);
+    assert.equal(preview.teamTrendTestPicks[0].savedAt, '');
+    stale = false;
+    const saved = await api.buildFootballPublicData(sport, { persist: true });
+    assert.equal(saved.aiPicks.length, 0);
+    assert.equal(saved.teamTrendTestRecordRows.length, 1);
+    assert.equal(saved.teamTrendTestPicks[0].selection, 'Over 46.5');
+    assert.equal(saved.teamTrendTestPicks[0].snapshotStatus, 'FINAL_PREGAME');
+    assert.equal(saved.teamTrendTestPicks[0].capturePolicy, 'team-trend-ready-2026-10-17-v1');
+    line = 60; stale = true;
+    const reread = await api.buildFootballPublicData(sport, { persist: true });
+    assert.equal(reread.teamTrendTestPicks[0].selection, 'Over 46.5');
+    assert.equal(reread.teamTrendTestPicks[0].savedAt, saved.teamTrendTestPicks[0].savedAt);
+  });
+
   test(`${sport} team-score-only test plays persist separately without adding an official EZPZ pick`, async () => {
     const { play } = fixture(sport);
     const tables = new Map();

@@ -196,6 +196,55 @@ function teamPick(changes = {}) {
     savedAt: '2026-10-13T00:00:00Z', teamTrendScore: { score: 81.25, mode: 'locked' }, ...changes };
 }
 
+test('morning team locks notify, verify and grade before public betting picks finalize', async () => {
+  for (const sport of ['NFL', 'NCAAF']) {
+    const h = harness({ realCurrentPicks: true });
+    const events = h.load('lib/ezpzMcpEvents.ts'), current = h.load('lib/ezpzCurrentPicks.ts'), mcp = h.load('lib/ezpzMcp.ts');
+    const plays = h.load('lib/footballTeamTrendPlays.ts'), trends = h.load('lib/footballTeamTrends.ts');
+    const results = h.load('lib/ezpzSavedResults.ts');
+    h.setTime(Date.parse('2026-10-17T11:59:00Z'));
+    const sub = h.subscription(); sub.arguments.sports = [sport];
+    await events.subscribeFinalPicks(sub);
+    h.setTime(Date.parse('2026-10-17T12:00:00Z'));
+    const game = sport === 'NFL' ? 'KC @ LV' : 'East Carolina @ UAB';
+    const history = trends.buildTeamTrendHistory(sport, [], [
+      { Date: '2026-10-04', Game: game, 'Bet Type': 'Total', Selection: 'Over 40', Result: 'W' },
+    ]);
+    const input = { sport, today: '2026-10-17', markets: [{ date: '2026-10-17', game,
+      gameTime: '2026-10-17T23:00:00Z', market: 'Total', selection: 'Over', line: 44.5, snapshotStatus: 'LIVE' }],
+      history, storedRows: [], scheduleRows: [], capture: true, earlyCapture: true, now: h.now() };
+    const saved = plays.buildTeamTrendTestState(input);
+    assert.equal(saved.records.length, 1);
+    const publicLive = { ...rawPick, date: input.today, game, gameTime: input.markets[0].gameTime,
+      snapshotStatus: 'LIVE', lockedAt: '', selectorVersion: h.load(`lib/${sport === 'NFL' ? 'nfl' : 'ncaaf'}EzpzPolicy.ts`)[`${sport}_EZPZ_POLICY_VERSION`],
+      trendSubtypeId: 'catalog:test' };
+    const payload = { today: input.today, aiPicks: [publicLive], teamTrendTestPicks: saved.picks };
+    await current.persistEzpzCurrentPicks(sport, payload);
+    await current.persistEzpzCurrentPicks(sport, payload);
+    assert.equal(h.events().length, 1, 'only the independently saved team decision notifies');
+    const verified = await mcp.handleEzpzMcp({ jsonrpc: '2.0', id: 1, method: 'tools/call',
+      params: { name: 'get_finalized_pick', arguments: { pickId: h.events()[0].payload.data.pick.pickId } } });
+    const pick = verified.result.structuredContent.pick;
+    assert.equal(pick.eligibleForPosting, true);
+    assert.equal(pick.pickCategory, 'team_trend');
+    assert.equal(pick.selection, 'Over 44.5');
+    assert.equal(pick.teamTrendRecords.length, 2);
+    const fallback = { ...payload, stale: true };
+    await current.persistEzpzCurrentPicks(sport, fallback);
+    assert.equal((await mcp.readMcpPicks([sport])).picks[0].pickId, pick.pickId);
+    h.setTime(Date.parse(input.markets[0].gameTime));
+    assert.equal((await mcp.readMcpPicks([sport])).picks.length, 0);
+    const [away, home] = game.split(' @ ');
+    const graded = plays.buildTeamTrendTestState({ ...input, storedRows: saved.changedRows, markets: [],
+      scheduleRows: [{ Date: input.today, 'Away Team': away, 'Home Team': home, 'Away Score': '20', 'Home Score': '25', Completed: true }],
+      now: h.now() + 4 * 3600_000 });
+    const recap = results.savedResultFromRow(sport, graded.changedRows[0], 'team_trend');
+    assert.equal(recap.selection, pick.selection);
+    assert.equal(recap.line, pick.line);
+    assert.equal(recap.result, 'W');
+  }
+});
+
 function capturedRecord(label, record) {
   return { label, record, sample: record.split('-').reduce((n, value) => n + Number(value), 0) };
 }

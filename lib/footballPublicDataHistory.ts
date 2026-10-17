@@ -1061,7 +1061,7 @@ export async function buildFootballPublicData(
   let teamSeasonRows = await teamSeasonRead;
   if (options.persist && core.teamTrendScheduleRows?.length) {
     try {
-      // Warm the tracked week's teams before their picks qualify near kickoff.
+      // Warm the tracked week's teams so their picks can qualify in the morning.
       const historyTargets = [...selectedPicks, ...(core.draftKings?.splits || [])];
       teamSeasonRows = await refreshFootballTeamSeasonHistory(sport, core.teamTrendScheduleRows, historyTargets, teamSeasonRows, selectionTime);
     } catch (error) {
@@ -1071,7 +1071,8 @@ export async function buildFootballPublicData(
   const teamTrendHistory = buildTeamTrendHistory(sport, rows, core.betTrackerRows || [], core.teamTrendScheduleRows, teamSeasonRows);
   const storedTeamTests = await teamTestRead;
   const teamTestInput = { sport, today, markets: plays, history: teamTrendHistory, storedRows: storedTeamTests || [],
-    scheduleRows: [...(core.teamTrendScheduleRows || []), ...teamSeasonRows], now: selectionTime };
+    scheduleRows: [...(core.teamTrendScheduleRows || []), ...teamSeasonRows], now: selectionTime,
+    earlyCapture: core.stale !== true && core.draftKings?.stale !== true && core.draftKings?.displayMode !== "STALE_FALLBACK" };
   let teamTests = buildTeamTrendTestState({ ...teamTestInput, capture: Boolean(options.persist && storedTeamTests) });
   if (options.persist && teamTests.changedRows.length) {
     try {

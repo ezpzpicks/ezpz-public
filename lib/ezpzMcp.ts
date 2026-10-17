@@ -40,7 +40,7 @@ export const EZPZ_MCP_TOOLS = [
 
 export const EZPZ_MCP_EVENTS = [{
   name: FINAL_PICK_EVENT,
-  description: "A selected EZPZ Public Bet Trend or NFL/NCAAF EZPZ Team Trend pick has been saved as FINAL_PREGAME before game time. Covers MLB, NFL, and NCAAF. Each event carries a category-specific stable pick ID and exact selection; verify with get_finalized_pick for pickCategory, pickLabel and captured team score. Delivery uses existing snapshot jobs, durable deduplication, signed callbacks and bounded retries. Newly created subscriptions watch future finalizations.",
+    description: "A selected EZPZ pick has been saved as FINAL_PREGAME before game time. NFL/NCAAF team trends lock independently from 8 AM Eastern on game day when lines and team records are ready; public betting trends keep their final market snapshot timing. Covers MLB, NFL, and NCAAF. Each event carries a category-specific stable pick ID and exact selection; verify with get_finalized_pick for pickCategory, pickLabel and captured team score. Delivery uses existing snapshot jobs, durable deduplication, signed callbacks and bounded retries. Newly created subscriptions watch future finalizations.",
   delivery: ["webhook"],
   inputSchema: { type: "object", properties: { sports: { type: "array", items: SPORT_SCHEMA, minItems: 1, maxItems: 3, uniqueItems: true } }, additionalProperties: false },
   payloadSchema: { type: "object", properties: { pick: PICK_SCHEMA }, required: ["pick"], additionalProperties: false },
