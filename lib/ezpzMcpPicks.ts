@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { parseGameStart, isoDate } from "./mlbTrendV2";
 import { TEAM_TREND_TEST_THRESHOLD, TEAM_TREND_TEST_VERSION } from "./footballTeamTrendPlays";
+import { isSavedTeamTrendCapture, TEAM_TREND_READY_POLICY } from "./teamTrendPosting";
 
 export const MCP_SPORTS = ["MLB", "NFL", "NCAAF"] as const;
 export type McpSport = (typeof MCP_SPORTS)[number];
@@ -39,9 +40,8 @@ export function isSelectedTeamTrendPick(pick: AnyPick): boolean {
     || typeof score !== "number" || !Number.isFinite(score) || score < TEAM_TREND_TEST_THRESHOLD || score > 100
     || !["Spread", "Total"].includes(pick.market) || typeof pick.line !== "number" || !Number.isFinite(pick.line)) return false;
   if (pick.snapshotStatus === "LIVE") return true;
-  const saved = Date.parse(String(pick.savedAt || "")), kickoff = Date.parse(String(pick.gameTime || ""));
   return pick.snapshotStatus === "FINAL_PREGAME" && pick.teamTrendScore.mode === "locked"
-    && Number.isFinite(saved) && Number.isFinite(kickoff) && saved < kickoff && kickoff - saved <= 20 * 60_000;
+    && isSavedTeamTrendCapture(pick);
 }
 
 function lastSeven(pick: AnyPick): McpPick["lastSeven"] {
@@ -120,5 +120,6 @@ export function isVerifiedFrozenFootballMcpPick(sport: McpSport, raw: AnyPick, n
   if (!pick || pick.snapshotStatus !== "FINAL_PREGAME" || !pick.finalizedAt) return false;
   const captured = Date.parse(pick.finalizedAt);
   const lead = Date.parse(pick.gameTime) - captured;
+  if (pick.pickCategory === "team_trend" && raw.capturePolicy === TEAM_TREND_READY_POLICY) return captured <= now;
   return captured <= now && lead >= 10 * 60_000 && lead <= 20 * 60_000;
 }

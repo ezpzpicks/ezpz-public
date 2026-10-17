@@ -1,5 +1,6 @@
 import { footballTeamGameKey, footballTeamKey, footballTeamPair, scoreFootballTeamTrends,
   type FootballTeamTrendScore, type TeamTrendHistory } from "./footballTeamTrends";
+import { isSavedTeamTrendCapture, isTeamTrendPostingTime, TEAM_TREND_READY_POLICY } from "./teamTrendPosting";
 
 type Row = Record<string, any>;
 type Sport = "NFL" | "NCAAF";
@@ -15,6 +16,7 @@ export type TeamTrendTestPick = {
   awayTeam: string; homeTeam: string; market: "Spread" | "Total"; selection: string; selectionTeam: string;
   side: string; line: number; odds: "-110"; snapshotStatus: "LIVE" | "FINAL_PREGAME";
   teamTrendScore: FootballTeamTrendScore; capturedAt: string; savedAt: string; result: Result; resultUpdated: string;
+  capturePolicy?: string;
 };
 export type TeamTrendTestStatus = {
   version: string; threshold: number; record: string; wins: number; losses: number; pushes: number;
@@ -32,9 +34,8 @@ function readSaved(rows: Row[], sport: Sport) {
   for (const row of rows) {
     try {
       const p = JSON.parse(String(row["Details JSON"] || "{}")) as TeamTrendTestPick;
-      const start = Date.parse(p.gameTime), captured = Date.parse(p.savedAt);
       if (!p.strategyVersion?.startsWith("team-trend-test-") || p.snapshotStatus !== "FINAL_PREGAME"
-        || !Number.isFinite(start) || !Number.isFinite(captured) || captured >= start
+        || !isSavedTeamTrendCapture(p)
         || !footballTeamPair(p) || !marketOf(p) || num(p.line) == null || num(p.threshold) == null
         || p.teamTrendScore?.score == null || p.teamTrendScore.score < p.threshold) continue;
       const id = pickKey(p, sport);
@@ -66,7 +67,7 @@ function finalScores(rows: Row[], sport: Sport) {
 /** Team records are the sole selection signal. Market rows supply only lines and kickoff metadata. */
 export function buildTeamTrendTestState(input: {
   sport: Sport; today: string; markets: Row[]; history: TeamTrendHistory; storedRows: Row[];
-  scheduleRows: Row[]; capture: boolean; now?: number;
+  scheduleRows: Row[]; capture: boolean; earlyCapture?: boolean; now?: number;
 }) {
   const { sport, today, history } = input, now = input.now ?? Date.now();
   const stamp = new Date(now).toISOString();
@@ -123,9 +124,14 @@ export function buildTeamTrendTestState(input: {
     }
   }
   for (const [id, p] of candidates) {
-    // Capture only genuine final pregame quotes; previews never enter the results ledger.
-    if (!input.capture || p.snapshotStatus !== "FINAL_PREGAME" || Date.parse(p.gameTime) - now > 20 * 60_000) continue;
-    const locked = { ...p, savedAt: stamp, teamTrendScore: { ...p.teamTrendScore, mode: "locked" as const } };
+    // Team evidence is ready independently of public betting's final quote.
+    // The caller permits early capture only from a healthy current market feed.
+    const ready = input.earlyCapture === true && isTeamTrendPostingTime(p.date, now);
+    const finalQuote = p.snapshotStatus === "FINAL_PREGAME" && Date.parse(p.gameTime) - now <= 20 * 60_000;
+    if (!input.capture || (!ready && !finalQuote)) continue;
+    const locked = { ...p, snapshotStatus: "FINAL_PREGAME" as const, savedAt: stamp,
+      ...(ready ? { capturePolicy: TEAM_TREND_READY_POLICY } : {}),
+      teamTrendScore: { ...p.teamTrendScore, mode: "locked" as const } };
     saved.set(id, locked); changed.set(id, storageRow(locked));
   }
   const records = [...saved.values()].sort((a,b) => b.date.localeCompare(a.date) || a.game.localeCompare(b.game) || a.market.localeCompare(b.market));
