@@ -26,13 +26,24 @@ const today = '2026-10-18';
 let clock = Date.parse(`${today}T16:50:00Z`);
 class FixedDate extends Date { constructor(...args) { super(...(args.length ? args : [clock])); } static now() { return clock; } }
 
+const historyDependencies = {
+  './ezpzMcpPicks': load(path.join(root, 'lib/ezpzMcpPicks.ts')),
+  './footballTeamTrends': load(path.join(root, 'lib/footballTeamTrends.ts')),
+  './footballTeamTrendPlays': load(path.join(root, 'lib/footballTeamTrendPlays.ts')),
+  './footballTeamSeasonHistory': load(path.join(root, 'lib/footballTeamSeasonHistory.ts')),
+  './footballSignals': load(path.join(root, 'lib/footballSignals.ts')),
+  './footballSos': { loadFootballSos: async () => null },
+  './FootballTeamTrendScore': { default: () => null },
+  './TeamTrendTestPlays': { default: () => null },
+};
+
 function moduleWithStubs(file, imports = {}, appended = '', date = Date, globals = {}) {
   const exports = {};
   const code = ts.transpileModule(fs.readFileSync(path.join(root, file), 'utf8') + appended, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
   }).outputText;
   vm.runInNewContext(code, { exports, Date: date, Intl, console, process, ...globals,
-    require: name => imports[name] || (name.startsWith('.') ? {} : require(name)),
+    require: name => imports[name] || historyDependencies[name] || (name.startsWith('.') ? {} : require(name)),
   });
   return exports;
 }
