@@ -108,6 +108,12 @@ function modelFor(play: AnyRow, sport: FootballSport, core: AnyRow) {
 }
 function evaluateSide(play: AnyRow, siblings: AnyRow[], input: SignalsInput, ranking: NcaafEzpzSubtype[]): FootballSignalSide {
   const { sport, core, history, sos, now = Date.now() } = input, asOf = decisionAt(play, now);
+  const kickoff = Date.parse(nflKickoffIso(play.date, play.gameTime));
+  const finalStamp = Date.parse(String(play.frozenAt || play.lockedAt || play.updatedAt || "").replace(/ EDT$/, " -0400").replace(/ EST$/, " -0500"));
+  const publicQuoteEligible = validOdds(String(play.odds || "-110")) && Number.isFinite(kickoff)
+    && (play.snapshotStatus === "FINAL_PREGAME" ? Number.isFinite(finalStamp) && finalStamp <= now
+      && kickoff - finalStamp >= 10 * 60_000 && kickoff - finalStamp <= 20 * 60_000
+      : play.snapshotStatus === "LIVE" && kickoff > now);
   const line = signalNumber(play.line), bets = signalNumber(play.betsPct), money = signalNumber(play.moneyPct);
   const pctValid = bets != null && money != null && bets >= 0 && bets <= 100 && money >= 0 && money <= 100;
   const placeholder = (bets === 100 && money === 100) || (bets === 0 && money === 0);
@@ -140,9 +146,10 @@ function evaluateSide(play: AnyRow, siblings: AnyRow[], input: SignalsInput, ran
     signal("move", movementAvailable, positiveMove && Number(move) > 0, move, positiveMove ? movementLabel : "Inactive",
       "Uses the existing market feed’s line movement classification and thresholds, including its RLM rules."),
     signal("system", Boolean(play.catalogEvaluation && !play.catalogEvaluation.invalid), publicMatches.length > 0
-      && validOdds(String(play.odds || "-110")) && play.snapshotStatus !== "MISSED_LOCK",
-      publicMatches[0]?.wilsonScore ?? null, publicMatches.length ? "Top-20 match" : "No match",
-      "Only the sport’s current top 20 Wilson-ranked, eligible catalog systems qualify. Multiple matches contribute one signal."),
+      && publicQuoteEligible,
+      publicMatches[0]?.wilsonScore ?? null, publicMatches.length && publicQuoteEligible ? "Top-20 match" : "Inactive",
+      publicQuoteEligible ? "Only the sport’s current top 20 Wilson-ranked, eligible catalog systems qualify. Multiple matches contribute one signal."
+        : "The quote must also meet the existing price, kickoff and final-snapshot eligibility rules. Matching systems alone do not activate the signal."),
     signal("team", grade != null, grade != null && grade >= 75, grade, grade != null && grade >= 75 ? "Qualifying" : "Inactive",
       "Existing raw team grade: 50% bet type, 30% venue, 20% last five; average both teams. Qualifies at 75 or higher."),
     signal("model", model.available, model.active, model.edge, model.active ? model.context.grade : "Inactive", model.context.reason),
@@ -260,6 +267,11 @@ export function buildFootballSignalsState(input: SignalsInput): { board: Footbal
       if (ownResult) ranking = sport === "NFL" ? buildNflEzpzLeaderboard(core.trendRecordRows || [], at, play)
         : buildNcaafEzpzLeaderboard(core.trendRecordRows || [], at, play, input.buildSubtypes);
       const side = evaluateSide(play, plays, { ...input, history }, ranking);
+      if (retrospective) {
+        const publicSignal = side.signals.find(s => s.key === "system")!;
+        Object.assign(publicSignal, { available: false, active: false, value: null, level: "Unavailable",
+          reason: "This game predates the new test. Its full pregame Wilson ranking was not captured for this Signals view." });
+      }
       if (retrospective || stale || !Number.isFinite(kickoff)) side.candidate = false;
       return side;
     });

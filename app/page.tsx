@@ -7847,7 +7847,7 @@ export default function Home() {
         ))}
       </nav>
 
-      {data ? (
+      {data && active !== "Signals" ? (
         <section className="tileGrid">
           {activeSport === "MLB" ? (
             <>

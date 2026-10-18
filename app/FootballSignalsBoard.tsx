@@ -60,8 +60,9 @@ function TeamDetail({ side }: { side: FootballSignalSide }) {
   </>;
 }
 function PublicDetail({ side }: { side: FootballSignalSide }) {
+  const current = side.signals.find(signal => signal.key === "system")!;
   return <>
-    <Lines items={[["Matching top-20 systems", side.publicMatches.length], ["Signals contributed", side.publicMatches.length ? 1 : 0], ["Ranking", "Current sport’s top 20 by Wilson score"],
+    <Lines items={[["Matching top-20 systems", current.available ? side.publicMatches.length : "Unavailable"], ["Signals contributed", current.active ? 1 : 0], ["Ranking", "Current sport’s top 20 by Wilson score"],
       ["Historical eligibility", "Win rate above 60%; positive net profit"], ["Sample minimum", "Existing rules: no fixed minimum"]]} />
     {side.publicMatches.length ? side.publicMatches.map(match => <Section key={match.id} title={`#${match.rank} · ${match.label}`}>
       <Lines items={[["Wilson ranking score", format(match.wilsonScore)], ["Historical record", match.totals.record], ["Settled sample", match.totals.totalBets],
@@ -69,7 +70,9 @@ function PublicDetail({ side }: { side: FootballSignalSide }) {
         ["Last 7 bets", match.lastSevenTotals?.record || "Unavailable"], ["Last 7 sample", match.lastSevenTotals?.totalBets ?? "Unavailable"]]} />
       <h5>Exact qualifying conditions</h5><ul className="fs-rules">{match.rules.map((rule, i) => <li key={i}>{rule}</li>)}</ul>
       <p>Selection: {match.selectionDescription}. All conditions use the existing catalog evaluator for this sport and market.</p>
-    </Section>) : <Section title="No qualifying system match"><p>This side does not currently match an eligible system in its sport’s top 20 Wilson ranking. Matching lower-ranked systems do not activate this signal.</p></Section>}
+    </Section>) : <Section title={current.available ? "No qualifying system match" : "Ranking context unavailable"}><p>{current.available
+      ? "This side does not currently match an eligible system in its sport’s top 20 Wilson ranking. Matching lower-ranked systems do not activate this signal."
+      : current.reason}</p></Section>}
     <Section title="Inputs used for these matches"><Lines items={[["Bets on this side", percent(side.marketContext.bets)], ["Money on this side", percent(side.marketContext.money)],
       ["Ticket share change", `${format(side.marketContext.publicChange, true)} percentage points`], ["Money share change", `${format(side.marketContext.moneyChange, true)} percentage points`],
       ["Current line", format(side.line, side.market === "Spread")], ["Opening line", format(side.marketContext.openingLine, side.market === "Spread")]]} />
@@ -151,14 +154,14 @@ export default function FootballSignals({ board }: { board?: FootballSignalsBoar
   }, [board, market, selectedDate, query, onlyCandidates, sort, direction]);
   if (!board) return <div className="fs-empty">Signals are awaiting the next successful board refresh.</div>;
   const close = () => { setOpen(null); trigger.current?.focus(); };
-  return <section className={`fs-board ${keys.length === 6 ? "fs-six" : ""}`} aria-label={`${board.sport} Signals`}>
+  return <section className={`fs-board ${keys.length === 6 ? "fs-six" : ""}`} aria-label={`${board.sport} Signals`} onKeyDown={e => { if (e.key === "Escape" && open) { close(); e.preventDefault(); } }}>
     <div className="fs-heading"><div><span className="fs-kicker">{board.sport === "NCAAF" ? "College football" : "NFL"}</span><h2>Signals</h2></div><span className="fs-test-label">3+ test</span></div>
     <p className="fs-description">Every matchup. Same qualifying rules. Tap a signal for its full breakdown.</p>
     {!board.captureAvailable ? <p className="fs-notice" role="status">Test capture is unavailable. Signals below are previews.</p> : null}
     <div className="fs-controls"><div className="fs-markets" role="group" aria-label="Market">{(["Spread", "Total"] as const).map(m => <button type="button" key={m} aria-pressed={market === m} onClick={() => { setMarket(m); setOpen(null); }}>{m === "Spread" ? "Spreads" : "Totals"}</button>)}</div>
       <label className="fs-date">Slate<select value={selectedDate} onChange={e => { setDate(e.target.value); setOpen(null); }}>{dates.map(d => <option key={d} value={d}>{new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric" }).format(new Date(d + "T12:00:00Z"))}</option>)}</select></label>
     </div>
-    <div className="fs-search-row"><label className="fs-search"><Search size={18} aria-hidden="true" /><input type="search" aria-label="Search teams" placeholder="Search teams" value={query} onChange={e => setQuery(e.target.value)} /></label><button type="button" className="fs-filter" aria-pressed={onlyCandidates} onClick={() => { setOnlyCandidates(value => !value); setOpen(null); }}>3+ only</button></div>
+    <div className="fs-search-row"><label className="fs-search"><Search size={18} aria-hidden="true" /><input type="search" aria-label="Search teams" placeholder="Search teams" value={query} onChange={e => { setQuery(e.target.value); setOpen(null); }} /></label><button type="button" className="fs-filter" aria-pressed={onlyCandidates} onClick={() => { setOnlyCandidates(value => !value); setOpen(null); }}>3+ only</button></div>
     <div className="fs-toolbar"><span aria-live="polite">{groups.length} {groups.length === 1 ? "game" : "games"} · {market === "Spread" ? "Spreads" : "Totals"}</span><button type="button" onClick={() => { setSort("time"); setOpen(null); }}><Clock3 size={13} />Game time</button></div>
     <div className="fs-sorters" role="group" aria-label="Sort games by signal">{keys.map(key => { const { Icon, label } = META[key]; return <button type="button" key={key} aria-pressed={sort === key} aria-label={`Sort by ${META[key].title}`} onClick={() => { setDirection(sort === key ? -direction : -1); setSort(key); setOpen(null); }}><Icon size={18} aria-hidden="true" /><span>{label}{sort === key ? direction < 0 ? " ↓" : " ↑" : ""}</span></button>; })}</div>
     <div className="fs-sort-caption" aria-live="polite">{sort === "time" ? "Game time order" : `${META[sort].title} · ${direction < 0 ? "highest" : "lowest"} first`}{sort === "sos" && market === "Total" ? " · context only" : ""}</div>

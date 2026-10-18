@@ -148,6 +148,14 @@ test('stale feeds, incomplete pairs, started captures, and prelaunch quotes cann
   }
 });
 
+test('a matching public system still respects the current final-window and kickoff protections', () => {
+  const x = input();
+  x.core.trendPlays[0] = { ...x.core.trendPlays[0], snapshotStatus: 'FINAL_PREGAME', frozenAt: iso(lock - 6 * 60000) };
+  assert.equal(find(api.buildFootballSignalsState(x).board, 'system').active, false);
+  x.core.trendPlays[0] = { ...x.core.trendPlays[0], snapshotStatus: 'LIVE', gameTime: iso(lock - 1) };
+  assert.equal(find(api.buildFootballSignalsState(x).board, 'system').active, false);
+});
+
 test('Warren Nolan parser reads actual table columns and refuses partial or unrelated pages', () => {
   const rows = Array.from({ length: 136 }, (_, i) => `<tr><td><a href="team-clubhouse?team=Team-${i}">Team ${i}</a></td><td>${1600-i}</td><td>${i+1}</td><td>20-10</td><td>0.6667</td></tr>`).join('');
   const html = '<table><tr><th>Team</th><th>ELO SOS</th><th>Rank</th><th>Opp Record</th><th>Opp Win Percent</th></tr>' + rows + '</table>';
