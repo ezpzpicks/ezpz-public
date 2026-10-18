@@ -402,7 +402,7 @@ type MlbDailyMarketData = {
 };
 
 type Sport = "MLB" | "NFL" | "NCAAF" | "NCAAM";
-type Tab = "Today’s Model Plays" | "Public Betting Splits" | "EZPZ Picks" | "Full Slate" | "Records";
+type Tab = "Today’s Model Plays" | "Public Betting Splits" | "EZPZ Picks" | "Full Slate" | "Records" | "Signals";
 
 type SportMeta = {
   name: string;
@@ -412,7 +412,7 @@ type SportMeta = {
 };
 
 const SPORTS: Sport[] = ["MLB", "NFL", "NCAAF", "NCAAM"];
-const TABS: Tab[] = ["Today’s Model Plays", "Public Betting Splits", "EZPZ Picks", "Full Slate", "Records"];
+const TABS: Tab[] = ["Today’s Model Plays", "Public Betting Splits", "Signals", "EZPZ Picks", "Full Slate", "Records"];
 
 const SPORT_META: Record<Sport, SportMeta> = {
   MLB: {
@@ -6852,6 +6852,14 @@ export default function Home() {
     ? data.ezpzRecords || buildNflEzpzRecords(data.aiPickRecordRows || [], data.today)
     : null, [activeSport, data]);
   const [active, setActive] = useState<Tab>("Today’s Model Plays");
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const sport = params.get("sport");
+    if (sport === "NFL" || sport === "NCAAF") {
+      setActiveSport(sport);
+      if (params.get("tab") === "Signals") setActive("Signals");
+    }
+  }, []);
   const [selectedEzpzDate, setSelectedEzpzDate] = useState("");
   const [selectedMlbTrendDate, setSelectedMlbTrendDate] = useState("");
   const [mlbDailyMarket, setMlbDailyMarket] = useState<MlbDailyMarketData | null>(null);
@@ -7142,7 +7150,7 @@ export default function Home() {
       return (
         <FootballBoard
           sport={activeSport}
-          tab={active}
+          tab={active as Exclude<Tab, "Signals">}
           data={data as any}
         />
       );
@@ -7919,7 +7927,7 @@ export default function Home() {
       ) : null}
 
       <nav className="tabs">
-        {TABS.map((tab) => (
+        {TABS.filter(tab => tab !== "Signals" || activeSport === "NFL" || activeSport === "NCAAF").map((tab) => (
           <button
             key={tab}
             className={`tabBtn ${active === tab ? "active" : ""}`}

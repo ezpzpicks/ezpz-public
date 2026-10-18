@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import LegacyFootballBoard from "./FootballBoardLegacy";
 import { MatchupWithLogos, SelectionWithTeamLogo, TeamLogoName } from "./TeamLogoName";
 import FootballModelFormBadges from "./FootballModelFormBadges";
@@ -13,7 +14,8 @@ import { classifyNcaafMovement, NCAAF_EZPZ_POLICY_VERSION } from "../lib/ncaafEz
 import { NFL_EZPZ_POLICY_VERSION } from "../lib/nflEzpzPolicy";
 import { isVerifiedNcaafTrendRecord } from "../lib/ncaafTrendRecordPolicy";
 
-type Tab = "Today’s Model Plays" | "Public Betting Splits" | "EZPZ Picks" | "Full Slate" | "Records";
+type Tab = "Today’s Model Plays" | "Public Betting Splits" | "EZPZ Picks" | "Full Slate" | "Records" | "Signals";
+const FootballSignals = dynamic(() => import("./FootballSignalsBoard"), { loading: () => <div className="fs-empty">Loading signals…</div> });
 type Sport = "NFL" | "NCAAF";
 type SheetRow = Record<string, string>;
 type ResultCode = "W" | "L" | "P" | "";
@@ -848,6 +850,7 @@ function FootballEzpzHistory({ sport, data }: { sport: Sport; data: FootballData
 }
 
 export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab: Tab; data: FootballData }) {
+  if (tab === "Signals") return <FootballSignals key={sport} board={data.footballSignals} />;
   if (tab !== "EZPZ Picks") return <LegacyFootballBoard sport={sport} tab={tab} data={data as any} />;
   return <FootballEzpzHistory sport={sport} data={data} />;
 }

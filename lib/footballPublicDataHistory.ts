@@ -12,6 +12,8 @@ import { isPublicSplitEzpzPick } from "./ezpzPublicSplitEligibility";
 import { buildTeamTrendHistory, withFootballTeamTrends } from "./footballTeamTrends";
 import { refreshFootballTeamSeasonHistory, TEAM_SEASON_HISTORY_TAB } from "./footballTeamSeasonHistory";
 import { buildTeamTrendTestState, TEAM_TREND_TEST_HEADERS, TEAM_TREND_TEST_TAB } from "./footballTeamTrendPlays";
+import { buildFootballSignalsState, FOOTBALL_SIGNALS_HEADERS, FOOTBALL_SIGNALS_TAB } from "./footballSignals";
+import { loadFootballSos } from "./footballSos";
 import {
   readSportWorksheet,
   upsertSportRows,
@@ -1015,6 +1017,12 @@ export async function buildFootballPublicData(
 ) {
   const historyRead = options.publicDisplay && !options.persist ? readHistory(sport) : null;
   const teamSeasonRead = readSportWorksheet(sport, TEAM_SEASON_HISTORY_TAB).catch(() => [] as SheetRow[]);
+  const signalRead = readSportWorksheet(sport, FOOTBALL_SIGNALS_TAB, FOOTBALL_SIGNALS_HEADERS).catch(error => {
+    console.error(`${sport} signal test history read failed`, error);
+    return null;
+  });
+  const calendar = new Date(), season = calendar.getUTCFullYear() - (calendar.getUTCMonth() < 6 ? 1 : 0);
+  const sosRead = sport === "NCAAF" ? loadFootballSos(season, Boolean(options.persist)) : Promise.resolve(null);
   const teamTestRead = readSportWorksheet(sport, TEAM_TREND_TEST_TAB, TEAM_TREND_TEST_HEADERS).catch(error => {
     console.error(`${sport} team-trend test history read failed`, error);
     return null;
@@ -1082,9 +1090,30 @@ export async function buildFootballPublicData(
       teamTests = buildTeamTrendTestState({ ...teamTestInput, capture: false });
     }
   }
+  let footballSignals: ReturnType<typeof buildFootballSignalsState>["board"] | undefined;
+  try {
+    const signalInput = { sport, core, history: teamTrendHistory, storedRows: await signalRead, sos: await sosRead,
+      now: selectionTime, capture: Boolean(options.persist),
+      leaderboard: sport === "NFL" ? nflEzpzTrendLeaderboard : ncaafEzpzTrendLeaderboard,
+      buildSubtypes: { buildSubtypes: options.buildSubtypes } };
+    let signalState = buildFootballSignalsState(signalInput);
+    if (options.persist && signalState.changedRows.length) {
+      try {
+        await upsertSportRows(sport, FOOTBALL_SIGNALS_TAB, FOOTBALL_SIGNALS_HEADERS, signalState.changedRows, row => row["Pick Key"]);
+      } catch (error) {
+        console.error(`${sport} signal test capture failed`, error);
+        signalState = buildFootballSignalsState({ ...signalInput, capture: false });
+        signalState.board.captureAvailable = false;
+      }
+    }
+    footballSignals = signalState.board;
+  } catch (error) {
+    // A testing feature must not interrupt the incumbent public board or picks.
+    console.error(`${sport} signals unavailable; existing selections preserved`, error);
+  }
   // Internal schedule context is already loaded by the core, never serialized
   // into the public payload a second time.
-  core = { ...core };
+  core = { ...core, footballSignals };
   delete core.teamTrendScheduleRows;
   const archivedTeamScores = new Map(history.map(row => [String(row["Pick Key"] || pickKey(row, row.Date)), historyPickFromRow(row)]));
   // Informational only: enrich after selection and save the exact same evidence
