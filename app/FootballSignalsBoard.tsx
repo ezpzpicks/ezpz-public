@@ -98,7 +98,7 @@ function SignalDetail({ side, signal, onClose }: { side: FootballSignalSide; sig
     {key === "move" ? <>
       <Section title="Existing movement classification"><Lines items={[["Classification", context.movementLabel || "Unavailable"], ["Movement basis", context.movementBasis || "Unavailable"],
         ["Movement toward this side", `${format(signal.value, true)} ${context.movementBasis === "Implied Probability" ? "percentage points" : "points"}`], ["Opening line", format(context.openingLine, side.market === "Spread")],
-        ["Current line", format(side.line, side.market === "Spread")], ["Opening odds", context.openingOdds || "Unavailable"], ["Current odds", side.odds],
+        ["Current line", format(side.line, side.market === "Spread")], ["Opening odds", context.openingOdds || "Unavailable"], ["Current odds", side.odds || "Unavailable"],
         ["Ticket share change", `${format(context.publicChange, true)} percentage points`]]} />
         <p>The badge follows the existing positive line movement or reverse line movement classification. Its direction, movement thresholds, usable opening observations, and market basis are preserved.</p>
       </Section><History side={side} />
@@ -168,7 +168,7 @@ export default function FootballSignals({ board }: { board?: FootballSignalsBoar
     <div className="fs-games">{groups.length ? groups.map(rows => <article className="fs-game" key={rows[0].gameKey}>
       <header className="fs-game-header"><span>{rows[0].game}</span><time dateTime={rows[0].gameTime}>{time(rows[0].gameTime)}</time></header>
       {rows.slice().sort((a, b) => market === "Total" ? (a.side === "Over" ? -1 : 1) : 0).map(side => <div className="fs-side" key={side.id}>
-        <div className="fs-side-heading"><div className="fs-selection">{market === "Spread" ? <TeamLogoName sport={board.sport} team={side.selection.replace(/\s+[+−-]?\d+(?:\.\d+)?$/, "")} className="fs-team-name" /> : <strong>{side.side}</strong>}<strong>{format(side.line, market === "Spread")}</strong><small>{side.odds}</small></div><span className={side.selected ? "fs-count fs-qualified" : "fs-count"}>{side.signalCount} {side.signalCount === 1 ? "signal" : "signals"}{side.mixed ? " · Mixed" : side.selected ? " · Test" : ""}</span></div>
+        <div className="fs-side-heading"><div className="fs-selection">{market === "Spread" ? <TeamLogoName sport={board.sport} team={side.selection.replace(/\s+[+−-]?\d+(?:\.\d+)?$/, "")} className="fs-team-name" /> : <strong>{side.side}</strong>}<strong>{side.line == null ? "Line pending" : format(side.line, market === "Spread")}</strong><small>{side.odds}</small></div><span className={side.selected ? "fs-count fs-qualified" : "fs-count"}>{side.signalCount} {side.signalCount === 1 ? "signal" : "signals"}{side.mixed ? " · Mixed" : side.selected ? " · Test" : ""}</span></div>
         <div className="fs-signals">{keys.map(key => { const s = side.signals.find(s => s.key === key), { Icon, title } = META[key]; if (!s) return null;
           const expanded = open?.id === side.id && open.key === key;
           const value = s.active ? key === "system" ? "Match" : s.value != null ? format(s.value, ["money", "move", "model", "sos"].includes(key)) : side.modelContext.grade.split(" ")[0]

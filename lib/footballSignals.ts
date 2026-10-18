@@ -160,8 +160,9 @@ function evaluateSide(play: AnyRow, siblings: AnyRow[], input: SignalsInput, ran
     "Warren Nolan current ELO SOS: opponent rank minus selected team rank. Qualifying +25, strong +50, very strong +75. Totals receive no vote."));
   const active = signals.filter(s => s.active), signalCount = active.length;
   const sourceCount = [active.some(s => ["money", "move", "system"].includes(s.key)), active.some(s => s.key === "team"), active.some(s => s.key === "model")].filter(Boolean).length;
-  const selection = play.market === "Total" ? `${selectionKey(play, sport)} ${line ?? "—"}` : `${play.selectionTeam || play.selection} ${line == null ? "—" : signed(line)}`;
-  const odds = String(play.odds || "-110"), quoteValid = line != null && (play.market !== "Total" || line > 0) && validOdds(odds);
+  const selection = play.market === "Total" ? `${selectionKey(play, sport)}${line == null ? "" : ` ${line}`}`
+    : `${play.selectionTeam || play.selection}${line == null ? "" : ` ${signed(line)}`}`;
+  const odds = line == null ? "" : String(play.odds || "-110"), quoteValid = line != null && (play.market !== "Total" || line > 0) && validOdds(odds);
   return { id: identifier(play, sport), date: play.date, gameKey: footballTeamGameKey(play, sport), game: play.game,
     gameTime: nflKickoffIso(play.date, play.gameTime), awayTeam: play.awayTeam, homeTeam: play.homeTeam, market: play.market,
     side: selectionKey(play, sport), selection, line, odds, status: play.snapshotStatus || "LIVE",

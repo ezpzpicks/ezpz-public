@@ -156,6 +156,16 @@ test('a matching public system still respects the current final-window and kicko
   assert.equal(find(api.buildFootballSignalsState(x).board, 'system').active, false);
 });
 
+test('scheduled games without a posted market remain visible without an invented line or price', () => {
+  const x = input();
+  x.core.trendPlays = [];
+  x.core.teamTrendScheduleRows = [{ Date: date, 'Away Team': 'DAL', 'Home Team': 'GB', 'Game Time': iso(kickoff) }];
+  const result = api.buildFootballSignalsState(x);
+  assert.equal(result.board.sides.length, 4);
+  assert(result.board.sides.every(side => side.line == null && side.odds === '' && !side.selected && !side.recorded));
+  assert.equal(result.board.sides[0].selection, 'DAL');
+});
+
 test('Warren Nolan parser reads actual table columns and refuses partial or unrelated pages', () => {
   const rows = Array.from({ length: 136 }, (_, i) => `<tr><td><a href="team-clubhouse?team=Team-${i}">Team ${i}</a></td><td>${1600-i}</td><td>${i+1}</td><td>20-10</td><td>0.6667</td></tr>`).join('');
   const html = '<table><tr><th>Team</th><th>ELO SOS</th><th>Rank</th><th>Opp Record</th><th>Opp Win Percent</th></tr>' + rows + '</table>';
