@@ -40,14 +40,15 @@ test('the slate starts collapsed; active money shows +27 while the opposite side
   assert.doesNotMatch(html, /fs-signal-value">-27|class="fs-detail"/);
 });
 
-test('public expansion lists every matched system with Wilson rank, complete records, exact rules and last-seven-bet evidence', () => {
+test('public summary keeps every matched trend and its key performance records', () => {
   const html = render(React.createElement(exportsObject.detailTest, { side, signal: side.signals[2], onClose() {} }));
   assert.match(html, /#1 · Matched system 1/); assert.match(html, /#2 · Matched system 2/);
-  for (const text of ['8-2-0', '6-1-0', '52.7%', 'Tickets below 45%', 'Signals contributed', 'one-sided 95%']) assert(html.includes(text), text);
-  assert.doesNotMatch(html, /Last 7 days/);
+  for (const text of ['8-2-0', '6-1-0', '52.7%', 'top 20 Wilson-ranked', 'one public signal', 'Adds 1 signal']) assert(html.includes(text), text);
+  assert.doesNotMatch(html, /Last 7 days|Exact qualifying conditions|Tickets below 45%|Inputs used for these matches|Contribution to the 3\+ test/);
 });
 
-test('team expansion shows both teams, all weighted records, included games, missing-data counts and the grade calculation', () => {
+test('team summary keeps both teams and the three relevant records without the game-by-game audit', () => {
   const html = render(React.createElement(exportsObject.detailTest, { side, signal: side.signals[3], onClose() {} }));
-  for (const text of ['DAL', 'GB', 'Favorite ATS', 'Away ATS', 'Last 5 ATS', '50% weight', '30% weight', '20% weight', '4-1-0', 'BAL', 'Missing historical lines', 'Final grade calculation']) assert(html.includes(text), text);
+  for (const text of ['DAL', 'GB', 'Favorite ATS', 'Away ATS', 'Last 5 ATS', '80 out of 100', 'Qualifies at 75', '4-1-0', 'ATS losses support this play']) assert(html.includes(text), text);
+  assert.doesNotMatch(html, /BAL|Games behind these records|Final grade calculation|Evidence captured|Weight version/);
 });

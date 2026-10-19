@@ -2231,6 +2231,7 @@ body::after {
 .fs-detail-status strong{font-size:1.7rem;line-height:1.5;font-weight:550;font-variant-numeric:tabular-nums}
 .fs-detail-status span{color:var(--fs-dim);font-size:.78rem}
 .fs-detail p,.fs-results p{font-size:.79rem;line-height:1.75;color:var(--fs-dim);margin:11px 0 0}
+.fs-detail .fs-detail-foot{margin-top:18px;padding-top:12px;border-top:1px solid var(--fs-border);font-size:.73rem}
 .fs-detail-section{margin-top:19px;padding-top:18px;border-top:1px solid var(--fs-border)}
 .fs-detail h4{font-size:.88rem;font-weight:600;line-height:1.5;margin:0 0 11px}
 .fs-detail h5{font-size:.78rem;font-weight:550;line-height:1.5;margin:17px 0 8px;color:#dce9fa}
