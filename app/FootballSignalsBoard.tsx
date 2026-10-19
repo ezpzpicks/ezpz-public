@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Banknote, TrendingUp, FlaskConical, Users, Calculator, Mountain, Search, X, ChevronUp, Clock3 } from "lucide-react";
 import { TeamLogoName } from "./TeamLogoName";
 import type { FootballSignalKey, FootballSignalSide, FootballSignalsBoard, FootballSignal } from "../lib/footballSignals";
@@ -98,13 +98,37 @@ export default function FootballSignals({ board }: { board?: FootballSignalsBoar
   const [onlyCandidates, setOnlyCandidates] = useState(false);
   const [sort, setSort] = useState<FootballSignalKey | "time">("time"), [direction, setDirection] = useState(-1);
   const [open, setOpen] = useState<{ id: string; key: FootballSignalKey } | null>(null);
+  const [archive, setArchive] = useState<{ key: string; status: "loading" | "ready" | "error"; sides: FootballSignalSide[] } | null>(null);
+  const [archiveRetry, setArchiveRetry] = useState(0);
   const trigger = useRef<HTMLButtonElement | null>(null);
   const keys: FootballSignalKey[] = board?.sport === "NCAAF" ? ["money", "move", "system", "team", "model", "sos"] : ["money", "move", "system", "team", "model"];
-  const dates = [...new Set([board?.today || "", ...(board?.sides || []).map(side => side.date)])].filter(Boolean).sort();
+  const dates = [...new Set([board?.today || "", ...(board?.sides || []).map(side => side.date), ...(board?.archiveDates || [])])].filter(Boolean).sort();
   const selectedDate = dates.includes(date) ? date : board?.today || "";
+  const sport = board?.sport, archiveKey = `${sport}:${selectedDate}`;
+  const needsArchive = Boolean(board && selectedDate !== board.today && ((selectedDate < board.today && board.archiveDates?.includes(selectedDate)) || !board.sides.some(side => side.date === selectedDate)));
+  const archiveReady = archive?.key === archiveKey && archive.status === "ready";
+  const archiveError = archive?.key === archiveKey && archive.status === "error";
+  const viewSides = needsArchive ? archiveReady ? archive!.sides : [] : board?.sides || [];
+  useEffect(() => {
+    if (!needsArchive || !sport) return;
+    const controller = new AbortController();
+    setArchive({ key: archiveKey, status: "loading", sides: [] });
+    async function loadArchive() {
+      try {
+        const response = await fetch(`/api/football-signals-history?sport=${sport}&date=${selectedDate}`, { signal: controller.signal });
+        const value = await response.json();
+        if (!response.ok || !value.ok || value.sport !== sport || value.date !== selectedDate || !Array.isArray(value.sides)) throw new Error("Saved slate unavailable");
+        if (!controller.signal.aborted) setArchive({ key: archiveKey, status: "ready", sides: value.sides });
+      } catch {
+        if (!controller.signal.aborted) setArchive({ key: archiveKey, status: "error", sides: [] });
+      }
+    }
+    void loadArchive();
+    return () => controller.abort();
+  }, [needsArchive, sport, selectedDate, archiveKey, archiveRetry]);
   const groups = useMemo(() => {
     const byGame = new Map<string, FootballSignalSide[]>();
-    for (const side of board?.sides || []) {
+    for (const side of viewSides) {
       if (side.market !== market || side.date !== selectedDate || !side.game.toLowerCase().includes(query.toLowerCase())) continue;
       byGame.set(side.gameKey, [...(byGame.get(side.gameKey) || []), side]);
     }
@@ -118,7 +142,7 @@ export default function FootballSignals({ board }: { board?: FootballSignalsBoar
         if (value(b) === -Infinity) return -1;
         return (value(a) - value(b)) * direction;
       });
-  }, [board, market, selectedDate, query, onlyCandidates, sort, direction]);
+  }, [viewSides, market, selectedDate, query, onlyCandidates, sort, direction]);
   if (!board) return <div className="fs-empty">Signals are awaiting the next successful board refresh.</div>;
   const close = () => { setOpen(null); trigger.current?.focus(); };
   return <section className={`fs-board ${keys.length === 6 ? "fs-six" : ""}`} aria-label={`${board.sport} Signals`} onKeyDown={e => { if (e.key === "Escape" && open) { close(); e.preventDefault(); } }}>
@@ -129,10 +153,10 @@ export default function FootballSignals({ board }: { board?: FootballSignalsBoar
       <label className="fs-date">Slate<select value={selectedDate} onChange={e => { setDate(e.target.value); setOpen(null); }}>{dates.map(d => <option key={d} value={d}>{new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric" }).format(new Date(d + "T12:00:00Z"))}</option>)}</select></label>
     </div>
     <div className="fs-search-row"><label className="fs-search"><Search size={18} aria-hidden="true" /><input type="search" aria-label="Search teams" placeholder="Search teams" value={query} onChange={e => { setQuery(e.target.value); setOpen(null); }} /></label><button type="button" className="fs-filter" aria-pressed={onlyCandidates} onClick={() => { setOnlyCandidates(value => !value); setOpen(null); }}>3+ only</button></div>
-    <div className="fs-toolbar"><span aria-live="polite">{groups.length} {groups.length === 1 ? "game" : "games"} · {market === "Spread" ? "Spreads" : "Totals"}</span><button type="button" onClick={() => { setSort("time"); setOpen(null); }}><Clock3 size={13} />Game time</button></div>
+    <div className="fs-toolbar"><span aria-live="polite">{needsArchive && !archiveReady ? archiveError ? "Saved slate unavailable" : "Loading saved slate…" : `${groups.length} ${groups.length === 1 ? "game" : "games"} · ${market === "Spread" ? "Spreads" : "Totals"}`}</span><button type="button" onClick={() => { setSort("time"); setOpen(null); }}><Clock3 size={13} />Game time</button></div>
     <div className="fs-sorters" role="group" aria-label="Sort games by signal">{keys.map(key => { const { Icon, label } = META[key]; return <button type="button" key={key} aria-pressed={sort === key} aria-label={`Sort by ${META[key].title}`} onClick={() => { setDirection(sort === key ? -direction : -1); setSort(key); setOpen(null); }}><Icon size={18} aria-hidden="true" /><span>{label}{sort === key ? direction < 0 ? " ↓" : " ↑" : ""}</span></button>; })}</div>
     <div className="fs-sort-caption" aria-live="polite">{sort === "time" ? "Game time order" : `${META[sort].title} · ${direction < 0 ? "highest" : "lowest"} first`}{sort === "sos" && market === "Total" ? " · context only" : ""}</div>
-    <div className="fs-games">{groups.length ? groups.map(rows => <article className="fs-game" key={rows[0].gameKey}>
+    <div className="fs-games">{needsArchive && !archiveReady ? <div className="fs-empty" role="status">{archiveError ? <><p>The saved slate could not be loaded.</p><button type="button" className="fs-filter" onClick={() => setArchiveRetry(value => value + 1)}>Try again</button></> : "Loading saved pregame signals…"}</div> : groups.length ? groups.map(rows => <article className="fs-game" key={rows[0].gameKey}>
       <header className="fs-game-header"><span>{rows[0].game}</span><time dateTime={rows[0].gameTime}>{time(rows[0].gameTime)}</time></header>
       {rows.slice().sort((a, b) => market === "Total" ? (a.side === "Over" ? -1 : 1) : 0).map(side => <div className="fs-side" key={side.id}>
         <div className="fs-side-heading"><div className="fs-selection">{market === "Spread" ? <TeamLogoName sport={board.sport} team={side.selection.replace(/\s+[+−-]?\d+(?:\.\d+)?$/, "")} className="fs-team-name" /> : <strong>{side.side}</strong>}<strong>{side.line == null ? "Line pending" : format(side.line, market === "Spread")}</strong><small>{side.odds}</small></div><span className={side.selected ? "fs-count fs-qualified" : "fs-count"}>{side.signalCount} {side.signalCount === 1 ? "signal" : "signals"}{side.mixed ? " · Mixed" : side.selected ? " · Test" : ""}</span></div>

@@ -34,7 +34,7 @@ export type FootballSignalSide = {
 };
 export type FootballSignalsBoard = {
   version: string; sport: FootballSport; today: string; asOf: string; captureAvailable: boolean;
-  sides: FootballSignalSide[]; summary: ReturnType<typeof signalRecord>;
+  sides: FootballSignalSide[]; archiveDates: string[]; summary: ReturnType<typeof signalRecord>;
   breakdowns: { dimension: string; label: string; record: ReturnType<typeof signalRecord> }[];
   history: { date: string; game: string; selection: string; market: string; odds: string; signalCount: number; combination: string; result: string }[];
 };
@@ -184,10 +184,16 @@ type SignalsInput = { sport: FootballSport; core: AnyRow; history: TeamTrendHist
   buildSubtypes?: Parameters<typeof buildNcaafEzpzLeaderboard>[3] extends infer T ? T : never };
 
 function fromStored(row: SheetRow, now: number): FootballSignalSide | null {
-  try { const side = JSON.parse(row["Details JSON"]); return row["Policy Version"] === FOOTBALL_SIGNALS_VERSION
+  try { const side = JSON.parse(row["Details JSON"]); return /^football-signals-/.test(row["Policy Version"] || "")
     && side.id === row["Pick Key"] && Array.isArray(side.signals) && signalFinalWindow(side, now)
     ? { ...side, recorded: true, result: ["W", "L", "P"].includes(row.Result) ? row.Result : "", resultUpdated: row["Result Updated"] || "" } : null; }
   catch { return null; }
+}
+/** Replay saved evidence directly, including sides that never qualified as picks. */
+export function readSavedFootballSignalsForDate(rows: SheetRow[], date: string, now = Date.now()): FootballSignalSide[] {
+  return rows.filter(row => row.Date === date).map(row => fromStored(row, now))
+    .filter((side): side is FootballSignalSide => Boolean(side && side.date === date && ["Spread", "Total"].includes(side.market)))
+    .sort((a, b) => a.gameTime.localeCompare(b.gameTime) || a.market.localeCompare(b.market) || a.selection.localeCompare(b.selection));
 }
 function storageRow(side: FootballSignalSide): SheetRow {
   return { Date: side.date, "Pick Key": side.id, Game: side.game, Market: side.market, Selection: side.selection, Line: String(side.line ?? ""), Odds: side.odds,
@@ -219,7 +225,11 @@ function signalRecord(sides: FootballSignalSide[]) {
 
 export function buildFootballSignalsState(input: SignalsInput): { board: FootballSignalsBoard; changedRows: SheetRow[] } {
   const { sport, core, history, now = Date.now() } = input;
-  const saved = (input.storedRows || []).map(row => fromStored(row, now)).filter((s): s is FootballSignalSide => Boolean(s));
+  const archived = (input.storedRows || []).flatMap(row => {
+    const side = fromStored(row, now);
+    return side ? [{ side, policy: row["Policy Version"] }] : [];
+  });
+  const saved = archived.filter(row => row.policy === FOOTBALL_SIGNALS_VERSION).map(row => row.side);
   const stored = new Map(saved.map(side => [side.id, side])), updated = new Map(saved.map(side => [side.id, settle(side, input)]));
   const changedRows: SheetRow[] = [...updated.values()].filter(side => side.result !== stored.get(side.id)?.result).map(storageRow);
   const marketPlays = new Map<string, AnyRow>();
@@ -292,6 +302,14 @@ export function buildFootballSignalsState(input: SignalsInput): { board: Footbal
       sides.push(side);
     }
   }
+  // Keep captured games visible if the current market feed drops them after kickoff.
+  // Earlier weeks are loaded separately by date so the main board stays bounded.
+  const visibleIds = new Set(sides.map(side => side.id));
+  const visibleDates = new Set(sides.map(side => side.date));
+  const displayEnd = core.draftKings?.trackingWeekEnd || core.today;
+  for (const side of updated.values()) {
+    if (!visibleIds.has(side.id) && (visibleDates.has(side.date) || (side.date >= displayStart && side.date <= displayEnd))) sides.push(side);
+  }
   const selected = [...updated.values()].filter(s => s.selected), breakdowns: FootballSignalsBoard["breakdowns"] = [];
   for (const [dimension, value] of [["Market", (s: FootballSignalSide) => s.market], ["Signal count", (s: FootballSignalSide) => String(s.signalCount)],
     ["Combination", (s: FootballSignalSide) => s.combination], ["SOS tier", (s: FootballSignalSide) => s.signals.find(x => x.key === "sos")?.level || "Not used"]] as const) {
@@ -299,8 +317,9 @@ export function buildFootballSignalsState(input: SignalsInput): { board: Footbal
     for (const side of selected) { const key = value(side); buckets.set(key, [...(buckets.get(key) || []), side]); }
     for (const [label, group] of buckets) breakdowns.push({ dimension, label, record: signalRecord(group) });
   }
+  const archiveDates = [...new Set([...archived.map(row => row.side.date), ...[...updated.values()].map(side => side.date)])].sort();
   return { board: { version: FOOTBALL_SIGNALS_VERSION, sport, today: core.today, asOf: new Date(now).toISOString(), captureAvailable: input.storedRows != null,
-    sides, summary: signalRecord(selected), breakdowns,
+    sides, archiveDates, summary: signalRecord(selected), breakdowns,
     history: selected.slice().sort((a, b) => b.gameTime.localeCompare(a.gameTime)).slice(0, 200).map(s => ({ date: s.date, game: s.game,
       selection: s.selection, market: s.market, odds: s.odds, signalCount: s.signalCount, combination: s.combination, result: s.result })) }, changedRows };
 }

@@ -52,3 +52,10 @@ test('team summary keeps both teams and the three relevant records without the g
   for (const text of ['DAL', 'GB', 'Favorite ATS', 'Away ATS', 'Last 5 ATS', '80 out of 100', 'Qualifies at 75', '4-1-0', 'ATS losses support this play']) assert(html.includes(text), text);
   assert.doesNotMatch(html, /BAL|Games behind these records|Final grade calculation|Evidence captured|Weight version/);
 });
+
+test('saved dates stay in the slate selector when no games from those weeks are in the main response', () => {
+  const html = render(React.createElement(exportsObject.default, { board: { ...board, today: '2026-11-05', sides: [], archiveDates: ['2026-10-18', '2026-10-22'] } }));
+  assert.match(html, /option value="2026-10-18"/);
+  assert.match(html, /option value="2026-10-22"/);
+  assert.match(html, /option value="2026-11-05" selected/);
+});
