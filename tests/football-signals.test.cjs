@@ -148,6 +148,36 @@ test('stale feeds, incomplete pairs, started captures, and prelaunch quotes cann
   }
 });
 
+test('saved slates retain non-picks, survive feed removal and week rollover, and replay the original evidence with settled results', () => {
+  const x = input({ capture: true });
+  x.core.trendPlays = x.core.trendPlays.map(p => ({ ...p, snapshotStatus: 'FINAL_PREGAME', frozenAt: iso(lock) }));
+  const captured = api.buildFootballSignalsState(x);
+  x.storedRows = captured.changedRows;
+  x.capture = false;
+  x.core.trendPlays = [];
+  assert.equal(api.buildFootballSignalsState(x).board.sides.length, 2, 'captured games survive disappearance from the market feed');
+  x.now = kickoff + 14 * 86400000;
+  x.core.today = '2026-11-05';
+  x.core.draftKings = { trackingWeekStart: '2026-11-02', trackingWeekEnd: '2026-11-08' };
+  x.core.teamTrendScheduleRows = [{ Date: date, 'Away Team': 'DAL', 'Home Team': 'GB',
+    'Away Score': '27', 'Home Score': '24', Completed: 'TRUE', 'Result Updated': iso(x.now) }];
+  const later = api.buildFootballSignalsState(x);
+  assert.deepEqual(plain(later.board.archiveDates), [date]);
+  assert.equal(later.board.sides.length, 0, 'older weeks do not expand the main response');
+  const archive = api.readSavedFootballSignalsForDate(later.changedRows, date, x.now);
+  assert.equal(archive.length, 2);
+  const under = archive.find(s => s.side === 'Under');
+  assert.equal(under.signalCount, 0); assert.equal(under.selected, false); assert.equal(under.result, 'L');
+  const over = archive.find(s => s.side === 'Over');
+  assert.equal(over.result, 'W'); assert.equal(over.line, 44.5); assert.equal(over.signalCount, 4);
+  assert.deepEqual(plain(over.signals), plain(captured.board.sides.find(s => s.side === 'Over').signals));
+  assert.equal(api.readSavedFootballSignalsForDate(later.changedRows, '2026-10-23', x.now).length, 0);
+  // Changes to qualification rules must not hide the original day's evidence.
+  const earlierPolicy = later.changedRows.map(row => ({ ...row, 'Policy Version': 'football-signals-earlier-policy' }));
+  assert.equal(api.readSavedFootballSignalsForDate(earlierPolicy, date, x.now).length, 2);
+  assert.deepEqual(plain(api.buildFootballSignalsState({ ...x, storedRows: earlierPolicy }).board.archiveDates), [date]);
+});
+
 test('a matching public system still respects the current final-window and kickoff protections', () => {
   const x = input();
   x.core.trendPlays[0] = { ...x.core.trendPlays[0], snapshotStatus: 'FINAL_PREGAME', frozenAt: iso(lock - 6 * 60000) };
