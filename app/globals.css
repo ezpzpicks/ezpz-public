@@ -2239,7 +2239,7 @@ body::after {
 .fs-lines>div{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;align-items:start}
 .fs-lines dt{color:var(--fs-dim);line-height:1.6}
 .fs-lines dd{margin:0;text-align:right;line-height:1.6;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
-.fs-table{width:100%;border-collapse:collapse;table-layout:fixed;margin:10px 0;font-size:.76rem;line-height:1.6}
+.fs-table{width:100%;min-width:0;border-collapse:collapse;table-layout:fixed;margin:10px 0;font-size:.76rem;line-height:1.6}
 .fs-table th{font-weight:400;text-align:left;color:var(--fs-dim)}
 .fs-table td{color:#e4edf9;font-variant-numeric:tabular-nums}
 .fs-table th,.fs-table td{vertical-align:top;padding:9px 7px 9px 0;border-bottom:1px solid var(--fs-border);overflow-wrap:anywhere}
