@@ -59,11 +59,14 @@ test('compact histories round-trip every saved observation across picks and Sign
   const points=Array.from({length:1000},(_,i)=>({snapshotTime:String(i),line:i<500?null:-3,odds:'-110',betsPct:60,moneyPct:70}));
   const unusual=[{snapshotTime:'extra',line:3,odds:'+100',betsPct:40,moneyPct:30,source:'keep this'}];
   const payload={aiPicks:[{movementHistory:points,result:'W'}],aiPickRecordRows:[{movementHistory:points,result:'W'},{movementHistory:unusual}],
+    ezpzRecords:{history:[{movementHistory:points,result:'W'}],overall:{wins:1}},
     footballSignals:{sides:[{signalCount:3,marketContext:{history:points,bets:60}}]}};
   const legacy=display.compactFootballPublicDisplay(payload,true);
   assert.equal(legacy.aiPicks[0].movementHistory,points);
   assert.equal(legacy.chartHistoryGroups,undefined);
-  const wire=display.compactFootballPublicDisplay(payload,true,true);
+  const v2=display.compactFootballPublicDisplay(payload,true,true);
+  assert.equal(v2.ezpzRecords.history[0].movementHistory,points);
+  const wire=display.compactFootballPublicDisplay(payload,true,true,true);
   assert.ok(JSON.stringify(wire).length<JSON.stringify(payload).length/3);
   assert.equal(wire.chartHistoryGroups.length,1);
   const restored=display.restoreFootballPublicDisplay(JSON.parse(JSON.stringify(wire)));
