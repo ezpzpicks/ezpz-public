@@ -426,6 +426,10 @@ export async function GET(request:NextRequest){
   }
   return NextResponse.json(compact?compactScheduledPayload(payload):payload,{
     status:legacyResponse.status,
-    headers:{"Cache-Control":"no-store, max-age=0"},
+    // The core already distinguishes public reads from authenticated capture
+    // and manual refresh. Preserve its public CDN cache instead of forcing
+    // every MLB visitor back through the full data build.
+    headers:{"Cache-Control":isV2ScheduledCapture(request)||request.nextUrl.searchParams.get("refresh")==="1"
+      ?"no-store, max-age=0":legacyResponse.headers.get("Cache-Control")||"no-store, max-age=0"},
   });
 }
