@@ -13,6 +13,7 @@ import { appendV2Rows, readV2Tab, replaceV2DailyRows } from "../../../lib/mlbTre
 import { applyMlbTrendV2Adaptive } from "../../../lib/mlbTrendV2Lifecycle";
 import { persistEzpzCurrentPicks } from "../../../lib/ezpzCurrentPicks";
 import { repairHistoricalEzpzGrades } from "../../../lib/ezpzHistoricalGrading";
+import { MARKET_REFRESH_POLICY } from "../../../lib/marketRefreshPolicy";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 180;
@@ -366,6 +367,7 @@ async function postProcessMlbPayload(request:NextRequest,payload:AnyRow){
 function compactScheduledPayload(payload:AnyRow){
   return{
     ok:Boolean(payload?.ok),
+    currentPicksPersistenceError: Boolean(payload?.currentPicksPersistenceError),
     today:String(payload?.today||""),
     lastUpdated:String(payload?.lastUpdated||""),
     mlbResultSync:payload?.mlbResultSync||null,
@@ -412,7 +414,13 @@ export async function GET(request:NextRequest){
   payload.trendV2=undefined;
   payload.trendV2Error="";
   if(isV2ScheduledCapture(request)){
+    if (request.headers.get("x-ezpz-refresh-interval") === "30"
+      && process.env.CRON_SECRET && request.headers.get("authorization") === `Bearer ${process.env.CRON_SECRET}`) {
+      payload.refreshPolicy = MARKET_REFRESH_POLICY;
+      payload.refreshIntervalMinutes = 30;
+    }
     try{await persistEzpzCurrentPicks("MLB",payload)}catch(error){
+      payload.currentPicksPersistenceError = true;
       console.error("MLB current EZPZ picks snapshot failed",error);
     }
   }

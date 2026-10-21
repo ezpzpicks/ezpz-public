@@ -91,7 +91,10 @@ function hashText(input: string) {
 }
 
 function logTursoIo(event: Record<string, unknown>) {
-  console.info("[turso-io]", JSON.stringify(event));
+  // These are application records, not Turso's billed scans/index writes.
+  const { rowsRead, rowsWritten, rowsDeleted, ...details } = event;
+  console.info("[turso-io]", JSON.stringify({ ...details, accounting: "logical-records",
+    logicalRowsRead: rowsRead, logicalRowsWritten: rowsWritten, logicalRowsDeleted: rowsDeleted }));
 }
 
 function dataCacheKey(sport: TursoSport, dataset: string) {
@@ -416,6 +419,7 @@ function insertStatements(
   indexedRows: Array<{ index: number; row: TursoRow }>,
   savedAt: string,
   append = false,
+  updateColumns?: string[],
 ) {
   if (!indexedRows.length) return [];
   const columns = "sport,dataset,row_index,payload_json,source_hash,date_key,game_key,game,market,selection,result,snapshot_time,imported_at";
@@ -423,10 +427,10 @@ function insertStatements(
   // request-local cache or a MAX read performed before the transaction.
   const prefix = append
     ? `WITH append_base AS MATERIALIZED (SELECT COALESCE(MAX(row_index),0) AS max_row FROM dataset_rows WHERE sport=${sqlText(sport)} AND dataset=${sqlText(dataset)}), incoming(${columns}) AS (VALUES `
-    : `INSERT OR REPLACE INTO dataset_rows (${columns}) VALUES `;
+    : `INSERT INTO dataset_rows (${columns}) VALUES `;
   const suffix = append
     ? `) INSERT INTO dataset_rows (${columns}) SELECT sport,dataset,append_base.max_row+row_index,payload_json,source_hash,date_key,game_key,game,market,selection,result,snapshot_time,imported_at FROM incoming CROSS JOIN append_base`
-    : "";
+    : ` ON CONFLICT(sport,dataset,row_index) DO UPDATE SET ${["payload_json", "source_hash", "imported_at", ...(updateColumns || ["date_key", "game_key", "game", "market", "selection", "result", "snapshot_time"])].map(column => `${column}=excluded.${column}`).join(",")}`;
   const statements: string[] = [];
   let tuples: string[] = [];
   let chars = prefix.length;
@@ -447,6 +451,23 @@ function insertStatements(
   }
   flush();
   return statements;
+}
+
+function syncStatements(sport: TursoSport, dataset: string,
+  changed: Array<{ index: number; row: TursoRow }>, current: Map<number, TursoRow>, savedAt: string) {
+  const columns = { dateKey: "date_key", gameKey: "game_key", game: "game", market: "market",
+    selection: "selection", result: "result", snapshotTime: "snapshot_time" } as const;
+  const groups = new Map<string, { columns: string[]; rows: typeof changed }>();
+  for (const item of changed) {
+    const previous = current.get(item.index), before = previous ? metadata(previous) : null, after = metadata(item.row);
+    // SQLite only maintains indexes for columns named in UPDATE. Most polls
+    // change payload/freshness, not game identity, market or selection.
+    const updates = (Object.keys(columns) as Array<keyof typeof columns>)
+      .filter(key => !before || before[key] !== after[key]).map(key => columns[key]);
+    const key = updates.join(","), group = groups.get(key) || { columns: updates, rows: [] };
+    group.rows.push(item); groups.set(key, group);
+  }
+  return [...groups.values()].flatMap(group => insertStatements(sport, dataset, group.rows, savedAt, false, group.columns));
 }
 
 export async function replaceTursoDataset(
@@ -480,7 +501,7 @@ export async function replaceTursoDataset(
   }
 
   const savedAt = new Date().toISOString();
-  const statements = ["BEGIN IMMEDIATE", ...insertStatements(sport, dataset, changed, savedAt)];
+  const statements = syncStatements(sport, dataset, changed, current, savedAt);
   if (hasTrailingRows) {
     statements.push(
       `DELETE FROM dataset_rows WHERE sport=${sqlText(sport)} AND dataset=${sqlText(dataset)} AND row_index>${rows.length}`,
@@ -488,9 +509,8 @@ export async function replaceTursoDataset(
   }
   statements.push(
     `INSERT OR REPLACE INTO dataset_manifest (sport,dataset,source_workbook,source_worksheet,headers_json,row_count,imported_at,source_kind) VALUES (${sqlText(sport)},${sqlText(dataset)},'turso-native',${sqlText(dataset)},${sqlText(JSON.stringify(targetHeaders))},${rows.length},${sqlText(savedAt)},'turso')`,
-    "COMMIT",
   );
-  await pipeline(statements);
+  await pipeline(statements, true);
   setScopedRows(
     sport,
     dataset,
@@ -526,7 +546,10 @@ export async function appendTursoDataset(
   const indexed = rows.map((row, offset) => ({ index: offset + 1, row }));
   const statements = [
     ...insertStatements(sport, dataset, indexed, savedAt, true),
-    `INSERT OR REPLACE INTO dataset_manifest (sport,dataset,source_workbook,source_worksheet,headers_json,row_count,imported_at,source_kind) VALUES (${sqlText(sport)},${sqlText(dataset)},'turso-native',${sqlText(dataset)},${headersSql},(SELECT COUNT(*) FROM dataset_rows WHERE ${selector}),${sqlText(savedAt)},'turso')`,
+    // COALESCE short-circuits the archive scan when its manifest already exists.
+    // The fallback recovers an absent manifest after the inserts; both paths
+    // run under the same write lock as row allocation and the append itself.
+    `INSERT OR REPLACE INTO dataset_manifest (sport,dataset,source_workbook,source_worksheet,headers_json,row_count,imported_at,source_kind) VALUES (${sqlText(sport)},${sqlText(dataset)},'turso-native',${sqlText(dataset)},${headersSql},COALESCE((SELECT row_count+${rows.length} FROM dataset_manifest WHERE ${selector}),(SELECT COUNT(*) FROM dataset_rows WHERE ${selector})),${sqlText(savedAt)},'turso')`,
   ];
   try {
     await pipeline(statements, true);

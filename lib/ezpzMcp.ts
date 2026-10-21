@@ -2,9 +2,9 @@ import { readEzpzCurrentPicks } from "./ezpzCurrentPicks";
 import { FINAL_PICK_EVENT, subscribeFinalPicks, unsubscribeFinalPicks, McpEventError, subscriptionSports } from "./ezpzMcpEvents";
 import { MCP_SPORTS, normalizeMcpPick, isVerifiedFrozenFootballMcpPick, type McpPick, type McpSport } from "./ezpzMcpPicks";
 import { McpCallbackError } from "./ezpzMcpWebhook";
+import { currentPickSnapshotMaxAge } from "./marketRefreshPolicy";
 
 export const MCP_VERSION = "2026-07-28";
-const MAX_SNAPSHOT_AGE_MS = 20 * 60_000;
 const SERVER_INFO = { name: "EZPZ Picks", version: "1.0.0" };
 const SPORT_SCHEMA = { type: "string", enum: [...MCP_SPORTS] };
 const PICK_SCHEMA = {
@@ -53,7 +53,7 @@ export async function readMcpPicks(sports: McpSport[], finalOnly = true, now = D
     try {
       const snapshot = await readEzpzCurrentPicks(sport);
       const updated = Date.parse(snapshot?.updatedAt || "");
-      if (!snapshot || !Number.isFinite(updated) || updated > now + 60_000 || now - updated > MAX_SNAPSHOT_AGE_MS) {
+      if (!snapshot || !Number.isFinite(updated) || updated > now + 60_000 || now - updated > currentPickSnapshotMaxAge(snapshot, now)) {
         unavailableSports.push(sport); return;
       }
       const allPicks = [...snapshot.picks, ...(snapshot.teamTrendPicks || [])];

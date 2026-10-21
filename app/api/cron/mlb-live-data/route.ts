@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { GET as runPublicDataV2 } from "../../public-data-v2/route";
 import { repairHistoricalEzpzGrades } from "../../../../lib/ezpzHistoricalGrading";
 import { withTursoReadCache } from "../../../../lib/tursoStore";
+import { scheduledMarketRefresh, recordScheduledMarketRefresh } from "../../../../lib/scheduledMarketRefresh";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -74,6 +75,10 @@ async function runCron(request: NextRequest) {
     });
   }
 
+  const startedAt = Date.now();
+  const refresh = await scheduledMarketRefresh("MLB", "public", startedAt);
+  if (!refresh.due) return NextResponse.json({ ok: true, skipped: true, source: "VERCEL_CRON", refresh });
+
   const target = new URL("/api/public-data-v2", request.url);
   target.searchParams.set("scheduled", "1");
   target.searchParams.set("tracking", "v2");
@@ -91,6 +96,7 @@ async function runCron(request: NextRequest) {
           "x-ezpz-v2-tracking": "true",
           "x-ezpz-scheduled-snapshot": "true",
           "x-ezpz-live-source": "vercel-cron",
+          "x-ezpz-refresh-interval": String(refresh.intervalMinutes),
         },
       });
       const response = await runPublicDataV2(scheduledRequest);
@@ -103,6 +109,7 @@ async function runCron(request: NextRequest) {
         throw new Error(`Betting splits persistence failed: ${persistence.error || "unknown storage error"}`);
       }
       if (response.ok && payload?.ok) {
+        if (payload.currentPicksPersistenceError) throw new Error("Current EZPZ picks persistence failed.");
         let historicalGradeRepair = null;
         let historicalGradeRepairError = "";
         const historicalGradeRepairDue =
@@ -117,10 +124,12 @@ async function runCron(request: NextRequest) {
           }
         }
 
+        await recordScheduledMarketRefresh("MLB", "public", startedAt);
         return NextResponse.json(
           {
             ok: true,
             source: "VERCEL_CRON",
+            refresh,
             attempt,
             dateET: clock.date,
             timeET: `${String(clock.hour).padStart(2, "0")}:${String(clock.minute).padStart(2, "0")}`,

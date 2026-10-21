@@ -5,13 +5,13 @@ import {
   type EzpzCurrentSport,
 } from "../../../lib/ezpzCurrentPicks";
 import { GET as getPublicDataV2 } from "../public-data-v2/route";
+import { currentPickSnapshotMaxAge } from "../../../lib/marketRefreshPolicy";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 export const maxDuration = 120;
 
 const SUPPORTED_SPORTS = new Set<EzpzCurrentSport>(["MLB", "NFL", "NCAAF"]);
-const MAX_SNAPSHOT_AGE_MS = 20 * 60_000;
 
 type AnyRow = Record<string, any>;
 
@@ -147,7 +147,7 @@ export async function GET(request: NextRequest) {
     const updatedAtMs = Date.parse(snapshot.updatedAt);
     const snapshotAgeMs = Number.isFinite(updatedAtMs) ? Date.now() - updatedAtMs : Number.POSITIVE_INFINITY;
     const currentDate = todayET();
-    let stale = snapshot.date !== currentDate || snapshotAgeMs > MAX_SNAPSHOT_AGE_MS;
+    let stale = snapshot.date !== currentDate || snapshotAgeMs > currentPickSnapshotMaxAge(snapshot, Date.now());
 
     if (stale && prime) {
       await primeSnapshot(request, sport);
@@ -159,7 +159,7 @@ export async function GET(request: NextRequest) {
     const refreshedAgeMs = Number.isFinite(refreshedUpdatedAtMs)
       ? Date.now() - refreshedUpdatedAtMs
       : Number.POSITIVE_INFINITY;
-    stale = snapshot.date !== currentDate || refreshedAgeMs > MAX_SNAPSHOT_AGE_MS;
+    stale = snapshot.date !== currentDate || refreshedAgeMs > currentPickSnapshotMaxAge(snapshot, Date.now());
 
     if (stale) {
       return NextResponse.json(

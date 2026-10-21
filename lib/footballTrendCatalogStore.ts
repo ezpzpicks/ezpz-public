@@ -20,19 +20,22 @@ const DEFINITION_HEADERS=['Definition Key','Definition Version','Pair ID','Direc
   'Status','Entries','Wins','Losses','Pushes','Missing Input Events','Ambiguous Events'];
 const result=(x:unknown)=>{const s=String(x||'').toUpperCase();return ['W','WIN','WON'].includes(s)?'W':['L','LOSS','LOST'].includes(s)?'L':['P','PUSH'].includes(s)?'P':'';};
 function entryKey(row:Side,sport:string) {
-  const s=catalogSide(row);
-  return [footballCatalog(sport).version,catalogEventKey(s,sport),s.market,catalogSelectionIdentity(s,sport)].join('|');
+  return [footballCatalog(sport).version,catalogEventKey(row,sport),row.Market || row.market,catalogSelectionIdentity(row,sport)].join('|');
 }
-function annotate(plays:Side[],sport:string) {
+function savedMembership(p:Side):CatalogEvaluation|undefined {
+  if(!p.Market)return p.catalogEvaluation;
+  try{return JSON.parse(p['Catalog Membership JSON']);}catch{return undefined;}
+}
+function annotate(plays:Side[],sport:string,frozen:ReadonlySet<Side>=new Set()) {
   const groups=new Map<string,Side[]>();
   for(const p of plays){const k=catalogEventKey(p,sport);groups.set(k,[...(groups.get(k)||[]),p]);}
   const evaluated=new Map<Side,CatalogEvaluation>();
   for(const group of groups.values()) {
     // These rows are the collector's immutable saved memberships. Replaying a
     // chartless copy on each visitor request cannot improve their evidence.
-    if (group.every(p => isVerifiedNcaafTrendRecord(p)
-      && catalogSide(p).catalogEvaluation?.version === footballCatalog(sport).version)) {
-      for (const p of group) evaluated.set(p, catalogSide(p).catalogEvaluation);
+    if (group.every(p => (isVerifiedNcaafTrendRecord(p) || frozen.has(p))
+      && savedMembership(p)?.version === footballCatalog(sport).version)) {
+      for (const p of group) evaluated.set(p, savedMembership(p)!);
       continue;
     }
     // Repeated source aliases must not make a paired market look like four sides.
@@ -63,13 +66,29 @@ function rowForPlay(p:Side):SheetRow {
 }
 
 export async function captureFootballCatalog(sport:FootballSport,rows:SheetRow[],plays:Side[],persist=false) {
-  const verified=rows.filter(isVerifiedNcaafTrendRecord);
+  const config=footballCatalog(sport);
+  const existing=await readSportWorksheet(sport,CATALOG_ENTRIES_TAB,CATALOG_ENTRY_HEADERS);
+  const saved=new Map(existing.map(r=>[r['Entry Key'],r]));
+  const frozen=new Set<Side>();
+  const savedEvaluation=(p:Side)=>{
+    const row=saved.get(entryKey(p,sport));
+    if(!row || row['Definition Version']!==config.version || !isVerifiedNcaafTrendRecord(row))return null;
+    try {const e=JSON.parse(row['Catalog Membership JSON']);return e?.version===config.version?e:null;}catch{return null;}
+  };
+  const verified=rows.filter(isVerifiedNcaafTrendRecord).map(row=>{
+    const e=savedEvaluation(row);
+    return e?{...row,'Catalog Membership JSON':JSON.stringify(e)}:row;
+  });
   // The collector's feed policy is explicit and separate from a pick's
   // workflow source ("Trend Play"). Keep this same source on live and final
   // memberships so source-cohort subsets cannot change at settlement.
-  const sourcedPlays=plays.map(p=>({...p,publicSplitSource:p.publicSplitSource||p.marketSource||(p.date<'2026-09-21'?'Retained legacy feed':'ScoresAndOdds')}));
-  const rowEvaluations=annotate(verified,sport),playEvaluations=annotate(sourcedPlays,sport);
-  const config=footballCatalog(sport);
+  const sourcedPlays=plays.map(p=>{
+    const next:Side={...p,publicSplitSource:p.publicSplitSource||p.marketSource||(p.date<'2026-09-21'?'Retained legacy feed':'ScoresAndOdds')};
+    const e=p.snapshotStatus==='FINAL_PREGAME'?savedEvaluation(p):null;
+    if(e){next.catalogEvaluation=e;frozen.add(next);}
+    return next;
+  });
+  const rowEvaluations=annotate(verified,sport),playEvaluations=annotate(sourcedPlays,sport,frozen);
   const annotatedRows=verified.map(row=>{
     const next:SheetRow={...row,'Catalog Membership JSON':JSON.stringify(rowEvaluations.get(row))};
     // The raw quote archive remains in weekly_market_trends. Memberships include
@@ -87,8 +106,6 @@ export async function captureFootballCatalog(sport:FootballSport,rows:SheetRow[]
   }
   let persistedEntries=0;
   {
-    const existing=await readSportWorksheet(sport,CATALOG_ENTRIES_TAB,CATALOG_ENTRY_HEADERS);
-    const saved=new Map(existing.map(r=>[r['Entry Key'],r]));
     for(const [k,row] of entries) {
       const previous=saved.get(k);
       // Freeze admitted memberships independently of later visibility or picks.

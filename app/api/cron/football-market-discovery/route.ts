@@ -5,6 +5,7 @@ import {
 } from "../../../../lib/footballWeeklyMarket";
 import type { FootballSport } from "../../../../lib/sportSheets";
 import { withTursoReadCache } from "../../../../lib/tursoStore";
+import { scheduledMarketRefresh, recordScheduledMarketRefresh } from "../../../../lib/scheduledMarketRefresh";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,9 +27,13 @@ async function runCron(request: NextRequest) {
     return NextResponse.json({ ok: false, error: "sport must be NFL or NCAAF" }, { status: 400 });
   }
   try {
+    const startedAt = Date.now();
+    const refresh = dryRun ? null : await scheduledMarketRefresh(raw, "market", startedAt);
+    if (refresh && !refresh.due) return NextResponse.json({ ok: true, sport: raw, skipped: true, refresh });
     const result = dryRun
       ? await inspectPostedFootballMarkets(raw as FootballSport)
       : await syncPostedFootballMarkets(raw as FootballSport);
+    if (!dryRun && "errors" in result && !result.errors?.length) await recordScheduledMarketRefresh(raw, "market", startedAt);
     return NextResponse.json(result, { headers: { "Cache-Control": "no-store, max-age=0" } });
   } catch (error) {
     console.error("Football market discovery failed", error);

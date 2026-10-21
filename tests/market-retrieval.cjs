@@ -197,6 +197,7 @@ function cronFor(persistence) {
       NextResponse:{json:(body,options={})=>({body,status:options.status||200})},
     },
     '../../public-data-v2/route':{GET:async()=>({ok:true,status:200,json:async()=>({ok:true,draftKingsPersistence:persistence})})},
+    '../../../../lib/scheduledMarketRefresh':{scheduledMarketRefresh:async()=>({due:true,intervalMinutes:5}),recordScheduledMarketRefresh:async()=>{}},
   },'RETRY_DELAYS_MS.splice(0);',{
     process:{env:{CRON_SECRET:'history-test'}},console:{error(){},warn(){},info(){}},
   }).testFunctions.runCron;

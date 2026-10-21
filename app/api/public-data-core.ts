@@ -12629,7 +12629,7 @@ export async function buildPublicDataResponse(request: NextRequest) {
       const body = JSON.stringify(payload);
       console.info("[football-public-display]", JSON.stringify({ sport: requestedSport,
         elapsedMs: Date.now() - started, bytes: Buffer.byteLength(body), compact: request.nextUrl.searchParams.get("compact") === "1" }));
-      return new NextResponse(body, { headers: { "Content-Type": "application/json", "Cache-Control": "no-store, max-age=0" } });
+      return new NextResponse(body, { headers: { "Content-Type": "application/json", "Cache-Control": forceFreshFootball ? "no-store, max-age=0" : "public, s-maxage=30, stale-while-revalidate=30" } });
     } catch (error) {
       console.error(`${requestedSport} public data failed`, error);
       return NextResponse.json(

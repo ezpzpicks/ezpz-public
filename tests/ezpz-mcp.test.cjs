@@ -120,6 +120,18 @@ test('only fresh selected finalized picks are eligible; LIVE and expired feeds c
   assert.equal(stale.result.structuredContent.unavailableSports[0], 'NFL');
 });
 
+test('the thirty-minute quiet schedule remains readable without relaxing near-kickoff freshness', async () => {
+  const h=harness(),api=h.load('lib/ezpzMcp.ts');
+  h.setTime(Date.parse('2026-10-13T00:00:30Z'));
+  h.snapshots.NFL={updatedAt:new Date(h.now()-25*60_000).toISOString(),picks:[],
+    refreshPolicy:'30m-until-90m-v1',refreshIntervalMinutes:30};
+  assert.equal((await api.readMcpPicks(['NFL'])).unavailableSports.length,0);
+  h.snapshots.NFL.picks=[rawPick];
+  assert.equal((await api.readMcpPicks(['NFL'])).unavailableSports[0],'NFL');
+  h.snapshots.NFL.picks=[];h.snapshots.NFL.updatedAt=new Date(h.now()-36*60_000).toISOString();
+  assert.equal((await api.readMcpPicks(['NFL'])).unavailableSports[0],'NFL');
+});
+
 test('fresh verified NFL and NCAAF final captures stay readable when unrelated live markets fail', async () => {
   for (const sport of ['NFL', 'NCAAF']) {
     const h = harness(), api = h.load('lib/ezpzMcp.ts');

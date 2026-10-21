@@ -118,7 +118,7 @@ export async function GET(request: NextRequest) {
         ...data.tiles,
         bestPlaysToday: bestPlays.length,
       },
-    });
+    }, { headers: { "Cache-Control": forceFresh ? "no-store, max-age=0" : "public, s-maxage=30, stale-while-revalidate=30" } });
   } catch (error) {
     console.error("NCAAF daily public data failed", error);
     return NextResponse.json(

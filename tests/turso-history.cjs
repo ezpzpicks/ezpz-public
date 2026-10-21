@@ -121,3 +121,47 @@ test('large saved weekly charts are paged in order and date reads do not poison 
     assert.equal(next[0].Selection,'65');
   });
 });
+
+test('appending to an existing archive never executes the aggregate scan', async () => {
+  const f=fixture(); let scanned=0;
+  f.db.aggregate('count',{start:0,step:count=>{scanned++;return count+1;}});
+  await f.store.appendTursoDataset('NCAAF','odds_snapshot',Array.from({length:1500},()=>row('10:30')));
+  assert.equal(scanned,1500); // first manifest is recovered from the real rows
+  scanned=0;
+  await f.store.appendTursoDataset('NCAAF','odds_snapshot',Array.from({length:251},()=>row('10:35')));
+  assert.equal(scanned,0);
+  assert.equal(f.count(),1751);
+});
+
+test('a missing manifest recovers the actual count even when row positions have gaps', async () => {
+  const f=fixture();
+  await f.store.appendTursoDataset('NFL','odds_snapshot',Array.from({length:5},()=>row('10:30')));
+  f.db.exec('DELETE FROM dataset_rows WHERE row_index=3; DELETE FROM dataset_manifest');
+  await f.store.appendTursoDataset('NFL','odds_snapshot',[row('10:35')]);
+  assert.equal(f.count(),5);
+  assert.equal(f.rows().at(-1).row_index,6);
+});
+
+test('freshness updates preserve identity indexes; changed identities still update their metadata', async () => {
+  const f=fixture();
+  f.db.exec(`CREATE TABLE touches(kind TEXT);
+    CREATE TRIGGER identity_touch AFTER UPDATE OF date_key,game_key,market,selection ON dataset_rows
+    BEGIN INSERT INTO touches VALUES ('identity'); END;
+    CREATE TRIGGER snapshot_touch AFTER UPDATE OF snapshot_time ON dataset_rows
+    BEGIN INSERT INTO touches VALUES ('snapshot'); END;`);
+  await f.store.replaceTursoDataset('NFL','public_split_snapshots',[row('10:30')]);
+  await f.store.replaceTursoDataset('NFL','public_split_snapshots',[row('10:35')]);
+  assert.deepEqual(f.db.prepare('SELECT kind FROM touches').all().map(r=>r.kind),['snapshot']);
+  await f.store.replaceTursoDataset('NFL','public_split_snapshots',[{...row('10:35'),Selection:'Under'}]);
+  assert.equal(f.db.prepare('SELECT selection FROM dataset_rows').get().selection,'Under');
+  assert.equal(f.db.prepare('SELECT COUNT(*) AS n FROM touches WHERE kind=\'identity\'').get().n,1);
+});
+
+test('a failed replacement rolls back every changed row and its manifest', async () => {
+  const f=fixture();
+  await f.store.replaceTursoDataset('NFL','public_split_snapshots',[row('10:30'),row('10:31')]);
+  f.failManifest();
+  await assert.rejects(f.store.replaceTursoDataset('NFL','public_split_snapshots',[row('10:35'),row('10:36')]),/manifest failure/);
+  assert.deepEqual(f.rows().map(r=>JSON.parse(r.payload_json)['Snapshot Time ET']),['10:30','10:31']);
+  assert.equal(f.count(),2);
+});

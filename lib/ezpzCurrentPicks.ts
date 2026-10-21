@@ -21,6 +21,8 @@ const HEADERS = [
   "Pick Count",
   "Source Stale",
   "Details JSON",
+  "Refresh Policy",
+  "Refresh Interval Minutes",
 ];
 
 type AnyRow = Record<string, any>;
@@ -93,6 +95,8 @@ export async function persistEzpzCurrentPicks(
       "Pick Count": String(picks.length),
       "Source Stale": sourceStale ? "TRUE" : "FALSE",
       "Details JSON": "",
+      "Refresh Policy": String(payload.refreshPolicy || ""),
+      "Refresh Interval Minutes": String(payload.refreshIntervalMinutes || 5),
     },
     ...picks.map((pick: AnyRow) => ({
       Kind: "PICK",
@@ -147,6 +151,8 @@ export async function readEzpzCurrentPicks(sport: EzpzCurrentSport) {
     updatedAt: String(meta["Updated At"] || ""),
     sourceUpdatedAt: String(meta["Source Updated At"] || ""),
     sourceStale: String(meta["Source Stale"] || "").toUpperCase() === "TRUE",
+    refreshPolicy: String(meta["Refresh Policy"] || ""),
+    refreshIntervalMinutes: Number(meta["Refresh Interval Minutes"] || 5),
     pickCount: sport === "MLB" ? Number(meta["Pick Count"] || picks.length || 0) : picks.length,
     picks,
     teamTrendPicks,
