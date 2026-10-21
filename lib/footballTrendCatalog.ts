@@ -70,8 +70,15 @@ export function catalogSide(x: Side): Side {
   };
 }
 function team(x: unknown, sport: string) { return sport === 'NFL' ? nflTrendTeamKey(x) : key(x); }
+function identitySide(x: Side): Side {
+  // Identities never depend on the chart, context, or membership payloads.
+  // Parsing those JSON columns for every lookup dominates large saved slates.
+  return isRow(x) ? { date:x.Date, game:x.Game, gameKey:x['Game Key'], awayTeam:x['Away Team'], homeTeam:x['Home Team'],
+    market:x.Market, selection:x['Public Split Selection'] || x.Selection,
+    selectionTeam:x['Public Split Selection'] || x.Selection, side:x.Side || x.Selection } : x;
+}
 export function catalogEventKey(x: Side, sport: string) {
-  const s = catalogSide(x);
+  const s = identitySide(x);
   const teams = [team(s.awayTeam, sport), team(s.homeTeam, sport)];
   if (teams.every(Boolean)) return `${s.date}|${teams.sort().join('|')}`;
   const parts = String(s.game || '').split(/\s*(?:@|\bat\b|\bvs\.?\b)\s*/i).map(x => team(x, sport)).filter(Boolean);
@@ -87,7 +94,7 @@ function role(s: Side, sport: string) {
   if (name && name === team(s.awayTeam, sport)) return 'Away';
   return '';
 }
-export function catalogSelectionIdentity(input: Side, sport: string) { const s=catalogSide(input); return role(s,sport) || selection(s,sport); }
+export function catalogSelectionIdentity(input: Side, sport: string) { const s=identitySide(input); return role(s,sport) || selection(s,sport); }
 export function catalogSignals(evaluation: CatalogEvaluation | undefined, sport: string): string[] {
   if (!evaluation || evaluation.version !== footballCatalog(sport).version || evaluation.invalid) return [];
   const config = footballCatalog(sport);
@@ -169,24 +176,51 @@ function timed(s: Side, name: string, path: Point[]) {
   const minutes = Number(name.slice(1));
   const target = Number(epoch(s.gameTime)) - minutes*60_000;
   const tolerance = ({30:5,60:10,120:15,360:30,1440:60} as Record<number,number>)[minutes];
-  return path.filter(p => p.time <= target && p.time >= target-tolerance*60_000 && p.time < point(s).time).at(-1);
+  const cutoff = point(s).time;
+  return path.filter(p => p.time <= target && p.time >= target-tolerance*60_000 && p.time < cutoff).at(-1);
 }
-function resolver(all: Side[], anchor: Side, sport: string) {
+function resolverContext(all: Side[], sport: string) {
+  // A group is immutable for one evaluation. Every rule/anchor can reuse its
+  // parsed endpoints and chart without caching evidence across decisions.
+  const points = new Map<Side, Point>(), openers = new Map<Side, Point>(), histories = new Map<Side, Point[]>();
+  const roles = new Map(all.map(s => [s, role(s, sport)]));
+  const markets = new Map(all.map(s => [s, key(s.market)]));
+  const selections = new Map(all.map(s => [s, selection(s, sport)]));
+  const getPoint = (s: Side, opening = false) => {
+    const cache = opening ? openers : points;
+    if (!cache.has(s)) cache.set(s, point(s, opening));
+    return cache.get(s)!;
+  };
+  return { point: getPoint, roles, markets, selections,
+    paths: new Map<Side, Point[]>(), openings: new Map<Side, Point | null>(),
+    history(s: Side) { if (!histories.has(s)) histories.set(s, history(s)); return histories.get(s)!; },
+  };
+}
+function resolver(all: Side[], anchor: Side, sport: string, context = resolverContext(all, sport)) {
   const cache = new Map<string,number|null>();
-  const pathCache = new Map<Side,Point[]>();
+  const pathCache = context.paths;
+  const getPoint = context.point;
   const byRole = (r: string) => r === 's' || r === 'anchor' ? anchor
-    : r === 'f' ? all.find(s => key(s.market) === 'spread' && Number(catalogNumber(s.line)) < 0)
-    : all.find(s => role(s,sport) === r);
-  const opposite = (s: Side) => all.find(x => key(x.market) === key(s.market) && selection(x,sport) !== selection(s,sport));
+    : r === 'f' ? all.find(s => context.markets.get(s) === 'spread' && Number(getPoint(s).line) < 0)
+    : all.find(s => context.roles.get(s) === r);
+  const opposite = (s: Side) => all.find(x => context.markets.get(x) === context.markets.get(s)
+    && context.selections.get(x) !== context.selections.get(s));
   const paired = (s: Side, p: Point | undefined | null, q: Point | undefined | null) => {
     if (!p || !q || !p.time || !q.time || Math.abs(p.time-q.time)>60_000 || p.line==null || q.line==null) return false;
     if (key(s.market)==='total' ? p.line !== q.line : Math.abs(p.line+q.line)>1e-9) return false;
     return (['bets','money'] as const).every(field => p[field]==null || q[field]==null || Math.abs(p[field]!+q[field]!-100)<=2);
   };
-  const opening = (s: Side) => { const other=opposite(s),o=validOpening(s),q=other?validOpening(other):null; return paired(s,o,q)?o:null; };
+  const opening = (s: Side) => {
+    if (!context.openings.has(s)) {
+      const valid = (p: Side) => { const o=getPoint(p,true), d=getPoint(p); return o.time && d.time && o.time<d.time ? o : null; };
+      const other=opposite(s),o=valid(s),q=other?valid(other):null;
+      context.openings.set(s, paired(s,o,q) ? o : null);
+    }
+    return context.openings.get(s)!;
+  };
   const getPath = (s: Side) => {
     if (!pathCache.has(s)) {
-      const other=opposite(s),points=history(s),opp=other?history(other):[];
+      const other=opposite(s),points=context.history(s),opp=other?context.history(other):[];
       // An inconsistent supplied path is rejected, not repaired by dropping an
       // inconvenient point. Both sides must describe the same source quote.
       // Both paths are sorted. Preserve the first quote within the existing
@@ -206,19 +240,19 @@ function resolver(all: Side[], anchor: Side, sport: string) {
     const result = compute(name); cache.set(name,result); return result;
   };
   const compute = (name: string): number|null => {
-    if (name === 'isHome' || name === 'isAway') return role(anchor,sport) ? Number(role(anchor,sport) === name.slice(2)) : null;
-    if (name === 'openingMinutes') { const a=point(anchor,true).time,b=point(anchor).time; return a && b && a < b ? (b-a)/60_000 : null; }
+    if (name === 'isHome' || name === 'isAway') return context.roles.get(anchor) ? Number(context.roles.get(anchor) === name.slice(2)) : null;
+    if (name === 'openingMinutes') { const a=getPoint(anchor,true).time,b=getPoint(anchor).time; return a && b && a < b ? (b-a)/60_000 : null; }
     if (['T0','Td','max_T','min_T'].includes(name)) {
       const s=byRole('Over') || byRole('Under');
       if (!s) return null;
-      if (name === 'T0' || name === 'Td') return name === 'T0' ? opening(s)?.line ?? null : point(s).line;
+      if (name === 'T0' || name === 'Td') return name === 'T0' ? opening(s)?.line ?? null : getPoint(s).line;
       const values=getPath(s).map(p => p.line); return values.length>=2 && values.every(v=>v!=null) ? (name==='max_T'?Math.max:Math.min)(...(values as number[])) : null;
     }
     const match=name.match(/^(.*)_(anchor|s|Home|Away|Over|Under|f)(?:_(O|Q\d+)_(D|Q\d+))?$/);
     if (!match) return null;
     const [,metric,r,a,b]=match, s=byRole(r);
     if (!s) return null;
-    const d=point(s), o=opening(s), path=getPath(s);
+    const d=getPoint(s), o=opening(s);
     if (metric==='Ld') return d.line;
     if (metric==='L0') return o?.line ?? null;
     if (metric==='bd') return d.bets;
@@ -233,12 +267,13 @@ function resolver(all: Side[], anchor: Side, sport: string) {
     if (metric==='Rstake') return d.bets!=null && d.money!=null && d.bets>0 && d.bets<100 && d.money>0 && d.money<100 ? d.money/d.bets/((100-d.money)/(100-d.bets)) : null;
     if (metric==='pd' || metric==='p0') return implied(metric==='pd'?d.odds:o?.odds ?? null);
     if (metric==='nvpd' || metric==='nvp0') {
-      const other=all.find(x => key(x.market)===key(s.market) && selection(x,sport)!==selection(s,sport));
+      const other=opposite(s);
       if (!other) return null;
-      const p=metric==='nvpd'?d:o, q=metric==='nvpd'?point(other):opening(other);
+      const p=metric==='nvpd'?d:o, q=metric==='nvpd'?getPoint(other):opening(other);
       if (!p || !q || Math.abs(p.time-q.time)>60_000) return null;
       const x=implied(p.odds),y=implied(q.odds); return x==null || y==null?null:100*x/(x+y);
     }
+    const path=getPath(s);
     const qmetric=metric.match(/^(b|h|G)Q(\d+)$/);
     if (qmetric) {const p=timed(s,`Q${qmetric[2]}`,path); if(!p)return null;
       return qmetric[1]==='b'?p.bets:qmetric[1]==='h'?p.money:p.bets==null || p.money==null?null:p.money-p.bets;}
@@ -286,12 +321,11 @@ function frozenContext(s: Side, data: string) {
   const known=epoch(c?.knownAt), d=point(s).time;
   return c && known!=null && known<=d && c.source ? c : null;
 }
-function contextPredicate(rule: CatalogRule, anchor: Side, all: Side[], sport: string): boolean|null {
+function contextPredicate(rule: CatalogRule, anchor: Side, all: Side[], sport: string, value = resolver(all,anchor,sport)): boolean|null {
   // Context definitions are registered and monitored but cannot infer forecasts,
   // injuries, absolute volume, archived models or ranks from split percentages.
   const c=frozenContext(anchor,rule.data);
   if (!c) return null;
-  const value=resolver(all,anchor,sport);
   if(rule.data==='M') {
     const p=catalogNumber(key(rule.market)==='total'?c.projectedTotal:c.projectedHomeMargin);
     if(p==null)return null;
@@ -384,7 +418,8 @@ export function evaluateFootballCatalogGroup(inputs: Side[], sport: string): Cat
   const out:CatalogEvaluation[]=all.map(()=>({version:config.version,memberships:[],missing:[],ambiguous:[]}));
   const pairs=new Map<string,Side[]>();
   for(const s of all){const m=key(s.market);pairs.set(m,[...(pairs.get(m)||[]),s]);}
-  const validPair=(market:string)=>{
+  const pairValidity=new Map<string,boolean>();
+  const checkPair=(market:string)=>{
     const p=pairs.get(key(market)) || [];
     if(p.length!==2 || selection(p[0],sport)===selection(p[1],sport))return false;
     const a=point(p[0]),b=point(p[1]);
@@ -393,11 +428,17 @@ export function evaluateFootballCatalogGroup(inputs: Side[], sport: string): Cat
     for(const metric of ['bets','money'] as const)if(a[metric]!=null&&b[metric]!=null&&Math.abs(a[metric]!+b[metric]!-100)>2)return false;
     return true;
   };
+  const validPair=(market:string)=>{
+    const normalized=key(market);
+    if(!pairValidity.has(normalized))pairValidity.set(normalized,checkPair(normalized));
+    return pairValidity.get(normalized)!;
+  };
   const finals=all.filter(s=>s.snapshotStatus==='FINAL_PREGAME');
   for(const s of finals){const d=point(s).time,k=epoch(s.gameTime);if(k==null||k-d<10*60_000||k-d>20*60_000)out[all.indexOf(s)].invalid='Outside the verified final window';}
   const usable = all.filter(s => validPair(s.market) && !out[all.indexOf(s)].invalid);
+  const context=resolverContext(usable,sport);
   const values = new Map<Side, ReturnType<typeof resolver>>();
-  const getValues = (s: Side) => { if (!values.has(s)) values.set(s, resolver(usable, s, sport)); return values.get(s)!; };
+  const getValues = (s: Side) => { if (!values.has(s)) values.set(s, resolver(usable, s, sport,context)); return values.get(s)!; };
   const filterCache = new Map<Side, string[]>();
   for(const rule of config.rules) {
     const marketSides=pairs.get(key(rule.market)) || [];
@@ -408,7 +449,7 @@ export function evaluateFootballCatalogGroup(inputs: Side[], sport: string): Cat
     }
     const anchors=candidateAnchors(rule,usable,sport);
     const hits:Side[]=[];let missing=!anchors.length;
-    for(const anchor of anchors){const v=getValues(anchor);const result=rule.predicate?evaluateCatalogExpression(rule.predicate,v):contextPredicate(rule,anchor,all,sport);
+    for(const anchor of anchors){const v=getValues(anchor);const result=rule.predicate?evaluateCatalogExpression(rule.predicate,v):contextPredicate(rule,anchor,all,sport,v);
       if(result==null)missing=true;else if(result===true)hits.push(anchor);}
     if(hits.length>1){for(const s of marketSides)out[all.indexOf(s)].ambiguous.push(rule.id);continue;}
     if(hits.length!==1){if(missing)for(const s of marketSides)out[all.indexOf(s)].missing.push(rule.id);continue;}

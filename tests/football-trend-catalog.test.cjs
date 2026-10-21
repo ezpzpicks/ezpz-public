@@ -100,11 +100,27 @@ test('capture persists all definitions and uncapped hidden memberships independe
  assert.equal(tables.football_catalog_memberships[0]['Public Bets %'],'80');
  const count=writes.length;result=await exports.captureFootballCatalog('NFL',[],[],false);assert.equal(writes.length,count);assert.equal(result.rows.length,4);assert.equal(result.status.marketEntries,4);
 });
+test('saved final memberships avoid chart reevaluation while live quotes are still evaluated',async()=>{
+ const tables={};let evaluations=0;
+ const storage={readSportWorksheet:async(_,tab)=>tables[tab]||[],upsertSportRows:async(_,tab,headers,entries,k)=>{
+  const m=new Map((tables[tab]||[]).map(r=>[k(r),r]));for(const row of entries)m.set(k(row),row);tables[tab]=[...m.values()];}};
+ const instrumented={...catalog,evaluateFootballCatalogGroup:(...args)=>{evaluations++;return catalog.evaluateFootballCatalogGroup(...args);}};
+ const api={};vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(root,'lib/footballTrendCatalogStore.ts'),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,
+  {exports:api,Date,Intl,require:name=>name==='./sportSheets'?storage:name==='./footballTrendCatalog'?instrumented:load(path.join(root,'lib',name+'.ts'))});
+ const plays=fixture();await api.captureFootballCatalog('NFL',[],plays,true);
+ const initial=evaluations;assert.ok(initial>0);
+ const replay=await api.captureFootballCatalog('NFL',rows(plays),plays,false);
+ assert.equal(evaluations,initial);
+ assert.equal(replay.rows[0].Result,'W');
+ assert.deepEqual(asArray(replay.plays[0].catalogEvaluation),JSON.parse(tables.football_catalog_memberships[0]['Catalog Membership JSON']));
+ await api.captureFootballCatalog('NFL',[],plays.map(p=>({...p,snapshotStatus:'LIVE'})),false);
+ assert.ok(evaluations>initial);
+});
 test('scheduled collection records retained final NCAAF memberships when the live feed fails, while read-only failures never write',async()=>{
  const tables={},calls=[],original=new Error('live splits missing');
  const storage={readSportWorksheet:async(_,tab)=>tables[tab]||[],upsertSportRows:async(_,tab,headers,entries)=>{tables[tab]=entries;}};
  const store={};vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(root,'lib/footballTrendCatalogStore.ts'),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports:store,Date,Intl,require:name=>name==='./sportSheets'?storage:load(path.join(root,'lib',name+'.ts'))});
- const history={};vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(root,'lib/footballPublicDataHistory.ts'),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports:history,Date,Intl,console:{error:()=>{}},require:name=>name==='./footballTrendCatalogStore'?store:name==='./footballPublicDataLegacy'?{buildFootballPublicData:async(_,options)=>{calls.push(options);if(options.forceFresh===false)return {trendRecordRows:rows(fixture()),trendPlays:[]};throw original;}}:{}});
+ const history={};vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(root,'lib/footballPublicDataHistory.ts'),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports:history,Date,Intl,console:{error:()=>{}},require:name=>name==='./footballSos'?{loadFootballSos:async()=>null}:name==='./sportSheets'?storage:name==='./footballTrendCatalogStore'?store:name==='./footballPublicDataLegacy'?{buildFootballPublicData:async(_,options)=>{calls.push(options);if(options.forceFresh===false)return {trendRecordRows:rows(fixture()),trendPlays:[]};throw original;}}:{}});
  await assert.rejects(history.buildFootballPublicData('NCAAF',{persist:true,forceFresh:true}),e=>e===original);
  assert.equal(tables.football_catalog_definitions.length,1050);assert.equal(tables.football_catalog_memberships.length,4);
  assert.deepEqual(asArray(calls),[{persist:true,forceFresh:true},{forceFresh:false,persist:false}]);

@@ -28,13 +28,13 @@ async function readMarket(request: NextRequest) {
       ? selectFootballPublicWeek(await readSportWorksheet(sport, "posted_games"), today,
           request.nextUrl.searchParams.get("week") || "")
       : null;
-    // NCAAF's background tracker owns raw odds_snapshot hydration and persists
+    // The background tracker owns raw odds_snapshot hydration and persists
     // the complete movementHistory on weekly_market_trends. Public reads should
     // use that persisted history instead of reloading hundreds of thousands of
     // archive rows on every page refresh.
     const result = await readWeeklyFootballMarket(
       sport,
-      week ? { dateKeys: week.dateKeys, hydrateHistory: false } : {},
+      week ? { dateKeys: week.dateKeys, hydrateHistory: false } : { hydrateHistory: "missing" },
     );
     const rescored = await rescoreNcaafWeeklyMarket(sport, result);
     const scored = await applyFootballTrendV2(sport, rescored);
@@ -45,9 +45,9 @@ async function readMarket(request: NextRequest) {
       return NextResponse.json(compactFootballPublicDisplay({
         ...scored, trendPlays: catalog.plays,
         availableWeeks: week.availableWeeks, selectedWeek: week.selectedWeek,
-      }, request.nextUrl.searchParams.get("compact") === "1"), { headers: { "Cache-Control": "no-store, max-age=0" } });
+      }, request.nextUrl.searchParams.get("compact") === "1"), { headers: { "Cache-Control": "public, s-maxage=30, stale-while-revalidate=30" } });
     }
-    return NextResponse.json(scored, { headers: { "Cache-Control": "no-store, max-age=0" } });
+    return NextResponse.json(scored, { headers: { "Cache-Control": "public, s-maxage=30, stale-while-revalidate=30" } });
   } catch (error) {
     console.error("Football weekly market read failed", error);
     return NextResponse.json({ ok: false, sport: raw, error: error instanceof Error ? error.message : String(error) }, { status: 500 });

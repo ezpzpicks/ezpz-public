@@ -6,6 +6,7 @@ import type { FootballSport } from "../../../../lib/sportSheets";
 import { withTursoReadCache } from "../../../../lib/tursoStore";
 import { persistEzpzCurrentPicks } from "../../../../lib/ezpzCurrentPicks";
 import { repairNcaafFinalScores } from "../../../../lib/ncaafFinalScoreRepair";
+import { scheduledMarketRefresh, recordScheduledMarketRefresh } from "../../../../lib/scheduledMarketRefresh";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -41,6 +42,9 @@ async function runCron(request: NextRequest) {
   }
 
   try {
+    const startedAt = Date.now();
+    const refresh = await scheduledMarketRefresh(sport, "public", startedAt);
+    if (!refresh.due) return NextResponse.json({ ok: true, sport, skipped: true, refresh });
     let finalScoreRepair: unknown = null;
     if (sport === "NCAAF") {
       try {
@@ -68,13 +72,17 @@ async function runCron(request: NextRequest) {
       forceFresh: true,
       persist: true,
     });
+    payload.refreshPolicy = refresh.policy;
+    payload.refreshIntervalMinutes = refresh.intervalMinutes;
     // Keep the lightweight EZPZ Picks notification snapshot independent from
     // live ScoresAndOdds health. The public football payload can still produce
     // the currently displayed picks from retained snapshots/model data even
     // when the live market refresh is rejected as incomplete. Persist those
     // picks first, then let the market-monitoring cron fail loudly below.
+    let picksSaved = false;
     try {
       await persistEzpzCurrentPicks(sport, payload);
+      picksSaved = true;
     } catch (error) {
       console.error(`${sport} current EZPZ picks snapshot failed`, error);
     }
@@ -99,7 +107,8 @@ async function runCron(request: NextRequest) {
         reason: "Lifecycle evaluation failed; incumbent/legacy scoring was left unchanged.",
       };
     }
-    return NextResponse.json({ ...payload, finalScoreRepair, settlement, trendV2Lifecycle }, {
+    if (picksSaved) await recordScheduledMarketRefresh(sport, "public", startedAt);
+    return NextResponse.json({ ...payload, refresh, finalScoreRepair, settlement, trendV2Lifecycle }, {
       headers: {
         "Cache-Control": "no-store, max-age=0",
       },

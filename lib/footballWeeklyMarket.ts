@@ -2864,7 +2864,7 @@ function dedupeNcaafReadTrendPlays(
 
 export async function readWeeklyFootballMarket(
   sport: FootballSport,
-  options: { dateKeys?: string[]; hydrateHistory?: boolean; finalSnapshotsOnly?: boolean } = {},
+  options: { dateKeys?: string[]; hydrateHistory?: boolean | "missing"; finalSnapshotsOnly?: boolean } = {},
 ) {
   const requestedDates = new Set(
     (options.dateKeys || []).map((value) => String(value || "").trim()).filter(Boolean),
@@ -2901,8 +2901,14 @@ export async function readWeeklyFootballMarket(
     ...sourceRows.map((row) => String(row.Date || "")),
     ...sourceGames.map((row) => canonicalScheduleDate(row) || String(row.Date || "")),
   ].filter(Boolean))];
-  const marketHistoryRows = hydrateHistory && marketDates.length
-    ? (await readSportWorksheetByDateKeys(sport, MARKET_HISTORY_TAB, marketDates, MARKET_HISTORY_HEADERS))
+  // Public NFL reads retain legacy charts that predate saved movementHistory,
+  // but do not reload dates whose complete chart is already on the weekly row.
+  const hydrationDates = options.hydrateHistory === "missing" ? [...new Set(sourceRows.filter(row => {
+    try { return !Array.isArray(JSON.parse(String(row["Details JSON"] || "{}")).movementHistory); }
+    catch { return true; }
+  }).map(row => String(row.Date || "")).filter(Boolean))] : marketDates;
+  const marketHistoryRows = hydrateHistory && hydrationDates.length
+    ? (await readSportWorksheetByDateKeys(sport, MARKET_HISTORY_TAB, hydrationDates, MARKET_HISTORY_HEADERS))
         .filter(isScoresAndOddsCutoverRow)
     : [];
   const liveKickoffRows = sport === "NCAAF" ? await loadNcaafLiveKickoffAuthorityRows() : [];
