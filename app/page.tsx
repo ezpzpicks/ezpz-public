@@ -6934,7 +6934,7 @@ export default function Home() {
       try {
         const endpoint =
           activeSport === "NFL" || activeSport === "NCAAF"
-            ? `/api/public-data-v2?sport=${activeSport}&compact=1${forceFresh ? "&refresh=1" : ""}`
+            ? `/api/public-data-v2?sport=${activeSport}&compact=2${forceFresh ? "&refresh=1" : ""}`
             : forceFresh
               ? "/api/public-data-v2?refresh=1"
               : "/api/public-data-v2";

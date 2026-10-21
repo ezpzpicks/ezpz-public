@@ -243,17 +243,22 @@ function projectColumns(row: TursoRow, columns?: string[]) {
 async function readIndexedDataset(sport: TursoSport, dataset: string, dateKeys?: string[]) {
   const dateFilter = dateKeys ? ` AND date_key IN (${dateKeys.map(sqlText).join(",")})` : "";
   const where = `sport=${sqlText(sport)} AND dataset=${sqlText(dataset)}${dateFilter}`;
+  // ORDER BY/LIMIT and the pagination cursor otherwise make SQLite prefer the
+  // row-position index. That scans the whole archive (including its large chart
+  // payloads) even when the requested day has no rows. This existing date index
+  // bounds the read to the selected dates before sorting/paging the matches.
+  const source = dateKeys ? "dataset_rows INDEXED BY idx_dataset_rows_date" : "dataset_rows";
   // A saved football chart row can exceed 150 KB. Read bounded pages rather
   // than asking Hrana to serialize the entire growing archive in one response.
   if (dataset !== "weekly_market_trends") {
-    const results = await pipeline([`SELECT row_index,payload_json FROM dataset_rows WHERE ${where} ORDER BY row_index ASC`]);
+    const results = await pipeline([`SELECT row_index,payload_json FROM ${source} WHERE ${where} ORDER BY row_index ASC`]);
     return indexedRowsFromResult(results[0]);
   }
   const rows: TursoIndexedRow[] = [];
   let lastIndex = 0;
   while (true) {
     const results = await pipeline([
-      `SELECT row_index,payload_json FROM dataset_rows WHERE ${where} AND row_index>${lastIndex} ORDER BY row_index ASC LIMIT 32`,
+      `SELECT row_index,payload_json FROM ${source} WHERE ${where} AND row_index>${lastIndex} ORDER BY row_index ASC LIMIT 32`,
     ]);
     const page = indexedRowsFromResult(results[0]);
     rows.push(...page);
