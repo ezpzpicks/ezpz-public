@@ -10,7 +10,7 @@ export function compactFootballChartHistory<T extends ChartPoint>(points: T[]): 
     || !sameQuote(point, points[index - 1]) || !sameQuote(point, points[index + 1]));
 }
 
-export function compactFootballPublicDisplay<T extends { trendPlays?: Record<string, any>[] }>(payload: T, compactCatalog = false): T {
+export function compactFootballPublicDisplay<T extends { trendPlays?: Record<string, any>[] }>(payload: T, compactCatalog = false, compactCharts = false): T {
   const display = {
     ...payload,
     trendPlays: payload.trendPlays?.map(play => ({
@@ -22,6 +22,19 @@ export function compactFootballPublicDisplay<T extends { trendPlays?: Record<str
   };
   if (!compactCatalog) return display;
   const groups: string[][] = [], indexes = new Map<string, number>();
+  const chartKeys = ['snapshotTime', 'line', 'odds', 'betsPct', 'moneyPct'];
+  const charts: unknown[][][] = [], chartIndexes = new Map<string, number>();
+  const packHistory = (history: unknown) => {
+    if (!compactCharts || !Array.isArray(history) || !history.length || !history.every(point => point
+      && typeof point === 'object' && Object.keys(point).length === chartKeys.length
+      && chartKeys.every(key => Object.hasOwn(point, key) && point[key] !== undefined))) return history;
+    // A lossless wire format: retain every observation, including unchanged
+    // heartbeats, and share histories repeated in picks and Signals evidence.
+    const tuples = history.map(point => chartKeys.map(key => point[key]));
+    const key = JSON.stringify(tuples);
+    if (!chartIndexes.has(key)) { chartIndexes.set(key, charts.length); charts.push(tuples); }
+    return { footballChart: chartIndexes.get(key)! };
+  };
   const intern = (values: string[] = []) => {
     const key = JSON.stringify(values);
     if (!indexes.has(key)) { indexes.set(key, groups.length); groups.push(values); }
@@ -33,6 +46,7 @@ export function compactFootballPublicDisplay<T extends { trendPlays?: Record<str
   });
   const row = (value: Record<string, any>) => {
     const next = { ...value };
+    if (next.movementHistory) next.movementHistory = packHistory(next.movementHistory);
     if (next.catalogEvaluation) next.catalogEvaluation = pack(next.catalogEvaluation);
     if (next['Catalog Membership JSON']) {
       try { next['Catalog Membership JSON'] = JSON.stringify(pack(JSON.parse(next['Catalog Membership JSON']))); } catch {}
@@ -43,9 +57,16 @@ export function compactFootballPublicDisplay<T extends { trendPlays?: Record<str
   for (const key of ['trendPlays', 'trendRecordRows', 'aiPicks', 'aiPickRecordRows']) {
     if (Array.isArray(next[key])) next[key] = next[key].map(row);
   }
+  if (next.footballSignals?.sides) next.footballSignals = {
+    ...next.footballSignals,
+    sides: next.footballSignals.sides.map((side: Record<string, any>) => side.marketContext ? {
+      ...side, marketContext: { ...side.marketContext, history: packHistory(side.marketContext.history) },
+    } : side),
+  };
   // Repeated filter/missing-input lists dominate large catalog responses.
   // This opt-in wire format is lossless and expanded once before UI rendering.
   next.catalogFilterGroups = groups;
+  if (charts.length) next.chartHistoryGroups = charts;
   return next as T;
 }
 
@@ -53,12 +74,20 @@ export function restoreFootballPublicDisplay<T>(payload: T): T {
   const data = payload as Record<string, any>;
   if (!Array.isArray(data.catalogFilterGroups)) return payload;
   const groups = data.catalogFilterGroups as string[][];
+  const chartKeys = ['snapshotTime', 'line', 'odds', 'betsPct', 'moneyPct'];
+  const charts = (data.chartHistoryGroups || []).map((points: unknown[][]) => points.map(
+    values => Object.fromEntries(chartKeys.map((key, i) => [key, values[i]])),
+  ));
+  const unpackHistory = (history: any) => history && !Array.isArray(history)
+    && Number.isInteger(history.footballChart) && charts[history.footballChart]
+    ? charts[history.footballChart] : history;
   const unpack = (e: Record<string, any>) => e.v ? {
     version: e.v, memberships: (e.m || []).map(([pair, direction, filters]: [string, number, number]) => ({ pair, direction, filters: groups[filters] || [] })),
     missing: groups[e.n] || [], ambiguous: groups[e.a] || [], ...(e.i ? { invalid: e.i } : {}),
   } : e;
   const row = (value: Record<string, any>) => {
     const next = { ...value };
+    if (next.movementHistory) next.movementHistory = unpackHistory(next.movementHistory);
     if (next.catalogEvaluation) next.catalogEvaluation = unpack(next.catalogEvaluation);
     if (next['Catalog Membership JSON']) {
       try { next['Catalog Membership JSON'] = JSON.stringify(unpack(JSON.parse(next['Catalog Membership JSON']))); } catch {}
@@ -69,6 +98,13 @@ export function restoreFootballPublicDisplay<T>(payload: T): T {
   for (const key of ['trendPlays', 'trendRecordRows', 'aiPicks', 'aiPickRecordRows']) {
     if (Array.isArray(next[key])) next[key] = next[key].map(row);
   }
+  if (next.footballSignals?.sides) next.footballSignals = {
+    ...next.footballSignals,
+    sides: next.footballSignals.sides.map((side: Record<string, any>) => side.marketContext ? {
+      ...side, marketContext: { ...side.marketContext, history: unpackHistory(side.marketContext.history) },
+    } : side),
+  };
   delete next.catalogFilterGroups;
+  delete next.chartHistoryGroups;
   return next as T;
 }

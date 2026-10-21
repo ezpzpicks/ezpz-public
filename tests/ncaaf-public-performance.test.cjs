@@ -55,6 +55,24 @@ test('compact catalog responses restore every membership and diagnostic without 
   assert.equal(wire.catalogFilterGroups.length,3);
 });
 
+test('compact histories round-trip every saved observation across picks and Signals without changing records', () => {
+  const points=Array.from({length:1000},(_,i)=>({snapshotTime:String(i),line:i<500?null:-3,odds:'-110',betsPct:60,moneyPct:70}));
+  const unusual=[{snapshotTime:'extra',line:3,odds:'+100',betsPct:40,moneyPct:30,source:'keep this'}];
+  const payload={aiPicks:[{movementHistory:points,result:'W'}],aiPickRecordRows:[{movementHistory:points,result:'W'},{movementHistory:unusual}],
+    footballSignals:{sides:[{signalCount:3,marketContext:{history:points,bets:60}}]}};
+  const legacy=display.compactFootballPublicDisplay(payload,true);
+  assert.equal(legacy.aiPicks[0].movementHistory,points);
+  assert.equal(legacy.chartHistoryGroups,undefined);
+  const wire=display.compactFootballPublicDisplay(payload,true,true);
+  assert.ok(JSON.stringify(wire).length<JSON.stringify(payload).length/3);
+  assert.equal(wire.chartHistoryGroups.length,1);
+  const restored=display.restoreFootballPublicDisplay(JSON.parse(JSON.stringify(wire)));
+  assert.equal(JSON.stringify(restored),JSON.stringify(payload));
+  assert.equal(restored.aiPickRecordRows[0].movementHistory.length,1000);
+  assert.equal(payload.aiPicks[0].movementHistory,points);
+  assert.equal(wire.aiPickRecordRows[1].movementHistory,unusual);
+});
+
 test('request subtype reuse preserves decision cutoffs when the eligible record set changes', () => {
   const config=catalog.footballCatalog('NCAAF');
   const evaluation={version:config.version,memberships:[{pair:config.rules[0].id,direction:0,filters:[]}],missing:[],ambiguous:[]};

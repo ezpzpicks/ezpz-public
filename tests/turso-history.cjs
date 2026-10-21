@@ -15,8 +15,12 @@ function fixture() {
     snapshot_time TEXT, imported_at TEXT, PRIMARY KEY(sport,dataset,row_index));
     CREATE TABLE dataset_manifest (
     sport TEXT, dataset TEXT, source_workbook TEXT, source_worksheet TEXT, headers_json TEXT,
-    row_count INTEGER, imported_at TEXT, source_kind TEXT, PRIMARY KEY(sport,dataset));`);
+    row_count INTEGER, imported_at TEXT, source_kind TEXT, PRIMARY KEY(sport,dataset));
+    CREATE INDEX idx_dataset_rows_lookup ON dataset_rows(sport,dataset,row_index);
+    CREATE INDEX idx_dataset_rows_date ON dataset_rows(sport,dataset,date_key);`);
+  const queries = [];
   function execute(sql) {
+    queries.push(sql);
     const stmt = db.prepare(sql);
     const cols = stmt.columns().map(({name}) => ({name}));
     if (!cols.length) return { cols, rows: [], affected_row_count: Number(stmt.run().changes) };
@@ -52,7 +56,7 @@ function fixture() {
     });
     return exports;
   }
-  return { db, store:loadStore(), other:loadStore(), failManifest:()=>db.exec(
+  return { db, queries, store:loadStore(), other:loadStore(), failManifest:()=>db.exec(
     "CREATE TRIGGER fail_manifest BEFORE INSERT ON dataset_manifest BEGIN SELECT RAISE(ABORT, 'Injected manifest failure'); END"),
     rows:()=>db.prepare('SELECT row_index,payload_json FROM dataset_rows ORDER BY row_index').all(),
     count:()=>db.prepare('SELECT row_count FROM dataset_manifest').get()?.row_count };
@@ -120,6 +124,23 @@ test('large saved weekly charts are paged in order and date reads do not poison 
     assert.equal(next.length,16);
     assert.equal(next[0].Selection,'65');
   });
+});
+
+test('date-filtered reads use the date index even for an empty day and later chart pages', async () => {
+  const f=fixture();
+  const rows=Array.from({length:100},(_,i)=>({Date:i%2?'2026-10-10':'2026-10-17',Selection:String(i)}));
+  await f.store.appendTursoDataset('NCAAF','weekly_market_trends',rows);
+  f.queries.length=0;
+  assert.equal((await f.store.readTursoDatasetByDateKeys('NCAAF','weekly_market_trends',['2026-10-21'])).length,0);
+  const selected=await f.store.readTursoDatasetByDateKeys('NCAAF','weekly_market_trends',['2026-10-17','2026-10-10']);
+  assert.deepEqual(Array.from(selected,r=>r.Selection),rows.map(r=>r.Selection));
+  await f.store.readTursoDatasetByDateKeys('NCAAF','odds_snapshot',['2026-10-21']);
+  assert.ok(f.queries.length>4);
+  for(const sql of f.queries) {
+    const plan=f.db.prepare('EXPLAIN QUERY PLAN '+sql).all().map(r=>r.detail).join('\n');
+    assert.match(plan,/USING INDEX idx_dataset_rows_date/);
+    assert.doesNotMatch(plan,/USING INDEX idx_dataset_rows_lookup/);
+  }
 });
 
 test('appending to an existing archive never executes the aggregate scan', async () => {
