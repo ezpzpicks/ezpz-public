@@ -12630,7 +12630,10 @@ export async function buildPublicDataResponse(request: NextRequest) {
       const body = JSON.stringify(payload);
       console.info("[football-public-display]", JSON.stringify({ sport: requestedSport,
         elapsedMs: Date.now() - started, bytes: Buffer.byteLength(body), compact: compactVersion === "1" || compactVersion === "2" }));
-      return new NextResponse(body, { headers: { "Content-Type": "application/json", "Cache-Control": forceFreshFootball ? "no-store, max-age=0" : "public, s-maxage=30, stale-while-revalidate=30" } });
+      // Retain the last successful board through the five-minute visitor poll.
+      // The CDN refreshes it in the background; manual/scheduled refreshes still
+      // bypass the cache. A quiet site must not make every visitor wait on a build.
+      return new NextResponse(body, { headers: { "Content-Type": "application/json", "Cache-Control": forceFreshFootball ? "no-store, max-age=0" : "public, s-maxage=30, stale-while-revalidate=300" } });
     } catch (error) {
       console.error(`${requestedSport} public data failed`, error);
       return NextResponse.json(
