@@ -12626,10 +12626,10 @@ export async function buildPublicDataResponse(request: NextRequest) {
           forceFresh: forceFreshFootball,
           persist: scheduledFootball,
           publicDisplay: !scheduledFootball,
-        })), compactVersion === "1" || compactVersion === "2", compactVersion === "2");
+        })), ["1", "2", "3"].includes(compactVersion || ""), compactVersion === "2" || compactVersion === "3", compactVersion === "3");
       const body = JSON.stringify(payload);
       console.info("[football-public-display]", JSON.stringify({ sport: requestedSport,
-        elapsedMs: Date.now() - started, bytes: Buffer.byteLength(body), compact: compactVersion === "1" || compactVersion === "2" }));
+        elapsedMs: Date.now() - started, bytes: Buffer.byteLength(body), compact: ["1", "2", "3"].includes(compactVersion || "") }));
       // Retain the last successful board through the five-minute visitor poll.
       // The CDN refreshes it in the background; manual/scheduled refreshes still
       // bypass the cache. A quiet site must not make every visitor wait on a build.

@@ -10,7 +10,7 @@ export function compactFootballChartHistory<T extends ChartPoint>(points: T[]): 
     || !sameQuote(point, points[index - 1]) || !sameQuote(point, points[index + 1]));
 }
 
-export function compactFootballPublicDisplay<T extends { trendPlays?: Record<string, any>[] }>(payload: T, compactCatalog = false, compactCharts = false): T {
+export function compactFootballPublicDisplay<T extends { trendPlays?: Record<string, any>[] }>(payload: T, compactCatalog = false, compactCharts = false, compactNflRecords = false): T {
   const display = {
     ...payload,
     trendPlays: payload.trendPlays?.map(play => ({
@@ -57,6 +57,9 @@ export function compactFootballPublicDisplay<T extends { trendPlays?: Record<str
   for (const key of ['trendPlays', 'trendRecordRows', 'aiPicks', 'aiPickRecordRows']) {
     if (Array.isArray(next[key])) next[key] = next[key].map(row);
   }
+  if (compactNflRecords && Array.isArray(next.ezpzRecords?.history)) next.ezpzRecords = {
+    ...next.ezpzRecords, history: next.ezpzRecords.history.map(row),
+  };
   if (next.footballSignals?.sides) next.footballSignals = {
     ...next.footballSignals,
     sides: next.footballSignals.sides.map((side: Record<string, any>) => side.marketContext ? {
@@ -98,6 +101,9 @@ export function restoreFootballPublicDisplay<T>(payload: T): T {
   for (const key of ['trendPlays', 'trendRecordRows', 'aiPicks', 'aiPickRecordRows']) {
     if (Array.isArray(next[key])) next[key] = next[key].map(row);
   }
+  if (Array.isArray(next.ezpzRecords?.history)) next.ezpzRecords = {
+    ...next.ezpzRecords, history: next.ezpzRecords.history.map(row),
+  };
   if (next.footballSignals?.sides) next.footballSignals = {
     ...next.footballSignals,
     sides: next.footballSignals.sides.map((side: Record<string, any>) => side.marketContext ? {
