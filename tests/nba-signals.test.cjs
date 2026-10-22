@@ -134,6 +134,12 @@ test('trend grading requires an identity-matched final score and a complete orig
     [f.rows.slice(0, 3), game], [f.rows, { ...game, Completed: 'FALSE' }], [f.rows, { ...game, 'Home Team ID': '99' }],
     [f.rows, { ...game, 'Result Updated': iso(now + 1) }], [f.rows.map(r => ({ ...r, Source: 'Other' })), game],
     [f.rows.map(r => ({ ...r, 'Frozen At': iso(f.kickoff - 9 * 60000) })), game],
+    [f.rows.map((r, i) => i === 0 ? { ...r, Line: '99' } : r), game],
+    [f.rows.map((r, i) => i === 2 ? { ...r, Line: '999' } : r), game],
+    [f.rows.map((r, i) => i === 2 ? { ...r, 'Current Bets %': '' } : r), game],
+    [f.rows.map((r, i) => i === 2 ? { ...r, 'Current Handle %': '99' } : r), game],
+    [f.rows.map((r, i) => i === 2 ? { ...r, Selection: 'Other' } : r), game],
+    [f.rows.map(r => ({ ...r, Odds: '-500' })), game],
   ]) assert.equal(core.settleNbaTrendRows(snapshots, [schedule], now).length, 0);
 });
 test('NBA ranking excludes foreign and future results and deduplicates physical games', () => {
