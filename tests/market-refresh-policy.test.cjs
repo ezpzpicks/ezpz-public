@@ -4,6 +4,13 @@ const policy=load(path.join(root,'lib/marketRefreshPolicy.ts'));
 const now=Date.parse('2026-10-24T16:00:00Z'),minute=60000;
 const game=lead=>({date:'2026-10-24',kickoff:now+lead*minute,final:false});
 
+function durableGate(tables){
+  const storage={readTursoDataset:async(_,tab)=>tables[tab]||[],readTursoDatasetByDateKeys:async(_,tab)=>tables[tab]||[],
+    replaceTursoDataset:async(_,tab,rows)=>{tables[tab]=rows;}};
+  return()=>{const api={};vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(root,'lib/scheduledMarketRefresh.ts'),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,
+    {exports:api,Date,Intl,console:{info(){}},require:id=>id==='./tursoStore'?storage:id==='./marketRefreshPolicy'?policy:id==='./footballWeeklyMarket'?{nflKickoffIso:(_,time)=>time}:id==='./mlbTrendV2'?{isoDate:x=>x}:{}});return api;};
+}
+
 test('quiet slates run every 30 minutes and the 90-minute boundary immediately enables five-minute collection',()=>{
   assert.equal(policy.marketRefreshDecision([game(91)],'2026-10-24',now,now-10*minute).due,false);
   assert.equal(policy.marketRefreshDecision([game(91)],'2026-10-24',now,now-30*minute).due,true);
@@ -42,10 +49,7 @@ test('every cron offset captures a real observation inside the existing final-sn
 });
 test('the durable gate survives cold instances and never treats a failed attempt as success',async()=>{
   const tables={schedule:[{Date:'2026-10-24','Game Time':'2026-10-24T20:00:00Z'}]};
-  const storage={readTursoDataset:async(_,tab)=>tables[tab]||[],readTursoDatasetByDateKeys:async(_,tab)=>tables[tab]||[],
-    replaceTursoDataset:async(_,tab,rows)=>{tables[tab]=rows;}};
-  const make=()=>{const api={};vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(root,'lib/scheduledMarketRefresh.ts'),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,
-    {exports:api,Date,Intl,console:{info(){}},require:id=>id==='./tursoStore'?storage:id==='./marketRefreshPolicy'?policy:id==='./footballWeeklyMarket'?{nflKickoffIso:(_,time)=>time}:id==='./mlbTrendV2'?{isoDate:x=>x}:{}});return api;};
+  const make=durableGate(tables);
   const first=make();
   assert.equal((await first.scheduledMarketRefresh('NFL','market',now)).due,true);
   assert.equal((await make().scheduledMarketRefresh('NFL','market',now+5*minute)).due,true);
@@ -53,4 +57,18 @@ test('the durable gate survives cold instances and never treats a failed attempt
   assert.equal((await make().scheduledMarketRefresh('NFL','market',now+5*minute)).due,false);
   assert.equal((await make().scheduledMarketRefresh('NFL','market',now+30*minute)).due,true);
   assert.equal((await make().scheduledMarketRefresh('NFL','market',now+150*minute)).intervalMinutes,5);
+});
+
+test('public snapshots refresh on the new Eastern game date, then resume their normal cadence',async()=>{
+  for(const midnight of ['2026-10-22T04:00:00Z','2026-12-05T05:00:00Z']){
+    const tick=Date.parse(midnight)+4*minute,tables={},make=durableGate(tables);
+    await make().recordScheduledMarketRefresh('NFL','public',tick-5*minute);
+    await make().recordScheduledMarketRefresh('NFL','market',tick-5*minute);
+    const rollover=await make().scheduledMarketRefresh('NFL','public',tick);
+    assert.equal(rollover.due,true);assert.equal(rollover.reason,'New game date');
+    assert.equal(rollover.intervalMinutes,30);
+    assert.equal((await make().scheduledMarketRefresh('NFL','market',tick)).due,false);
+    await make().recordScheduledMarketRefresh('NFL','public',tick);
+    assert.equal((await make().scheduledMarketRefresh('NFL','public',tick+5*minute)).due,false);
+  }
 });
