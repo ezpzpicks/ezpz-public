@@ -29,6 +29,12 @@ export async function scheduledMarketRefresh(sport: Sport, stage: Stage, now = D
   const last = Date.parse(String(state[0]?.["Updated At"] || ""));
   const lastSuccess = Number.isFinite(last) ? last : null;
   const decision = marketRefreshDecision(games, today, now, lastSuccess, stage === "public");
+  // Public pick snapshots are tied to the Eastern game date. Refresh on the
+  // first tick of a new day even when yesterday's collection is still recent.
+  if (stage === "public" && lastSuccess != null && day(lastSuccess) !== today) {
+    decision.due = true;
+    decision.reason = "New game date";
+  }
   console.info("[market-refresh]", JSON.stringify({ sport, stage, action: decision.due ? "collect" : "skip",
     checkedAt: new Date(now).toISOString(), lastSuccess: lastSuccess == null ? null : new Date(lastSuccess).toISOString(), ...decision }));
   return decision;
