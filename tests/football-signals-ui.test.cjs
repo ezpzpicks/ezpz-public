@@ -53,6 +53,24 @@ test('team summary keeps both teams and the three relevant records without the g
   assert.doesNotMatch(html, /BAL|Games behind these records|Final grade calculation|Evidence captured|Weight version/);
 });
 
+test('team details show available ATS records without inventing a grade when the spread is missing', () => {
+  const pending = { ...side, line: null, selection: 'DAL', teamTrend: { ...side.teamTrend, score: null,
+    teams: side.teamTrend.teams.map(team => ({ ...team, role: null,
+      records: { ...team.records, betType: { ...team.records.betType, label: 'Overall ATS' } } })) } };
+  const signal = { ...side.signals[3], available: false, active: false, value: null, level: 'Unavailable' };
+  const html = render(React.createElement(exportsObject.detailTest, { side: pending, signal, onClose() {} }));
+  for (const text of ['Awaiting spread', 'DAL', 'GB', 'Overall ATS', 'Away ATS', 'Last 5 ATS', '4-1-0', 'grade await the line', 'Adds no signal']) assert(html.includes(text), text);
+  assert.doesNotMatch(html, /supporting grade|80 out of 100|Team records are awaiting/);
+});
+
+test('incomplete totals history stays visible with an explicit pending combined grade', () => {
+  const incomplete = { ...side, market: 'Total', side: 'Under', selection: 'Under 44.5', teamTrend: { ...side.teamTrend, score: null,
+    teams: side.teamTrend.teams.map((team, i) => ({ ...team, missingGames: i ? 0 : 1, seasonGames: i ? 5 : 6 })) } };
+  const signal = { ...side.signals[3], available: false, active: false, value: null, level: 'Unavailable' };
+  const html = render(React.createElement(exportsObject.detailTest, { side: incomplete, signal, onClose() {} }));
+  for (const text of ['Awaiting complete history', 'Available records are shown below', 'DAL', 'GB', '4-1-0', 'partial grade', 'missing for 1 season game', 'Adds no signal']) assert(html.includes(text), text);
+});
+
 test('saved dates stay in the slate selector when no games from those weeks are in the main response', () => {
   const html = render(React.createElement(exportsObject.default, { board: { ...board, today: '2026-11-05', sides: [], archiveDates: ['2026-10-18', '2026-10-22'] } }));
   assert.match(html, /option value="2026-10-18"/);

@@ -28,9 +28,15 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 function TeamDetail({ side }: { side: FootballSignalSide }) {
   const score = side.teamTrend;
   if (!score) return <p>Team records are awaiting a complete matchup and market line.</p>;
+  const awaitingSpread = side.market === "Spread" && side.line == null;
   return <>
-    <p>Qualifies at 75. Each team’s grade uses 50% bet type, 30% venue and 20% last five, then both grades are averaged.</p>
-    {score.teams.map(team => <Section key={team.team} title={`${team.team} · supporting grade ${format(team.score)}`}>
+    {awaitingSpread
+      ? <p>The spread is unavailable. Overall ATS, home/away and last-five records are shown below. Favorite/underdog records and the grade await the line.</p>
+      : <p>Qualifies at 75. Each team’s grade uses 50% bet type, 30% venue and 20% last five, then both grades are averaged.</p>}
+    {score.score == null && score.teams.some(team => team.missingGames > 0)
+      ? <p>The combined grade is awaiting complete history. Available records are shown below.</p> : null}
+    {score.teams.map(team => <Section key={team.team} title={awaitingSpread ? team.team
+      : `${team.team} · ${team.missingGames ? "partial" : "supporting"} grade ${format(team.score)}`}>
       <table className="fs-table"><thead><tr><th>Trend</th><th>Record</th></tr></thead><tbody>
         {Object.entries(team.records).map(([key, record]) => <tr key={key}><th scope="row">{record.label}</th>
           <td>{record.sample ? record.record : "No matching games"}</td></tr>)}
@@ -54,7 +60,9 @@ function PublicDetail({ side }: { side: FootballSignalSide }) {
 }
 function SignalDetail({ side, signal, onClose }: { side: FootballSignalSide; signal: FootballSignal; onClose: () => void }) {
   const key = signal.key, context = side.marketContext;
-  const magnitude = !signal.available ? "Unavailable" : key === "system" ? side.publicMatches.length ? "Match" : "No match"
+  const magnitude = !signal.available ? key === "team" && side.teamTrend
+    ? side.market === "Spread" && side.line == null ? "Awaiting spread" : "Awaiting complete history"
+    : "Unavailable" : key === "system" ? side.publicMatches.length ? "Match" : "No match"
     : key === "team" ? `${format(signal.value)} out of 100`
     : signal.value == null ? signal.active ? "Qualifying" : "Inactive"
     : `${format(signal.value, ["money", "move", "model", "sos"].includes(key))}${key === "money" || (key === "move" && context.movementBasis === "Implied Probability") ? " percentage points" : key === "sos" ? " rank places" : " points"}`;
