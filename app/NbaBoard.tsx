@@ -9,6 +9,7 @@ type Forecast = {
   total: number; fair_home_spread: number; home_spread_edge: number | null; total_edge: number | null;
   spread_pick?: string; total_pick?: string; spread_grade?: string; total_grade?: string;
   spreadResult?: string; totalResult?: string;
+  availability_mode?: "injury_feed" | "expected_rotation";
   market?: { home_spread: number; total: number; source: string; as_of: string } | null;
 };
 export type NbaMarketPayload = {
@@ -40,6 +41,7 @@ function ForecastCard({ forecast }: { forecast: Forecast }) {
   return <article className="nbaCard">
     <h3><MatchupWithLogos sport="NBA" game={`${forecast.away_team} @ ${forecast.home_team}`} /></h3>
     <p>{time(forecast.tipoff)} · {forecast.phase === "pregame" ? "Pregame refresh" : forecast.phase === "early" ? "Early forecast" : "Manual forecast"}</p>
+    {forecast.availability_mode === "expected_rotation" && <p className="nbaNotice">Expected rotation · Injury availability unchecked · Starters unconfirmed</p>}
     <div className="nbaScore">{forecast.away_team} <strong>{forecast.away_score.toFixed(1)}</strong> <span> / </span>{forecast.home_team} <strong>{forecast.home_score.toFixed(1)}</strong></div>
     <div className="nbaScroll"><table><thead><tr><th>Market</th><th>Selection</th><th>Model</th><th>Market line</th><th>Edge</th><th>Grade</th></tr></thead>
       <tbody><tr><td>Spread</td><td>{forecast.spread_pick || "No market line"}</td><td>Home {signed(forecast.fair_home_spread)}</td><td>{forecast.market ? signed(forecast.market.home_spread) : "—"}</td><td>{forecast.home_spread_edge == null ? "—" : `${Math.abs(forecast.home_spread_edge).toFixed(1)} pts`}</td><td><strong>{forecast.spread_grade || "—"}</strong></td></tr>
