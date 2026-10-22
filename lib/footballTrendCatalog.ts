@@ -1,6 +1,7 @@
 import { evaluateArchivedCatalogContext } from "./footballCatalogContext";
 import { catalog as nflCatalog } from './catalog/nflCatalog';
 import { catalog as ncaafCatalog } from './catalog/ncaafCatalog';
+import { catalog as nbaCatalog } from './catalog/nbaCatalog';
 import { nflTrendTeamKey } from './nflTrendIdentity';
 
 export type CatalogExpression = number | boolean | any[];
@@ -22,7 +23,7 @@ export type CatalogEvaluation = {
 };
 type Side = Record<string, any>;
 type Point = { time: number; line: number | null; bets: number | null; money: number | null; odds: number | null };
-const catalogs: Record<string, CatalogDefinition> = { NFL: nflCatalog, NCAAF: ncaafCatalog };
+const catalogs: Record<string, CatalogDefinition> = { NFL: nflCatalog, NCAAF: ncaafCatalog, NBA: nbaCatalog };
 const catalogIndexes = new Map(Object.values(catalogs).map(config => {
   const rules = new Map(config.rules.map(rule => [rule.id, rule]));
   const filters = new Map(config.filters.map(filter => [filter.id, filter]));

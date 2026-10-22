@@ -1694,7 +1694,7 @@ function existingNumber(row: SheetRow | undefined, field: string, fallback: numb
 
 const SELECTED_SIDE_MOVEMENT_VERSION = "football-selected-side-v2";
 
-function selectedSideLineMove(
+export function selectedSideLineMove(
   market: WeeklyFootballMarket,
   side: unknown,
   fromLine: number,
@@ -1721,7 +1721,7 @@ function movementThresholds(basis: string) {
     : { standard: 0.5, strong: 1 };
 }
 
-function classifySelectedSideMovement(
+export function classifySelectedSideMovement(
   publicMovementPct: number,
   lineMovementValue: number | null,
   basis: string,

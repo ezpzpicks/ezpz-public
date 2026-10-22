@@ -82,8 +82,16 @@ INSERT INTO dataset_rows VALUES('NFL','weekly_market_trends',1,'{"Date":"2026-10
 process.env.TURSO_DATABASE_URL='https://nba-sqlite-test.invalid';
 process.env.TURSO_AUTH_TOKEN='synthetic-test-token';
 let writeRequests=0;
+const sqlStatements=[];
+let pendingSchedulePayload=null, pendingScheduleRequests=0;
 global.fetch=async (_url,options)=>{
+  if(String(_url).startsWith('https://site.api.espn.com/')) {
+    pendingScheduleRequests++;
+    assert(pendingSchedulePayload,'only explicitly supplied pending NBA schedules may be fetched');
+    return {ok:true,status:200,json:async()=>pendingSchedulePayload};
+  }
   const input=JSON.parse(options.body);
+  sqlStatements.push(...input.requests.filter(r=>r.type==='execute').map(r=>r.stmt.sql));
   if(input.requests.some(r=>r.type==='sequence')) writeRequests++;
   const output=execFileSync('python',['-c',bridge,dbPath],{input:options.body,encoding:'utf8'});
   return {ok:true,status:200,text:async()=>output};
@@ -109,5 +117,50 @@ global.fetch=async (_url,options)=>{
   assert.equal(publicData.nbaMarket.splits.length,8);
   assert.equal(publicData.nbaMarket.forecasts.length,0);
   assert.equal(publicData.bestPlays.length,0);
+  const analysis=require('../lib/nbaAnalysis.ts');
+  const policy=require('../lib/nbaTrendLeaderboard.ts');
+  const nextDate='2026-11-10', nextStart=Date.parse(nextDate+'T17:00:00Z'), nextLock=Date.parse(nextDate+'T22:45:00Z');
+  const nextPayload=clone(payload);
+  nextPayload.events.forEach(e=>{e.competitions[0].date=nextDate+'T23:00:00Z';});
+  const nextGames=core.normalizeNbaSlate(nextPayload,nextDate);
+  const nextBound=core.bindNbaSplits(rows.map(r=>({...r,date:nextDate})),nextGames,nextStart);
+  const nextOpen=core.advanceNbaMarkets(nextBound.rows,[],nextStart);
+  const nextFinal=core.advanceNbaMarkets(nextBound.rows,nextOpen.latest,nextLock);
+  const nextSchedule=analysis.nbaScheduleRows(nextGames,nextLock);
+  await store.saveNbaMarketRows('schedule',nextSchedule);
+  await store.saveNbaMarketRows('weekly_market_trends',nextFinal.latest);
+  await store.saveNbaMarketRows('public_split_snapshots',nextFinal.finals);
+  const captured=await analysis.refreshNbaAnalysis(nextDate,nextSchedule,nextLock);
+  assert.equal(captured.capturedSides,8,'both games keep their own Over and Under observations');
+  const savedSignals=await db.readTursoDatasetByDateKeys('NBA',policy.NBA_SIGNALS_TAB,[nextDate]);
+  assert.equal(savedSignals.length,8);
+  assert.equal(new Set(savedSignals.map(r=>r['Game Key'])).size,2);
+  assert(savedSignals.every(r=>r.Selected==='FALSE'),'empty history creates no fabricated test selections');
+  const afterCapture=writeRequests;
+  await analysis.refreshNbaAnalysis(nextDate,nextSchedule,nextLock);
+  assert.equal(writeRequests,afterCapture,'same observations and rollups must be idempotent');
+  const seasonReads=()=>sqlStatements.filter(q=>q.includes("dataset='nba_trend_records'")&&q.includes('date_key>=')).length;
+  assert.equal(seasonReads(),0,'ordinary market ticks never read the full-season ledger');
+  const beforePublic=writeRequests;
+  await readNbaPublicData(nextDate);
+  assert.equal(writeRequests,beforePublic,'public NBA pages are read-only');
+  pendingSchedulePayload=clone(nextPayload);
+  pendingSchedulePayload.events.forEach(e=>{
+    const c=e.competitions[0];c.status.type={name:'STATUS_FINAL',state:'post',completed:true};
+    c.competitors.forEach(p=>{p.score=p.homeAway==='home'?'115':'110';});
+  });
+  const nextDay='2026-11-11', afterFinal=Date.parse(nextDay+'T12:00:00Z');
+  const completed=await analysis.refreshNbaAnalysis(nextDay,[],afterFinal);
+  assert.equal(pendingScheduleRequests,1,'day rollover checks only the saved pending slate');
+  assert.equal(completed.gradedSides,8); assert.equal(completed.settledSides,8);
+  assert.equal(seasonReads(),1,'rankings rebuild once when results arrive');
+  const state=await analysis.readNbaAnalysis(nextDay);
+  assert.equal(state.teamHistory.length,2); assert.deepEqual(state.pendingDates,[]);
+  assert.deepEqual(state.archiveDates,[nextDate]);
+  assert(state.leaderboard.length>0 && state.leaderboard.length<=20);
+  const finishedWrites=writeRequests;
+  await analysis.refreshNbaAnalysis(nextDay,[],afterFinal);
+  assert.equal(seasonReads(),1); assert.equal(writeRequests,finishedWrites,'settled rows stop rewriting and reranking');
+  assert.equal((await db.readTursoDatasetByDateKeys('NFL','weekly_market_trends',['2026-10-22']))[0].kept,'yes');
   console.log('NBA market source, refresh, final locks, SQLite isolation/idempotence and public-read checks passed');
 })().catch(error=>{console.error(error);process.exitCode=1;}).finally(()=>fs.rmSync(dir,{recursive:true,force:true}));

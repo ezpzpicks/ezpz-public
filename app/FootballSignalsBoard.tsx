@@ -35,7 +35,7 @@ function TeamDetail({ side }: { side: FootballSignalSide }) {
       : <p>Qualifies at 75. Each team’s grade uses 50% bet type, 30% venue and 20% last five, then both grades are averaged.</p>}
     {score.score == null && score.teams.some(team => team.missingGames > 0)
       ? <p>The combined grade is awaiting complete history. Available records are shown below.</p> : null}
-    {score.teams.map(team => <Section key={team.team} title={awaitingSpread ? team.team
+    {score.teams.map(team => <Section key={team.team} title={team.hasData === false ? `${team.team} · Awaiting graded history` : awaitingSpread ? team.team
       : `${team.team} · ${team.missingGames ? "partial" : "supporting"} grade ${format(team.score)}`}>
       <table className="fs-table"><thead><tr><th>Trend</th><th>Record</th></tr></thead><tbody>
         {Object.entries(team.records).map(([key, record]) => <tr key={key}><th scope="row">{record.label}</th>
@@ -123,7 +123,7 @@ export default function FootballSignals({ board }: { board?: FootballSignalsBoar
     setArchive({ key: archiveKey, status: "loading", sides: [] });
     async function loadArchive() {
       try {
-        const response = await fetch(`/api/football-signals-history?sport=${sport}&date=${selectedDate}`, { signal: controller.signal });
+        const response = await fetch(`/api/${sport === "NBA" ? "nba" : "football"}-signals-history?sport=${sport}&date=${selectedDate}`, { signal: controller.signal });
         const value = await response.json();
         if (!response.ok || !value.ok || value.sport !== sport || value.date !== selectedDate || !Array.isArray(value.sides)) throw new Error("Saved slate unavailable");
         if (!controller.signal.aborted) setArchive({ key: archiveKey, status: "ready", sides: value.sides });
@@ -154,7 +154,7 @@ export default function FootballSignals({ board }: { board?: FootballSignalsBoar
   if (!board) return <div className="fs-empty">Signals are awaiting the next successful board refresh.</div>;
   const close = () => { setOpen(null); trigger.current?.focus(); };
   return <section className={`fs-board ${keys.length === 6 ? "fs-six" : ""}`} aria-label={`${board.sport} Signals`} onKeyDown={e => { if (e.key === "Escape" && open) { close(); e.preventDefault(); } }}>
-    <div className="fs-heading"><div><span className="fs-kicker">{board.sport === "NCAAF" ? "College football" : "NFL"}</span><h2>Signals</h2></div><span className="fs-test-label">3+ test</span></div>
+    <div className="fs-heading"><div><span className="fs-kicker">{board.sport === "NCAAF" ? "College football" : board.sport}</span><h2>Signals</h2></div><span className="fs-test-label">3+ test</span></div>
     <p className="fs-description">Every matchup. Same qualifying rules. Tap a signal for the key details.</p>
     {!board.captureAvailable ? <p className="fs-notice" role="status">Test capture is unavailable. Signals below are previews.</p> : null}
     <div className="fs-controls"><div className="fs-markets" role="group" aria-label="Market">{(["Spread", "Total"] as const).map(m => <button type="button" key={m} aria-pressed={market === m} onClick={() => { setMarket(m); setOpen(null); }}>{m === "Spread" ? "Spreads" : "Totals"}</button>)}</div>
