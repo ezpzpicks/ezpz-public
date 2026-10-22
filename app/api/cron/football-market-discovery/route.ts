@@ -33,7 +33,9 @@ async function runCron(request: NextRequest) {
     const result = dryRun
       ? await inspectPostedFootballMarkets(raw as FootballSport)
       : await syncPostedFootballMarkets(raw as FootballSport);
-    if (!dryRun && "errors" in result && !result.errors?.length) await recordScheduledMarketRefresh(raw, "market", startedAt);
+    if (!dryRun && "refreshCompleted" in result && result.refreshCompleted === true) {
+      await recordScheduledMarketRefresh(raw, "market", startedAt);
+    }
     return NextResponse.json(result, { headers: { "Cache-Control": "no-store, max-age=0" } });
   } catch (error) {
     console.error("Football market discovery failed", error);

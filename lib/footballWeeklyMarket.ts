@@ -2622,6 +2622,9 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
     missingPages: dk.missingPages,
     trendRowsUpdated: rows.length,
     marketHistoryRowsAppended,
+    // Feed diagnostics can accompany a fully saved refresh. Only an actual
+    // persistence failure should leave the scheduled refresh due for retry.
+    refreshCompleted: marketHistoryRowsAppended === marketHistoryRowsToAppend.length,
     marketHistoryRowsStored: sport === "NCAAF"
       ? effectiveExistingTrends.reduce((sum, row) => {
           try {

@@ -45,7 +45,7 @@ test('the durable gate survives cold instances and never treats a failed attempt
   const storage={readTursoDataset:async(_,tab)=>tables[tab]||[],readTursoDatasetByDateKeys:async(_,tab)=>tables[tab]||[],
     replaceTursoDataset:async(_,tab,rows)=>{tables[tab]=rows;}};
   const make=()=>{const api={};vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(root,'lib/scheduledMarketRefresh.ts'),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,
-    {exports:api,Date,Intl,require:id=>id==='./tursoStore'?storage:id==='./marketRefreshPolicy'?policy:id==='./footballWeeklyMarket'?{nflKickoffIso:(_,time)=>time}:id==='./mlbTrendV2'?{isoDate:x=>x}:{}});return api;};
+    {exports:api,Date,Intl,console:{info(){}},require:id=>id==='./tursoStore'?storage:id==='./marketRefreshPolicy'?policy:id==='./footballWeeklyMarket'?{nflKickoffIso:(_,time)=>time}:id==='./mlbTrendV2'?{isoDate:x=>x}:{}});return api;};
   const first=make();
   assert.equal((await first.scheduledMarketRefresh('NFL','market',now)).due,true);
   assert.equal((await make().scheduledMarketRefresh('NFL','market',now+5*minute)).due,true);
