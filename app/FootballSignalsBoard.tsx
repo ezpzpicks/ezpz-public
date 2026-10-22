@@ -35,7 +35,7 @@ function TeamDetail({ side }: { side: FootballSignalSide }) {
       : <p>Qualifies at 75. Each team’s grade uses 50% bet type, 30% venue and 20% last five, then both grades are averaged.</p>}
     {score.score == null && score.teams.some(team => team.missingGames > 0)
       ? <p>The combined grade is awaiting complete history. Available records are shown below.</p> : null}
-    {score.teams.map(team => <Section key={team.team} title={awaitingSpread ? team.team
+    {score.teams.map(team => <Section key={team.team} title={team.hasData === false ? `${team.team} · Awaiting graded history` : awaitingSpread ? team.team
       : `${team.team} · ${team.missingGames ? "partial" : "supporting"} grade ${format(team.score)}`}>
       <table className="fs-table"><thead><tr><th>Trend</th><th>Record</th></tr></thead><tbody>
         {Object.entries(team.records).map(([key, record]) => <tr key={key}><th scope="row">{record.label}</th>

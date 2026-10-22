@@ -6,16 +6,16 @@ const { renderToStaticMarkup: render } = require('react-dom/server');
 require.extensions['.ts'] = (module, file) => module._compile(ts.transpileModule(fs.readFileSync(file, 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText, file);
-function component(file, overrides = {}) {
+function component(file, overrides = {}, append = '') {
   const exports = {};
-  vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.resolve(__dirname, '..', file), 'utf8'), {
+  vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.resolve(__dirname, '..', file), 'utf8') + append, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
   }).outputText, { exports, Date, Intl, console, process, require: name => overrides[name]
     || (name === './TeamLogoName' ? { TeamLogoName: p => p.team, SelectionWithTeamLogo: p => p.selection }
       : name.startsWith('../lib/') ? require(path.resolve(__dirname, '..', 'app', name + '.ts')) : require(name)) });
   return exports;
 }
-const football = component('app/FootballSignalsBoard.tsx');
+const football = component('app/FootballSignalsBoard.tsx', {}, '\nexport const testTeamDetail = TeamDetail;');
 const markets = component('app/FootballTrendMarketBoard.tsx');
 const nba = component('app/NbaPublicSplits.tsx', { './FootballTrendMarketBoard': markets });
 const date = '2026-11-10', time = date + 'T23:00:00Z';
@@ -53,4 +53,12 @@ test('NBA splits show the shared glossary, game counter, daily selector and hone
   for (const text of ['Bet Trend Glossary', '1 games', 'View NBA market slate', 'Top 20 NBA Sub Bet Types', 'One-sided 95% Wilson ranking',
     'No sub bet types currently exceed 60% wins from verified final snapshots.']) assert(html.includes(text), text);
   assert.doesNotMatch(html, /<tbody><tr class="recordPerformanceRow/);
+});
+test('a team with no graded history never presents its internal neutral prior as a supporting grade', () => {
+  const team = { team: 'Denver Nuggets', score: 50, hasData: false, missingGames: 0,
+    records: Object.fromEntries(['betType', 'venue', 'recent'].map(key => [key, { label: key, sample: 0, record: '0-0-0' }])) };
+  const html = render(React.createElement(football.testTeamDetail, { side: { market: 'Total', line: 236.5, teamTrend: { score: null, teams: [team] } } }));
+  assert.match(html, /Denver Nuggets · Awaiting graded history/);
+  assert.match(html, /No matching games/);
+  assert.doesNotMatch(html, /supporting grade 50/);
 });

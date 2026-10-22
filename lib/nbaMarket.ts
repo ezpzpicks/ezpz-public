@@ -48,7 +48,10 @@ export async function readNbaPublicData(date = nbaDate()) {
     readNbaForecasts(date), readNbaAnalysis(date), readTursoDatasetByDateKeys("NBA", NBA_SIGNALS_TAB, [date]),
   ]);
   const analysis = buildNbaSignals({ date, games, splits, forecasts, storedRows, state });
-  const lastUpdated = splits.map(r => r["Updated At"]).filter(Boolean).sort().at(-1) || "";
+  const lastObservation = splits.map(r => r["Updated At"]).filter(Boolean).sort().at(-1) || "";
+  const lastUpdated = Number.isFinite(Date.parse(lastObservation)) ? new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit", hour: "numeric", minute: "2-digit", second: "2-digit", timeZoneName: "short",
+  }).format(new Date(lastObservation)) : "";
   const zero = { label: "NBA model", record: "0-0-0", totalBets: 0, winPct: 0, unitsWon: 0, roiPct: 0, wins: 0, losses: 0, pushes: 0 };
   return { ok: true, sport: "NBA", today: date, lastUpdated,
     tiles: { last7Days: zero, overallGreen: zero, pendingGreen: 0, bestPlaysToday: 0 },
