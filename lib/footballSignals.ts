@@ -126,7 +126,7 @@ function evaluateSide(play: AnyRow, siblings: AnyRow[], input: SignalsInput, ran
   const category = ncaafTrendCategory(play);
   const publicMatches = ranking.slice(0, 20).map((subtype, i) => ({ ...subtype, rank: i + 1, ...matchRules(subtype, sport) }))
     .filter(subtype => subtype.category === category && memberships.has(subtype.signal));
-  const teamTrend = scoreFootballTeamTrends(play, sport, history, asOf), grade = teamTrend?.score ?? null;
+  const teamTrend = scoreFootballTeamTrends(play, sport, history, asOf, { allowMissingSpreadLine: true }), grade = teamTrend?.score ?? null;
   const teamGames = (teamTrend?.teams || []).flatMap(team => [...new Set(Object.values(team.records).flatMap(r => r.gameKeys))].flatMap(key => {
     const game = history.get(key); if (!game) return [];
     const home = game.home === footballTeamKey(team.team, sport), invert = (r: string) => r === "W" ? "L" : r === "L" ? "W" : "P";
@@ -151,7 +151,11 @@ function evaluateSide(play: AnyRow, siblings: AnyRow[], input: SignalsInput, ran
       publicQuoteEligible ? "Only the sport’s current top 20 Wilson-ranked, eligible catalog systems qualify. Multiple matches contribute one signal."
         : "The quote must also meet the existing price, kickoff and final-snapshot eligibility rules. Matching systems alone do not activate the signal."),
     signal("team", grade != null, grade != null && grade >= 75, grade, grade != null && grade >= 75 ? "Qualifying" : "Inactive",
-      "Existing raw team grade: 50% bet type, 30% venue, 20% last five; average both teams. Qualifies at 75 or higher."),
+      play.market === "Spread" && line == null
+        ? "The spread is unavailable. Season ATS records are shown for context; favorite/underdog records and the grade await the line."
+        : teamTrend?.teams.some(team => team.missingGames > 0)
+          ? "Available team records are shown, but the grade awaits missing historical market results."
+          : "Existing raw team grade: 50% bet type, 30% venue, 20% last five; average both teams. Qualifies at 75 or higher."),
     signal("model", model.available, model.active, model.edge, model.active ? model.context.grade : "Inactive", model.context.reason),
   ];
   if (sport === "NCAAF") signals.push(signal("sos", completeSos, play.market === "Spread" && sosGap != null && sosGap >= 25,

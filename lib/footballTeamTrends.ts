@@ -274,6 +274,7 @@ export function isSavedTeamTrendScore(value: unknown): value is FootballTeamTren
 /** Pure scoring: no Bayesian update, selection threshold, network call or write. */
 export function scoreFootballTeamTrends(
   pick: Row, sport: Sport, history: TeamTrendHistory, now = Date.now(),
+  options: { allowMissingSpreadLine?: boolean } = {},
 ): FootballTeamTrendScore | null {
   if (pick.playerName || !["spread", "total"].includes(text(pick.market))) return null;
   const pair = teams(pick), date = dateKey(pick.date);
@@ -283,7 +284,7 @@ export function scoreFootballTeamTrends(
   const selected = teamKey(String(pick.selectionTeam || pick.selection || "").replace(/\s+[+-]?\d+(?:\.\d+)?\s*$/, ""), sport);
   const selectedLine = number(pick.line) ?? lineFromSelection(pick.selection);
   const keys = pair.map(t => teamKey(t, sport));
-  if (spread && (selectedLine == null || !keys.includes(selected))) return null;
+  if (spread && (!keys.includes(selected) || (selectedLine == null && !options.allowMissingSpreadLine))) return null;
   // Keep the scoring scope within a football season, including Jan/Feb playoffs.
   const year = Number(date.slice(0, 4)) - (Number(date.slice(5, 7)) < 7 ? 1 : 0);
   const seasonStart = `${year}-07-01`;
@@ -292,7 +293,7 @@ export function scoreFootballTeamTrends(
   const scoredTeams: TeamTrendTeam[] = pair.map((team, index) => {
     const key = keys[index], venue: Venue = targetNeutral ? "Neutral" : index === 0 ? "Away" : "Home";
     const opposing = spread && key !== selected;
-    const ownLine = spread ? (opposing ? -selectedLine! : selectedLine!) : null;
+    const ownLine = spread && selectedLine != null ? (opposing ? -selectedLine : selectedLine) : null;
     const currentRole = ownLine == null ? null : role(ownLine);
     const seasonGames = [...history.values()].filter(g => g.date >= seasonStart && g.date < date && g.completed && (g.away === key || g.home === key))
       .sort((a, b) => a.date.localeCompare(b.date) || a.key.localeCompare(b.key));
@@ -307,8 +308,8 @@ export function scoreFootballTeamTrends(
     const ownRole = (g: Game) => g.spread ? role(g.home === key ? g.spread.homeLine : -g.spread.homeLine) : null;
     const marketLabel = spread ? "ATS" : direction;
     const weights = FOOTBALL_TEAM_TREND_WEIGHTS;
-    const betType = record(spread ? `${currentRole} ATS` : `Overall ${direction}`,
-      spread ? observations.filter(g => ownRole(g.game) === currentRole) : observations, weights.betType, opposing);
+    const betType = record(spread ? currentRole ? `${currentRole} ATS` : "Overall ATS" : `Overall ${direction}`,
+      spread && currentRole ? observations.filter(g => ownRole(g.game) === currentRole) : observations, weights.betType, opposing);
     const venueRecord = record(`${venue} ${marketLabel}`, observations.filter(g => ownVenue(g.game) === venue), weights.venue, opposing);
     const recentKeys = new Set(seasonGames.slice(-5).map(g => g.key));
     const recent = record(`Last 5 ${marketLabel}`, observations.filter(g => recentKeys.has(g.game.key)), weights.recent, opposing);
@@ -321,7 +322,10 @@ export function scoreFootballTeamTrends(
   const final = text(pick.snapshotStatus) === "final pregame";
   const mode = !final ? "preview" : Number.isFinite(start) && now < start ? "locked" : "replay";
   return { version: FOOTBALL_TEAM_TREND_VERSION, weights: { ...FOOTBALL_TEAM_TREND_WEIGHTS },
-    score: scoredTeams.every(t => t.hasData && !t.missingGames) ? scoredTeams.reduce((sum, t) => sum + t.score, 0) / 2 : null,
+    // Signals may show season records before a spread is available. A role-free
+    // record is context only and must never supply a qualifying grade.
+    score: (!spread || selectedLine != null) && scoredTeams.every(t => t.hasData && !t.missingGames)
+      ? scoredTeams.reduce((sum, t) => sum + t.score, 0) / 2 : null,
     teams: scoredTeams, capturedAt: new Date(now).toISOString(), asOfDate: date, mode,
     scope: "Current-season games", method: "Raw hit rates" };
 }

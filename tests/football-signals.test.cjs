@@ -83,6 +83,30 @@ test('three market badges alone fail the two-source rule; missing team history n
   assert.equal(find(board, 'team').available, false);
 });
 
+test('scheduled spreads keep season ATS records visible while the line and team grade are unavailable', () => {
+  const x = input();
+  x.core.trendPlays = [];
+  x.core.slateToday = [{ Date: date, 'Away Team': 'DAL', 'Home Team': 'GB', 'Game Time': iso(kickoff) }];
+  const { board, changedRows } = api.buildFootballSignalsState(x);
+  const spreads = board.sides.filter(side => side.market === 'Spread');
+  assert.equal(spreads.length, 2);
+  for (const side of spreads) {
+    assert.equal(side.line, null);
+    assert.equal(side.teamTrend.score, null);
+    assert.equal(side.teamTrend.teams.length, 2);
+    for (const team of side.teamTrend.teams) {
+      assert.equal(team.role, null);
+      assert.equal(team.records.betType.label, 'Overall ATS');
+      assert.equal(team.records.betType.sample, 6);
+      assert.equal(team.records.recent.sample, 5);
+    }
+    assert(side.teamGames.length > 0);
+    assert.equal(side.signals.find(signal => signal.key === 'team').active, false);
+    assert.equal(side.candidate, false);
+  }
+  assert.equal(changedRows.length, 0);
+});
+
 test('ranks outside the twentieth boundary and prices beyond the existing cap do not earn a public signal', () => {
   const x = input(); x.leaderboard = Array.from({ length: 20 }, (_, i) => ({ ...leaderboard()[0], signal: 'unmatched-' + i }));
   x.leaderboard.push(...leaderboard());

@@ -46,6 +46,19 @@ test('a spread opponent shows actual ATS records but contributes failed covers',
   assert.equal(opponent.score, 35);
 });
 
+test('a missing spread remains unscored and only exposes season records when explicitly requested', () => {
+  const history = api.buildTeamTrendHistory('NFL', [], [
+    row('2026-10-01', 'NE @ BUF', 'BUF +3.5', 'W', 'Spread'),
+    row('2026-10-01', 'NYJ @ CHI', 'NYJ -3.5', 'W', 'Spread'),
+  ]);
+  const pick = { ...total, market: 'Spread', selection: 'BUF', line: null };
+  assert.equal(api.scoreFootballTeamTrends(pick, 'NFL', history, now), null);
+  const context = api.scoreFootballTeamTrends(pick, 'NFL', history, now, { allowMissingSpreadLine: true });
+  assert.equal(context.score, null);
+  assert(context.teams.every(team => team.role === null && team.records.betType.label === 'Overall ATS'));
+  assert(context.teams.every(team => team.records.betType.sample === 1));
+});
+
 test('one physical game counts once despite two sides, aliases and repeated trends', () => {
   const rows = [...totals, ...totals, row('2026-10-01', 'New England Patriots @ Buffalo Bills', 'Over 40', 'W')];
   const history = api.buildTeamTrendHistory('NFL', [], rows);
