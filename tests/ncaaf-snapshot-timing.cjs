@@ -12,6 +12,7 @@ function harness(now = '2026-09-26T01:09:00Z', useSource = false) {
   const tables = {};
   const writes = [];
   let feed = [];
+  let warnings = [], appendError = null;
   class Clock extends Date {
     constructor(...args) { super(...(args.length ? args : [currentTime])); }
     static now() { return currentTime; }
@@ -21,6 +22,7 @@ function harness(now = '2026-09-26T01:09:00Z', useSource = false) {
     readSportWorksheet: async (_sport, table) => tables[table] || [],
     readSportWorksheetByDateKeys: async (_sport, table, dates) => (tables[table] || []).filter(row => dates.includes(row.Date)),
     appendSportRows: async (sport, table, _headers, rows) => {
+      if (appendError && table === 'odds_snapshot') throw appendError;
       writes.push({ sport, table, rows });
       tables[table] = [...(tables[table] || []), ...rows];
     },
@@ -36,21 +38,22 @@ function harness(now = '2026-09-26T01:09:00Z', useSource = false) {
   };
   const source = fs.readFileSync(path.join(__dirname, '../lib/footballWeeklyMarket.ts'), 'utf8') + `
     export const timing = { ncaafKickoffEpoch, ncaafMinutesUntilEvent, resolveNcaafSnapshot, ncaafHistoryForPlay, weeklyRow, loadPostedSplits };
-    ${useSource ? '' : 'loadPostedSplits = async () => ({ splits: testFeed(), errors: [] } as any);'}
+    ${useSource ? '' : 'loadPostedSplits = async () => ({ splits: testFeed(), errors: testWarnings() } as any);'}
   `;
   const code = ts.transpileModule(source, { compilerOptions: {
     target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS,
   }}).outputText;
   const exports = {};
-  vm.runInNewContext(code, { exports, Date: Clock, Intl, console, process,
+  vm.runInNewContext(code, { exports, Date: Clock, Error, Intl, console, process,
     testFeed: () => feed,
+    testWarnings: () => [...warnings],
     require: id => id === './sportSheets' ? storage : {
       SCORES_AND_ODDS_SOURCE: 'ScoresAndOdds',
       loadScoresAndOddsConsensus: async () => ({ splits: feed }),
       assessScoresAndOddsMarketCoverage: () => ({ ok: true, receivedGames: 1, expectedGames: 1, missingGames: [], incompleteGames: [] }),
     },
   });
-  return { ...exports, tables, writes, setFeed: rows => { feed = rows; }, setTime: time => { currentTime = Date.parse(time); } };
+  return { ...exports, tables, writes, setFeed: rows => { feed = rows; }, setWarnings: rows => { warnings = rows; }, failAppend: error => { appendError = error; }, setTime: time => { currentTime = Date.parse(time); } };
 }
 
 function play(kickoff = '2026-09-25T16:00:00-04:00') {
@@ -79,6 +82,29 @@ function seed(h, p, rows) {
   h.tables.odds_snapshot = rows;
   h.tables.schedule = [{ Date: p.date, 'Away Team': p.awayTeam, 'Home Team': p.homeTeam, 'Game Time': p.gameTime }];
 }
+
+// Scheduled refreshes reuse the compact history saved on each weekly play.
+function persistedHistory(rows) {
+  return rows.map(row => ({ snapshotTime: row['Snapshot Time ET'], line: Number(row.Line),
+    odds: row.Odds, betsPct: Number(row['Bets %']), moneyPct: Number(row['Handle %']) }));
+}
+
+for (const sport of ['NFL', 'NCAAF']) test(`${sport} refresh success distinguishes feed warnings from a failed archive save`, async () => {
+  const h = harness('2026-09-25T18:00:00Z');
+  const p = { ...play(), snapshotStatus: 'LIVE', frozenAt: undefined };
+  seed(h, p, []);
+  h.setFeed([{ ...p, eventTime: p.gameTime, warningKey: '', warning: '', warningTone: 'neutral', warningNegative: false }]);
+  h.setWarnings(['ScoresAndOdds returned 200 parsed market sides; 166 matched the schedule before validation.']);
+  const saved = await h.syncPostedFootballMarkets(sport);
+  assert.equal(saved.refreshCompleted, true);
+  assert.equal(saved.marketHistoryRowsAppended, 1);
+  assert.equal(saved.errors.length, 1);
+  h.failAppend(new Error('database unavailable'));
+  const failed = await h.syncPostedFootballMarkets(sport);
+  assert.equal(failed.refreshCompleted, false);
+  assert.equal(failed.marketHistoryRowsAppended, 0);
+  assert.ok(failed.errors.some(error => error.includes('Market history append failed: database unavailable')));
+});
 
 test('NCAAF kickoff handles ISO offsets, UTC, ET clocks, winter and invalid times', () => {
   const h = harness();
@@ -325,6 +351,8 @@ test('late game remains LIVE until its own lock and stale history is never fabri
   assert.equal(live.frozenAt, undefined);
   assert.equal(live.updatedAt, rows[1]['Snapshot Time ET']);
   h.setTime('2026-09-26T02:16:00Z');
+  assert.equal(h.timing.resolveNcaafSnapshot(live, rows, []).snapshotStatus, 'LIVE');
+  h.setTime('2026-09-26T02:21:00Z');
   assert.equal(h.timing.resolveNcaafSnapshot(live, rows, []).snapshotStatus, 'MISSED_LOCK');
 });
 
@@ -343,8 +371,9 @@ test('NCAAF API read repairs old locks without exposing post-lock chart prices o
 });
 
 test('scheduled NCAAF collection stops at cutoff and persists recovered finals even after source removal', async () => {
-  const h = harness(); const p = play();
-  seed(h, p, [observation(p, '09/25/2026, 3:44:02 PM EDT')]);
+  const h = harness('2026-09-25T21:09:00Z'); const p = play();
+  const rows = [observation(p, '09/25/2026, 3:44:02 PM EDT')];
+  seed(h, { ...p, movementHistory: persistedHistory(rows) }, rows);
   // A completed matchup remains on the source; never ingest this in-game line.
   h.setFeed([{ ...p, eventTime: p.gameTime, line: 70.5 }]);
   await h.syncPostedFootballMarkets('NCAAF');
@@ -358,7 +387,7 @@ test('scheduled NCAAF collection stops at cutoff and persists recovered finals e
   assert.ok(h.writes.every(write => write.sport === 'NCAAF'));
 });
 
-test('scheduled NCAAF collection captures a live game then freezes the same real observation at T-15', async () => {
+test('scheduled NCAAF collection captures through T-10 then freezes the real observation closest to T-15', async () => {
   const h = harness('2026-09-25T19:44:00Z'); const p = play();
   seed(h, p, []);
   h.setFeed([{ ...p, eventTime: p.gameTime, warningKey: '', warning: '', warningTone: 'neutral', warningNegative: false }]);
@@ -367,14 +396,18 @@ test('scheduled NCAAF collection captures a live game then freezes the same real
   assert.equal(JSON.parse(h.tables.weekly_market_trends[0]['Details JSON']).snapshotStatus, 'LIVE');
   h.setTime('2026-09-25T19:49:00Z');
   await h.syncPostedFootballMarkets('NCAAF');
-  assert.equal(h.tables.odds_snapshot.length, 1);
+  assert.equal(h.tables.odds_snapshot.length, 2);
+  assert.equal(JSON.parse(h.tables.weekly_market_trends[0]['Details JSON']).snapshotStatus, 'LIVE');
+  h.setTime('2026-09-25T19:51:00Z');
+  await h.syncPostedFootballMarkets('NCAAF');
+  assert.equal(h.tables.odds_snapshot.length, 2);
   const final = JSON.parse(h.tables.weekly_market_trends[0]['Details JSON']);
   assert.equal(final.snapshotStatus, 'FINAL_PREGAME');
   assert.equal(final.frozenAt, '09/25/2026, 3:44:00 PM EDT');
 });
 
 
-test('NCAAF read path collapses short-name and full-name duplicates onto the verified canonical game', async () => {
+test('NCAAF read and scheduled paths preserve compact canonical history despite alias rows', async () => {
   const h = harness('2026-09-26T17:05:00Z'); // 1:05 PM ET, five minutes after kickoff.
   const short = {
     ...play('2026-09-26T13:00:00-04:00'),
@@ -398,15 +431,17 @@ test('NCAAF read path collapses short-name and full-name duplicates onto the ver
     frozenAt: '09/26/2026, 12:44:00 PM EDT',
   };
 
-  h.tables.weekly_market_trends = [
-    h.timing.weeklyRow(short),
-    h.timing.weeklyRow(full),
-  ];
   h.tables.odds_snapshot = [
     observation(short, '09/26/2026, 10:00:00 AM EDT'),
     observation(short, '09/26/2026, 11:00:00 AM EDT', { Line: '49.5', 'Bets %': '58' }),
     observation(short, '09/26/2026, 12:00:00 PM EDT', { Line: '50.5', 'Bets %': '62' }),
     observation(full, '09/26/2026, 12:44:00 PM EDT', { Line: '51.5', 'Bets %': '66' }),
+  ];
+  // Current collectors persist the canonical game's history with each play;
+  // scheduled refreshes no longer hydrate it from the raw archive.
+  h.tables.weekly_market_trends = [
+    h.timing.weeklyRow({ ...short, movementHistory: persistedHistory(h.tables.odds_snapshot) }),
+    h.timing.weeklyRow({ ...full, movementHistory: persistedHistory(h.tables.odds_snapshot) }),
   ];
   h.tables.schedule = [{
     Date: '2026-09-26',
@@ -423,7 +458,7 @@ test('NCAAF read path collapses short-name and full-name duplicates onto the ver
   assert.equal(result.trendPlays[0].updatedAt, '09/26/2026, 12:44:00 PM EDT');
   assert.equal(result.trendPlays[0].firstTrackedAt, '09/26/2026, 10:00:00 AM EDT');
   assert.deepEqual(
-    result.trendPlays[0].movementHistory.map((point) => point.snapshotTime),
+    Array.from(result.trendPlays[0].movementHistory, (point) => point.snapshotTime),
     [
       '09/26/2026, 10:00:00 AM EDT',
       '09/26/2026, 11:00:00 AM EDT',
@@ -442,7 +477,7 @@ test('NCAAF read path collapses short-name and full-name duplicates onto the ver
   });
   assert.equal(fast.trendPlays.length, 1);
   assert.deepEqual(
-    fast.trendPlays[0].movementHistory.map((point) => point.snapshotTime),
+    Array.from(fast.trendPlays[0].movementHistory, (point) => point.snapshotTime),
     [
       '09/26/2026, 10:00:00 AM EDT',
       '09/26/2026, 11:00:00 AM EDT',

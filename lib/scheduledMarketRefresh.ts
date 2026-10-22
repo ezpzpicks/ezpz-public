@@ -27,11 +27,16 @@ export async function scheduledMarketRefresh(sport: Sport, stage: Stage, now = D
     return { date, kickoff: kickoff != null && Number.isFinite(kickoff) ? kickoff : null, final, live };
   });
   const last = Date.parse(String(state[0]?.["Updated At"] || ""));
-  return marketRefreshDecision(games, today, now, Number.isFinite(last) ? last : null, stage === "public");
+  const lastSuccess = Number.isFinite(last) ? last : null;
+  const decision = marketRefreshDecision(games, today, now, lastSuccess, stage === "public");
+  console.info("[market-refresh]", JSON.stringify({ sport, stage, action: decision.due ? "collect" : "skip",
+    checkedAt: new Date(now).toISOString(), lastSuccess: lastSuccess == null ? null : new Date(lastSuccess).toISOString(), ...decision }));
+  return decision;
 }
 
 export async function recordScheduledMarketRefresh(sport: Sport, stage: Stage, startedAt: number) {
   // Record only successful work. A failed collection remains due on the next
   // five-minute cron tick, including after a cold start or deployment.
   await replaceTursoDataset(sport, stateDataset(stage), [{ Date: day(startedAt), "Updated At": new Date(startedAt).toISOString() }]);
+  console.info("[market-refresh]", JSON.stringify({ sport, stage, action: "saved", lastSuccess: new Date(startedAt).toISOString() }));
 }
