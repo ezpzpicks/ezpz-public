@@ -6864,7 +6864,7 @@ export default function Home() {
       if (params.get("tab") === "Signals") setActive("Signals");
       if (sport === "NBA") {
         const requested = params.get("tab") as Tab;
-        setActive(TABS.includes(requested) && requested !== "Signals" && requested !== "EZPZ Picks" ? requested : "Today’s Model Plays");
+        setActive(TABS.includes(requested) && requested !== "EZPZ Picks" ? requested : "Today’s Model Plays");
       }
     }
   }, []);
@@ -7946,7 +7946,7 @@ export default function Home() {
       ) : null}
 
       <nav className="tabs">
-        {TABS.filter(tab => activeSport === "NBA" ? tab !== "Signals" && tab !== "EZPZ Picks" : tab !== "Signals" || activeSport === "NFL" || activeSport === "NCAAF").map((tab) => (
+        {TABS.filter(tab => activeSport === "NBA" ? tab !== "EZPZ Picks" : tab !== "Signals" || activeSport === "NFL" || activeSport === "NCAAF").map((tab) => (
           <button
             key={tab}
             className={`tabBtn ${active === tab ? "active" : ""}`}
