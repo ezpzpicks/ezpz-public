@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 
-export type TursoSport = "MLB" | "NFL" | "NCAAF" | "NCAAM";
+export type TursoSport = "MLB" | "NFL" | "NCAAF" | "NCAAM" | "NBA";
 export type TursoRow = Record<string, string>;
 export type TursoIndexedRow = { index: number; row: TursoRow };
 export type TursoDatasetState = {
@@ -188,6 +188,11 @@ function queryRows(result: PipelineResult | undefined) {
 /** Server-only statements for small durable integration tables, separate from sports datasets. */
 export async function runTursoSql(statements: string[]): Promise<TursoRow[][]> {
   return (await pipeline(statements)).map(queryRows);
+}
+
+/** Atomic server-side writes; a failed statement rolls the whole stream back. */
+export async function runTursoAtomicSql(statements: string[]): Promise<void> {
+  if (statements.length) await pipeline(statements, true);
 }
 
 function comparableRow(value: unknown): TursoRow {
