@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-export type LogoSport = "NFL" | "NCAAF" | "NCAAM" | "MLB";
+export type LogoSport = "NFL" | "NCAAF" | "NCAAM" | "MLB" | "NBA";
 type LogoDirectory = Record<string, string>;
 
 const directoryValues = new Map<LogoSport, LogoDirectory>();

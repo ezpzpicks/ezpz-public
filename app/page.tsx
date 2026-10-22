@@ -1,6 +1,7 @@
 "use client";
 
 import FootballBoard from "./FootballBoard";
+import NbaBoard, { type NbaMarketPayload } from "./NbaBoard";
 import { buildNflEzpzRecords } from "../lib/nflEzpzRecords";
 import { restoreFootballPublicDisplay } from "../lib/footballPublicDisplay";
 import { DirectTrendRecords, FootballTrendMarketBoard } from "./FootballTrendMarketBoard";
@@ -297,6 +298,7 @@ type Play = {
 type SheetRow = Record<string, string>;
 
 type ApiData = {
+  nbaMarket?: NbaMarketPayload;
   ok: boolean;
   error?: string;
   draftKings?: DraftKingsData;
@@ -401,7 +403,7 @@ type MlbDailyMarketData = {
   source?: string;
 };
 
-type Sport = "MLB" | "NFL" | "NCAAF" | "NCAAM";
+type Sport = "MLB" | "NFL" | "NCAAF" | "NCAAM" | "NBA";
 type Tab = "Today’s Model Plays" | "Public Betting Splits" | "EZPZ Picks" | "Full Slate" | "Records" | "Signals";
 
 type SportMeta = {
@@ -411,10 +413,12 @@ type SportMeta = {
   description: string;
 };
 
-const SPORTS: Sport[] = ["MLB", "NFL", "NCAAF", "NCAAM"];
+const SPORTS: Sport[] = ["MLB", "NFL", "NCAAF", "NCAAM", "NBA"];
 const TABS: Tab[] = ["Today’s Model Plays", "Public Betting Splits", "Signals", "EZPZ Picks", "Full Slate", "Records"];
 
 const SPORT_META: Record<Sport, SportMeta> = {
+  NBA: { name: "NBA", shortName: "NBA", status: "Live testing",
+    description: "Lineup-aware spreads and totals compared with ScoresAndOdds market lines." },
   MLB: {
     name: "Major League Baseball",
     shortName: "MLB",
@@ -6855,9 +6859,13 @@ export default function Home() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const sport = params.get("sport");
-    if (sport === "NFL" || sport === "NCAAF") {
+    if (sport === "NFL" || sport === "NCAAF" || sport === "NBA") {
       setActiveSport(sport);
       if (params.get("tab") === "Signals") setActive("Signals");
+      if (sport === "NBA") {
+        const requested = params.get("tab") as Tab;
+        setActive(TABS.includes(requested) && requested !== "Signals" && requested !== "EZPZ Picks" ? requested : "Today’s Model Plays");
+      }
     }
   }, []);
   const [selectedEzpzDate, setSelectedEzpzDate] = useState("");
@@ -6933,7 +6941,7 @@ export default function Home() {
     const request = (async () => {
       try {
         const endpoint =
-          activeSport === "NFL" || activeSport === "NCAAF"
+          activeSport === "NBA" ? "/api/nba-public-data" : activeSport === "NFL" || activeSport === "NCAAF"
             ? `/api/public-data-v2?sport=${activeSport}&compact=3${forceFresh ? "&refresh=1" : ""}`
             : forceFresh
               ? "/api/public-data-v2?refresh=1"
@@ -7145,6 +7153,10 @@ export default function Home() {
       );
     }
     if (!data) return <LoadingState />;
+
+    if (activeSport === "NBA" && data.nbaMarket) {
+      return <NbaBoard tab={active} data={data.nbaMarket} />;
+    }
 
     if (activeSport === "NFL" || activeSport === "NCAAF") {
       return (
@@ -7894,6 +7906,13 @@ export default function Home() {
                 green={bestPlays.length > 0}
               />
             </>
+          ) : activeSport === "NBA" ? (
+            <>
+              <Tile label="Published Matchups" value={String(data.nbaMarket?.games.length || 0)} meta="NBA slate" />
+              <Tile label="Public Betting Splits" value={String(new Set(data.nbaMarket?.splits.map(r => r["Game ID"]) || []).size)} meta="Games with market lines" />
+              <Tile label="Saved Forecasts" value={String(data.nbaMarket?.forecasts.length || 0)} meta="Early and pregame tracked separately" />
+              <Tile label="Model Stage" value="TESTING" meta="Market-comparison grades" />
+            </>
           ) : activeSport === "NFL" || activeSport === "NCAAF" ? (
             <>
               <Tile
@@ -7927,7 +7946,7 @@ export default function Home() {
       ) : null}
 
       <nav className="tabs">
-        {TABS.filter(tab => tab !== "Signals" || activeSport === "NFL" || activeSport === "NCAAF").map((tab) => (
+        {TABS.filter(tab => activeSport === "NBA" ? tab !== "Signals" && tab !== "EZPZ Picks" : tab !== "Signals" || activeSport === "NFL" || activeSport === "NCAAF").map((tab) => (
           <button
             key={tab}
             className={`tabBtn ${active === tab ? "active" : ""}`}

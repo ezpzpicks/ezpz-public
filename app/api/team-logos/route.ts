@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 export const runtime = "nodejs";
 export const revalidate = 86400;
 
-type SupportedSport = "NFL" | "NCAAF" | "NCAAM" | "MLB";
+type SupportedSport = "NFL" | "NCAAF" | "NCAAM" | "MLB" | "NBA";
 
 type DirectoryEntry = {
   team?: {
@@ -25,6 +25,7 @@ const SPORT_PATHS: Record<SupportedSport, string> = {
   NCAAF: "football/college-football",
   NCAAM: "basketball/mens-college-basketball",
   MLB: "baseball/mlb",
+  NBA: "basketball/nba",
 };
 
 function normalizeTeam(value: unknown) {

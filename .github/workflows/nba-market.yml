@@ -1,0 +1,24 @@
+name: NBA ScoresAndOdds checks
+on:
+  pull_request:
+    paths: ['lib/nbaMarket*.ts', 'lib/tursoStore.ts', 'lib/scheduledMarketRefresh.ts', 'lib/scoresAndOddsBettingSplits.ts', 'app/NbaBoard.tsx', 'app/page.tsx', 'app/api/nba-public-data/**', 'app/api/cron/nba-market/**', 'tests/nba-market.cjs', 'tests/fixtures/nba-consensus-2026-10-22.json', '.github/workflows/nba-market.yml']
+  push:
+    branches: [main]
+    paths: ['lib/nbaMarket*.ts', 'app/NbaBoard.tsx', 'tests/nba-market.cjs', '.github/workflows/nba-market.yml']
+permissions:
+  contents: read
+jobs:
+  nba-market:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: npm ci --no-audit --no-fund
+      - run: node tests/nba-market.cjs
+      - run: npx tsc --noEmit
