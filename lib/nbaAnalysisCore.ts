@@ -6,6 +6,7 @@ import { NBA_SIGNALS_POLICY, NBA_TREND_RECORD_POLICY } from "./nbaTrendLeaderboa
 import type { NcaafEzpzSubtype } from "./ncaafEzpzWilson";
 import { NBA_ASSUMED_ODDS, NBA_MARKET_POLICY, nbaDate, nbaRowKey, nbaTeamKey } from "./nbaMarketCore";
 import type { TursoRow } from "./tursoStore";
+import { buildSignalResearchDays, buildSignalResearchReport, SIGNAL_RESEARCH_VERSION, type SignalResearchDay } from "./signalCombinationResearch";
 
 type Row = Record<string, any>;
 export type NbaSignalTest = Pick<FootballSignalSide, "id" | "date" | "game" | "gameTime" | "selection" | "market" | "odds" | "signalCount" | "combination" | "result">;
@@ -14,6 +15,7 @@ export type NbaAnalysisState = {
   leaderboard: NcaafEzpzSubtype[]; leaderboardAsOf: string;
   teamHistory: Array<[string, TeamTrendHistory extends Map<string, infer G> ? G : never]>;
   tests: Record<string, NbaSignalTest>;
+  signalResearch?: { version: string; days: Record<string, SignalResearchDay> };
 };
 export const NBA_ANALYSIS_VERSION = "nba-analysis-2026-10-22-v1";
 export function nbaSeason(date: string) { return String(Number(date.slice(0, 4)) - (Number(date.slice(5, 7)) < 7 ? 1 : 0)); }
@@ -125,7 +127,11 @@ export function buildNbaSignals({ date, games, splits, forecasts, storedRows, st
     for (const label of [...new Set(selected.map(row => String(row[field])))]) result.board.breakdowns.push({ dimension, label,
       record: signalRecord(selected.filter(row => String(row[field]) === label)) });
   }
-  return { ...result, plays, stale, tests };
+  const researchDays = state.signalResearch?.version === SIGNAL_RESEARCH_VERSION ? { ...state.signalResearch.days } : {};
+  const capturedDays = buildSignalResearchDays(result.board.sides, NBA_SIGNALS_POLICY.version, now);
+  Object.assign(researchDays, capturedDays);
+  result.board.research = buildSignalResearchReport("NBA", NBA_SIGNALS_POLICY.version, researchDays);
+  return { ...result, plays, stale, tests, signalResearch: { version: SIGNAL_RESEARCH_VERSION, days: researchDays } };
 }
 
 export function mergeNbaTeamHistory(previous: NbaAnalysisState["teamHistory"], records: TursoRow[], schedule: TursoRow[]) {

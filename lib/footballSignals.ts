@@ -9,6 +9,7 @@ import { nflKickoffIso } from "./footballWeeklyMarket";
 import { sosForTeam, type FootballSosSnapshot } from "./footballSos";
 import type { FootballSport, SheetRow } from "./sportSheets";
 import { buildNbaTrendLeaderboard, nbaModelFor, nbaTrendSignals } from "./nbaTrendLeaderboard";
+import { buildSignalResearchDays, buildSignalResearchReport, type SignalResearchReport } from "./signalCombinationResearch";
 
 type SignalSport = FootballSport | "NBA";
 export type SignalsPolicy = { version: string; prefix: string; launchAt: string };
@@ -36,12 +37,14 @@ export type FootballSignalSide = {
   modelContext: { play: string; grade: string; version: string; projection: number | null; probability: number | null; line: number | null; reason: string };
   sosContext: { sourceUrl: string; capturedAt: string; teams: { team: string; rank: number; elo: number; opponentRecord: string }[]; gap: number | null };
   result: "W" | "L" | "P" | ""; resultUpdated: string;
+  policyVersion?: string; oddsAssumed?: boolean;
 };
 export type FootballSignalsBoard = {
   version: string; sport: SignalSport; today: string; asOf: string; captureAvailable: boolean;
   sides: FootballSignalSide[]; archiveDates: string[]; summary: ReturnType<typeof signalRecord>;
   breakdowns: { dimension: string; label: string; record: ReturnType<typeof signalRecord> }[];
   history: { date: string; game: string; selection: string; market: string; odds: string; signalCount: number; combination: string; result: string }[];
+  research?: SignalResearchReport;
 };
 
 export const signalNumber = (value: unknown): number | null => {
@@ -187,6 +190,9 @@ function evaluateSide(play: AnyRow, siblings: AnyRow[], input: SignalsInput, ran
     modelContext: model.context,
     sosContext: { sourceUrl: sos?.sourceUrl || "", capturedAt: completeSos ? sos!.fetchedAt : "", gap: sosGap,
       teams: completeSos ? schedule.map((s, i) => ({ team: [play.awayTeam, play.homeTeam][i], rank: s!.rank, elo: s!.elo, opponentRecord: s!.opponentRecord })) : [] },
+    policyVersion: (input.policy || DEFAULT_POLICY).version,
+    oddsAssumed: play.observedPriceMissing === true || play.oddsSource === "DEFAULT_110" || !play.odds ? true
+      : play.observedPriceMissing === false || play.oddsSource === "SNAPSHOT" ? false : undefined,
     result: "", resultUpdated: "" };
 }
 type SignalsInput = { sport: SignalSport; core: AnyRow; history: TeamTrendHistory; storedRows?: SheetRow[] | null;
@@ -197,7 +203,8 @@ type SignalsInput = { sport: SignalSport; core: AnyRow; history: TeamTrendHistor
 function fromStored(row: SheetRow, now: number, policy = DEFAULT_POLICY): FootballSignalSide | null {
   try { const side = JSON.parse(row["Details JSON"]); return String(row["Policy Version"] || "").startsWith(policy.prefix)
     && side.id === row["Pick Key"] && Array.isArray(side.signals) && signalFinalWindow(side, now, policy.launchAt)
-    ? { ...side, recorded: true, result: ["W", "L", "P"].includes(row.Result) ? row.Result : "", resultUpdated: row["Result Updated"] || "" } : null; }
+    ? { ...side, policyVersion: row["Policy Version"], recorded: true,
+      result: ["W", "L", "P"].includes(row.Result) ? row.Result : "", resultUpdated: row["Result Updated"] || "" } : null; }
   catch { return null; }
 }
 /** Replay saved evidence directly, including sides that never qualified as picks. */
@@ -332,8 +339,9 @@ export function buildFootballSignalsState(input: SignalsInput): { board: Footbal
     for (const [label, group] of buckets) breakdowns.push({ dimension, label, record: signalRecord(group) });
   }
   const archiveDates = [...new Set([...archived.map(row => row.side.date), ...[...updated.values()].map(side => side.date)])].sort();
+  const research = buildSignalResearchReport(sport, policy.version, buildSignalResearchDays([...updated.values()], policy.version, now));
   return { board: { version: policy.version, sport, today: core.today, asOf: new Date(now).toISOString(), captureAvailable: input.storedRows != null,
-    sides, archiveDates, summary: signalRecord(selected), breakdowns,
+    sides, archiveDates, summary: signalRecord(selected), breakdowns, research,
     history: selected.slice().sort((a, b) => b.gameTime.localeCompare(a.gameTime)).slice(0, 200).map(s => ({ date: s.date, game: s.game,
       selection: s.selection, market: s.market, odds: s.odds, signalCount: s.signalCount, combination: s.combination, result: s.result })) }, changedRows };
 }

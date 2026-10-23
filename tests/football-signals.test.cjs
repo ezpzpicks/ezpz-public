@@ -8,6 +8,7 @@ const trends = load(path.join(root, 'lib/footballTeamTrends.ts'));
 const catalog = load(path.join(root, 'lib/footballTrendCatalog.ts'));
 const sos = load(path.join(root, 'lib/footballSos.ts'));
 const wilson = load(path.join(root, 'lib/ncaafEzpzWilson.ts'));
+const research = load(path.join(root, 'lib/signalCombinationResearch.ts'));
 const date = '2026-10-22', kickoff = Date.parse(date + 'T23:20:00Z'), lock = kickoff - 15 * 60000;
 const iso = n => new Date(n).toISOString();
 const plain = value => JSON.parse(JSON.stringify(value));
@@ -49,6 +50,25 @@ function input(changes = {}) {
 }
 const state = changes => api.buildFootballSignalsState(input(changes));
 const find = (board, key, side = 'Over') => board.sides.find(s => s.side === side).signals.find(s => s.key === key);
+
+test('two-signal frozen sides enter research while the existing 3+ selector remains unchanged', () => {
+  const x = input({ history: new Map(), leaderboard: [], capture: true });
+  x.core.trendPlays = markets().map(play => ({ ...play, snapshotStatus: 'FINAL_PREGAME', frozenAt: iso(lock) }));
+  const captured = api.buildFootballSignalsState(x);
+  assert.equal(captured.changedRows.length, 2);
+  assert(captured.board.sides.every(side => side.recorded && !side.selected));
+  const totals = research.signalResearchView(captured.board.research, 'Total');
+  assert.equal(totals.counts.find(row => row.label === '2').record.pending, 1);
+  assert.equal(totals.counts.find(row => row.label === '0').record.pending, 1);
+  assert.equal(captured.board.summary.pending, 0);
+  const finished = api.buildFootballSignalsState({ ...x, capture: false, now: kickoff + 4 * 3600000,
+    storedRows: captured.changedRows, core: { ...x.core, trendPlays: [], teamTrendScheduleRows: [{
+      Date: date, 'Away Team': 'DAL', 'Home Team': 'GB', Completed: 'TRUE', 'Away Score': '30', 'Home Score': '24',
+      'Result Updated': iso(kickoff + 3 * 3600000) }] } });
+  const settled = research.signalResearchView(finished.board.research, 'Total');
+  assert.equal(settled.counts.find(row => row.label === '2').record.record, '1-0-0');
+  assert.equal(finished.board.summary.settled, 0);
+});
 
 test('multiple matching Wilson systems count as exactly one public signal and preserve the current half-point classification', () => {
   const { board } = state();
