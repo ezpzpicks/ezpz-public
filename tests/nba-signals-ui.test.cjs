@@ -123,3 +123,12 @@ test('an unmodeled NBA slate stays complete and never invents a projection, grad
   assert.match(empty, /No NBA games have been collected for this date/);
   assert.doesNotMatch(empty, /<article /);
 });
+test('RotoWire forecasts identify source-checked availability and distinguish expected from confirmed starters', () => {
+  for (const starters_confirmed of [false, true]) {
+    const html = renderNba('Today’s Model Plays', { ...forecastData, forecasts: [{ ...pregame, availability_mode: 'rotowire_html', starters_confirmed }] });
+    assert.match(html, /RotoWire availability checked/);
+    assert(html.includes(starters_confirmed ? 'Starting fives confirmed' : 'Projected starting fives'));
+    assert.match(html, /Unresolved statuses remain conditional/);
+    assert.doesNotMatch(html, /Injury availability unchecked/);
+  }
+});

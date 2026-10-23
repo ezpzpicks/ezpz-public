@@ -15,7 +15,8 @@ type Forecast = {
   total: number; fair_home_spread: number; home_spread_edge: number | null; total_edge: number | null;
   spread_pick?: string; total_pick?: string; spread_grade?: string; total_grade?: string;
   spreadResult?: string; totalResult?: string;
-  availability_mode?: "injury_feed" | "expected_rotation";
+  availability_mode?: "injury_feed" | "expected_rotation" | "rotowire_html";
+  availability_source?: string; availability_as_of?: string; starters_confirmed?: boolean;
   market?: { home_spread: number; total: number; source: string; as_of: string } | null;
 };
 export type NbaMarketPayload = {
@@ -51,6 +52,7 @@ function ForecastCard({ forecast, game }: { forecast: Forecast; game?: Row }) {
     <p className="nbaMeta"><time dateTime={forecast.tipoff}>{time(forecast.tipoff)}</time><span>{forecast.phase === "pregame" ? "Pregame refresh" : forecast.phase === "early" ? "Early forecast" : "Manual forecast"}</span>
       {gameStatus(game) && <span>{gameStatus(game)}</span>}</p>
     {forecast.availability_mode === "expected_rotation" && <p className="nbaNotice">Expected rotation · Injury availability unchecked · Starters unconfirmed</p>}
+    {forecast.availability_mode === "rotowire_html" && <p className="nbaNotice">RotoWire availability checked · {forecast.starters_confirmed ? "Starting fives confirmed" : "Projected starting fives"} · Unresolved statuses remain conditional</p>}
     <Score away={forecast.away_team} home={forecast.home_team} awayScore={forecast.away_score.toFixed(1)} homeScore={forecast.home_score.toFixed(1)} label="Projected score" />
     <div className="nbaMarkets">{markets.map(market => <section className="nbaMarketCard" key={market.name} aria-label={`${market.name} forecast`}>
       <div className="nbaMarketHeading"><h4>{market.name}</h4><span className="nbaGrade" data-grade={market.grade}>Grade {market.grade || "—"}</span></div>

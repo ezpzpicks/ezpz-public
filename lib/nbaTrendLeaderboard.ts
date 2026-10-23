@@ -55,5 +55,7 @@ export function nbaModelFor(play: Row, forecasts: Row[], asOf: number) {
     : !["A", "B"].includes(grade) || !matches ? "No qualifying A/B model forecast on this side."
     : "The current line is worse than the saved qualifying model line; awaiting model re-evaluation.";
   return { active, available: Boolean(forecast), edge, context: { play: pick, grade, version: String(forecast?.modelVersion || ""),
-    projection, line: savedLine, probability: null, reason: reason + (forecast?.injury_verified === false ? " Expected rotation; injury availability unchecked." : "") } };
+    projection, line: savedLine, probability: null, reason: reason + (forecast?.availability_mode === "rotowire_html"
+      ? ` RotoWire availability checked; ${forecast.starters_confirmed ? "starting fives confirmed" : "projected starting fives"}. Unresolved statuses remain conditional.`
+      : forecast?.injury_verified === false ? " Expected rotation; injury availability unchecked." : "") } };
 }
