@@ -18,6 +18,8 @@ function component(file, overrides = {}, append = '') {
 const football = component('app/FootballSignalsBoard.tsx', {}, '\nexport const testTeamDetail = TeamDetail;');
 const markets = component('app/FootballTrendMarketBoard.tsx');
 const nba = component('app/NbaPublicSplits.tsx', { './FootballTrendMarketBoard': markets });
+const nbaBoard = component('app/NbaBoard.tsx', { 'next/dynamic': { default: () => () => null },
+  './TeamLogoName': { MatchupWithLogos: props => props.game } });
 const date = '2026-11-10', time = date + 'T23:00:00Z';
 const keys = ['money', 'move', 'system', 'team', 'model'];
 const side = name => ({ id: name, date, gameKey: 'nba-game', game: 'Cleveland Cavaliers @ Philadelphia 76ers', gameTime: time,
@@ -61,4 +63,63 @@ test('a team with no graded history never presents its internal neutral prior as
   assert.match(html, /Denver Nuggets · Awaiting graded history/);
   assert.match(html, /No matching games/);
   assert.doesNotMatch(html, /supporting grade 50/);
+});
+
+const slate = [
+  { 'Game ID': 'first', 'Game Time': time, 'Away Team': 'Cleveland Cavaliers', 'Home Team': 'Philadelphia 76ers',
+    Completed: 'TRUE', Status: 'STATUS_FINAL', 'Away Score': '106', 'Home Score': '114' },
+  { 'Game ID': 'second', 'Game Time': date + 'T23:30:00Z', 'Away Team': 'Denver Nuggets', 'Home Team': 'Oklahoma City Thunder',
+    Completed: 'FALSE', Status: 'STATUS_SCHEDULED', 'Away Score': '', 'Home Score': '' },
+];
+const pregame = { gameId: 'second', modelVersion: 'nba-test', lockedAt: date + 'T23:10:00Z', tipoff: slate[1]['Game Time'], phase: 'pregame',
+  away_team: 'Denver Nuggets', home_team: 'Oklahoma City Thunder', away_score: 111.2, home_score: 119.4,
+  fair_home_spread: -8.2, home_spread_edge: -.3, total: 230.6, total_edge: -5.9,
+  market: { home_spread: -8.5, total: 236.5, as_of: date + 'T23:05:00Z' }, spread_pick: 'Denver Nuggets +8.5', spread_grade: 'Pass',
+  total_pick: 'Under 236.5', total_grade: 'A', spreadResult: 'PENDING', totalResult: 'PENDING', availability_mode: 'expected_rotation' };
+const early = { ...pregame, lockedAt: date + 'T20:00:00Z', phase: 'early', total_pick: 'Under 237.5', market: { ...pregame.market, total: 237.5 } };
+const forecastData = { games: slate, forecasts: [pregame, early], stale: false, splits: [
+  { 'Game ID': 'first', Market: 'Spread', Selection: 'Philadelphia 76ers', Line: '-2.5' },
+  { 'Game ID': 'first', Market: 'Total', Selection: 'Over', Line: '236.5' },
+] };
+const renderNba = (tab, data = forecastData) => render(React.createElement(nbaBoard.default, { tab, data }));
+
+test('NBA Full Slate includes scheduled games without a forecast, their actual scores and captured market lines', () => {
+  const html = renderNba('Full Slate');
+  assert.equal((html.match(/<article /g) || []).length, 2);
+  assert(html.indexOf('data-game-id="first"') < html.indexOf('data-game-id="second"'));
+  for (const text of ['NBA Full Slate', '2 games', 'Cleveland Cavaliers @ Philadelphia 76ers', 'Final score', '106', '114',
+    'No saved model forecast for this matchup.', 'Market home spread · Philadelphia 76ers', '-2.5', 'Denver Nuggets @ Oklahoma City Thunder', 'Under 236.5']) assert(html.includes(text), text);
+  assert.equal((html.match(/aria-label="Spread forecast"/g) || []).length, 1);
+});
+test('NBA model cards keep all comparisons and grades in labeled panels without a wide table', () => {
+  const html = renderNba('Today’s Model Plays');
+  assert.equal((html.match(/<article /g) || []).length, 1);
+  for (const text of ['1 matchup with saved forecasts · 2 games on the slate', 'Spread forecast', 'Total forecast', 'Projected score',
+    '111.2', '119.4', 'Model home spread', 'Market home spread', 'Model total', 'Market total', 'Grade Pass', 'Grade A',
+    '5.9 pts', 'Result:', 'PENDING', 'Locked', 'assumed -110', 'Injury availability unchecked']) assert(html.includes(text), text);
+  assert.doesNotMatch(html, /<table|nbaScroll|Cleveland Cavaliers/);
+});
+test('NBA model and Full Slate choose the newest lock regardless of API response order; Records retain both phases', () => {
+  for (const forecasts of [[early, pregame], [pregame, early]]) {
+    for (const tab of ['Today’s Model Plays', 'Full Slate']) {
+      const html = renderNba(tab, { ...forecastData, forecasts });
+      assert.match(html, /Pregame refresh/);
+      assert.match(html, /Under 236.5/);
+      assert.doesNotMatch(html, /Early forecast|Under 237.5/);
+    }
+  }
+  const records = renderNba('Records');
+  assert.equal((records.match(/<article /g) || []).length, 2);
+  for (const text of ['2 saved forecasts', 'Early forecast', 'Pregame refresh', 'Under 237.5', 'Under 236.5']) assert(records.includes(text), text);
+});
+test('an unmodeled NBA slate stays complete and never invents a projection, grade or missing market line', () => {
+  const html = renderNba('Full Slate', { ...forecastData, forecasts: [], splits: [] });
+  assert.equal((html.match(/<article /g) || []).length, 2);
+  assert.equal((html.match(/No saved model forecast for this matchup\./g) || []).length, 2);
+  assert.equal((html.match(/Not captured/g) || []).length, 4);
+  assert.doesNotMatch(html, /Grade |Projected score|Spread forecast|Total forecast/);
+  const empty = renderNba('Full Slate', { ...forecastData, games: [], forecasts: [], splits: [] });
+  assert.match(empty, /0 games/);
+  assert.match(empty, /No NBA games have been collected for this date/);
+  assert.doesNotMatch(empty, /<article /);
 });
