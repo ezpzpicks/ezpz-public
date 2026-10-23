@@ -4,7 +4,7 @@ import { buildFootballSignalsState, signalNumber, signalRecord, type FootballSig
 import { buildTeamTrendHistory, type TeamTrendHistory } from "./footballTeamTrends";
 import { NBA_SIGNALS_POLICY, NBA_TREND_RECORD_POLICY } from "./nbaTrendLeaderboard";
 import type { NcaafEzpzSubtype } from "./ncaafEzpzWilson";
-import { nbaDate, nbaRowKey, nbaTeamKey } from "./nbaMarketCore";
+import { NBA_ASSUMED_ODDS, NBA_MARKET_POLICY, nbaDate, nbaRowKey, nbaTeamKey } from "./nbaMarketCore";
 import type { TursoRow } from "./tursoStore";
 
 type Row = Record<string, any>;
@@ -63,6 +63,16 @@ export function settleNbaTrendRows(snapshots: TursoRow[], schedules: TursoRow[],
     const first = rows[0], tipoff = Date.parse(first["Game Time"]);
     if (rows.some(row => ["Date", "Game ID", "Game Key", "Game Time", "Away Team", "Home Team", "Away Team ID", "Home Team ID"]
       .some(key => !row[key] || row[key] !== first[key]))) continue;
+    const spread = rows.filter(row => row.Market === "Spread"), total = rows.filter(row => row.Market === "Total");
+    if (spread.length !== 2 || total.length !== 2 || !spread.some(row => row.Selection === first["Away Team"])
+      || !spread.some(row => row.Selection === first["Home Team"]) || !total.some(row => row.Selection === "Over") || !total.some(row => row.Selection === "Under")) continue;
+    if (rows.some(row => signalNumber(row.Line) == null || row.Odds !== NBA_ASSUMED_ODDS || row["Market Policy"] !== NBA_MARKET_POLICY)
+      || Math.abs(Number(spread[0].Line) + Number(spread[1].Line)) > .001
+      || Number(total[0].Line) <= 0 || Math.abs(Number(total[0].Line) - Number(total[1].Line)) > .001
+      || [spread, total].some(pair => ["Current Bets %", "Current Handle %"].some(field => {
+        const values = pair.map(row => signalNumber(row[field]));
+        return values.some(value => value == null || value < 0 || value > 100) || Math.abs(Number(values[0]) + Number(values[1]) - 100) > 2;
+      }))) continue;
     const game = schedules.find(game => game["Game ID"] === first["Game ID"] && game.Date === first.Date
       && game["Game Time"] === first["Game Time"] && game["Away Team ID"] === first["Away Team ID"] && game["Home Team ID"] === first["Home Team ID"]
       && nbaTeamKey(game["Away Team"]) === nbaTeamKey(first["Away Team"]) && nbaTeamKey(game["Home Team"]) === nbaTeamKey(first["Home Team"]));
