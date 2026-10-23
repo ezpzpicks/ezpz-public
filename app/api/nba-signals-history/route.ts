@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { readTursoDatasetByDateKeys } from "../../../lib/tursoStore";
 import { readSavedFootballSignalsForDate } from "../../../lib/footballSignals";
 import { NBA_SIGNALS_POLICY, NBA_SIGNALS_TAB } from "../../../lib/nbaTrendLeaderboard";
+import { buildSignalResearchDays, buildSignalResearchReport } from "../../../lib/signalCombinationResearch";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,7 +15,9 @@ export async function GET(request: NextRequest) {
   }
   try {
     const rows = await readTursoDatasetByDateKeys("NBA", NBA_SIGNALS_TAB, [date]);
-    return NextResponse.json({ ok: true, sport: "NBA", date, sides: readSavedFootballSignalsForDate(rows, date, Date.now(), NBA_SIGNALS_POLICY) },
+    const sides = readSavedFootballSignalsForDate(rows, date, Date.now(), NBA_SIGNALS_POLICY);
+    const research = buildSignalResearchReport("NBA", NBA_SIGNALS_POLICY.version, buildSignalResearchDays(sides, NBA_SIGNALS_POLICY.version));
+    return NextResponse.json({ ok: true, sport: "NBA", date, sides, research },
       { headers: { "Cache-Control": "no-store, max-age=0" } });
   } catch (error) {
     console.error("NBA Signals archive read failed", { date, error });

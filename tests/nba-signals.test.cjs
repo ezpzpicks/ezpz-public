@@ -12,6 +12,7 @@ const catalog = require('../lib/footballTrendCatalog.ts');
 const signals = require('../lib/footballSignals.ts');
 const team = require('../lib/footballTeamTrends.ts');
 const wilson = require('../lib/ncaafEzpzWilson.ts');
+const research = require('../lib/signalCombinationResearch.ts');
 const iso = n => new Date(n).toISOString();
 const clone = x => JSON.parse(JSON.stringify(x));
 
@@ -56,6 +57,25 @@ function withRanking(f) {
   return f;
 }
 function stored(result) { return result.changedRows.map(row => ({ ...row, 'Game Key': JSON.parse(row['Details JSON']).gameKey })); }
+
+test('NBA research accumulates saved days, replaces settlements, and never promotes two-signal observations', () => {
+  const first = fixture(), captured = build(first, { capture: true });
+  const saved = stored(captured), late = first.kickoff + 4 * 3600000;
+  const completed = build(first, { state: { ...first.state, signalResearch: captured.signalResearch }, storedRows: saved,
+    now: late, games: [finalGame(first)] });
+  assert.equal(research.signalResearchView(completed.board.research, 'Total').total.settled, 2);
+  assert.equal(research.signalResearchView(completed.board.research, 'Total').counts.find(row => row.label === '2').record.record, '1-0-0');
+  assert.equal(completed.board.summary.settled, 0);
+  const second = fixture('2026-11-11', '102');
+  second.state.signalResearch = completed.signalResearch;
+  const next = build(second, { capture: true });
+  const values = research.signalResearchView(next.board.research, 'Total');
+  assert.equal(values.total.samples, 4); assert.equal(values.total.settled, 2); assert.equal(values.total.pending, 2);
+  const again = build(second, { state: { ...second.state, signalResearch: next.signalResearch }, storedRows: stored(next) });
+  assert.equal(research.signalResearchView(again.board.research, 'Total').total.samples, 4);
+  assert.equal(again.board.research.dates.length, 2);
+  assert.equal(values.total.assumedPrices, 4);
+});
 
 test('NBA has a separate market-only catalog, with no football weather or player context', () => {
   const nba = catalog.footballCatalog('NBA');

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { FOOTBALL_SIGNALS_HEADERS, FOOTBALL_SIGNALS_TAB, readSavedFootballSignalsForDate } from "../../../lib/footballSignals";
+import { FOOTBALL_SIGNALS_HEADERS, FOOTBALL_SIGNALS_TAB, FOOTBALL_SIGNALS_VERSION, readSavedFootballSignalsForDate } from "../../../lib/footballSignals";
 import { readSportWorksheetByDateKeys, type FootballSport } from "../../../lib/sportSheets";
+import { buildSignalResearchDays, buildSignalResearchReport } from "../../../lib/signalCombinationResearch";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,7 +16,9 @@ export async function GET(request: NextRequest) {
   }
   try {
     const rows = await readSportWorksheetByDateKeys(sport as FootballSport, FOOTBALL_SIGNALS_TAB, [date], FOOTBALL_SIGNALS_HEADERS);
-    return NextResponse.json({ ok: true, sport, date, sides: readSavedFootballSignalsForDate(rows, date) },
+    const sides = readSavedFootballSignalsForDate(rows, date);
+    const research = buildSignalResearchReport(sport, FOOTBALL_SIGNALS_VERSION, buildSignalResearchDays(sides, FOOTBALL_SIGNALS_VERSION));
+    return NextResponse.json({ ok: true, sport, date, sides, research },
       { headers: { "Cache-Control": "no-store, max-age=0" } });
   } catch (error) {
     console.error("Football Signals archive read failed", { sport, date, error });

@@ -3,7 +3,9 @@ import { saveNbaMarketRows } from "./nbaMarketStore";
 import { readNbaForecasts } from "./nbaForecasts";
 import { nbaRowKey, normalizeNbaSlate, type NbaGame } from "./nbaMarketCore";
 import { buildNbaSignals, emptyNbaAnalysis, mergeNbaTeamHistory, nbaSeason, settleNbaTrendRows, NBA_ANALYSIS_VERSION, type NbaAnalysisState } from "./nbaAnalysisCore";
-import { buildNbaTrendLeaderboard, NBA_ANALYSIS_TAB, NBA_SIGNALS_TAB, NBA_TREND_RECORDS_TAB } from "./nbaTrendLeaderboard";
+import { buildNbaTrendLeaderboard, NBA_ANALYSIS_TAB, NBA_SIGNALS_TAB, NBA_TREND_RECORDS_TAB, NBA_SIGNALS_POLICY } from "./nbaTrendLeaderboard";
+import { readSavedFootballSignalsForDate } from "./footballSignals";
+import { buildSignalResearchDays, SIGNAL_RESEARCH_VERSION } from "./signalCombinationResearch";
 
 const q = (value: string) => `'${value.replaceAll("'", "''")}'`;
 export function nbaScheduleRows(games: NbaGame[], observedAt: number): TursoRow[] {
@@ -32,6 +34,10 @@ async function readSeasonRecords(season: string) {
 export async function refreshNbaAnalysis(date: string, currentSchedule: TursoRow[], now = Date.now()) {
   const state = await readNbaAnalysis(date);
   const dates = [...new Set([...state.pendingDates, date])].sort();
+  // Seed existing frozen observations once. Ordinary ticks keep the same bounded
+  // day reads and update compact daily totals in the existing analysis row.
+  const seedResearch = state.signalResearch?.version !== SIGNAL_RESEARCH_VERSION;
+  const signalDates = seedResearch ? [...new Set([...state.archiveDates, ...dates])].sort() : dates;
   const schedule = [...currentSchedule];
   const previousDays = await Promise.all(dates.filter(day => day !== date).map(async day => {
     const response = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?dates=${day.replaceAll("-", "")}&limit=1000`,
@@ -43,7 +49,7 @@ export async function refreshNbaAnalysis(date: string, currentSchedule: TursoRow
   const [snapshots, existingRecords, storedSignals, splits, forecasts] = await Promise.all([
     readTursoDatasetByDateKeys("NBA", "public_split_snapshots", dates),
     readTursoDatasetByDateKeys("NBA", NBA_TREND_RECORDS_TAB, dates),
-    readTursoDatasetByDateKeys("NBA", NBA_SIGNALS_TAB, dates),
+    readTursoDatasetByDateKeys("NBA", NBA_SIGNALS_TAB, signalDates),
     readTursoDatasetByDateKeys("NBA", "weekly_market_trends", dates),
     Promise.all(dates.map(async day => [day, await readNbaForecasts(day)] as const)),
   ]);
@@ -63,6 +69,8 @@ export async function refreshNbaAnalysis(date: string, currentSchedule: TursoRow
   } else state.teamHistory = mergeNbaTeamHistory(state.teamHistory, existingRecords, schedule);
   for (const rows of previousDays) await saveNbaMarketRows("schedule", rows);
   const forecastDates = new Map(forecasts);
+  if (seedResearch) state.signalResearch = { version: SIGNAL_RESEARCH_VERSION, days: buildSignalResearchDays(
+    signalDates.flatMap(day => readSavedFootballSignalsForDate(storedSignals, day, now, NBA_SIGNALS_POLICY)), NBA_SIGNALS_POLICY.version, now) };
   let captured = 0, settled = 0;
   for (const day of dates) {
     const result = buildNbaSignals({ date: day, games: schedule.filter(row => row.Date === day), splits: splits.filter(row => row.Date === day),
@@ -71,6 +79,7 @@ export async function refreshNbaAnalysis(date: string, currentSchedule: TursoRow
     await saveNbaMarketRows(NBA_SIGNALS_TAB, changed);
     captured += changed.filter(row => !row.Result).length; settled += changed.filter(row => Boolean(row.Result)).length;
     state.tests = result.tests;
+    state.signalResearch = result.signalResearch;
   }
   state.archiveDates = [...new Set([...state.archiveDates, ...schedule.map(row => row.Date)])].sort();
   state.pendingDates = dates.filter(day => schedule.some(row => row.Date === day && !/FINAL|CANCEL|POSTPON/i.test(row.Status)));

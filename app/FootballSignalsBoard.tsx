@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Banknote, TrendingUp, FlaskConical, Users, Calculator, Mountain, Search, X, ChevronUp, Clock3 } from "lucide-react";
 import { TeamLogoName } from "./TeamLogoName";
 import type { FootballSignalKey, FootballSignalSide, FootballSignalsBoard, FootballSignal } from "../lib/footballSignals";
+import { signalResearchView, signalCombinationLabel, type ResearchPhase, type SignalResearchReport } from "../lib/signalCombinationResearch";
 
 const META = {
   money: { label: "Money", title: "Money support", Icon: Banknote },
@@ -100,13 +101,49 @@ function SignalDetail({ side, signal, onClose }: { side: FootballSignalSide; sig
   </section>;
 }
 
+function CombinationResearch({ report, market, scopeLabel = "Cumulative" }: { report?: SignalResearchReport; market: "Spread" | "Total"; scopeLabel?: string }) {
+  const [phase, setPhase] = useState<ResearchPhase | "all">("all");
+  const view = useMemo(() => report ? signalResearchView(report, market, phase) : null, [report, market, phase]);
+  if (!report || !view) return null;
+  const sample = (value: typeof view.total) => <>{value.samples ? value.record : "No observations"}
+    <small>{value.settled} settled · {value.pending} pending{value.settled ? ` · ${format(value.netUnits, true)}u` : ""}</small></>;
+  const rows = (items: { label: string; record: typeof view.total }[]) => <table className="fs-table">
+    <thead><tr><th>Signals</th><th>Record / sample</th><th>ROI</th></tr></thead>
+    <tbody>{items.map(row => <tr key={row.label}><th scope="row">{row.label}</th><td>{sample(row.record)}</td><td>{percent(row.record.roiPct)}</td></tr>)}</tbody>
+  </table>;
+  return <details className="fs-results fs-research">
+    <summary>Signal combination research <span>1 · 2 · 3+ signals · {market === "Spread" ? "Spreads" : "Totals"}</span></summary>
+    <div className="fs-markets" role="group" aria-label="Research period">
+      {([["all", "All saved"], ["history", "Earlier history"], ["forward", "Forward test"]] as const).map(([value, label]) =>
+        <button type="button" key={value} aria-pressed={phase === value} onClick={() => setPhase(value)}>{label}</button>)}
+    </div>
+    <p>{scopeLabel} {report.sport} {market === "Spread" ? "spreads" : "totals"} · {view.total.samples} saved side observations across {report.dates.length} saved slates.
+      Forward testing begins {time(report.forwardFrom, true)}. Earlier history is shown separately so it cannot be mistaken for later confirmation.</p>
+    <h3>Signal counts</h3>
+    {rows(view.counts.map(row => ({ label: `${row.label} ${row.label === "1" ? "signal" : "signals"}`, record: row.record })))}
+    <h3>Exact combinations</h3>
+    <p>Each row includes only that exact set of active signals. Plays with an additional signal belong to their own combination.</p>
+    {view.exact.length ? rows(view.exact.map(row => ({ label: signalCombinationLabel(row.combination), record: row.record })))
+      : <p>No saved two-signal or three-plus-signal observations in this view yet.</p>}
+    {view.individual.length ? <>
+      <h3>Individual signal baselines</h3>
+      <p>Every saved side matching that signal, including sides with additional signals. These samples overlap; the comparison does not prove that adding a signal caused better returns.</p>
+      {rows(view.individual.map(row => ({ label: row.label, record: row.record })))}
+    </> : null}
+    <p>Research only. Both sides and multiple markets can appear; this is not a one-pick-per-game betting card.
+      Each settled observation risks one unit at its frozen odds. Pending results do not enter ROI.</p>
+    <p>{view.total.assumedPrices} observations use assumed prices; {view.total.unknownPrices} have unverified price provenance.
+      Positive observed ROI does not automatically qualify a combination for EZPZ picks.</p>
+  </details>;
+}
+
 export default function FootballSignals({ board }: { board?: FootballSignalsBoard }) {
   const [market, setMarket] = useState<"Spread" | "Total">("Spread");
   const [date, setDate] = useState(board?.today || ""), [query, setQuery] = useState("");
   const [onlyCandidates, setOnlyCandidates] = useState(false);
   const [sort, setSort] = useState<FootballSignalKey | "time">("time"), [direction, setDirection] = useState(-1);
   const [open, setOpen] = useState<{ id: string; key: FootballSignalKey } | null>(null);
-  const [archive, setArchive] = useState<{ key: string; status: "loading" | "ready" | "error"; sides: FootballSignalSide[] } | null>(null);
+  const [archive, setArchive] = useState<{ key: string; status: "loading" | "ready" | "error"; sides: FootballSignalSide[]; research?: SignalResearchReport } | null>(null);
   const [archiveRetry, setArchiveRetry] = useState(0);
   const trigger = useRef<HTMLButtonElement | null>(null);
   const keys: FootballSignalKey[] = board?.sport === "NCAAF" ? ["money", "move", "system", "team", "model", "sos"] : ["money", "move", "system", "team", "model"];
@@ -126,7 +163,7 @@ export default function FootballSignals({ board }: { board?: FootballSignalsBoar
         const response = await fetch(`/api/${sport === "NBA" ? "nba" : "football"}-signals-history?sport=${sport}&date=${selectedDate}`, { signal: controller.signal });
         const value = await response.json();
         if (!response.ok || !value.ok || value.sport !== sport || value.date !== selectedDate || !Array.isArray(value.sides)) throw new Error("Saved slate unavailable");
-        if (!controller.signal.aborted) setArchive({ key: archiveKey, status: "ready", sides: value.sides });
+        if (!controller.signal.aborted) setArchive({ key: archiveKey, status: "ready", sides: value.sides, research: value.research });
       } catch {
         if (!controller.signal.aborted) setArchive({ key: archiveKey, status: "error", sides: [] });
       }
@@ -154,7 +191,7 @@ export default function FootballSignals({ board }: { board?: FootballSignalsBoar
   if (!board) return <div className="fs-empty">Signals are awaiting the next successful board refresh.</div>;
   const close = () => { setOpen(null); trigger.current?.focus(); };
   return <section className={`fs-board ${keys.length === 6 ? "fs-six" : ""}`} aria-label={`${board.sport} Signals`} onKeyDown={e => { if (e.key === "Escape" && open) { close(); e.preventDefault(); } }}>
-    <div className="fs-heading"><div><span className="fs-kicker">{board.sport === "NCAAF" ? "College football" : board.sport}</span><h2>Signals</h2></div><span className="fs-test-label">3+ test</span></div>
+    <div className="fs-heading"><div><span className="fs-kicker">{board.sport === "NCAAF" ? "College football" : board.sport}</span><h2>Signals</h2></div><span className="fs-test-label">Signal research</span></div>
     <p className="fs-description">Every matchup. Same qualifying rules. Tap a signal for the key details.</p>
     {!board.captureAvailable ? <p className="fs-notice" role="status">Test capture is unavailable. Signals below are previews.</p> : null}
     <div className="fs-controls"><div className="fs-markets" role="group" aria-label="Market">{(["Spread", "Total"] as const).map(m => <button type="button" key={m} aria-pressed={market === m} onClick={() => { setMarket(m); setOpen(null); }}>{m === "Spread" ? "Spreads" : "Totals"}</button>)}</div>
@@ -185,5 +222,7 @@ export default function FootballSignals({ board }: { board?: FootballSignalsBoar
       {board.history.length ? <table className="fs-table"><thead><tr><th>Saved test play</th><th>Signals</th><th>Result</th></tr></thead><tbody>{board.history.map((row, i) => <tr key={`${row.date}-${row.selection}-${i}`}><th scope="row">{row.selection}<small>{row.game} · {row.date}</small></th><td>{row.signalCount}<small>{row.combination}</small></td><td>{row.result || "Pending"}</td></tr>)}</tbody></table> : null}
       <p>All signal observations are saved, including games that produce no test selection. Each settled test selection risks one unit at its saved odds.</p>
     </details>
+    <CombinationResearch report={needsArchive ? archiveReady ? archive?.research : undefined : board.research} market={market}
+      scopeLabel={needsArchive ? "Selected slate:" : "Cumulative"} />
   </section>;
 }

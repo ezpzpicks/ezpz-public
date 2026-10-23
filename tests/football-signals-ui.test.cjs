@@ -5,9 +5,10 @@ const ts = require('typescript'), React = require('react');
 const { renderToStaticMarkup } = require('react-dom/server');
 const root = path.resolve(__dirname, '..');
 const exportsObject = {};
-const source = fs.readFileSync(path.join(root, 'app/FootballSignalsBoard.tsx'), 'utf8') + '\nexport const detailTest = SignalDetail;';
+const source = fs.readFileSync(path.join(root, 'app/FootballSignalsBoard.tsx'), 'utf8') + '\nexport const detailTest = SignalDetail; export const researchTest = CombinationResearch;';
 vm.runInNewContext(ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } }).outputText,
-  { exports: exportsObject, Date, Intl, console, require: name => name === './TeamLogoName' ? { TeamLogoName: p => p.team } : require(name) });
+  { exports: exportsObject, Date, Intl, console, require: name => name === './TeamLogoName' ? { TeamLogoName: p => p.team }
+    : name === '../lib/signalCombinationResearch' ? require('./load-typescript.cjs')(path.join(root, 'lib/signalCombinationResearch.ts')) : require(name) });
 const keys = ['money', 'move', 'system', 'team', 'model'];
 const team = name => ({ team: name, venue: 'Away', role: 'Favorite', opposing: name === 'GB', score: 80, trackedGames: 5, seasonGames: 5, missingGames: 0,
   records: Object.fromEntries([['betType', 'Favorite ATS', 50], ['venue', 'Away ATS', 30], ['recent', 'Last 5 ATS', 20]].map(([k, label, weight]) => [k,
@@ -31,6 +32,22 @@ const opposite = { ...side, id: 'game|Spread|gb', selection: 'GB +1.5', line: 1.
 const board = { sport: 'NFL', today: '2026-10-18', captureAvailable: true, sides: [side, opposite],
   summary: { record: '0-0-0', settled: 0, pending: 0, winPct: null, roiPct: null, netUnits: 0 }, breakdowns: [], history: [] };
 const render = node => renderToStaticMarkup(node);
+
+test('combination research shows exact pairs, counts, overlapping baselines and honest price provenance', () => {
+  const research = require('./load-typescript.cjs')(path.join(root, 'lib/signalCombinationResearch.ts'));
+  const policy = 'ui-research-v1', now = Date.parse('2026-10-19T05:00:00Z');
+  const observation = { ...side, id: 'pair', policyVersion: policy, market: 'Total', line: 44.5, recorded: true,
+    status: 'FINAL_PREGAME', snapshotAt: '2026-10-19T00:05:00Z', oddsAssumed: true,
+    signalCount: 2, signals: keys.map(key => ({ key, active: ['model', 'team'].includes(key), available: true })),
+    result: 'W', resultUpdated: '2026-10-19T04:00:00Z' };
+  const report = research.buildSignalResearchReport('NFL', policy, research.buildSignalResearchDays([observation], policy, now));
+  const html = render(React.createElement(exportsObject.researchTest, { report, market: 'Total' }));
+  for (const text of ['Signal combination research', 'Research period', 'Earlier history', 'Forward test', '2 signals',
+    'Team trend + Model', '1-0-0', '+0.9u', '90.9%', 'Individual signal baselines', 'samples overlap',
+    'not a one-pick-per-game betting card', 'assumed prices', 'does not automatically qualify']) assert(html.includes(text), text);
+  const empty = render(React.createElement(exportsObject.researchTest, { report, market: 'Spread' }));
+  assert.match(empty, /No observations/); assert.match(empty, /No saved two-signal/); assert.doesNotMatch(empty, /90\.9%/);
+});
 
 test('the slate starts collapsed; active money shows +27 while the opposite side stays neutral', () => {
   const html = render(React.createElement(exportsObject.default, { board }));
