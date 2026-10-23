@@ -27,36 +27,89 @@ const time = (value: string) => Number.isFinite(Date.parse(value)) ? new Date(va
   timeZone: "America/New_York", hour: "numeric", minute: "2-digit",
 }) + " ET" : "Time unavailable";
 const signed = (value: number) => `${value > 0 ? "+" : ""}${Number(value.toFixed(1))}`;
-function ForecastCard({ forecast }: { forecast: Forecast }) {
-  return <article className="nbaCard">
+const byTipoff = (a: Forecast, b: Forecast) => Date.parse(a.tipoff) - Date.parse(b.tipoff);
+const gameStatus = (game?: Row) => game?.Completed === "TRUE" || game?.Status === "STATUS_FINAL" ? "Final"
+  : game?.Status === "STATUS_IN_PROGRESS" ? "In progress" : game?.Status === "STATUS_SCHEDULED" ? "Scheduled" : "";
+function Score({ away, home, awayScore, homeScore, label }: { away: string; home: string; awayScore: string; homeScore: string; label: string }) {
+  return <div className="nbaScoreBlock"><p className="nbaSmall">{label}</p><div className="nbaScore">
+    <div><span>{away}</span><strong>{awayScore}</strong></div><div><span>{home}</span><strong>{homeScore}</strong></div>
+  </div></div>;
+}
+function GameScore({ game }: { game?: Row }) {
+  return game?.["Away Score"] && game?.["Home Score"] ? <Score away={game["Away Team"]} home={game["Home Team"]}
+    awayScore={game["Away Score"]} homeScore={game["Home Score"]} label={gameStatus(game) === "Final" ? "Final score" : "Current score"} /> : null;
+}
+function ForecastCard({ forecast, game }: { forecast: Forecast; game?: Row }) {
+  const markets = [
+    { name: "Spread", pick: forecast.spread_pick, grade: forecast.spread_grade, model: signed(forecast.fair_home_spread),
+      line: forecast.market ? signed(forecast.market.home_spread) : "—", edge: forecast.home_spread_edge, result: forecast.spreadResult },
+    { name: "Total", pick: forecast.total_pick, grade: forecast.total_grade, model: forecast.total.toFixed(1),
+      line: forecast.market ? String(forecast.market.total) : "—", edge: forecast.total_edge, result: forecast.totalResult },
+  ];
+  return <article className="nbaCard" data-game-id={forecast.gameId}>
     <h3><MatchupWithLogos sport="NBA" game={`${forecast.away_team} @ ${forecast.home_team}`} /></h3>
-    <p>{time(forecast.tipoff)} · {forecast.phase === "pregame" ? "Pregame refresh" : forecast.phase === "early" ? "Early forecast" : "Manual forecast"}</p>
+    <p className="nbaMeta"><time dateTime={forecast.tipoff}>{time(forecast.tipoff)}</time><span>{forecast.phase === "pregame" ? "Pregame refresh" : forecast.phase === "early" ? "Early forecast" : "Manual forecast"}</span>
+      {gameStatus(game) && <span>{gameStatus(game)}</span>}</p>
     {forecast.availability_mode === "expected_rotation" && <p className="nbaNotice">Expected rotation · Injury availability unchecked · Starters unconfirmed</p>}
-    <div className="nbaScore">{forecast.away_team} <strong>{forecast.away_score.toFixed(1)}</strong> <span> / </span>{forecast.home_team} <strong>{forecast.home_score.toFixed(1)}</strong></div>
-    <div className="nbaScroll"><table><thead><tr><th>Market</th><th>Selection</th><th>Model</th><th>Market line</th><th>Edge</th><th>Grade</th></tr></thead>
-      <tbody><tr><td>Spread</td><td>{forecast.spread_pick || "No market line"}</td><td>Home {signed(forecast.fair_home_spread)}</td><td>{forecast.market ? signed(forecast.market.home_spread) : "—"}</td><td>{forecast.home_spread_edge == null ? "—" : `${Math.abs(forecast.home_spread_edge).toFixed(1)} pts`}</td><td><strong>{forecast.spread_grade || "—"}</strong></td></tr>
-        <tr><td>Total</td><td>{forecast.total_pick || "No market line"}</td><td>{forecast.total.toFixed(1)}</td><td>{forecast.market?.total ?? "—"}</td><td>{forecast.total_edge == null ? "—" : `${Math.abs(forecast.total_edge).toFixed(1)} pts`}</td><td><strong>{forecast.total_grade || "—"}</strong></td></tr></tbody></table></div>
+    <Score away={forecast.away_team} home={forecast.home_team} awayScore={forecast.away_score.toFixed(1)} homeScore={forecast.home_score.toFixed(1)} label="Projected score" />
+    <div className="nbaMarkets">{markets.map(market => <section className="nbaMarketCard" key={market.name} aria-label={`${market.name} forecast`}>
+      <div className="nbaMarketHeading"><h4>{market.name}</h4><span className="nbaGrade" data-grade={market.grade}>Grade {market.grade || "—"}</span></div>
+      <strong className="nbaSelection">{market.pick || "No market line"}</strong>
+      <dl className="nbaMetrics">
+        <div><dt>{market.name === "Spread" ? "Model home spread" : "Model total"}</dt><dd>{market.model}</dd></div>
+        <div><dt>{market.name === "Spread" ? "Market home spread" : "Market total"}</dt><dd>{market.line}</dd></div>
+        <div><dt>Edge</dt><dd>{market.edge == null ? "—" : `${Math.abs(market.edge).toFixed(1)} pts`}</dd></div>
+      </dl>
+      {market.result && <p className="nbaSmall">Result: <strong>{market.result}</strong></p>}
+    </section>)}</div>
+    <GameScore game={game} />
     <p className="nbaSmall">Locked {time(forecast.lockedAt)}{forecast.market ? ` · ScoresAndOdds ${time(forecast.market.as_of)} · assumed -110` : ""}</p>
-    {forecast.spreadResult && <p>Spread: {forecast.spreadResult} · Total: {forecast.totalResult}</p>}
+  </article>;
+}
+
+function MissingForecastCard({ game, splits }: { game: Row; splits: Row[] }) {
+  const homeSpread = splits.find(row => row["Game ID"] === game["Game ID"] && row.Market === "Spread" && row.Selection === game["Home Team"]);
+  const total = splits.find(row => row["Game ID"] === game["Game ID"] && row.Market === "Total");
+  const line = (row: Row | undefined, spread = false) => row?.Line?.trim() && Number.isFinite(Number(row.Line))
+    ? spread ? signed(Number(row.Line)) : row.Line : "Not captured";
+  return <article className="nbaCard" data-game-id={game["Game ID"]}>
+    <h3><MatchupWithLogos sport="NBA" game={`${game["Away Team"]} @ ${game["Home Team"]}`} /></h3>
+    <p className="nbaMeta"><time dateTime={game["Game Time"]}>{time(game["Game Time"])}</time>{gameStatus(game) && <span>{gameStatus(game)}</span>}</p>
+    <GameScore game={game} />
+    <p className="nbaNotice">No saved model forecast for this matchup.</p>
+    <dl className="nbaMarketQuotes">
+      <div><dt>Market home spread · {game["Home Team"]}</dt><dd>{line(homeSpread, true)}</dd></div>
+      <div><dt>Market total</dt><dd>{line(total)}</dd></div>
+    </dl>
   </article>;
 }
 
 export default function NbaBoard({ tab, data }: { tab: string; data: NbaMarketPayload }) {
   if (tab === "Public Betting Splits") return <PublicSplits data={data} />;
   if (tab === "Signals") return <Signals board={data.signals} />;
-  const latest = [...new Map([...data.forecasts].reverse().map(f => [f.gameId, f])).values()]
-    .sort((a,b) => Date.parse(a.tipoff)-Date.parse(b.tipoff));
+  const latestByGame = new Map<string, Forecast>();
+  for (const forecast of data.forecasts) {
+    const previous = latestByGame.get(forecast.gameId);
+    if (!previous || Date.parse(forecast.lockedAt) > Date.parse(previous.lockedAt)) latestByGame.set(forecast.gameId, forecast);
+  }
+  const latest = [...latestByGame.values()].sort(byTipoff);
+  const games = [...data.games].sort((a, b) => Date.parse(a["Game Time"]) - Date.parse(b["Game Time"]));
+  const fullSlate = tab === "Full Slate", records = tab === "Records";
+  const gameCount = `${games.length} ${games.length === 1 ? "game" : "games"}`;
   return <section className="nbaBoard">
-    <div className="nbaIntro"><h2>{tab === "Public Betting Splits" ? "Public Betting Splits" : tab === "Records" ? "NBA Model Tracking" : "NBA Spreads & Totals"}</h2>
-      <p>{data.games.length} games · ScoresAndOdds · Spread and total prices assumed -110</p>
+    <div className="nbaIntro"><h2>{fullSlate ? "NBA Full Slate" : records ? "NBA Model Tracking" : "NBA Spreads & Totals"}</h2>
+      <p>{fullSlate ? gameCount : records ? `${data.forecasts.length} saved forecasts · ${gameCount}` : `${latest.length} ${latest.length === 1 ? "matchup" : "matchups"} with saved forecasts · ${gameCount} on the slate`}</p>
+      <p className="nbaSmall">ScoresAndOdds · Spread and total prices assumed -110</p>
       <p className="nbaSmall">Research model · Conditional rotations · A/B/Lean/Pass grades compare projections with recorded market lines.</p>
     </div>
     {data.stale && <p role="status" className="nbaNotice">The latest live market observation is delayed. Saved lines remain visible; the builder waits for fresh, complete lines.</p>}
-    {(tab === "Records" ? data.forecasts : latest).map(f => <ForecastCard key={`${f.gameId}-${f.modelVersion}`} forecast={f} />)}
-    {!data.forecasts.length && <div className="nbaCard">No market-compared forecasts saved yet. The builder will save each game once complete lines are ready.</div>}
-    {!data.games.length && <div className="nbaCard">No NBA games have been collected for this date.</div>}
-    <style jsx global>{`
-      .nbaBoard{display:grid;gap:16px}.nbaBoard .nbaIntro h2{margin:0 0 8px}.nbaBoard .nbaIntro p,.nbaBoard .nbaCard p{color:#99aec5;margin:8px 0}.nbaBoard .nbaCard{border:1px solid #203650;border-radius:16px;background:#0b1420;padding:20px}.nbaBoard .nbaCard h3{margin:0 0 10px}.nbaBoard .nbaScroll{overflow-x:auto}.nbaBoard table{border-collapse:collapse;width:100%;font-size:14px;white-space:nowrap}.nbaBoard th,.nbaBoard td{padding:12px 10px;text-align:left;border-bottom:1px solid #203650}.nbaBoard th{color:#8ca9c8;font-size:12px}.nbaBoard strong{color:#b7e2ff}.nbaBoard .nbaSmall{font-size:12px;color:#8ca9c8}.nbaBoard .nbaScore{padding:12px 0;font-size:15px}.nbaBoard .nbaNotice{border:1px solid #81632c;background:#2c2415;padding:14px;border-radius:12px;color:#e5cb8f}.nbaBoard details{margin:8px 0 14px}.nbaBoard summary{cursor:pointer;color:#68b6ff;font-size:13px}.nbaBoard svg{width:100%;max-height:110px;margin-top:10px}
-    `}</style>
+    {fullSlate ? games.map(game => {
+      const forecast = latestByGame.get(game["Game ID"]);
+      return forecast ? <ForecastCard key={game["Game ID"]} forecast={forecast} game={game} />
+        : <MissingForecastCard key={game["Game ID"]} game={game} splits={data.splits} />;
+    }) : (records ? data.forecasts : latest).map(forecast => <ForecastCard key={`${forecast.gameId}-${forecast.modelVersion}-${forecast.lockedAt}`}
+      forecast={forecast} game={games.find(game => game["Game ID"] === forecast.gameId)} />)}
+    {!fullSlate && !data.forecasts.length && <div className="nbaCard">No market-compared forecasts saved yet.</div>}
+    {fullSlate && !games.length && <div className="nbaCard">No NBA games have been collected for this date.</div>}
   </section>;
 }
