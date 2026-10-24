@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { normalizeTexasAmAlias } from "../../../lib/texasAmAlias";
 
 export const runtime = "nodejs";
 export const revalidate = 86400;
@@ -29,7 +30,7 @@ const SPORT_PATHS: Record<SupportedSport, string> = {
 };
 
 function normalizeTeam(value: unknown) {
-  return String(value || "")
+  return normalizeTexasAmAlias(value)
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/\(\s*#?\d{1,2}\s*\)/g, " ")

@@ -2,6 +2,7 @@ import { nflTrendTeamKey } from "./nflTrendIdentity";
 import { isVerifiedNcaafTrendRecord } from "./ncaafTrendRecordPolicy";
 import { COLLEGE_FOOTBALL_TEAMS } from "./collegeFootballTeamAliases";
 import { nbaTeamKey } from "./nbaMarketCore";
+import { normalizeTexasAmAlias } from "./texasAmAlias";
 
 type Row = Record<string, any>;
 type Sport = "NFL" | "NCAAF" | "NBA";
@@ -68,7 +69,7 @@ type Game = {
 export type TeamTrendHistory = Map<string, Game>;
 
 function text(value: unknown) {
-  return String(value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+  return normalizeTexasAmAlias(value).normalize("NFD").replace(/[\u0300-\u036f]/g, "")
     .toLowerCase().replace(/[−–—]/g, "-").replace(/&/g, " and ")
     .replace(/[^a-z0-9]+/g, " ").trim().replace(/\s+/g, " ");
 }

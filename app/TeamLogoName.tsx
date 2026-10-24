@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { normalizeTexasAmAlias } from "../lib/texasAmAlias";
 
 export type LogoSport = "NFL" | "NCAAF" | "NCAAM" | "MLB" | "NBA";
 type LogoDirectory = Record<string, string>;
@@ -9,7 +10,7 @@ const directoryValues = new Map<LogoSport, LogoDirectory>();
 const directoryPromises = new Map<LogoSport, Promise<LogoDirectory>>();
 
 function normalizeTeam(value: unknown) {
-  return String(value || "")
+  return normalizeTexasAmAlias(value)
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/\(\s*#?\d{1,2}\s*\)/g, " ")
@@ -48,6 +49,10 @@ function findLogo(directory: LogoDirectory | undefined, team: string) {
   const key = normalizeTeam(team);
   if (!key) return "";
   if (directory[key]) return directory[key];
+  // Never let a missing Aggies entry fall through to the shorter Texas alias.
+  if (/^texas a and m(?: aggies)?$/.test(key)) {
+    return directory["texas a and m"] || directory["texas a and m aggies"] || "";
+  }
 
   const matches = Object.entries(directory)
     .filter(([alias]) => {
@@ -110,7 +115,7 @@ export function TeamLogoName({
     return () => { active = false; };
   }, [sport, team]);
 
-  const label = text ?? team;
+  const label = normalizeTexasAmAlias(text ?? team);
   return (
     <span
       className={className}
