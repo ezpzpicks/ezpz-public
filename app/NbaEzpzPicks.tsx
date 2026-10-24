@@ -2,6 +2,7 @@
 
 import { MatchupWithLogos, SelectionWithTeamLogo } from "./TeamLogoName";
 import type { NbaMarketPayload } from "./NbaBoard";
+import NbaGameLineups from "./NbaGameLineups";
 
 export default function NbaEzpzPicks({ data }: { data: NbaMarketPayload }) {
   const picks = data.ezpzSelections || [];
@@ -11,6 +12,7 @@ export default function NbaEzpzPicks({ data }: { data: NbaMarketPayload }) {
     {data.stale ? <p className="nbaNotice" role="status">Market updates are delayed. Saved picks remain visible; new previews await fresh data.</p> : null}
     {picks.length ? picks.map(pick => <article key={pick.id} className="nbaCard">
       <h3><MatchupWithLogos sport="NBA" game={pick.game} /></h3><p className="nbaMeta">{pick.recorded ? "Final pregame pick" : "Live preview"} · {pick.signalCount} signals · {pick.market}</p>
+      <NbaGameLineups game={pick.game} date={pick.date} />
       <strong className="nbaSelection"><SelectionWithTeamLogo sport="NBA" selection={pick.selection} game={pick.game} /></strong>
       <p>{pick.odds} · {new Date(pick.gameTime).toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" })} ET</p>
       <p>{pick.signals.filter(signal => signal.active).map(signal => ({ money: "Money support", move: "Line movement", system: "Public bet trends", team: "Team trends", model: "Model", sos: "Strength of schedule" }[signal.key])).join(" · ")}</p>

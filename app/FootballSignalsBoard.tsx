@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Banknote, TrendingUp, FlaskConical, Users, Calculator, Mountain, Search, X, ChevronUp, Clock3 } from "lucide-react";
 import { TeamLogoName } from "./TeamLogoName";
+import NbaGameLineups from "./NbaGameLineups";
+import type { NbaGameLineup } from "../lib/nbaLineupsCore";
 import type { FootballSignalKey, FootballSignalSide, FootballSignalsBoard, FootballSignal } from "../lib/footballSignals";
 import { signalResearchView, signalCombinationLabel, type ResearchPhase, type SignalResearchReport } from "../lib/signalCombinationResearch";
 
@@ -143,7 +145,7 @@ export default function FootballSignals({ board }: { board?: FootballSignalsBoar
   const [onlyCandidates, setOnlyCandidates] = useState(false);
   const [sort, setSort] = useState<FootballSignalKey | "time">("time"), [direction, setDirection] = useState(-1);
   const [open, setOpen] = useState<{ id: string; key: FootballSignalKey } | null>(null);
-  const [archive, setArchive] = useState<{ key: string; status: "loading" | "ready" | "error"; sides: FootballSignalSide[]; research?: SignalResearchReport } | null>(null);
+  const [archive, setArchive] = useState<{ key: string; status: "loading" | "ready" | "error"; sides: FootballSignalSide[]; research?: SignalResearchReport; lineups?: NbaGameLineup[] } | null>(null);
   const [archiveRetry, setArchiveRetry] = useState(0);
   const trigger = useRef<HTMLButtonElement | null>(null);
   const keys: FootballSignalKey[] = board?.sport === "NCAAF" ? ["money", "move", "system", "team", "model", "sos"] : ["money", "move", "system", "team", "model"];
@@ -163,7 +165,7 @@ export default function FootballSignals({ board }: { board?: FootballSignalsBoar
         const response = await fetch(`/api/${sport === "NBA" ? "nba" : "football"}-signals-history?sport=${sport}&date=${selectedDate}`, { signal: controller.signal });
         const value = await response.json();
         if (!response.ok || !value.ok || value.sport !== sport || value.date !== selectedDate || !Array.isArray(value.sides)) throw new Error("Saved slate unavailable");
-        if (!controller.signal.aborted) setArchive({ key: archiveKey, status: "ready", sides: value.sides, research: value.research });
+        if (!controller.signal.aborted) setArchive({ key: archiveKey, status: "ready", sides: value.sides, research: value.research, lineups: value.lineups });
       } catch {
         if (!controller.signal.aborted) setArchive({ key: archiveKey, status: "error", sides: [] });
       }
@@ -204,6 +206,7 @@ export default function FootballSignals({ board }: { board?: FootballSignalsBoar
     <div className="fs-sort-caption" aria-live="polite">{sort === "time" ? "Game time order" : `${META[sort].title} · ${direction < 0 ? "highest" : "lowest"} first`}{sort === "sos" && market === "Total" ? " · context only" : ""}</div>
     <div className="fs-games">{needsArchive && !archiveReady ? <div className="fs-empty" role="status">{archiveError ? <><p>The saved slate could not be loaded.</p><button type="button" className="fs-filter" onClick={() => setArchiveRetry(value => value + 1)}>Try again</button></> : "Loading saved pregame signals…"}</div> : groups.length ? groups.map(rows => <article className="fs-game" key={rows[0].gameKey}>
       <header className="fs-game-header"><span>{rows[0].game}</span><time dateTime={rows[0].gameTime}>{time(rows[0].gameTime)}</time></header>
+      {liveNba ? <NbaGameLineups game={rows[0].game} date={selectedDate} lineups={needsArchive ? archive?.lineups || [] : undefined} /> : null}
       {rows.slice().sort((a, b) => market === "Total" ? (a.side === "Over" ? -1 : 1) : 0).map(side => <div className="fs-side" key={side.id}>
         <div className="fs-side-heading"><div className="fs-selection">{market === "Spread" ? <TeamLogoName sport={board.sport} team={side.selection.replace(/\s+[+−-]?\d+(?:\.\d+)?$/, "")} className="fs-team-name" /> : <strong>{side.side}</strong>}<strong>{side.line == null ? "Line pending" : format(side.line, market === "Spread")}</strong><small>{side.odds}</small></div><span className={side.selected ? "fs-count fs-qualified" : "fs-count"}>{side.signalCount} {side.signalCount === 1 ? "signal" : "signals"}{side.mixed ? " · Mixed" : side.selected ? liveNba ? " · Qualified" : " · Test" : ""}</span></div>
         <div className="fs-signals">{keys.map(key => { const s = side.signals.find(s => s.key === key), { Icon, title } = META[key]; if (!s) return null;

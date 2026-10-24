@@ -9,6 +9,8 @@ import { latestNbaForecasts, type NbaModelPlay, type NbaModelRecords, type NbaRe
 import type { FootballSignalSide } from "../lib/footballSignals";
 import type { NbaSignalTest } from "../lib/nbaAnalysisCore";
 import NbaEzpzPicks from "./NbaEzpzPicks";
+import NbaGameLineups, { NbaLineupProvider } from "./NbaGameLineups";
+import type { NbaGameLineup } from "../lib/nbaLineupsCore";
 
 const PublicSplits = dynamic(() => import("./NbaPublicSplits"), { loading: () => <div className="fs-empty">Loading NBA markets…</div> });
 const Signals = dynamic(() => import("./FootballSignalsBoard"), { loading: () => <div className="fs-empty">Loading signals…</div> });
@@ -30,6 +32,7 @@ export type NbaMarketPayload = {
   refreshPolicy: string; finalWindow: string;
   date?: string; availableDates?: string[]; trendPlays?: Record<string, any>[]; leaderboard?: NcaafEzpzSubtype[]; signals?: FootballSignalsBoard;
   modelRecords?: NbaModelRecords; modelPlays?: NbaModelPlay[]; ezpzSelections?: FootballSignalSide[];
+  lineups?: NbaGameLineup[];
   ezpzRecords?: { overall: NbaRecordTotals; last7Days: NbaRecordTotals; history: NbaSignalTest[] };
 };
 const time = (value: string) => Number.isFinite(Date.parse(value)) ? new Date(value).toLocaleTimeString("en-US", {
@@ -61,6 +64,7 @@ function ForecastCard({ forecast, game, qualifiedOnly = false }: { forecast: For
       {gameStatus(game) && <span>{gameStatus(game)}</span>}</p>
     {forecast.availability_mode === "expected_rotation" && <p className="nbaNotice">Expected rotation · Injury availability unchecked · Starters unconfirmed</p>}
     {forecast.availability_mode === "rotowire_html" && <p className="nbaNotice">RotoWire availability checked · {forecast.starters_confirmed ? "Starting fives confirmed" : "Projected starting fives"} · Unresolved statuses remain conditional</p>}
+    <NbaGameLineups gameId={forecast.gameId} />
     <Score away={forecast.away_team} home={forecast.home_team} awayScore={forecast.away_score.toFixed(1)} homeScore={forecast.home_score.toFixed(1)} label="Projected score" />
     <div className="nbaMarkets">{markets.filter(market => !qualifiedOnly || ["A", "B"].includes(market.grade || "")).map(market => <section className="nbaMarketCard" key={market.name} aria-label={`${market.name} forecast`}>
       <div className="nbaMarketHeading"><h4>{market.name}</h4><span className="nbaGrade" data-grade={market.grade}>Grade {market.grade || "—"}</span></div>
@@ -87,6 +91,7 @@ function MissingForecastCard({ game, splits }: { game: Row; splits: Row[] }) {
     <p className="nbaMeta"><time dateTime={game["Game Time"]}>{time(game["Game Time"])}</time>{gameStatus(game) && <span>{gameStatus(game)}</span>}</p>
     <GameScore game={game} />
     <p className="nbaNotice">No saved model forecast for this matchup.</p>
+    <NbaGameLineups gameId={game["Game ID"]} />
     <dl className="nbaMarketQuotes">
       <div><dt>Market home spread · {game["Home Team"]}</dt><dd>{line(homeSpread, true)}</dd></div>
       <div><dt>Market total</dt><dd>{line(total)}</dd></div>
@@ -137,15 +142,15 @@ function ArchivedSlate({ data, picks = false }: { data: NbaMarketPayload; picks?
   const view = selected === current ? data : archive?.date === selected ? archive.data : undefined;
   return <><div className="nbaControls"><label>{picks ? "View NBA picks slate" : "View NBA slate"} <select aria-label={picks ? "View NBA picks slate" : "View NBA full slate"} value={selected} onChange={event => setDate(event.target.value)} disabled={!dates.length}>
     {dates.map(day => <option key={day} value={day}>{day}</option>)}</select></label></div>
-    {view ? picks ? <NbaEzpzPicks data={view} /> : <ModelSlate tab="Full Slate" data={view} /> : <div className="nbaBoard"><p className="nbaCard" role={archive?.error ? "alert" : "status"}>
+    {view ? <NbaLineupProvider lineups={view.lineups}>{picks ? <NbaEzpzPicks data={view} /> : <ModelSlate tab="Full Slate" data={view} />}</NbaLineupProvider> : <div className="nbaBoard"><p className="nbaCard" role={archive?.error ? "alert" : "status"}>
       {archive?.error ? <>The saved slate could not be loaded. <button type="button" onClick={() => setRetry(n => n + 1)}>Try again</button></> : "Loading saved NBA slate…"}</p></div>}</>;
 }
 
 export default function NbaBoard({ tab, data }: { tab: string; data: NbaMarketPayload }) {
-  if (tab === "Public Betting Splits") return <PublicSplits data={data} />;
-  if (tab === "Signals") return <Signals board={data.signals} />;
-  if (tab === "Records") return <Records data={data} />;
-  if (tab === "EZPZ Picks") return <ArchivedSlate data={data} picks />;
-  if (tab === "Full Slate") return <ArchivedSlate data={data} />;
-  return <ModelSlate tab={tab} data={data} />;
+  const view = tab === "Public Betting Splits" ? <PublicSplits data={data} />
+    : tab === "Signals" ? <Signals board={data.signals} />
+    : tab === "Records" ? <Records data={data} />
+    : tab === "EZPZ Picks" ? <ArchivedSlate data={data} picks />
+    : tab === "Full Slate" ? <ArchivedSlate data={data} /> : <ModelSlate tab={tab} data={data} />;
+  return <NbaLineupProvider lineups={data.lineups}>{view}</NbaLineupProvider>;
 }

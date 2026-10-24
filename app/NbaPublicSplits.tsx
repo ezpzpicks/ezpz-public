@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, type ComponentProps } from "react";
 import { DirectTrendRecords, FootballTrendMarketBoard } from "./FootballTrendMarketBoard";
 import type { NbaMarketPayload } from "./NbaBoard";
+import { NbaLineupProvider } from "./NbaGameLineups";
 
 type Groups = ComponentProps<typeof FootballTrendMarketBoard>["groups"];
 export default function NbaPublicSplits({ data }: { data: NbaMarketPayload }) {
@@ -59,7 +60,7 @@ export default function NbaPublicSplits({ data }: { data: NbaMarketPayload }) {
       ? <>The saved NBA slate could not be loaded. <button type="button" className="refreshBtn" onClick={() => setRetry(value => value + 1)}>Try again</button></>
       : "Loading saved NBA markets…"}</div> : <>
       {view.stale ? <p className="fs-notice" role="status">The latest live market observation is delayed. Saved lines remain visible; signals await fresh data.</p> : null}
-      {groups.length ? <FootballTrendMarketBoard groups={groups} sport="NBA" nbaLeaderboard={view.leaderboard || []} />
+      {groups.length ? <NbaLineupProvider lineups={view.lineups}><FootballTrendMarketBoard groups={groups} sport="NBA" nbaLeaderboard={view.leaderboard || []} /></NbaLineupProvider>
         : <div className="empty footballEmpty">No NBA ScoresAndOdds Spread/Total markets are stored for this slate yet.</div>}
       <div className="directTrendRecordWrap"><DirectTrendRecords rows={[]} sport="NBA" nbaLeaderboard={view.leaderboard || []} /></div>
     </>}

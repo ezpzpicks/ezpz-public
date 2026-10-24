@@ -10,11 +10,12 @@ function component(file, overrides = {}, append = '') {
   const exports = {};
   vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.resolve(__dirname, '..', file), 'utf8') + append, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
-  }).outputText, { exports, Date, Intl, console, process, require: name => overrides[name]
+  }).outputText, { exports, Date, Intl, console, process, require: name => overrides[name] || (name === './NbaGameLineups' ? lineupComponents : null)
     || (name === './TeamLogoName' ? { TeamLogoName: p => p.team, SelectionWithTeamLogo: p => p.selection, MatchupWithLogos: p => p.game }
       : name.startsWith('../lib/') ? require(path.resolve(__dirname, '..', 'app', name + '.ts')) : require(name)) });
   return exports;
 }
+const lineupComponents = component('app/NbaGameLineups.tsx');
 const football = component('app/FootballSignalsBoard.tsx', {}, '\nexport const testTeamDetail = TeamDetail;');
 const markets = component('app/FootballTrendMarketBoard.tsx');
 const nba = component('app/NbaPublicSplits.tsx', { './FootballTrendMarketBoard': markets });
@@ -45,11 +46,13 @@ test('live NBA signals retain the shared five-column controls and collapsed deta
   assert.doesNotMatch(html, /3\+ test results|Saved test play|Prospective testing/);
   assert.doesNotMatch(html, /class="fs-signal fs-on"|class="fs-detail"|Strength of schedule/);
 });
-test('NBA public market cards have identical NFL markup when neither has qualified trends', () => {
+test('NBA public market cards retain shared markets and add NBA-only collapsed lineups', () => {
   const groups = [{ game: plays[0].game, plays }];
   const nba = render(React.createElement(markets.FootballTrendMarketBoard, { groups, sport: 'NBA', nbaLeaderboard: [] }));
   const nfl = render(React.createElement(markets.FootballTrendMarketBoard, { groups, sport: 'NFL', nflLeaderboard: [] }));
-  assert.equal(nba, nfl);
+  assert.match(nba, /class="nbaLineups"/);
+  assert.doesNotMatch(nfl, /class="nbaLineups"/);
+  assert.doesNotMatch(nba, /<details[^>]*\bopen/);
   for (const cls of ['dkTrendGame', 'dkTrendMarketBoard', 'dkTrendBarTrack', 'dkMovementDropdown']) assert(nba.includes(cls), cls);
   assert.doesNotMatch(nba, /directTrendBadge/);
 });

@@ -17,6 +17,33 @@
 
 * { box-sizing: border-box; }
 
+/* One shared, collapsed lineup panel on each NBA matchup. */
+.nbaLineups { min-width: 0; margin: 12px 0; border: 1px solid #29405b; border-radius: 10px; background: #0b1727; color: #d6e5f4; overflow: hidden; }
+.nbaLineups > summary { display: flex; align-items: center; gap: 10px; padding: 11px 13px; min-height: 44px; cursor: pointer; list-style: none; font-size: 13px; font-weight: 700; }
+.nbaLineups > summary::-webkit-details-marker { display: none; }
+.nbaLineups > summary:focus-visible { outline: 2px solid #38bdf8; outline-offset: -3px; border-radius: 9px; }
+.nbaLineupChevron { margin-left: auto; font-size: 19px; line-height: 1; transition: transform .15s; }
+.nbaLineups[open] > summary { border-bottom: 1px solid #29405b; }
+.nbaLineups[open] > summary .nbaLineupChevron { transform: rotate(180deg); }
+.nbaLineupBody { padding: 12px; }
+.nbaLineupTeams { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.nbaLineupTeam { min-width: 0; }
+.nbaLineupTeam > header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; font-weight: 700; }
+.nbaLineupStatus { display: inline-flex; align-items: center; flex: 0 0 auto; padding: 3px 7px; border: 1px solid #80632d; border-radius: 999px; color: #f1d38c; background: #302715; font-size: 11px; line-height: 1.4; font-weight: 700; }
+.nbaLineupStatus[data-final="true"] { border-color: #238865; background: #123c31; color: #99f6c9; }
+.nbaLineups p.nbaLineupCaption { color: #92a9c1; font-size: 11px; margin: 10px 0 5px; line-height: 1.5; }
+.nbaLineupPlayers { list-style: none; padding: 0; margin: 0; }
+.nbaLineupPlayer { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; align-items: center; gap: 7px; padding: 7px 0; border-bottom: 1px solid #1b2c40; font-size: 12px; line-height: 1.5; }
+.nbaLineupPlayer:last-child { border-bottom: 0; }
+.nbaLineupPosition { color: #8ca9c8; font-size: 10px; }
+.nbaLineupName { overflow-wrap: anywhere; color: #d6e5f4; }
+.nbaLineupInjury { border-radius: 5px; padding: 2px 5px; color: #f1d38c; background: #332b18; font-size: 10px; font-weight: 700; white-space: nowrap; }
+.nbaLineupInjury[data-status="OUT"], .nbaLineupInjury[data-status="DOUBTFUL"] { color: #ffb3b3; background: #41222c; }
+.nbaLineupInjury[data-status="PROBABLE"], .nbaLineupInjury[data-status="AVAILABLE"] { color: #99f6c9; background: #123c31; }
+.nbaLineups p.nbaLineupSource, .nbaLineups p.nbaLineupEmpty { margin: 12px 0 0; color: #8ca9c8; font-size: 11px; line-height: 1.5; }
+.nbaLineupSource a { color: #8bcfff; }
+@media (max-width: 640px) { .nbaLineupTeams { grid-template-columns: minmax(0, 1fr); gap: 18px; } }
+
 /* NBA forecasts and the complete daily slate. */
 .nbaBoard { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; min-width: 0; max-width: 100%; }
 .nbaBoard .nbaIntro h2 { margin: 0 0 8px; }

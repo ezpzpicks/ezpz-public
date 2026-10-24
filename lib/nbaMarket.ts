@@ -8,6 +8,8 @@ import { buildNbaSignals } from "./nbaAnalysisCore";
 import { NBA_SIGNALS_TAB } from "./nbaTrendLeaderboard";
 import { NBA_MODEL_RECORD_POLICY, nbaEzpzSelections, nbaModelPlays, nbaRecordTotals, summarizeNbaModelRecords, updateNbaModelRecords } from "./nbaRecords";
 import { readNbaModelRecordSeed } from "./nbaModelRecordStore";
+import { readNbaSavedLineups, refreshNbaLineups } from "./nbaLineups";
+import { mergeNbaLineups, type NbaGameLineup } from "./nbaLineupsCore";
 
 export async function collectNbaMarket({ persist = true, now = Date.now() } = {}) {
   const date = nbaDate(now);
@@ -24,6 +26,7 @@ export async function collectNbaMarket({ persist = true, now = Date.now() } = {}
   const previous = await readTursoDatasetByDateKeys("NBA", "weekly_market_trends", [date]);
   const advanced = advanceNbaMarkets(bound.rows, previous, capturedAt);
   const schedule = nbaScheduleRows(games, capturedAt);
+  const lineups = await refreshNbaLineups(date, games, persist, capturedAt);
   let analysis;
   if (persist) {
     await saveNbaMarketRows("schedule", schedule);
@@ -38,17 +41,19 @@ export async function collectNbaMarket({ persist = true, now = Date.now() } = {}
     games: games.length, matchedGames: bound.rows.length / 4, updatedSides: advanced.latest.length,
     finalSides: advanced.finals.length, historySides: advanced.history.length,
     missingMarkets: bound.missing, errors: bound.errors, partial: bound.missing.length > 0,
-    refreshCompleted: bound.missing.length === 0, analysis };
+    refreshCompleted: bound.missing.length === 0, lineups, analysis };
 }
 
 export async function readNbaPublicData(date = nbaDate()) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(`${date}T12:00:00Z`))
     || new Date(`${date}T12:00:00Z`).toISOString().slice(0,10) !== date) throw new Error("Choose a valid NBA slate date.");
-  const [games, splits, forecasts, state, storedRows] = await Promise.all([
+  const [games, splits, forecasts, state, storedRows, savedLineups] = await Promise.all([
     readTursoDatasetByDateKeys("NBA", "schedule", [date]),
     readTursoDatasetByDateKeys("NBA", "weekly_market_trends", [date]),
     readNbaForecasts(date), readNbaAnalysis(date), readTursoDatasetByDateKeys("NBA", NBA_SIGNALS_TAB, [date]),
+    readNbaSavedLineups(date),
   ]);
+  const lineups = mergeNbaLineups(forecasts.flatMap(forecast => forecast.lineup ? [forecast.lineup as NbaGameLineup] : []), savedLineups);
   const analysis = buildNbaSignals({ date, games, splits, forecasts, storedRows, state });
   const lastObservation = splits.map(r => r["Updated At"]).filter(Boolean).sort().at(-1) || "";
   const lastUpdated = Number.isFinite(Date.parse(lastObservation)) ? new Intl.DateTimeFormat("en-US", {
@@ -67,8 +72,9 @@ export async function readNbaPublicData(date = nbaDate()) {
     tiles: { last7Days: { ...modelRecords.last7Days, label: "NBA model" }, overallGreen: { ...modelRecords.overall, label: "NBA model" },
       pendingGreen: modelPlays.filter(row => !row.result).length, bestPlaysToday: modelPlays.length },
     bestPlays: modelPlays, slateToday: games, betTrackerRows: [], trendPlays: analysis.plays, recordSummary: [], last7RecordSummary: [],
-    nbaMarket: { source: "ScoresAndOdds", date, availableDates: [...new Set([date, ...state.archiveDates])].sort(), games, splits, forecasts,
-      modelRecords, modelPlays, ezpzSelections, ezpzRecords,
+    nbaMarket: { source: "ScoresAndOdds", date, availableDates: [...new Set([date, ...state.archiveDates])].sort(), games, splits,
+      forecasts: forecasts.map(({ lineup, ...forecast }) => forecast),
+      modelRecords, modelPlays, ezpzSelections, ezpzRecords, lineups,
       trendPlays: analysis.plays, leaderboard: state.leaderboard, signals: analysis.board, stale: analysis.stale,
       refreshPolicy: "30 minutes until 90 minutes before tipoff, then 5 minutes", finalWindow: "10–20 minutes before tipoff" } };
 }

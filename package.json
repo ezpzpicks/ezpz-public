@@ -6,6 +6,7 @@
     "turso:check": "node scripts/check-turso-env.mjs"
   },
   "dependencies": {
+    "linkedom": "0.18.12",
     "lucide-react": "1.59.0",
     "next": "15.4.11",
     "react": "19.1.0",

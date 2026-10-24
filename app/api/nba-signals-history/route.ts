@@ -3,6 +3,7 @@ import { readTursoDatasetByDateKeys } from "../../../lib/tursoStore";
 import { readSavedFootballSignalsForDate } from "../../../lib/footballSignals";
 import { NBA_SIGNALS_POLICY, NBA_SIGNALS_TAB } from "../../../lib/nbaTrendLeaderboard";
 import { buildSignalResearchDays, buildSignalResearchReport } from "../../../lib/signalCombinationResearch";
+import { readNbaSavedLineups } from "../../../lib/nbaLineups";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,10 +15,10 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ ok: false, error: "Choose a valid NBA slate date." }, { status: 400 });
   }
   try {
-    const rows = await readTursoDatasetByDateKeys("NBA", NBA_SIGNALS_TAB, [date]);
+    const [rows, lineups] = await Promise.all([readTursoDatasetByDateKeys("NBA", NBA_SIGNALS_TAB, [date]), readNbaSavedLineups(date)]);
     const sides = readSavedFootballSignalsForDate(rows, date, Date.now(), NBA_SIGNALS_POLICY);
     const research = buildSignalResearchReport("NBA", NBA_SIGNALS_POLICY.version, buildSignalResearchDays(sides, NBA_SIGNALS_POLICY.version));
-    return NextResponse.json({ ok: true, sport: "NBA", date, sides, research },
+    return NextResponse.json({ ok: true, sport: "NBA", date, sides, research, lineups },
       { headers: { "Cache-Control": "no-store, max-age=0" } });
   } catch (error) {
     console.error("NBA Signals archive read failed", { date, error });
