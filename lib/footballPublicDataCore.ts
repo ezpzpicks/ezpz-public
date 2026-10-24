@@ -517,6 +517,29 @@ async function loadFootballWeekSchedule(sport: FootballSport, start: string, end
   return rows;
 }
 
+function reconcileNcaafScheduleKickoffs(rows: SheetRow[], plays: TrendPlay[]) {
+  const key = (date: string, away: unknown, home: unknown) =>
+    `${date}|${normalizeTeam(away, "NCAAF")}|${normalizeTeam(home, "NCAAF")}`;
+  const clocks = new Map<string, Set<string>>();
+  for (const play of plays) {
+    const date = isoDate(play.date);
+    const kickoff = etKickoffParts(play.gameTime);
+    // Only source timestamps on the same Eastern game date can repair a
+    // date-only schedule. Conflicting sides leave the kickoff unverified.
+    if (!date || kickoff.date !== date || !kickoff.time || kickoff.time === "00:00") continue;
+    const id = key(date, play.awayTeam, play.homeTeam);
+    const times = clocks.get(id) || new Set<string>();
+    times.add(new Date(play.gameTime).toISOString());
+    clocks.set(id, times);
+  }
+  return rows.map((row) => {
+    const date = isoDate(row.Date || row["Game Date"] || "");
+    if (!date || nflKickoffIso(date, gameTime(row))) return row;
+    const times = clocks.get(key(date, row["Away Team"], row["Home Team"]));
+    return times?.size === 1 ? { ...row, "Game Time": [...times][0] } : row;
+  });
+}
+
 function mergeFootballSchedules(saved: SheetRow[], live: SheetRow[], sport: FootballSport) {
   const merged = new Map<string, SheetRow>();
 
@@ -2910,9 +2933,23 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false,p
       ) : null;
   const today=todayET(); const trackingWeek=footballWeekBounds(sport,today); if(persist) await Promise.all([ensureSportWorksheet(sport,"all_game_trends",ALL_GAME_TRENDS_HEADERS),ensureSportWorksheet(sport,"public_split_snapshots",PUBLIC_SPLIT_HEADERS)]);
   const [slateAll,trackerRaw,schedule,trendExisting,snapshotExisting,propProjectionRows]=await Promise.all([readSportWorksheet(sport,"daily_slate"),readSportWorksheet(sport,"bet_tracker"),readSportWorksheet(sport,"schedule"),readSportWorksheet(sport,"all_game_trends",ALL_GAME_TRENDS_HEADERS),readSportWorksheet(sport,"public_split_snapshots",PUBLIC_SPLIT_HEADERS),sport==="NFL"?readSportWorksheet(sport,"prop_projections"):Promise.resolve([] as SheetRow[])]);
+  // Reuse the existing bounded weekly read as the source clock before merging
+  // model rows. The CFB model schema does not store kickoff on daily_slate.
+  const weeklyMarket = await readWeeklyFootballMarket(
+    sport,
+    sport === "NCAAF"
+      ? { dateKeys: [today], hydrateHistory: false }
+      : { hydrateHistory: false },
+  );
+  const displayTrendPlays = Array.isArray(weeklyMarket.trendPlays)
+    ? weeklyMarket.trendPlays as unknown as TrendPlay[]
+    : [];
   readStage = "current-schedule";
   const liveSchedule=await loadFootballWeekSchedule(sport,trackingWeek.start,trackingWeek.end);
-  const footballSchedule=mergeFootballSchedules(schedule,liveSchedule,sport);
+  const mergedSchedule=mergeFootballSchedules(schedule,liveSchedule,sport);
+  const footballSchedule=sport==="NCAAF"
+    ? reconcileNcaafScheduleKickoffs(mergedSchedule,displayTrendPlays)
+    : mergedSchedule;
   const pendingRecordDates=[...new Set([...trackerRaw,...trendExisting]
     .filter((row)=>!resultCode(row.Result||row.Status))
     .map((row)=>isoDate(row.Date||row["Game Date"]||""))
@@ -3035,16 +3072,7 @@ async function buildFootballPublicDataFresh(sport:FootballSport,{persist=false,p
   // archive/discovery reader unchanged, but avoid loading hundreds of thousands
   // of prior odds snapshots during every public refresh.
   readStage = "saved-weekly-market";
-  const weeklyMarket = await readWeeklyFootballMarket(
-    sport,
-    sport === "NCAAF"
-      ? { dateKeys: [today], hydrateHistory: false }
-      : { hydrateHistory: false },
-  );
   readStage = "assemble-payload";
-  const displayTrendPlays = Array.isArray(weeklyMarket.trendPlays)
-    ? weeklyMarket.trendPlays as unknown as TrendPlay[]
-    : [];
   const completedTrendDates = [...new Set(trendRows
         .filter((row) => Boolean(resultCode(row.Result || row.Status)))
         .map((row) => isoDate(row.Date || row["Game Date"] || ""))
