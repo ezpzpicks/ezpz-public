@@ -45,7 +45,27 @@
 .nbaBoard dd { margin: 5px 0 0; font-size: 15px; font-weight: 800; font-variant-numeric: tabular-nums; }
 .nbaBoard .nbaMarketQuotes { margin: 16px 0 0; }
 .nbaBoard .nbaNotice, .nbaBoard .nbaCard p.nbaNotice { border: 1px solid #81632c; background: #2c2415; padding: 12px; border-radius: 12px; color: #e5cb8f; font-size: 13px; line-height: 1.5; }
+.nbaControls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 8px 0 16px; }
+.nbaControls label { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; color: #b4c7dc; }
+.nbaControls button, .nbaControls select { color: #b7e2ff; border: 1px solid #29405b; background: #0d1a2a; padding: 10px 14px; border-radius: 10px; }
+.nbaControls button[aria-pressed="true"] { background: #13569d; border-color: #398de0; color: white; }
+.nbaRecordGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.nbaRecordCard { min-width: 0; border: 1px solid #29405b; border-radius: 16px; padding: 20px; background: #0d1a2a; }
+.nbaRecordCard h3 { margin: 0 0 12px; font-size: 15px; }
+.nbaRecordCard p { font-size: 13px; color: #99aec5; }
+.nbaRecordValue { font-size: 32px; font-variant-numeric: tabular-nums; }
+.nbaTableWrap { max-width: 100%; overflow-x: auto; }
+.nbaRecordsTable { border-collapse: collapse; width: 100%; font-size: 13px; }
+.nbaRecordsTable th, .nbaRecordsTable td { padding: 12px 10px; text-align: left; border-bottom: 1px solid #203650; white-space: nowrap; }
+.nbaPlayHistory { display: grid; }
+.nbaHistoryRow { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 15px 0; border-bottom: 1px solid #203650; }
+.nbaHistoryRow > div { min-width: 0; display: grid; gap: 7px; }
+.nbaHistoryRow small { color: #8ca9c8; }
+.nbaResult { display: inline-block; flex: 0 0 auto; border-radius: 8px; padding: 8px 12px; background: #26384d; font-weight: 800; }
+.nbaResult[data-result="W"] { color: #99f6c9; background: #123c31; }
+.nbaResult[data-result="L"] { color: #ffb3b3; background: #4d2028; }
 @media (max-width: 640px) {
+  .nbaRecordGrid { grid-template-columns: minmax(0, 1fr); }
   .nbaBoard .nbaCard { padding: 14px; }
   .nbaBoard .nbaMarkets { grid-template-columns: minmax(0, 1fr); }
   .nbaBoard .nbaMarketCard { padding: 12px; }

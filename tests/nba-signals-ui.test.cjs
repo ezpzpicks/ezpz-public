@@ -11,16 +11,19 @@ function component(file, overrides = {}, append = '') {
   vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.resolve(__dirname, '..', file), 'utf8') + append, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
   }).outputText, { exports, Date, Intl, console, process, require: name => overrides[name]
-    || (name === './TeamLogoName' ? { TeamLogoName: p => p.team, SelectionWithTeamLogo: p => p.selection }
+    || (name === './TeamLogoName' ? { TeamLogoName: p => p.team, SelectionWithTeamLogo: p => p.selection, MatchupWithLogos: p => p.game }
       : name.startsWith('../lib/') ? require(path.resolve(__dirname, '..', 'app', name + '.ts')) : require(name)) });
   return exports;
 }
 const football = component('app/FootballSignalsBoard.tsx', {}, '\nexport const testTeamDetail = TeamDetail;');
 const markets = component('app/FootballTrendMarketBoard.tsx');
 const nba = component('app/NbaPublicSplits.tsx', { './FootballTrendMarketBoard': markets });
-const nbaBoard = component('app/NbaBoard.tsx', { 'next/dynamic': { default: () => () => null },
+const records = component('app/NbaRecords.tsx', { './FootballTrendMarketBoard': markets });
+const ezpz = component('app/NbaEzpzPicks.tsx');
+const nbaBoard = component('app/NbaBoard.tsx', { 'next/dynamic': { default: loader => String(loader).includes('NbaRecords') ? records.default : () => null },
+  './NbaRecords': records, './NbaEzpzPicks': ezpz,
   './TeamLogoName': { MatchupWithLogos: props => props.game } });
-const date = '2026-11-10', time = date + 'T23:00:00Z';
+const date = '2026-10-22', time = date + 'T23:00:00Z';
 const keys = ['money', 'move', 'system', 'team', 'model'];
 const side = name => ({ id: name, date, gameKey: 'nba-game', game: 'Cleveland Cavaliers @ Philadelphia 76ers', gameTime: time,
   market: 'Spread', side: name, selection: name + ' +3.5', line: 3.5, odds: '-110', signals: keys.map(key => ({ key, active: false,
@@ -33,12 +36,13 @@ const plays = ['Cleveland Cavaliers', 'Philadelphia 76ers'].map((name, i) => ({ 
   selectionTeam: name, side: '', line: i ? -3.5 : 3.5, odds: '-110', betsPct: 50, moneyPct: 50, updatedAt: date + 'T20:00:00Z',
   snapshotStatus: 'LIVE', movementHistory: [] }));
 
-test('NBA signals use exactly NFL’s five-column markup, 3+ controls and collapsed details', () => {
+test('live NBA signals retain the shared five-column controls and collapsed details', () => {
   const html = render(React.createElement(football.default, { board }));
   const nfl = render(React.createElement(football.default, { board: { ...board, sport: 'NFL' } }));
-  assert.equal(html.replaceAll('NBA', 'NFL'), nfl);
   assert.equal((html.match(/aria-expanded="false"/g) || []).length, 10);
-  for (const text of ['NBA Signals', '3+ test', '3+ only', 'Sort by Public bet trends', 'Sort by Team trends', 'Sort by Model edge']) assert(html.includes(text), text);
+  for (const text of ['NBA Signals', 'Live signals', '3+ signal results', '3+ only', 'Sort by Public bet trends', 'Sort by Team trends', 'Sort by Model edge']) assert(html.includes(text), text);
+  assert.match(nfl, /3\+ test results/);
+  assert.doesNotMatch(html, /3\+ test results|Saved test play|Prospective testing/);
   assert.doesNotMatch(html, /class="fs-signal fs-on"|class="fs-detail"|Strength of schedule/);
 });
 test('NBA public market cards have identical NFL markup when neither has qualified trends', () => {
@@ -94,12 +98,12 @@ test('NBA Full Slate includes scheduled games without a forecast, their actual s
 test('NBA model cards keep all comparisons and grades in labeled panels without a wide table', () => {
   const html = renderNba('Today’s Model Plays');
   assert.equal((html.match(/<article /g) || []).length, 1);
-  for (const text of ['1 matchup with saved forecasts · 2 games on the slate', 'Spread forecast', 'Total forecast', 'Projected score',
-    '111.2', '119.4', 'Model home spread', 'Market home spread', 'Model total', 'Market total', 'Grade Pass', 'Grade A',
+  for (const text of ['1 matchup with A/B plays · 2 games on the slate', 'Total forecast', 'Projected score',
+    '111.2', '119.4', 'Model total', 'Market total', 'Grade A',
     '5.9 pts', 'Result:', 'PENDING', 'Locked', 'assumed -110', 'Injury availability unchecked']) assert(html.includes(text), text);
-  assert.doesNotMatch(html, /<table|nbaScroll|Cleveland Cavaliers/);
+  assert.doesNotMatch(html, /<table|nbaScroll|Cleveland Cavaliers|Grade Pass|Spread forecast|Research model/);
 });
-test('NBA model and Full Slate choose the newest lock regardless of API response order; Records retain both phases', () => {
+test('NBA model and Full Slate choose the newest lock regardless of API response order; Records show official summaries', () => {
   for (const forecasts of [[early, pregame], [pregame, early]]) {
     for (const tab of ['Today’s Model Plays', 'Full Slate']) {
       const html = renderNba(tab, { ...forecastData, forecasts });
@@ -108,9 +112,16 @@ test('NBA model and Full Slate choose the newest lock regardless of API response
       assert.doesNotMatch(html, /Early forecast|Under 237.5/);
     }
   }
-  const records = renderNba('Records');
-  assert.equal((records.match(/<article /g) || []).length, 2);
-  for (const text of ['2 saved forecasts', 'Early forecast', 'Pregame refresh', 'Under 237.5', 'Under 236.5']) assert(records.includes(text), text);
+  const html = renderNba('Records');
+  for (const text of ['NBA Records', 'Model Plays', 'EZPZ Picks', 'Win rate', 'Net units', 'ROI', 'Season', 'Last 7 days', 'not counted twice']) assert(html.includes(text), text);
+  assert.doesNotMatch(html, /NBA Model Tracking|Early forecast|Pregame refresh/);
+});
+
+test('NBA EZPZ tab has an honest empty state instead of showing model forecasts', () => {
+  const html = renderNba('EZPZ Picks');
+  assert.match(html, /NBA EZPZ Picks/);
+  assert.match(html, /No qualifying NBA EZPZ Picks yet/);
+  assert.doesNotMatch(html, /Spread forecast|Total forecast/);
 });
 test('an unmodeled NBA slate stays complete and never invents a projection, grade or missing market line', () => {
   const html = renderNba('Full Slate', { ...forecastData, forecasts: [], splits: [] });

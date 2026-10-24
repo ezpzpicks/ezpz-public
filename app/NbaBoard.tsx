@@ -4,9 +4,15 @@ import { MatchupWithLogos } from "./TeamLogoName";
 import dynamic from "next/dynamic";
 import type { FootballSignalsBoard } from "../lib/footballSignals";
 import type { NcaafEzpzSubtype } from "../lib/ncaafEzpzWilson";
+import { useEffect, useState } from "react";
+import { latestNbaForecasts, type NbaModelPlay, type NbaModelRecords, type NbaRecordTotals } from "../lib/nbaRecords";
+import type { FootballSignalSide } from "../lib/footballSignals";
+import type { NbaSignalTest } from "../lib/nbaAnalysisCore";
+import NbaEzpzPicks from "./NbaEzpzPicks";
 
 const PublicSplits = dynamic(() => import("./NbaPublicSplits"), { loading: () => <div className="fs-empty">Loading NBA markets…</div> });
 const Signals = dynamic(() => import("./FootballSignalsBoard"), { loading: () => <div className="fs-empty">Loading signals…</div> });
+const Records = dynamic(() => import("./NbaRecords"), { loading: () => <div className="fs-empty">Loading NBA records…</div> });
 
 type Row = Record<string, string>;
 type Forecast = {
@@ -23,6 +29,8 @@ export type NbaMarketPayload = {
   source: string; games: Row[]; splits: Row[]; forecasts: Forecast[]; stale: boolean;
   refreshPolicy: string; finalWindow: string;
   date?: string; availableDates?: string[]; trendPlays?: Record<string, any>[]; leaderboard?: NcaafEzpzSubtype[]; signals?: FootballSignalsBoard;
+  modelRecords?: NbaModelRecords; modelPlays?: NbaModelPlay[]; ezpzSelections?: FootballSignalSide[];
+  ezpzRecords?: { overall: NbaRecordTotals; last7Days: NbaRecordTotals; history: NbaSignalTest[] };
 };
 const time = (value: string) => Number.isFinite(Date.parse(value)) ? new Date(value).toLocaleTimeString("en-US", {
   timeZone: "America/New_York", hour: "numeric", minute: "2-digit",
@@ -40,7 +48,7 @@ function GameScore({ game }: { game?: Row }) {
   return game?.["Away Score"] && game?.["Home Score"] ? <Score away={game["Away Team"]} home={game["Home Team"]}
     awayScore={game["Away Score"]} homeScore={game["Home Score"]} label={gameStatus(game) === "Final" ? "Final score" : "Current score"} /> : null;
 }
-function ForecastCard({ forecast, game }: { forecast: Forecast; game?: Row }) {
+function ForecastCard({ forecast, game, qualifiedOnly = false }: { forecast: Forecast; game?: Row; qualifiedOnly?: boolean }) {
   const markets = [
     { name: "Spread", pick: forecast.spread_pick, grade: forecast.spread_grade, model: signed(forecast.fair_home_spread),
       line: forecast.market ? signed(forecast.market.home_spread) : "—", edge: forecast.home_spread_edge, result: forecast.spreadResult },
@@ -54,7 +62,7 @@ function ForecastCard({ forecast, game }: { forecast: Forecast; game?: Row }) {
     {forecast.availability_mode === "expected_rotation" && <p className="nbaNotice">Expected rotation · Injury availability unchecked · Starters unconfirmed</p>}
     {forecast.availability_mode === "rotowire_html" && <p className="nbaNotice">RotoWire availability checked · {forecast.starters_confirmed ? "Starting fives confirmed" : "Projected starting fives"} · Unresolved statuses remain conditional</p>}
     <Score away={forecast.away_team} home={forecast.home_team} awayScore={forecast.away_score.toFixed(1)} homeScore={forecast.home_score.toFixed(1)} label="Projected score" />
-    <div className="nbaMarkets">{markets.map(market => <section className="nbaMarketCard" key={market.name} aria-label={`${market.name} forecast`}>
+    <div className="nbaMarkets">{markets.filter(market => !qualifiedOnly || ["A", "B"].includes(market.grade || "")).map(market => <section className="nbaMarketCard" key={market.name} aria-label={`${market.name} forecast`}>
       <div className="nbaMarketHeading"><h4>{market.name}</h4><span className="nbaGrade" data-grade={market.grade}>Grade {market.grade || "—"}</span></div>
       <strong className="nbaSelection">{market.pick || "No market line"}</strong>
       <dl className="nbaMetrics">
@@ -86,32 +94,58 @@ function MissingForecastCard({ game, splits }: { game: Row; splits: Row[] }) {
   </article>;
 }
 
-export default function NbaBoard({ tab, data }: { tab: string; data: NbaMarketPayload }) {
-  if (tab === "Public Betting Splits") return <PublicSplits data={data} />;
-  if (tab === "Signals") return <Signals board={data.signals} />;
-  const latestByGame = new Map<string, Forecast>();
-  for (const forecast of data.forecasts) {
-    const previous = latestByGame.get(forecast.gameId);
-    if (!previous || Date.parse(forecast.lockedAt) > Date.parse(previous.lockedAt)) latestByGame.set(forecast.gameId, forecast);
-  }
-  const latest = [...latestByGame.values()].sort(byTipoff);
+function ModelSlate({ tab, data }: { tab: string; data: NbaMarketPayload }) {
+  const latest = (latestNbaForecasts(data.forecasts) as Forecast[]).sort(byTipoff);
+  const latestByGame = new Map(latest.map(forecast => [forecast.gameId, forecast]));
+  const qualified = latest.filter(forecast => [forecast.spread_grade, forecast.total_grade].some(grade => grade === "A" || grade === "B"));
   const games = [...data.games].sort((a, b) => Date.parse(a["Game Time"]) - Date.parse(b["Game Time"]));
-  const fullSlate = tab === "Full Slate", records = tab === "Records";
+  const fullSlate = tab === "Full Slate";
   const gameCount = `${games.length} ${games.length === 1 ? "game" : "games"}`;
   return <section className="nbaBoard">
-    <div className="nbaIntro"><h2>{fullSlate ? "NBA Full Slate" : records ? "NBA Model Tracking" : "NBA Spreads & Totals"}</h2>
-      <p>{fullSlate ? gameCount : records ? `${data.forecasts.length} saved forecasts · ${gameCount}` : `${latest.length} ${latest.length === 1 ? "matchup" : "matchups"} with saved forecasts · ${gameCount} on the slate`}</p>
+    <div className="nbaIntro"><h2>{fullSlate ? "NBA Full Slate" : "NBA Model Plays"}</h2>
+      <p>{fullSlate ? gameCount : `${qualified.length} ${qualified.length === 1 ? "matchup" : "matchups"} with A/B plays · ${gameCount} on the slate`}</p>
       <p className="nbaSmall">ScoresAndOdds · Spread and total prices assumed -110</p>
-      <p className="nbaSmall">Research model · Conditional rotations · A/B/Lean/Pass grades compare projections with recorded market lines.</p>
+      <p className="nbaSmall">{fullSlate ? "All forecasts and grades, including Lean and Pass." : "Qualified A/B spreads and totals. Full Slate includes every forecast and grade."} Lineup-aware projections use the saved availability report.</p>
     </div>
     {data.stale && <p role="status" className="nbaNotice">The latest live market observation is delayed. Saved lines remain visible; the builder waits for fresh, complete lines.</p>}
     {fullSlate ? games.map(game => {
       const forecast = latestByGame.get(game["Game ID"]);
       return forecast ? <ForecastCard key={game["Game ID"]} forecast={forecast} game={game} />
         : <MissingForecastCard key={game["Game ID"]} game={game} splits={data.splits} />;
-    }) : (records ? data.forecasts : latest).map(forecast => <ForecastCard key={`${forecast.gameId}-${forecast.modelVersion}-${forecast.lockedAt}`}
-      forecast={forecast} game={games.find(game => game["Game ID"] === forecast.gameId)} />)}
-    {!fullSlate && !data.forecasts.length && <div className="nbaCard">No market-compared forecasts saved yet.</div>}
+    }) : qualified.map(forecast => <ForecastCard key={`${forecast.gameId}-${forecast.modelVersion}-${forecast.lockedAt}`}
+      forecast={forecast} qualifiedOnly game={games.find(game => game["Game ID"] === forecast.gameId)} />)}
+    {!fullSlate && !qualified.length && <div className="nbaCard">No qualifying A/B Model Plays have been saved for this slate yet.</div>}
     {fullSlate && !games.length && <div className="nbaCard">No NBA games have been collected for this date.</div>}
   </section>;
+}
+
+function ArchivedSlate({ data, picks = false }: { data: NbaMarketPayload; picks?: boolean }) {
+  const current = data.date || data.games[0]?.Date || "", [date, setDate] = useState(current);
+  const [archive, setArchive] = useState<{ date: string; data?: NbaMarketPayload; error?: boolean } | null>(null);
+  const [retry, setRetry] = useState(0), dates = [...new Set([current, ...(data.availableDates || [])])].filter(Boolean).sort();
+  const selected = dates.includes(date) ? date : current;
+  useEffect(() => {
+    if (selected === current) return;
+    const controller = new AbortController(); setArchive({ date: selected });
+    void fetch(`/api/nba-public-data?date=${selected}`, { signal: controller.signal }).then(async response => {
+      const value = await response.json();
+      if (!response.ok || !value.ok || value.today !== selected || !value.nbaMarket) throw new Error("Saved slate unavailable");
+      if (!controller.signal.aborted) setArchive({ date: selected, data: value.nbaMarket });
+    }).catch(() => { if (!controller.signal.aborted) setArchive({ date: selected, error: true }); });
+    return () => controller.abort();
+  }, [selected, current, retry]);
+  const view = selected === current ? data : archive?.date === selected ? archive.data : undefined;
+  return <><div className="nbaControls"><label>{picks ? "View NBA picks slate" : "View NBA slate"} <select aria-label={picks ? "View NBA picks slate" : "View NBA full slate"} value={selected} onChange={event => setDate(event.target.value)} disabled={!dates.length}>
+    {dates.map(day => <option key={day} value={day}>{day}</option>)}</select></label></div>
+    {view ? picks ? <NbaEzpzPicks data={view} /> : <ModelSlate tab="Full Slate" data={view} /> : <div className="nbaBoard"><p className="nbaCard" role={archive?.error ? "alert" : "status"}>
+      {archive?.error ? <>The saved slate could not be loaded. <button type="button" onClick={() => setRetry(n => n + 1)}>Try again</button></> : "Loading saved NBA slate…"}</p></div>}</>;
+}
+
+export default function NbaBoard({ tab, data }: { tab: string; data: NbaMarketPayload }) {
+  if (tab === "Public Betting Splits") return <PublicSplits data={data} />;
+  if (tab === "Signals") return <Signals board={data.signals} />;
+  if (tab === "Records") return <Records data={data} />;
+  if (tab === "EZPZ Picks") return <ArchivedSlate data={data} picks />;
+  if (tab === "Full Slate") return <ArchivedSlate data={data} />;
+  return <ModelSlate tab={tab} data={data} />;
 }

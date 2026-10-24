@@ -6,6 +6,8 @@ import { readNbaForecasts } from "./nbaForecasts";
 import { nbaScheduleRows, readNbaAnalysis, refreshNbaAnalysis } from "./nbaAnalysis";
 import { buildNbaSignals } from "./nbaAnalysisCore";
 import { NBA_SIGNALS_TAB } from "./nbaTrendLeaderboard";
+import { NBA_MODEL_RECORD_POLICY, nbaEzpzSelections, nbaModelPlays, nbaRecordTotals, summarizeNbaModelRecords, updateNbaModelRecords } from "./nbaRecords";
+import { readNbaModelRecordSeed } from "./nbaModelRecordStore";
 
 export async function collectNbaMarket({ persist = true, now = Date.now() } = {}) {
   const date = nbaDate(now);
@@ -52,11 +54,21 @@ export async function readNbaPublicData(date = nbaDate()) {
   const lastUpdated = Number.isFinite(Date.parse(lastObservation)) ? new Intl.DateTimeFormat("en-US", {
     timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit", hour: "numeric", minute: "2-digit", second: "2-digit", timeZoneName: "short",
   }).format(new Date(lastObservation)) : "";
-  const zero = { label: "NBA model", record: "0-0-0", totalBets: 0, winPct: 0, unitsWon: 0, roiPct: 0, wins: 0, losses: 0, pushes: 0 };
+  const savedModels = state.modelRecords?.version === NBA_MODEL_RECORD_POLICY ? state.modelRecords : await readNbaModelRecordSeed(date);
+  const modelRecords = summarizeNbaModelRecords(updateNbaModelRecords(savedModels, forecasts, games, Date.now(), [date]), date);
+  const modelPlays = nbaModelPlays(forecasts, games);
+  const ezpzHistory = nbaEzpzSelections(Object.values(analysis.tests));
+  const ezpzSelections = nbaEzpzSelections(analysis.board.sides.filter(side => side.selected));
+  const last7Start = new Date(Date.parse(`${date}T12:00:00Z`) - 6 * 86400000).toISOString().slice(0, 10);
+  const ezpzRecords = { overall: nbaRecordTotals(ezpzHistory.filter(row => row.date <= date)),
+    last7Days: nbaRecordTotals(ezpzHistory.filter(row => row.date >= last7Start && row.date <= date)),
+    history: ezpzHistory.filter(row => row.date <= date).sort((a, b) => b.gameTime.localeCompare(a.gameTime)) };
   return { ok: true, sport: "NBA", today: date, lastUpdated,
-    tiles: { last7Days: zero, overallGreen: zero, pendingGreen: 0, bestPlaysToday: 0 },
-    bestPlays: [], slateToday: games, betTrackerRows: [], trendPlays: [], recordSummary: [], last7RecordSummary: [],
+    tiles: { last7Days: { ...modelRecords.last7Days, label: "NBA model" }, overallGreen: { ...modelRecords.overall, label: "NBA model" },
+      pendingGreen: modelPlays.filter(row => !row.result).length, bestPlaysToday: modelPlays.length },
+    bestPlays: modelPlays, slateToday: games, betTrackerRows: [], trendPlays: analysis.plays, recordSummary: [], last7RecordSummary: [],
     nbaMarket: { source: "ScoresAndOdds", date, availableDates: [...new Set([date, ...state.archiveDates])].sort(), games, splits, forecasts,
+      modelRecords, modelPlays, ezpzSelections, ezpzRecords,
       trendPlays: analysis.plays, leaderboard: state.leaderboard, signals: analysis.board, stale: analysis.stale,
       refreshPolicy: "30 minutes until 90 minutes before tipoff, then 5 minutes", finalWindow: "10–20 minutes before tipoff" } };
 }

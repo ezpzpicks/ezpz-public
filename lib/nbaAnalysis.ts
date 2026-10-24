@@ -1,6 +1,7 @@
 import { readTursoDatasetByDateKeys, runTursoSql, type TursoRow } from "./tursoStore";
 import { saveNbaMarketRows } from "./nbaMarketStore";
-import { readNbaForecasts } from "./nbaForecasts";
+import { readNbaForecasts, readNbaForecastHistory } from "./nbaForecasts";
+import { NBA_MODEL_RECORD_POLICY, updateNbaModelRecords } from "./nbaRecords";
 import { nbaRowKey, normalizeNbaSlate, type NbaGame } from "./nbaMarketCore";
 import { buildNbaSignals, emptyNbaAnalysis, mergeNbaTeamHistory, nbaSeason, settleNbaTrendRows, NBA_ANALYSIS_VERSION, type NbaAnalysisState } from "./nbaAnalysisCore";
 import { buildNbaTrendLeaderboard, NBA_ANALYSIS_TAB, NBA_SIGNALS_TAB, NBA_TREND_RECORDS_TAB, NBA_SIGNALS_POLICY } from "./nbaTrendLeaderboard";
@@ -69,6 +70,10 @@ export async function refreshNbaAnalysis(date: string, currentSchedule: TursoRow
   } else state.teamHistory = mergeNbaTeamHistory(state.teamHistory, existingRecords, schedule);
   for (const rows of previousDays) await saveNbaMarketRows("schedule", rows);
   const forecastDates = new Map(forecasts);
+  if (state.modelRecords?.version !== NBA_MODEL_RECORD_POLICY) {
+    state.modelRecords = updateNbaModelRecords(undefined, await readNbaForecastHistory(date), schedule, now);
+  }
+  state.modelRecords = updateNbaModelRecords(state.modelRecords, forecasts.flatMap(([, rows]) => rows), schedule, now, dates);
   if (seedResearch) state.signalResearch = { version: SIGNAL_RESEARCH_VERSION, days: buildSignalResearchDays(
     signalDates.flatMap(day => readSavedFootballSignalsForDate(storedSignals, day, now, NBA_SIGNALS_POLICY)), NBA_SIGNALS_POLICY.version, now) };
   let captured = 0, settled = 0;

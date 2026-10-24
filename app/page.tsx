@@ -417,7 +417,7 @@ const SPORTS: Sport[] = ["MLB", "NFL", "NCAAF", "NCAAM", "NBA"];
 const TABS: Tab[] = ["Today’s Model Plays", "Public Betting Splits", "Signals", "EZPZ Picks", "Full Slate", "Records"];
 
 const SPORT_META: Record<Sport, SportMeta> = {
-  NBA: { name: "NBA", shortName: "NBA", status: "Live testing",
+  NBA: { name: "NBA", shortName: "NBA", status: "Live model",
     description: "Lineup-aware spreads and totals compared with ScoresAndOdds market lines." },
   MLB: {
     name: "Major League Baseball",
@@ -6864,7 +6864,7 @@ export default function Home() {
       if (params.get("tab") === "Signals") setActive("Signals");
       if (sport === "NBA") {
         const requested = params.get("tab") as Tab;
-        setActive(TABS.includes(requested) && requested !== "EZPZ Picks" ? requested : "Today’s Model Plays");
+        setActive(TABS.includes(requested) ? requested : "Today’s Model Plays");
       }
     }
   }, []);
@@ -7908,10 +7908,16 @@ export default function Home() {
             </>
           ) : activeSport === "NBA" ? (
             <>
-              <Tile label="Published Matchups" value={String(data.nbaMarket?.games.length || 0)} meta="NBA slate" />
+              <Tile label="Model Plays - Last 7 Days" value={data.nbaMarket?.modelRecords?.last7Days.record || "0-0-0"}
+                meta={data.nbaMarket?.modelRecords?.last7Days.winPct == null ? "No settled plays" : `${data.nbaMarket.modelRecords.last7Days.winPct}% • ${data.nbaMarket.modelRecords.last7Days.unitsWon}u • ROI ${data.nbaMarket.modelRecords.last7Days.roiPct}%`}
+                green={Boolean(data.nbaMarket?.modelRecords?.last7Days.totalBets)} />
+              <Tile label="Model Plays - Running Total" value={data.nbaMarket?.modelRecords?.overall.record || "0-0-0"}
+                meta={data.nbaMarket?.modelRecords?.overall.winPct == null ? "No settled plays" : `${data.nbaMarket.modelRecords.overall.winPct}% • ${data.nbaMarket.modelRecords.overall.unitsWon}u • ROI ${data.nbaMarket.modelRecords.overall.roiPct}%`}
+                green={Boolean(data.nbaMarket?.modelRecords?.overall.totalBets)} />
+              <Tile label="Today’s Model Plays" value={String(data.nbaMarket?.modelPlays?.length || 0)} meta="A/B spreads + totals" />
               <Tile label="Public Betting Splits" value={String(new Set(data.nbaMarket?.splits.map(r => r["Game ID"]) || []).size)} meta="Games with market lines" />
-              <Tile label="Saved Forecasts" value={String(data.nbaMarket?.forecasts.length || 0)} meta="Early and pregame tracked separately" />
-              <Tile label="Model Stage" value="TESTING" meta="Market-comparison grades" />
+              <Tile label="Model Stage" value="LIVE" meta="Lineup-aware model" green />
+              <Tile label="Published Matchups" value={String(data.nbaMarket?.games.length || 0)} meta="NBA slate" />
             </>
           ) : activeSport === "NFL" || activeSport === "NCAAF" ? (
             <>
@@ -7946,7 +7952,7 @@ export default function Home() {
       ) : null}
 
       <nav className="tabs">
-        {TABS.filter(tab => activeSport === "NBA" ? tab !== "EZPZ Picks" : tab !== "Signals" || activeSport === "NFL" || activeSport === "NCAAF").map((tab) => (
+        {TABS.filter(tab => tab !== "Signals" || activeSport === "NFL" || activeSport === "NCAAF" || activeSport === "NBA").map((tab) => (
           <button
             key={tab}
             className={`tabBtn ${active === tab ? "active" : ""}`}

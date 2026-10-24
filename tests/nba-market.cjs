@@ -4,6 +4,9 @@ const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const ts = require('typescript');
+// The SQLite harness has no Next request cache; exercise the read callback directly.
+const cacheModule = require.resolve('next/cache');
+require.cache[cacheModule] = { id: cacheModule, filename: cacheModule, loaded: true, exports: { unstable_cache: fn => fn } };
 require.extensions['.ts'] = (module, file) => module._compile(ts.transpileModule(fs.readFileSync(file, 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText, file);
