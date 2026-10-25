@@ -43,11 +43,29 @@ test('EZPZ shows only qualifying saved signal tests, with NFL two and NCAAF thre
   for (const text of ['NFL EZPZ Picks', '2+ signals', 'All plays', '2 signals', 'Saved pregame', 'historical', '2+ signal test results'])
     assert(html.toLowerCase().includes(text.toLowerCase()), text);
   assert.match(html, /DAL/); assert.doesNotMatch(html, /GB \+1\.5/);
-  assert.equal((html.match(/aria-expanded="false"/g) || []).length, 5);
+  assert.equal((html.match(/aria-expanded="false"/g) || []).length, 2);
+  assert.match(html, /aria-label="DAL -1.5 EZPZ Pick"/);
+  assert.match(html, /Line movement. Qualifying. \+2 pts/);
+  assert.match(html, /Model edge. Qualifying. \+2 pts/);
+  assert.doesNotMatch(html, /Sort games by signal|Inactive or unavailable|class="fs-signals"|class="fs-game"|Money support. Qualifying/);
   const cfb = render(React.createElement(exportsObject.default, { board: { ...data, sport: 'NCAAF' }, picksOnly: true }));
   assert.match(cfb, /3\+ signals/); assert.match(cfb, /No qualifying NCAAF EZPZ Picks/);
   const missing = render(React.createElement(exportsObject.default, { picksOnly: true, sport: 'NCAAM' }));
   assert.match(missing, /NCAAM EZPZ Picks/); assert.match(missing, /3\+ signals/);
+});
+
+test('pick tiles distinguish frozen results from live quotes and label triggered signal values', () => {
+  const total = { ...side, market: 'Total', side: 'over', selection: 'Over 43.5', line: 43.5, recorded: true,
+    status: 'FINAL_PREGAME', snapshotAt: '2026-10-19T00:05:00Z', result: 'W', signalCount: 2,
+    signals: keys.map(key => ({ key, active: ['money', 'team'].includes(key), available: true, value: key === 'money' ? 27 : 80, level: 'Qualifying' })) };
+  const frozen = render(React.createElement(exportsObject.default, { board: { ...board, sides: [total] }, picksOnly: true }));
+  for (const text of ['Over 43.5 EZPZ Pick', 'Game total', 'Saved odds', '-110', 'Won', 'Graded at saved line', 'Money support', '+27 pp', 'Team trends', '80 / 100']) assert(frozen.includes(text), text);
+  assert.doesNotMatch(frozen.match(/<article[\s\S]*?<\/article>/)[0], /Live preview|Current odds|Inactive or unavailable/);
+  const now = Date.now(), tip = new Date(now + 3_600_000).toISOString(), date = tip.slice(0, 10);
+  const live = { ...total, date, recorded: false, status: 'LIVE', gameTime: tip, snapshotAt: new Date(now).toISOString(), result: '' };
+  const preview = render(React.createElement(exportsObject.default, { board: { ...board, today: date, sides: [live] }, picksOnly: true }));
+  for (const text of ['Live preview', 'Current odds', 'Updates until lock']) assert(preview.includes(text), text);
+  assert.doesNotMatch(preview, /Saved odds|Graded at saved line|Pregame line locked/);
 });
 
 test('model details distinguish the regraded current quote from the original Strong play', () => {
