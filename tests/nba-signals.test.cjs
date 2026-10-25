@@ -103,7 +103,7 @@ test('multiple top-20 matches count once, and three correlated market votes are 
 test('a saved A/B model can supply the second source, with unchecked-injury context preserved', () => {
   const f = withRanking(fixture()), result = build(f, { forecasts: [forecast(f)] });
   const over = result.board.sides.find(s => s.side === 'Over');
-  assert.equal(over.signalCount, 4); assert.equal(over.sourceCount, 2); assert.equal(over.selected, true);
+  assert.equal(over.signalCount, 4); assert.equal(over.sourceCount, 2); assert.equal(over.candidate, true); assert.equal(over.selected, false);
   assert.match(over.modelContext.reason, /injury availability unchecked/);
   assert.equal(result.board.summary.pending, 0, 'live previews are never added to recorded results');
 });

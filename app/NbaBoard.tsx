@@ -150,7 +150,7 @@ export default function NbaBoard({ tab, data }: { tab: string; data: NbaMarketPa
   const view = tab === "Public Betting Splits" ? <PublicSplits data={data} />
     : tab === "Signals" ? <Signals board={data.signals} />
     : tab === "Records" ? <Records data={data} />
-    : tab === "EZPZ Picks" ? <ArchivedSlate data={data} picks />
+    : tab === "EZPZ Picks" ? <NbaEzpzPicks data={data} />
     : tab === "Full Slate" ? <ArchivedSlate data={data} /> : <ModelSlate tab={tab} data={data} />;
   return <NbaLineupProvider lineups={data.lineups}>{view}</NbaLineupProvider>;
 }

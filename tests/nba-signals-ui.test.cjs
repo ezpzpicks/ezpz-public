@@ -20,7 +20,7 @@ const football = component('app/FootballSignalsBoard.tsx', {}, '\nexport const t
 const markets = component('app/FootballTrendMarketBoard.tsx');
 const nba = component('app/NbaPublicSplits.tsx', { './FootballTrendMarketBoard': markets });
 const records = component('app/NbaRecords.tsx', { './FootballTrendMarketBoard': markets });
-const ezpz = component('app/NbaEzpzPicks.tsx');
+const ezpz = component('app/NbaEzpzPicks.tsx', { './FootballSignalsBoard': football });
 const nbaBoard = component('app/NbaBoard.tsx', { 'next/dynamic': { default: loader => String(loader).includes('NbaRecords') ? records.default : () => null },
   './NbaRecords': records, './NbaEzpzPicks': ezpz,
   './TeamLogoName': { MatchupWithLogos: props => props.game } });
@@ -41,8 +41,8 @@ test('live NBA signals retain the shared five-column controls and collapsed deta
   const html = render(React.createElement(football.default, { board }));
   const nfl = render(React.createElement(football.default, { board: { ...board, sport: 'NFL' } }));
   assert.equal((html.match(/aria-expanded="false"/g) || []).length, 10);
-  for (const text of ['NBA Signals', 'Live signals', '3+ signal results', '3+ only', 'Sort by Public bet trends', 'Sort by Team trends', 'Sort by Model edge']) assert(html.includes(text), text);
-  assert.match(nfl, /3\+ test results/);
+  for (const text of ['NBA Signals', 'Live signals', '3+ signal test results', '3+ only', 'Sort by Public bet trends', 'Sort by Team trends', 'Sort by Model edge']) assert(html.includes(text), text);
+  assert.match(nfl, /2\+ signal test results/);
   assert.doesNotMatch(html, /3\+ test results|Saved test play|Prospective testing/);
   assert.doesNotMatch(html, /class="fs-signal fs-on"|class="fs-detail"|Strength of schedule/);
 });

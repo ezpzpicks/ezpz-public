@@ -51,7 +51,7 @@ function input(changes = {}) {
 const state = changes => api.buildFootballSignalsState(input(changes));
 const find = (board, key, side = 'Over') => board.sides.find(s => s.side === side).signals.find(s => s.key === key);
 
-test('two-signal frozen sides enter research while the existing 3+ selector remains unchanged', () => {
+test('two correlated market signals enter research without passing the two-source selector', () => {
   const x = input({ history: new Map(), leaderboard: [], capture: true });
   x.core.trendPlays = markets().map(play => ({ ...play, snapshotStatus: 'FINAL_PREGAME', frozenAt: iso(lock) }));
   const captured = api.buildFootballSignalsState(x);
@@ -68,6 +68,20 @@ test('two-signal frozen sides enter research while the existing 3+ selector rema
   const settled = research.signalResearchView(finished.board.research, 'Total');
   assert.equal(settled.counts.find(row => row.label === '2').record.record, '1-0-0');
   assert.equal(finished.board.summary.settled, 0);
+});
+
+test('NFL captures a two-source two-signal test while NCAAF still requires three', () => {
+  for (const sport of ['NFL', 'NCAAF']) {
+    const x = input({ sport, leaderboard: [], history: teamHistory(sport), capture: true });
+    x.core.trendPlays = markets(sport).map(play => ({ ...play, moneyPct: play.betsPct,
+      snapshotStatus: 'FINAL_PREGAME', frozenAt: iso(lock) }));
+    const captured = api.buildFootballSignalsState(x), over = captured.board.sides.find(s => s.side === 'Over');
+    assert.equal(over.signalCount, 2); assert.equal(over.sourceCount, 2);
+    assert.equal(over.selected, sport === 'NFL');
+    assert.equal(captured.board.summary.pending, sport === 'NFL' ? 1 : 0);
+    const replay = api.buildFootballSignalsState({ ...x, capture: false, storedRows: captured.changedRows });
+    assert.equal(replay.board.sides.find(s => s.side === 'Over').selected, sport === 'NFL');
+  }
 });
 
 test('multiple matching Wilson systems count as exactly one public signal and preserve the current half-point classification', () => {

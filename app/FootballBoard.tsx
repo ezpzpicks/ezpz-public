@@ -852,7 +852,7 @@ function FootballEzpzHistory({ sport, data }: { sport: Sport; data: FootballData
 export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab: Tab; data: FootballData }) {
   if (tab === "Signals") return <FootballSignals key={sport} board={data.footballSignals} />;
   if (tab !== "EZPZ Picks") return <LegacyFootballBoard sport={sport} tab={tab} data={data as any} />;
-  return <FootballEzpzHistory sport={sport} data={data} />;
+  return <FootballSignals key={`${sport}-picks`} board={data.footballSignals} picksOnly sport={sport} />;
 }
 
 

@@ -5,6 +5,7 @@ import {
   type TursoSport,
 } from "./tursoStore";
 import { isPublicSplitEzpzPick } from "./ezpzPublicSplitEligibility";
+import { isSignalFeedPick, SIGNAL_EZPZ_EFFECTIVE_DATE } from "./signalPicks";
 import { NFL_EZPZ_POLICY_VERSION } from "./nflEzpzPolicy";
 import { NCAAF_EZPZ_POLICY_VERSION } from "./ncaafEzpzPolicy";
 import { captureEzpzFinalPickEvents } from "./ezpzMcpEvents";
@@ -64,6 +65,9 @@ function parseJson(value: unknown): AnyRow | null {
 }
 
 function currentPickEligible(pick: AnyRow, sport: EzpzCurrentSport) {
+  if (isSignalFeedPick(pick, sport)) return true;
+  // Prior-date captures retain their original format; current picks use signals.
+  if (normalizedDate(pick.date || pick.Date) >= SIGNAL_EZPZ_EFFECTIVE_DATE) return false;
   if (sport === "MLB") return true;
   const version = sport === "NFL" ? NFL_EZPZ_POLICY_VERSION : NCAAF_EZPZ_POLICY_VERSION;
   return pick.selectorVersion === version && String(pick.trendSubtypeId || "").startsWith("catalog:")
@@ -78,7 +82,7 @@ export async function persistEzpzCurrentPicks(
     .filter((pick: AnyRow) => currentPickEligible(pick, sport));
   const teamTrendPicks = sport === "MLB" ? []
     : (Array.isArray(payload?.teamTrendTestPicks) ? payload.teamTrendTestPicks : [])
-      .filter(isSelectedTeamTrendPick)
+      .filter((pick: AnyRow) => normalizedDate(pick.date) < SIGNAL_EZPZ_EFFECTIVE_DATE && isSelectedTeamTrendPick(pick))
       .map((pick: AnyRow) => ({ ...pick, pickCategory: "team_trend" }));
   const date = normalizedDate(firstValue(payload?.today, payload?.date));
   const updatedAt = new Date().toISOString();
@@ -140,10 +144,10 @@ export async function readEzpzCurrentPicks(sport: EzpzCurrentSport) {
     .map((row) => parseJson(row["Details JSON"]))
     .filter((row): row is AnyRow => Boolean(row))
     .filter((pick) => currentPickEligible(pick, sport));
-  const teamTrendPicks = sport === "MLB" ? [] : rows
-    .filter(row => row.Kind === "TEAM_TREND_PICK")
+  const teamTrendPicks = sport === "MLB" ? [] : rows.filter(row => row.Kind === "TEAM_TREND_PICK")
     .map(row => parseJson(row["Details JSON"]))
-    .filter((pick): pick is AnyRow => Boolean(pick && pick.pickCategory === "team_trend" && isSelectedTeamTrendPick(pick)));
+    .filter((pick): pick is AnyRow => Boolean(pick && normalizedDate(pick.date) < SIGNAL_EZPZ_EFFECTIVE_DATE
+      && pick.pickCategory === "team_trend" && isSelectedTeamTrendPick(pick)));
 
   return {
     sport,

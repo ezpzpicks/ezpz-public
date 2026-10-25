@@ -303,7 +303,7 @@ test('the EZPZ card displays the saved Wilson evidence and last-seven record; re
   assert.equal(rows[0].Result, 'L');
 });
 
-test('a qualifying catalog public-follow pick survives persistence, the EZPZ tab and saved history', async () => {
+test('legacy catalog picks retain saved history while the EZPZ tab switches to signal tests', async () => {
   // WKU at Sam Houston's Oct 14 signal used this catalog name, which the
   // retired Sharp/RLM whitelist incorrectly rejected after Wilson selection.
   const evaluated = { version: catalog.footballCatalog('NCAAF').version,
@@ -329,6 +329,7 @@ test('a qualifying catalog public-follow pick survives persistence, the EZPZ tab
     assert.equal(eligibility.isPublicSplitEzpzPick({ ...original, ...change }), false, JSON.stringify(change));
   }
   const policyImports = {
+    './signalPicks': load(path.join(root, 'lib/signalPicks.ts')),
     './ncaafEzpzPolicy': policy,
     './nflEzpzPolicy': load(path.join(root, 'lib/nflEzpzPolicy.ts')),
     './ezpzPublicSplitEligibility': eligibility,
@@ -346,6 +347,7 @@ test('a qualifying catalog public-follow pick survives persistence, the EZPZ tab
   assert.equal(saved.picks[0].trendSubtypeId, original.trendSubtypeId);
   assert.equal(saved.picks[0].rankingLastSeven.record, '5-0-0');
   const board = moduleWithStubs('app/FootballBoard.tsx', {
+    'next/dynamic': { default: () => props => require('react').createElement('section', null, props.picksOnly ? 'Signal EZPZ view' : 'Signals') },
     '../lib/footballTrendCatalog': catalog,
     '../lib/ncaafEzpzPolicy': policy, '../lib/ncaafTrendRecordPolicy': recordPolicy,
     '../lib/ezpzPublicSplitEligibility': eligibility,
@@ -354,9 +356,8 @@ test('a qualifying catalog public-follow pick survives persistence, the EZPZ tab
   });
   const html = renderToStaticMarkup(require('react').createElement(board.default,
     { sport: 'NCAAF', tab: 'EZPZ Picks', data: { today, aiPicks: saved.picks } }));
-  assert.match(html, /Over 54/);
-  assert.match(html, /L7 5-0-0/);
-  assert.doesNotMatch(html, /No NCAAF EZPZ Picks right now/);
+  assert.match(html, /Signal EZPZ view/);
+  assert.doesNotMatch(html, /Over 54|L7 5-0-0/);
   const history = moduleWithStubs('app/FootballBoardLegacy.tsx', {
     '../lib/ezpzPublicSplitEligibility': eligibility,
   }, '\nexport const recordsTest = footballEzpzHistoryRows;');

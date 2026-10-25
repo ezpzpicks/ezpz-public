@@ -12,6 +12,8 @@ import { buildNbaTrendLeaderboard, nbaModelFor, nbaTrendSignals } from "./nbaTre
 import { buildSignalResearchDays, buildSignalResearchReport, type SignalResearchReport } from "./signalCombinationResearch";
 import { quoteImpliedProbability, regradeModelQuote } from "./modelSignalQuote";
 
+import { signalPickThreshold, selectSignalEzpzPicks } from "./signalPicks";
+
 type SignalSport = FootballSport | "NBA";
 export type SignalsPolicy = { version: string; prefix: string; launchAt: string };
 
@@ -209,7 +211,7 @@ function evaluateSide(play: AnyRow, siblings: AnyRow[], input: SignalsInput, ran
     side: selectionKey(play, sport), selection, line, odds, status: play.snapshotStatus || "LIVE",
     snapshotAt: play.snapshotStatus === "FINAL_PREGAME" ? new Date(asOf).toISOString()
       : new Date(Date.parse(String(play.updatedAt || "").replace(/ EDT$/, " -0400").replace(/ EST$/, " -0500")) || asOf).toISOString(), recorded: false,
-    signals, signalCount, sourceCount, candidate: signalCount >= 3 && sourceCount >= 2 && quoteValid,
+    signals, signalCount, sourceCount, candidate: signalCount >= signalPickThreshold(sport) && sourceCount >= 2 && quoteValid,
     selected: false, mixed: false, combination: active.map(s => s.key).join(" + "), teamTrend, teamGames, publicMatches,
     marketContext: { bets, money, openingBets: signalNumber(play.openingBetsPct), openingMoney: signalNumber(play.openingMoneyPct),
       openingLine: signalNumber(play.openingLine), openingOdds: String(play.openingOdds || ""), publicChange: signalNumber(play.publicMovementPct),
@@ -359,17 +361,19 @@ export function buildFootballSignalsState(input: SignalsInput): { board: Footbal
   for (const side of updated.values()) {
     if (!visibleIds.has(side.id) && (visibleDates.has(side.date) || (side.date >= displayStart && side.date <= displayEnd))) sides.push(side);
   }
-  const selected = [...updated.values()].filter(s => s.selected), breakdowns: FootballSignalsBoard["breakdowns"] = [];
+  const selected = selectSignalEzpzPicks([...updated.values()], sport, now), breakdowns: FootballSignalsBoard["breakdowns"] = [];
   for (const [dimension, value] of [["Market", (s: FootballSignalSide) => s.market], ["Signal count", (s: FootballSignalSide) => String(s.signalCount)],
     ["Combination", (s: FootballSignalSide) => s.combination], ["SOS tier", (s: FootballSignalSide) => s.signals.find(x => x.key === "sos")?.level || "Not used"]] as const) {
     const buckets = new Map<string, FootballSignalSide[]>();
     for (const side of selected) { const key = value(side); buckets.set(key, [...(buckets.get(key) || []), side]); }
     for (const [label, group] of buckets) breakdowns.push({ dimension, label, record: signalRecord(group) });
   }
+  const pickIds = new Set(selectSignalEzpzPicks(sides, sport, now).map(side => side.id));
+  const displaySides = sides.map(side => ({ ...side, selected: pickIds.has(side.id) }));
   const archiveDates = [...new Set([...archived.map(row => row.side.date), ...[...updated.values()].map(side => side.date)])].sort();
   const research = buildSignalResearchReport(sport, policy.version, buildSignalResearchDays([...updated.values()], policy.version, now));
   return { board: { version: policy.version, sport, today: core.today, asOf: new Date(now).toISOString(), captureAvailable: input.storedRows != null,
-    sides, archiveDates, summary: signalRecord(selected), breakdowns, research,
+    sides: displaySides, archiveDates, summary: signalRecord(selected), breakdowns, research,
     history: selected.slice().sort((a, b) => b.gameTime.localeCompare(a.gameTime)).slice(0, 200).map(s => ({ date: s.date, game: s.game,
       selection: s.selection, market: s.market, odds: s.odds, signalCount: s.signalCount, combination: s.combination, result: s.result })) }, changedRows };
 }

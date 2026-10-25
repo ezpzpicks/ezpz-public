@@ -1,10 +1,11 @@
 import { readTursoDatasetByDateKeys } from "./tursoStore";
 import { normalizeMcpPick, MCP_SPORTS, type McpSport } from "./ezpzMcpPicks";
+import { savedSignalPicks, signalPickForFeed, SIGNAL_EZPZ_EFFECTIVE_DATE } from "./signalPicks";
 import { TEAM_TREND_TEST_TAB } from "./footballTeamTrendPlays";
 
 export const EZPZ_RESULT_SPORTS = MCP_SPORTS;
 type Row = Record<string, any>;
-type Category = "public_bet_trend" | "team_trend";
+type Category = "public_bet_trend" | "team_trend" | "signals";
 
 function resultCode(value: unknown): "W" | "L" | "P" | null {
   const text = String(value ?? "").trim().toUpperCase();
@@ -71,6 +72,18 @@ export function savedResultFromRow(sport: McpSport, row: Row, category: Category
 }
 
 export async function readSavedEzpzResults(sport: McpSport, date: string) {
+  if (date >= SIGNAL_EZPZ_EFFECTIVE_DATE) {
+    if (sport === "MLB") return [];
+    const rows = await readTursoDatasetByDateKeys(sport, "football_signal_observations", [date]);
+    const sides = savedSignalPicks(rows, sport, date);
+    return sides.map(side => {
+      const raw = signalPickForFeed(side, sport), pick = normalizeMcpPick(sport, raw)!;
+      return { pickId: pick.pickId, sport, date, gameTime: pick.gameTime, game: pick.game, market: pick.market,
+        selection: pick.selection, line: pick.line, pickCategory: "signals" as const, pickLabel: pick.pickLabel,
+        result: resultCode(side.result), settlementStatus: side.result ? "SETTLED" as const : "PENDING" as const,
+        resultUpdated: side.resultUpdated, finalizedAt: pick.finalizedAt };
+    });
+  }
   const publicDataset = sport === "MLB" ? "trend_v2_daily_picks" : "ezpz_pick_history";
   const sources: Array<[string, Category]> = [[publicDataset, "public_bet_trend"]];
   if (sport === "MLB") sources.push(["ai_pick_selector", "public_bet_trend"]);

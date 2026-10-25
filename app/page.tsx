@@ -1,6 +1,8 @@
 "use client";
 
 import FootballBoard from "./FootballBoard";
+import dynamic from "next/dynamic";
+const SignalEzpzPicks = dynamic(() => import("./FootballSignalsBoard"), { loading: () => <div className="empty">Loading EZPZ Picks…</div> });
 import NbaBoard, { type NbaMarketPayload } from "./NbaBoard";
 import { buildNflEzpzRecords } from "../lib/nflEzpzRecords";
 import { restoreFootballPublicDisplay } from "../lib/footballPublicDisplay";
@@ -6859,9 +6861,10 @@ export default function Home() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const sport = params.get("sport");
-    if (sport === "NFL" || sport === "NCAAF" || sport === "NBA") {
+    if (sport === "MLB" || sport === "NFL" || sport === "NCAAF" || sport === "NBA" || sport === "NCAAM") {
       setActiveSport(sport);
-      if (params.get("tab") === "Signals") setActive("Signals");
+      const requestedTab = params.get("tab") as Tab;
+      if (TABS.includes(requestedTab)) setActive(requestedTab);
       if (sport === "NBA") {
         const requested = params.get("tab") as Tab;
         setActive(TABS.includes(requested) ? requested : "Today’s Model Plays");
@@ -7168,6 +7171,10 @@ export default function Home() {
       );
     }
 
+    if (active === "EZPZ Picks") {
+      return <SignalEzpzPicks board={(data as any).footballSignals} picksOnly sport={activeSport} />;
+    }
+
     if (activeSport !== "MLB") {
       return (
         <SportDevelopmentContent
@@ -7464,154 +7471,6 @@ export default function Home() {
               sport="MLB"
             />
           </div>
-        </section>
-      );
-    }
-
-    if (active === "EZPZ Picks") {
-      const viewingToday = activeEzpzDate === currentEzpzDate;
-      return (
-        <section>
-          <div className="sectionHead aiSelectorHead">
-            <div>
-              <h2>EZPZ Picks</h2>
-              <p className="aiSelectorStatusText">
-                {viewingToday
-                  ? cleanAiDisplayText(data.aiSelectorStatus?.message) ||
-                    "The selector is evaluating today’s Model Plays and Betting Split signals with deterministic EZPZ gates."
-                  : `Showing the locked EZPZ Picks saved for ${activeEzpzDateLabel}. Final grading is shown on each pick.`}
-              </p>
-            </div>
-            <span className="countPill">{aiPicks.length} picks</span>
-          </div>
-
-          <details className="ezpzHistoryDropdown">
-            <summary className="ezpzHistorySummary">
-              <div>
-                <strong>Pick history</strong>
-                <span>
-                  {activeEzpzDateLabel} • {aiPicks.length} saved {aiPicks.length === 1 ? "pick" : "picks"}
-                </span>
-              </div>
-              <span className="ezpzHistoryAction">Choose date ▾</span>
-            </summary>
-            <div className="ezpzHistoryBody">
-              <label className="ezpzHistoryField">
-                <span>Calendar date</span>
-                <input
-                  type="date"
-                  value={activeEzpzDate}
-                  max={currentEzpzDate || undefined}
-                  onChange={(event) => setSelectedEzpzDate(event.target.value)}
-                />
-              </label>
-              <label className="ezpzHistoryField">
-                <span>Dates with saved picks</span>
-                <select
-                  value={availableEzpzDates.includes(activeEzpzDate) ? activeEzpzDate : ""}
-                  onChange={(event) => setSelectedEzpzDate(event.target.value)}
-                >
-                  {!availableEzpzDates.includes(activeEzpzDate) ? (
-                    <option value="" disabled>No saved picks on selected date</option>
-                  ) : null}
-                  {availableEzpzDates.map((date) => (
-                    <option key={date} value={date}>
-                      {date === currentEzpzDate ? `${date} — Today` : date}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {!viewingToday ? (
-                <button
-                  type="button"
-                  className="ezpzTodayBtn"
-                  onClick={() => setSelectedEzpzDate(currentEzpzDate)}
-                >
-                  Back to today
-                </button>
-              ) : null}
-            </div>
-          </details>
-
-          {aiPicks.length ? (
-            <div className="aiPickStack">
-              {aiPicks.map((pick) => {
-                const resultClass =
-                  pick.result === "W"
-                    ? "won"
-                    : pick.result === "L"
-                      ? "lost"
-                      : pick.result === "P"
-                        ? "push"
-                        : "pending";
-                const resultLabel =
-                  pick.result === "W"
-                    ? "WON"
-                    : pick.result === "L"
-                      ? "LOST"
-                      : pick.result === "P"
-                        ? "PUSH"
-                        : "PENDING";
-                return (
-                  <div
-                    className="aiPickHistoryItem"
-                    key={`${normalizedDateKey(pick.date)}-${pick.candidateId}`}
-                  >
-                    <div className={`aiPickResultStrip ${resultClass}`}>
-                      <span>{pick.result ? "Final result" : "Result"}</span>
-                      <strong>{resultLabel}</strong>
-                    </div>
-                    <AiPickSelectorCard
-                      pick={pick}
-                      todaySummary={
-                        viewingToday && pick.bestPlayType
-                          ? todayByType.get(normalizeType(pick.bestPlayType)) || null
-                          : null
-                      }
-                      last7DaysSummary={
-                        viewingToday && pick.bestPlayType
-                          ? recentByType.get(normalizeType(pick.bestPlayType)) || null
-                          : null
-                      }
-                      lastSevenBetsSummary={
-                        pick.bestPlayType
-                          ? activeLastSevenBetsByType.get(normalizeType(pick.bestPlayType)) || null
-                          : null
-                      }
-                      overallSummary={
-                        viewingToday && pick.bestPlayType
-                          ? overallByType.get(normalizeType(pick.bestPlayType)) || null
-                          : null
-                      }
-                      trendPlay={viewingToday ? aiTrendPlayForPick(pick, trendPlays) : null}
-                      trendPlays={viewingToday ? trendPlays : []}
-                      trendLast7Record={
-                        !pick.bestPlayType
-                          ? aiTrendLastSevenRecord(
-                              pick,
-                              data.aiPickRecordRows,
-                              activeEzpzDate || data.today,
-                            )
-                          : ""
-                      }
-                      handpicked={
-                        viewingToday &&
-                        Boolean(
-                          favoriteRowMap.get(favoriteKeyFromAiPick(pick, data.today)),
-                        )
-                      }
-                    />
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="empty">
-              {viewingToday
-                ? "No EZPZ Picks currently pass every selection and protection rule."
-                : `No EZPZ Picks were saved for ${activeEzpzDateLabel}. Choose another date from Pick history.`}
-            </div>
-          )}
         </section>
       );
     }

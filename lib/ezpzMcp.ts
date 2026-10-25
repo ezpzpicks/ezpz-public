@@ -13,6 +13,10 @@ const PICK_SCHEMA = {
     pickId: { type: "string" }, sport: SPORT_SCHEMA, date: { type: "string" }, game: { type: "string" },
     market: { type: "string" }, selection: { type: "string" }, line: { type: ["string", "number", "null"] },
     odds: { type: ["string", "null"] }, gameTime: { type: "string", format: "date-time" }, pickType: { type: "string" },
+    pickCategory: { type: "string", enum: ["signals", "public_bet_trend", "team_trend"] },
+    pickLabel: { type: "string" }, signalCount: { type: "integer" }, threshold: { type: "integer" },
+    signalNames: { type: "array", items: { type: "string" } },
+    teamTrendScore: { type: ["number", "null"] }, teamTrendRecords: { type: ["array", "null"] },
     lastSeven: { type: ["object", "null"], properties: {
       record: { type: "string" }, wins: { type: "integer" }, losses: { type: "integer" },
       pushes: { type: "integer" }, totalBets: { type: "integer" },
@@ -26,7 +30,7 @@ const PICK_SCHEMA = {
 export const EZPZ_MCP_TOOLS = [
   {
     name: "get_ezpz_picks", title: "Read EZPZ Picks",
-    description: "Read fresh public betting trend picks and NFL/NCAAF team trend plays selected on the EZPZ Picks tab. Defaults to finalized, unstarted games. Use pickCategory and pickLabel to distinguish EZPZ Public Bet Trend from EZPZ Team Trend. teamTrendScore is a raw score, not win probability; teamTrendRecords contains each team's captured website bet-type, venue and last-five labels, W-L-P records and samples. A null record means no matching games. lastSeven is the exact selected public subtype's last-seven-bet record when available; null means unavailable, never zero wins or seven days.",
+    description: "Read the qualifying signal-test plays selected on EZPZ Picks: NFL requires 2+ signals and other sports require 3+. Defaults to finalized, unstarted games. Signal picks use pickCategory=signals and include pickLabel, signalCount, threshold and signalNames. Verify the exact saved line and finalization before posting. lastSeven is null for signal combinations because no validated last-seven combination record is supplied; never treat a component trend record as the combination's record. Prior-date legacy captures may retain public_bet_trend or team_trend categories.",
     inputSchema: { type: "object", properties: { sport: SPORT_SCHEMA, finalOnly: { type: "boolean", default: true } }, additionalProperties: false },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   },
@@ -40,7 +44,7 @@ export const EZPZ_MCP_TOOLS = [
 
 export const EZPZ_MCP_EVENTS = [{
   name: FINAL_PICK_EVENT,
-    description: "A selected EZPZ pick has been saved as FINAL_PREGAME before game time. NFL/NCAAF team trends lock independently from 8 AM Eastern on game day when lines and team records are ready; public betting trends keep their final market snapshot timing. Covers MLB, NFL, and NCAAF. Each event carries a category-specific stable pick ID and exact selection; verify with get_finalized_pick for pickCategory, pickLabel and captured team score. Delivery uses existing snapshot jobs, durable deduplication, signed callbacks and bounded retries. Newly created subscriptions watch future finalizations.",
+    description: "A qualifying EZPZ signal pick has been saved as FINAL_PREGAME before game time at the 10–20 minute final snapshot. NFL requires 2+ signals; other sports require 3+. Covers MLB, NFL, and NCAAF. Each event carries a category-specific stable pick ID and exact selection; verify with get_finalized_pick for pickCategory, pickLabel, signalCount, signalNames and the exact frozen line. Delivery uses existing snapshot jobs, durable deduplication, signed callbacks and bounded retries. Newly created subscriptions watch future finalizations.",
   delivery: ["webhook"],
   inputSchema: { type: "object", properties: { sports: { type: "array", items: SPORT_SCHEMA, minItems: 1, maxItems: 3, uniqueItems: true } }, additionalProperties: false },
   payloadSchema: { type: "object", properties: { pick: PICK_SCHEMA }, required: ["pick"], additionalProperties: false },

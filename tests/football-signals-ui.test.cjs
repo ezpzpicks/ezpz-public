@@ -9,7 +9,7 @@ const source = fs.readFileSync(path.join(root, 'app/FootballSignalsBoard.tsx'), 
 vm.runInNewContext(ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } }).outputText,
   { exports: exportsObject, Date, Intl, console, require: name => name === './TeamLogoName' ? { TeamLogoName: p => p.team }
     : name === './NbaGameLineups' ? { __esModule: true, default: () => null }
-    : name === '../lib/signalCombinationResearch' ? require('./load-typescript.cjs')(path.join(root, 'lib/signalCombinationResearch.ts')) : require(name) });
+    : ['../lib/signalCombinationResearch', '../lib/signalPicks'].includes(name) ? require('./load-typescript.cjs')(path.join(root, name.replace('../', '') + '.ts')) : require(name) });
 const keys = ['money', 'move', 'system', 'team', 'model'];
 const team = name => ({ team: name, venue: 'Away', role: 'Favorite', opposing: name === 'GB', score: 80, trackedGames: 5, seasonGames: 5, missingGames: 0,
   records: Object.fromEntries([['betType', 'Favorite ATS', 50], ['venue', 'Away ATS', 30], ['recent', 'Last 5 ATS', 20]].map(([k, label, weight]) => [k,
@@ -33,6 +33,22 @@ const opposite = { ...side, id: 'game|Spread|gb', selection: 'GB +1.5', line: 1.
 const board = { sport: 'NFL', today: '2026-10-18', captureAvailable: true, sides: [side, opposite],
   summary: { record: '0-0-0', settled: 0, pending: 0, winPct: null, roiPct: null, netUnits: 0 }, breakdowns: [], history: [] };
 const render = node => renderToStaticMarkup(node);
+
+test('EZPZ shows only qualifying saved signal tests, with NFL two and NCAAF three', () => {
+  const frozen = { ...side, recorded: true, status: 'FINAL_PREGAME', snapshotAt: '2026-10-19T00:05:00Z',
+    signalCount: 2, selected: false, candidate: false,
+    signals: keys.map(key => ({ key, active: ['move', 'model'].includes(key), available: true, value: 2, level: 'Qualifying' })) };
+  const data = { ...board, sides: [frozen, opposite] };
+  const html = render(React.createElement(exportsObject.default, { board: data, picksOnly: true }));
+  for (const text of ['NFL EZPZ Picks', '2+ signals', 'All plays', '2 signals', 'Saved pregame', 'historical', '2+ signal test results'])
+    assert(html.toLowerCase().includes(text.toLowerCase()), text);
+  assert.match(html, /DAL/); assert.doesNotMatch(html, /GB \+1\.5/);
+  assert.equal((html.match(/aria-expanded="false"/g) || []).length, 5);
+  const cfb = render(React.createElement(exportsObject.default, { board: { ...data, sport: 'NCAAF' }, picksOnly: true }));
+  assert.match(cfb, /3\+ signals/); assert.match(cfb, /No qualifying NCAAF EZPZ Picks/);
+  const missing = render(React.createElement(exportsObject.default, { picksOnly: true, sport: 'NCAAM' }));
+  assert.match(missing, /NCAAM EZPZ Picks/); assert.match(missing, /3\+ signals/);
+});
 
 test('model details distinguish the regraded current quote from the original Strong play', () => {
   const model = { ...side.signals.find(s => s.key === 'model'), available: true, active: true, value: 2.54, level: 'Over' };

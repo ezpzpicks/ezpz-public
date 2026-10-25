@@ -88,6 +88,28 @@ function harness({ realCurrentPicks = false } = {}) {
   };
 }
 
+test('the new NFL feed publishes only qualifying signal tests and deduplicates their final events', async () => {
+  const h = harness({ realCurrentPicks: true });
+  h.setTime(Date.parse('2026-10-25T19:44:00Z'));
+  const events = h.load('lib/ezpzMcpEvents.ts');
+  await events.subscribeFinalPicks(h.subscription());
+  const signals = h.load('lib/signalPicks.ts');
+  const side = { id: 'mia-jets-total', date: '2026-10-25', gameKey: 'mia-jets', game: 'MIA @ NYJ',
+    gameTime: '2026-10-25T20:00:00Z', market: 'Total', selection: 'Over 39.5', line: 39.5, odds: '-110',
+    snapshotAt: '2026-10-25T19:45:00Z', status: 'FINAL_PREGAME', recorded: true, signalCount: 2, sourceCount: 2,
+    signals: [{ key: 'move', active: true, available: true }, { key: 'model', active: true, available: true }], result: '' };
+  const pick = signals.signalPickForFeed(side, 'NFL');
+  const legacy = { ...rawPick, date: side.date, selectorVersion: h.load('lib/nflEzpzPolicy.ts').NFL_EZPZ_POLICY_VERSION,
+    trendSubtypeId: 'catalog:old', pickCategory: 'public_bet_trend' };
+  h.setTime(Date.parse('2026-10-25T19:46:00Z'));
+  const current = h.load('lib/ezpzCurrentPicks.ts');
+  for (let i = 0; i < 2; i++) await current.persistEzpzCurrentPicks('NFL', { today: side.date, aiPicks: [pick, legacy] });
+  const feed = await h.load('lib/ezpzMcp.ts').readMcpPicks(['NFL']);
+  assert.equal(feed.picks.length, 1); assert.equal(feed.picks[0].pickCategory, 'signals');
+  assert.equal(feed.picks[0].signalCount, 2); assert.equal(feed.picks[0].selection, 'Over 39.5');
+  assert.equal(feed.picks[0].lastSeven, null); assert.equal(h.events().length, 1);
+});
+
 test('MCP discovery lists read-only tools and the final-pick event without touching the database', async () => {
   const h = harness(), api = h.load('lib/ezpzMcp.ts');
   const discover = await api.handleEzpzMcp({ jsonrpc: '2.0', id: 1, method: 'server/discover' });

@@ -528,7 +528,7 @@ function FootballRecords({ sport, data }: { sport: Sport; data: FootballData }) 
   const last7Rows = data.last7RecordSummary || [];
   const trackerRows = data.betTrackerRows || [];
   const last7BetRows = sport === "NFL" ? lastSevenModelBetRecordRows(trackerRows, sport) : [];
-  const nflEzpz = sport === "NFL" ? data.ezpzRecords || buildNflEzpzRecords(data.aiPickRecordRows || [], data.today || "") : null;
+  const nflEzpz = data.ezpzRecords || (sport === "NFL" ? buildNflEzpzRecords(data.aiPickRecordRows || [], data.today || "") : null);
   const ezpzRows = sport === "NFL" ? [] : footballEzpzHistoryRows(data, sport);
   const ezpzOverall = nflEzpz?.overall || recordTotalsFromRows(ezpzRows);
   const ezpzLast7 = nflEzpz?.last7Days || recordTotalsFromRows(ezpzRows.filter((row) => signalDateWithin(row.Date || row["Game Date"] || "", data.today || "", 7)));

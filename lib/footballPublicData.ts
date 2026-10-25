@@ -1,4 +1,5 @@
 import { buildFootballPublicData as buildFootballPublicDataWithHistory } from "./footballPublicDataHistory";
+import { signalEzpzPayload } from "./signalPicks";
 import { overlayPublishedDirectTrendRows } from "./footballDirectTrendLedger";
 import { isVerifiedNcaafTrendRecord, NCAAF_TREND_RECORD_POLICY } from "./ncaafTrendRecordPolicy";
 import { buildNflEzpzRecords } from "./nflEzpzRecords";
@@ -549,7 +550,7 @@ async function buildFootballPublicDataFresh(
     // ledger: old FINAL labels and old prices/lines are not final-snapshot proof.
     const verifiedTrendRows = trendRows.filter(isVerifiedNcaafTrendRecord);
     return {
-      ...data, aiPicks, aiPickRecordRows: backfilledRecordRows,
+      ...data, ...signalEzpzPayload(data.footballSignals, sport, String(data.today)),
       trendRecordRows: verifiedTrendRows,
       ncaafPublicTrendLeaderboard: buildNcaafPublicTrendLeaderboard(verifiedTrendRows, subtypeBuilder),
       trendRecordPolicy: NCAAF_TREND_RECORD_POLICY,
@@ -561,8 +562,7 @@ async function buildFootballPublicDataFresh(
     // labels must never manufacture percentages or movement history.
     const verifiedTrendRows = trendRows.filter(isVerifiedNcaafTrendRecord);
     return {
-      ...data, aiPicks, aiPickRecordRows: backfilledRecordRows,
-      ezpzRecords: buildNflEzpzRecords(backfilledRecordRows, String(data.today || "")),
+      ...data, ...signalEzpzPayload(data.footballSignals, sport, String(data.today)),
       trendRecordRows: verifiedTrendRows,
       nflPublicTrendLeaderboard: buildNflPublicTrendLeaderboard(verifiedTrendRows),
       trendRecordPolicy: NCAAF_TREND_RECORD_POLICY,

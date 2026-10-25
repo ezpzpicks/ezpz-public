@@ -212,15 +212,19 @@ test('every NCAAF signal uses the verified ledger even when it falls outside the
 test('the production wrapper preserves verified records without overlaying old published pick history', async () => {
   const verified = build([finalPlay()]);
   const legacy = { ...verified[0], 'Record Snapshot Policy': '', Date: '2026-09-19' };
-  const data = { trendRecordRows: [...verified, legacy], aiPicks: [],
+  const data = { today: '2026-10-25', trendRecordRows: [...verified, legacy], aiPicks: [],
     aiPickRecordRows: [{ date: '2026-09-19', game: 'Stale @ Old', market: 'Total', source: 'Trend Play',
       qualification: 'Total Drop Fade', selection: 'Over 52.5', result: 'L' }] };
   const publicData = moduleWithStubs('lib/footballPublicData.ts', {
+    './signalPicks': load(path.join(root, 'lib/signalPicks.ts')),
     './footballPublicDataHistory': { buildFootballPublicData: async () => data },
     './sportSheets': { readSportWorksheet: async () => [] }, './ncaafTrendRecordPolicy': policy,
     './ncaafPublicTrendLeaderboard': leaderboard,
   });
   const response = await publicData.buildFootballPublicData('NCAAF');
+  assert.equal(response.aiPicks.length, 0);
+  assert.equal(response.aiPickRecordRows.length, 0);
+  assert.equal(response.aiSelectorStatus.threshold, 3);
   assert.equal(response.trendRecordPolicy, policy.NCAAF_TREND_RECORD_POLICY);
   assert.equal(response.trendRecordRows.length, 1);
   assert.equal(response.trendRecordRows[0].Result, 'W');
