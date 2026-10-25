@@ -57,7 +57,7 @@ const board = moduleWithStubs('app/FootballTrendMarketBoard.tsx', {
   '../lib/ncaafEzpzPolicy': ncaaPolicy, '../lib/ncaafTrendRecordPolicy': finalPolicy,
   '../lib/ncaafPublicTrendLeaderboard': ncaa, '../lib/nflPublicTrendLeaderboard': nfl,
   './TeamLogoName': { SelectionWithTeamLogo: p => p.selection, TeamLogoName: p => p.team },
-});
+}, '\nexport const chartTests = { historyPoints, MovementChart };');
 
 function row(i, result = 'W', overrides = {}) {
   return { 'Catalog Membership JSON': JSON.stringify(membership(overrides.Market)),
@@ -251,6 +251,61 @@ test('scheduled NFL collection saves the newest live observation once and freeze
   assert.deepEqual(Array.from(displayed.trendPlays[0].movementHistory, point => point.line), [46.5, 47.5, 48.5]);
   assert.equal(displayed.trendPlays[0].line, 48.5);
   clock = Date.parse(`${today}T16:50:00Z`);
+});
+
+test('NFL refresh preserves cached chart observations in missing-history hydration mode', async () => {
+  const observations = [46.5, 48, 46.5, 47].map((line, i) => ({ snapshotTime: `${today}T${14 + i}:00:00Z`, line,
+    odds: '-110', betsPct: 20 + i * 5, moneyPct: 50 - i * 3 }));
+  observations[3].snapshotTime = `${today}T16:30:00Z`;
+  const initial = play({ snapshotStatus: 'LIVE', frozenAt: undefined, updatedAt: `${today}T16:30:00Z`,
+    gameKey: `${today}|kc|lv`, firstTrackedAt: observations[0].snapshotTime, movementHistory: observations,
+    line: 47, betsPct: 35, moneyPct: 41, signals: [], score: 50, baseScore: 50, tier: 'Pass' });
+  const tables = { schedule: [{ Date: today, 'Away Team': 'KC', 'Home Team': 'LV', 'Game Time': '13:00' }],
+    daily_slate: [], all_game_trends: [], posted_games: [], weekly_market_trends: [], odds_snapshot: [] };
+  const archiveReads = [];
+  const storage = { ensureSportWorksheet: async () => {}, readSportWorksheet: async (_s, tab) => tables[tab] || [],
+    readSportWorksheetByDateKeys: async (_s, tab, dates) => { if (tab === 'odds_snapshot') archiveReads.push(dates); return tables[tab] || []; } };
+  const collector = moduleWithStubs('lib/footballWeeklyMarket.ts', { './sportSheets': storage,
+    './scoresAndOddsBettingSplits': { SCORES_AND_ODDS_SOURCE: 'ScoresAndOdds' } }, '\nexport const chartRow = weeklyRow;', FixedDate);
+  tables.weekly_market_trends = [collector.chartRow(initial)];
+  clock = Date.parse(`${today}T16:30:00Z`);
+  for (const mode of [false, 'missing']) {
+    const result = await collector.readWeeklyFootballMarket('NFL', { hydrateHistory: mode });
+    assert.deepEqual(Array.from(result.trendPlays[0].movementHistory, p => p.line), [46.5, 48, 46.5, 47], String(mode));
+  }
+  assert.equal(archiveReads.length, 0, 'cached charts must not trigger archive scans');
+  // A verified final chart also survives the secondary refresh, unchanged.
+  clock = Date.parse(`${today}T18:00:00Z`);
+  const final = { ...initial, snapshotStatus: 'FINAL_PREGAME', frozenAt: `${today}T16:45:00Z`, updatedAt: `${today}T16:45:00Z` };
+  tables.weekly_market_trends = [collector.chartRow(final)];
+  const result = await collector.readWeeklyFootballMarket('NFL', { hydrateHistory: 'missing' });
+  assert.deepEqual(Array.from(result.trendPlays[0].movementHistory, p => p.line), [46.5, 48, 46.5, 47]);
+  assert.equal(result.trendPlays[0].frozenAt, final.frozenAt);
+  // Legacy archive hydration can add an earlier observation, but cannot erase
+  // cached points, duplicate their timestamps or append post-lock data.
+  tables.odds_snapshot = [...observations, { ...observations[1], snapshotTime: `${today}T15:30:00Z`, line: 49 },
+    { ...observations[3], snapshotTime: `${today}T16:50:00Z`, line: 99 }].map(p => ({
+      Date: today, 'Game Key': initial.gameKey, 'Game Time': initial.gameTime, Game: initial.game,
+      'Away Team': 'KC', 'Home Team': 'LV', Market: 'Total', Selection: 'Over', Side: 'Over',
+      Line: String(p.line), Odds: p.odds, 'Bets %': String(p.betsPct), 'Handle %': String(p.moneyPct),
+      'Snapshot Time ET': p.snapshotTime, Source: 'ScoresAndOdds' }));
+  const hydrated = await collector.readWeeklyFootballMarket('NFL', { hydrateHistory: true });
+  assert.deepEqual(Array.from(hydrated.trendPlays[0].movementHistory, p => p.line), [46.5, 48, 49, 46.5, 47]);
+  assert.equal(hydrated.trendPlays[0].frozenAt, final.frozenAt);
+  assert.equal(archiveReads.length, 1);
+  clock = Date.parse(`${today}T16:50:00Z`);
+});
+
+test('the rendered movement chart includes the full saved path and removes placeholder openings', () => {
+  const points = Array.from({ length: 155 }, (_, i) => ({ snapshotTime: new Date(Date.parse(`${today}T02:00:00Z`) + i * 300000).toISOString(),
+    line: i % 3 === 0 ? 46.5 : i % 3 === 1 ? 48 : 47, odds: '-110', betsPct: i ? 20 + i % 40 : 100, moneyPct: i ? 40 + i % 30 : 100 }));
+  const p = play({ movementHistory: points, firstTrackedAt: points[0].snapshotTime, updatedAt: points.at(-1).snapshotTime });
+  const retained = board.chartTests.historyPoints(p);
+  assert.equal(retained.length, 154);
+  assert.equal(retained[0].snapshotTime, points[1].snapshotTime);
+  const html = renderToStaticMarkup(require('react').createElement(board.chartTests.MovementChart, { play: p }));
+  const polylines = [...html.matchAll(/<polyline[^>]*points="([^"]+)"/g)].map(m => m[1].split(' ').length);
+  assert(polylines.some(n => n >= retained.length), 'the SVG retains intermediate observations rather than drawing two endpoints');
 });
 
 test('locked NFL picks and supporting records remain after the subtype falls below 60%', () => {

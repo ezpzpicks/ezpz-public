@@ -1492,7 +1492,7 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
   const [weeklyLoading, setWeeklyLoading] = useState(false);
   const [weeklyError, setWeeklyError] = useState("");
   const [weeklyRetry, setWeeklyRetry] = useState(0);
-  const requestedMarketWeek = sport === "NCAAF" ? selectedWeek : "";
+  const requestedMarketWeek = selectedWeek;
   const needsWeeklyMarket = sport !== "NCAAF" || tab === "Public Betting Splits";
 
   useEffect(() => {
@@ -1532,7 +1532,7 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
     return [...map.values()];
   }, [data.draftKings?.splits, weeklyData?.splits]);
 
-  const currentWeeklyData = sport === "NCAAF" && selectedWeek && weeklyData?.selectedWeek !== selectedWeek ? null : weeklyData;
+  const currentWeeklyData = selectedWeek && weeklyData?.selectedWeek !== selectedWeek ? null : weeklyData;
   const trends = currentWeeklyData?.trendPlays?.length ? currentWeeklyData.trendPlays : (data.trendPlays || []);
   const fallbackWeek = currentWeeklyData?.selectedWeek || defaultWeek(trends, data.today) || defaultStoredWeek(weeklyData?.games || [], data.today);
   const nextTrackedWeek = sport === "NFL" ? nextRegularSeasonWeekLabel(fallbackWeek) : "";

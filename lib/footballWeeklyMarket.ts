@@ -2993,6 +2993,17 @@ export async function readWeeklyFootballMarket(
         continue;
       }
       let sideHistory = historyBySide.get(splitTrendKey(storedSplit)) || [];
+      if (sport === "NFL") {
+        // "missing" deliberately skips raw-history reads for cached dates.
+        // Keep their persisted series instead of replacing it with [] below.
+        // When an archive read is needed, merge it without duplicating clocks
+        // or allowing observations beyond the live/frozen snapshot timestamp.
+        const retained = new Map<string, SheetRow>();
+        for (const observation of [...persistedNcaafMarketHistoryRowsForPlay(play), ...sideHistory]) {
+          retained.set(String(storedSnapshotEpoch(observation["Snapshot Time ET"])), observation);
+        }
+        sideHistory = ncaafHistoryForPlay(play, [...retained.values()]);
+      }
       if (sport === "NCAAF") {
         const canonicalHistoryKey = ncaafCanonicalMarketSideIdentity(play, canonicalRows);
         const aliasHistory = canonicalHistoryKey

@@ -24,21 +24,19 @@ async function readMarket(request: NextRequest) {
     const today = new Intl.DateTimeFormat("en-CA", {
       timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit",
     }).format(new Date());
-    const week = sport === "NCAAF"
-      ? selectFootballPublicWeek(await readSportWorksheet(sport, "posted_games"), today,
-          request.nextUrl.searchParams.get("week") || "")
-      : null;
+    const week = selectFootballPublicWeek(await readSportWorksheet(sport, "posted_games"), today,
+      request.nextUrl.searchParams.get("week") || "");
     // The background tracker owns raw odds_snapshot hydration and persists
     // the complete movementHistory on weekly_market_trends. Public reads should
     // use that persisted history instead of reloading hundreds of thousands of
     // archive rows on every page refresh.
     const result = await readWeeklyFootballMarket(
       sport,
-      week ? { dateKeys: week.dateKeys, hydrateHistory: false } : { hydrateHistory: "missing" },
+      { dateKeys: week.dateKeys, hydrateHistory: sport === "NFL" ? "missing" : false },
     );
     const rescored = await rescoreNcaafWeeklyMarket(sport, result);
     const scored = await applyFootballTrendV2(sport, rescored);
-    if (week) {
+    if (sport === "NCAAF") {
       // Evaluate from complete observations once on the server. Badge rendering
       // can reuse these frozen memberships without replaying charts per tile.
       const catalog = await captureFootballCatalog(sport, [], scored.trendPlays, false);
@@ -47,7 +45,9 @@ async function readMarket(request: NextRequest) {
         availableWeeks: week.availableWeeks, selectedWeek: week.selectedWeek,
       }, request.nextUrl.searchParams.get("compact") === "1"), { headers: { "Cache-Control": "public, s-maxage=30, stale-while-revalidate=30" } });
     }
-    return NextResponse.json(scored, { headers: { "Cache-Control": "public, s-maxage=30, stale-while-revalidate=30" } });
+    return NextResponse.json(compactFootballPublicDisplay({
+      ...scored, availableWeeks: week.availableWeeks, selectedWeek: week.selectedWeek,
+    }, request.nextUrl.searchParams.get("compact") === "1"), { headers: { "Cache-Control": "public, s-maxage=30, stale-while-revalidate=30" } });
   } catch (error) {
     console.error("Football weekly market read failed", error);
     return NextResponse.json({ ok: false, sport: raw, error: error instanceof Error ? error.message : String(error) }, { status: 500 });
