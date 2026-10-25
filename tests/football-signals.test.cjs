@@ -96,6 +96,83 @@ test('money support boundaries, neutral missing data, and unchanged market class
   assert.equal(find(api.buildFootballSignalsState(x).board, 'move').active, false);
 });
 
+test('NFL and CFB count classified retained movement after a line returns to its opening quote', () => {
+  for (const sport of ['NFL', 'NCAAF']) for (const market of ['Spread', 'Total']) {
+    const x = input({ sport, leaderboard: [], history: new Map() });
+    x.core.trendPlays = markets(sport).map((p, i) => ({ ...p, market, openingLine: market === 'Total' ? 44.5 : i ? 3 : -3,
+      line: market === 'Total' ? 44.5 : i ? 3 : -3,
+      selection: market === 'Spread' ? i ? 'GB' : 'DAL' : p.selection,
+      selectionTeam: market === 'Spread' ? i ? 'GB' : 'DAL' : '', side: market === 'Total' ? p.side : '',
+      lineMovementBasis: `${market === 'Spread' ? 'Spread' : 'Total'} Line History`,
+      lineMovementValue: i ? -.5 : .5, lineMovementSignal: i ? 'Adverse Line Movement' : 'Line Movement Confirmation' }));
+    const { board } = api.buildFootballSignalsState(x), signals = board.sides.map(s => s.signals.find(signal => signal.key === 'move'));
+    assert(signals.every(s => s.available), `${sport} ${market} history is available`);
+    assert.equal(signals.filter(s => s.active).length, 1);
+    assert.equal(signals.find(s => s.active).value, .5);
+  }
+});
+
+function nflModelInput() {
+  const x = input({ leaderboard: [], history: new Map() });
+  x.core.trendPlays = markets('NFL', ['PIT', 'NO']).map(p => ({ ...p, line: 43.5 }));
+  x.core.bestPlays = [{ game: 'Pittsburgh Steelers @ New Orleans Saints', awayTeam: 'Pittsburgh Steelers', homeTeam: 'New Orleans Saints',
+    role: 'Total', play: 'Over 42.5', playType: 'Strong Over', oddsLine: '-110', selectedProbability: '0.6091',
+    modelVersion: 'nfl-v4.28-directional-variable-tiers-2026-10-08|nfl-auto-rotowire-v1' }];
+  x.core.slateToday = [{ Date: date, 'Away Team': 'PIT', 'Home Team': 'NO', 'Game Time': iso(kickoff),
+    'Projected Away': '24.4', 'Projected Home': '21.6', 'Projected Total': '46',
+    'Total Pick': 'Over 42.5', 'Total Grade': 'Strong Over', 'Total Probability': '0.6091', 'Total Edge': '3.54',
+    'Total Confluence': '4', Reliability: '93.3', 'Build Phase': 'pregame', 'Build At': iso(lock - 3600000),
+    'Model Version': x.core.bestPlays[0].modelVersion }];
+  return x;
+}
+
+test('NFL Signals regrades a moved quote, matches full team names and preserves the original model pick', () => {
+  const x = nflModelInput(), original = JSON.stringify(x.core);
+  const { board } = api.buildFootballSignalsState(x);
+  const over = board.sides.find(s => s.side === 'Over');
+  assert.equal(find(board, 'model').active, true);
+  assert.equal(over.modelContext.play, 'Over 43.5');
+  assert.equal(over.modelContext.grade, 'Over');
+  assert.equal(over.modelContext.originalPlay, 'Over 42.5');
+  assert.equal(over.modelContext.originalGrade, 'Strong Over');
+  assert.equal(over.modelContext.regraded, true);
+  assert.equal(find(board, 'model', 'Under').active, false);
+  assert.equal(JSON.stringify(x.core), original);
+  x.core.trendPlays = x.core.trendPlays.map(p => ({ ...p, line: 45.5 }));
+  assert.equal(find(api.buildFootballSignalsState(x).board, 'model').active, false);
+});
+
+test('official-build timing and price remain model-vote requirements after current-line repricing', () => {
+  const x = nflModelInput();
+  x.core.slateToday[0]['Build At'] = iso(lock + 1);
+  let board = api.buildFootballSignalsState(x).board;
+  assert.equal(find(board, 'model').active, false);
+  assert.match(board.sides.find(s => s.side === 'Over').modelContext.reason, /not available before/);
+  x.core.slateToday[0]['Build At'] = iso(lock - 3600000);
+  x.core.trendPlays[0].odds = '-150';
+  assert.equal(find(api.buildFootballSignalsState(x).board, 'model').active, false);
+  x.core.slateToday[0]['Build Phase'] = 'early';
+  x.core.slateToday[0]['Total Grade'] = 'No Play (pending pregame)';
+  x.core.bestPlays = [];
+  board = api.buildFootballSignalsState(x).board;
+  assert.equal(find(board, 'model').active, false);
+  assert.match(board.sides.find(s => s.side === 'Over').modelContext.reason, /official pregame model build is pending/);
+});
+
+test('a previously saved inactive model vote is never backfilled when quote handling is corrected', () => {
+  const x = nflModelInput();
+  x.capture = true;
+  x.core.trendPlays = x.core.trendPlays.map(p => ({ ...p, snapshotStatus: 'FINAL_PREGAME', frozenAt: iso(lock) }));
+  const old = JSON.parse(JSON.stringify(x));
+  old.history = new Map(); old.core.bestPlays = [];
+  const captured = api.buildFootballSignalsState(old), frozen = captured.changedRows.map(r => ({ ...r }));
+  assert.equal(find(captured.board, 'model').active, false);
+  const replay = api.buildFootballSignalsState({ ...x, storedRows: frozen, capture: false, now: kickoff + 1 });
+  assert.equal(find(replay.board, 'model').active, false);
+  assert.equal(replay.changedRows.length, 0);
+  assert.equal(JSON.stringify(frozen), JSON.stringify(captured.changedRows));
+});
+
 test('three market badges alone fail the two-source rule; missing team history never supplies a vote', () => {
   const { board } = state({ history: new Map() });
   const over = board.sides.find(s => s.side === 'Over');

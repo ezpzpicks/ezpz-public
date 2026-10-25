@@ -83,14 +83,25 @@ function SignalDetail({ side, signal, onClose, liveNba = false }: { side: Footba
       <Lines items={context.movementBasis === "Implied Probability"
         ? [["Opening odds", context.openingOdds || "Unavailable"], ["Current odds", side.odds || "Unavailable"]]
         : [["Opening line", format(context.openingLine, side.market === "Spread")], ["Current line", format(side.line, side.market === "Spread")]]} />
-      <p>{!signal.available ? "Line movement data is unavailable." : signal.active
+      {context.movementBasis.endsWith(" Line History") ? <>
+        {signal.value != null ? <Lines items={[["Most recent recorded move", `${format(signal.value, true)} points`]]} /> : null}
+        <p>{side.recorded && !signal.available
+          ? "Line-history evidence was not counted when this pregame snapshot was saved. The correction applies to new snapshots; the historical vote is preserved."
+          : "The line returned to its opening number. This signal uses the feed's classification of the most recent recorded move."}</p>
+      </> : null}
+      {!(side.recorded && !signal.available && context.movementBasis.endsWith(" Line History")) ? <p>{!signal.available ? "Line movement data is unavailable." : signal.active
         ? "Movement supports this side under the existing line movement rules."
-        : "Movement does not qualify for this side under the existing rules."}</p>
+        : "Movement does not qualify for this side under the existing rules."}</p> : null}
     </> : null}
     {key === "model" ? <>
-      {signal.available ? <Lines items={[["Qualifying model play", side.modelContext.play || "None on this side"], ["Model grade", side.modelContext.grade || "Unavailable"],
+      {signal.available ? <Lines items={[[side.modelContext.regraded ? "Evaluated model play" : "Qualifying model play", side.modelContext.play || "None on this side"], ["Model grade", side.modelContext.grade || "Unavailable"],
         ["Model projection", format(side.modelContext.projection, side.market === "Spread")], ["Current line", format(side.line, side.market === "Spread")]]} /> : null}
-      <p>{side.modelContext.reason}</p>
+      {side.modelContext.regraded ? <Lines items={[["Original model play", side.modelContext.originalPlay || "Unavailable"],
+        ["Original model grade", side.modelContext.originalGrade || "Unavailable"],
+        [side.modelContext.probabilityEstimated ? "Probability estimate at this line" : "Model probability", side.modelContext.probability == null ? "Unavailable" : percent(side.modelContext.probability * 100)]]} /> : null}
+      <p>{side.recorded && side.modelContext.reason.includes("awaiting model re-evaluation")
+        ? "The model signal was inactive when this pregame snapshot was saved. This historical vote is preserved; changed lines are re-evaluated on new snapshots."
+        : side.modelContext.reason}</p>
     </> : null}
     {key === "sos" ? <>
       <Lines items={side.sosContext.teams.map(team => [`${team.team} SOS rank`, `#${team.rank}`])} />

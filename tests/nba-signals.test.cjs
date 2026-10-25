@@ -115,6 +115,19 @@ test('model votes reject future forecasts, other matchups, low grades and worse 
   }
   assert.equal(trend.nbaModelFor(play, [forecast(f)], f.lock).active, true, 'equivalent ISO timestamp formats match');
 });
+test('production NBA forecasts are regraded at a worse line instead of losing the model vote automatically', () => {
+  const f = fixture(), play = core.nbaRowsToPlays(f.rows, f.lock).find(p => p.side === 'Over');
+  const model = forecast(f, { modelVersion: 'nba-v0.5-market-grades-2026-10-22', grade_policy: 'shared-market-grade-nba-validation-normal-v1',
+    market: { home_spread: -3.5, total: 219.5 } });
+  const original = JSON.stringify(model), result = trend.nbaModelFor(play, [model], f.lock);
+  assert.equal(result.active, true);
+  assert.equal(result.context.play, 'Over 220.5');
+  assert.equal(result.context.originalPlay, 'Over 220.5');
+  assert.equal(result.context.regraded, true);
+  assert.equal(result.context.grade, 'A');
+  assert.equal(JSON.stringify(model), original);
+  assert.equal(trend.nbaModelFor({ ...play, line: 228 }, [model], f.lock).active, false);
+});
 test('only paired final-window observations are captured, including unqualified sides', () => {
   const f = fixture(), result = build(f, { capture: true });
   assert.equal(result.changedRows.length, 4); assert(result.board.sides.every(side => side.recorded));

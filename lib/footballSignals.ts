@@ -10,6 +10,7 @@ import { sosForTeam, type FootballSosSnapshot } from "./footballSos";
 import type { FootballSport, SheetRow } from "./sportSheets";
 import { buildNbaTrendLeaderboard, nbaModelFor, nbaTrendSignals } from "./nbaTrendLeaderboard";
 import { buildSignalResearchDays, buildSignalResearchReport, type SignalResearchReport } from "./signalCombinationResearch";
+import { quoteImpliedProbability, regradeModelQuote } from "./modelSignalQuote";
 
 type SignalSport = FootballSport | "NBA";
 export type SignalsPolicy = { version: string; prefix: string; launchAt: string };
@@ -34,7 +35,8 @@ export type FootballSignalSide = {
   marketContext: { bets: number | null; money: number | null; openingBets: number | null; openingMoney: number | null;
     openingLine: number | null; openingOdds: string; publicChange: number | null; moneyChange: number | null;
     movementBasis: string; movementLabel: string; history: AnyRow[] };
-  modelContext: { play: string; grade: string; version: string; projection: number | null; probability: number | null; line: number | null; reason: string };
+  modelContext: { play: string; grade: string; version: string; projection: number | null; probability: number | null; line: number | null; reason: string;
+    regraded?: boolean; originalPlay?: string; originalGrade?: string; probabilityEstimated?: boolean };
   sosContext: { sourceUrl: string; capturedAt: string; teams: { team: string; rank: number; elo: number; opponentRecord: string }[]; gap: number | null };
   result: "W" | "L" | "P" | ""; resultUpdated: string;
   policyVersion?: string; oddsAssumed?: boolean;
@@ -56,7 +58,7 @@ const rounded = (n: number) => Math.round(n * 100) / 100;
 const text = (value: unknown) => String(value || "").toLowerCase().trim();
 const dateOf = (row: AnyRow) => String(row.date || row.Date || row["Game Date"] || "").slice(0, 10);
 const signed = (n: number) => `${n > 0 ? "+" : ""}${rounded(n)}`;
-const lineIn = (selection: unknown) => signalNumber(String(selection || "").match(/(?:^|\s)([+-]?\d+(?:\.\d+)?)\s*$/)?.[1]);
+const lineIn = (selection: unknown) => signalNumber(String(selection || "").replace(/[−–—]/g, "-").match(/(?:^|\s)([+-]?\d+(?:\.\d+)?)\s*$/)?.[1]);
 function selectionKey(play: AnyRow, sport: SignalSport) {
   return play.market === "Total" ? (/^under/i.test(play.side || play.selection || "") ? "Under" : "Over")
     : footballTeamKey(String(play.selectionTeam || play.selection || "").replace(/\s+[+-]?\d+(?:\.\d+)?\s*$/, ""), sport);
@@ -107,12 +109,35 @@ function modelFor(play: AnyRow, sport: SignalSport, core: AnyRow, asOf: number) 
   const edge = projection == null || current == null ? null : play.market === "Spread" ? current - projection
     : selected === "Over" ? projection - current : current - projection;
   const hasModel = Boolean(found || projection != null || slate?.["Model Version"]);
-  return { active: Boolean(found && noWorse), available: hasModel, edge,
-    context: { play: String(found?.play || ""), grade: String(found?.playType || slate?.[play.market + " Grade"] || ""),
-      version: String(found?.modelVersion || slate?.["Model Version"] || ""), projection, line: modelLine,
-      probability: signalNumber(found?.selectedProbability),
-      reason: found ? noWorse ? "Matches an existing qualifying model play at an equal or better line."
-        : "The current line is worse than the saved qualifying model line; awaiting model re-evaluation."
+  const grade = String(found?.playType || slate?.[play.market + " Grade"] || "");
+  const version = String(found?.modelVersion || slate?.["Model Version"] || "");
+  const probability = found ? signalNumber(found.selectedProbability ?? slate?.[play.market + " Probability"]) : null;
+  const builtAt = Date.parse(String(slate?.["Build At"] || ""));
+  const kickoff = Date.parse(nflKickoffIso(play.date, play.gameTime));
+  const future = Number.isFinite(builtAt) && (builtAt > asOf || builtAt >= kickoff);
+  const pending = slate?.["Build Phase"] === "early" || /pending pregame/i.test(grade);
+  const delta = modelLine == null || current == null ? 0 : play.market === "Spread" || selected === "Under" ? current - modelLine : modelLine - current;
+  const regraded = found && !future && !pending && modelLine != null && current != null && edge != null
+    ? regradeModelQuote({ sport, market: play.market, side: selected, version, savedLine: modelLine, line: current,
+      savedEdge: signalNumber(slate?.[play.market + " Edge"]) ?? edge - delta, savedGrade: grade,
+      probability, reliability: signalNumber(slate?.Reliability), confluence: signalNumber(slate?.[play.market + " Confluence"]),
+      odds: String(play.odds || "-110") }) : null;
+  const currentPrice = quoteImpliedProbability(play.odds || "-110");
+  const savedPrice = quoteImpliedProbability(found?.oddsLine || "-110");
+  const priceOkay = currentPrice != null && (probability != null ? probability > currentPrice : savedPrice != null && currentPrice <= savedPrice);
+  const active = !future && !pending && (regraded ? regraded.active : Boolean(found && noWorse && priceOkay));
+  const changed = Boolean(regraded && (Math.abs(delta) > 1e-9 || regraded.grade !== grade));
+  const currentPlay = play.market === "Total" ? `${selected} ${current}`
+    : `${String(play.selectionTeam || play.selection || "").replace(/\s+[+−–—-]?\d+(?:\.\d+)?\s*$/, "")} ${signed(current!)}`;
+  return { active, available: hasModel, edge: regraded?.edge ?? edge,
+    context: { play: regraded ? currentPlay : String(found?.play || ""), grade: regraded?.grade ?? grade,
+      version, projection, line: regraded ? current : modelLine, probability: regraded?.probability ?? probability,
+      ...(regraded ? { regraded: changed, originalPlay: String(found.play), originalGrade: grade, probabilityEstimated: regraded.estimated } : {}),
+      reason: future ? "This model build was not available before the signal snapshot; no model signal is counted."
+        : pending ? "Morning model preview only. The official pregame model build is pending; no model signal is counted yet."
+        : regraded ? regraded.reason : found ? !priceOkay ? "The current price does not qualify for the saved model forecast."
+        : noWorse ? "Matches an existing qualifying model play at an equal or better line."
+        : "The changed line needs a supported model re-evaluation; the saved grade is not carried forward automatically."
         : hasModel ? "No existing qualifying model play on this side." : "No model run is available for this matchup." } };
 }
 function evaluateSide(play: AnyRow, siblings: AnyRow[], input: SignalsInput, ranking: NcaafEzpzSubtype[]): FootballSignalSide {
@@ -130,7 +155,10 @@ function evaluateSide(play: AnyRow, siblings: AnyRow[], input: SignalsInput, ran
   const move = signalNumber(play.lineMovementValue), basis = String(play.lineMovementBasis || ""), movementLabel = String(play.lineMovementSignal || "");
   const positiveMove = play.lineMovementTone === "positive" || (play.signals || []).some((s: AnyRow) => s.signalType === "Line Movement" && s.tone === "positive")
     || /^(?:Line Movement Confirmation|(?:Strong )?Reverse Line Movement Support)$/.test(movementLabel);
-  const movementAvailable = move != null && Boolean(movementLabel) && [play.market === "Spread" ? "Spread Line" : "Total Line", "Implied Probability"].includes(basis);
+  // The collector classifies the last retained move when the current quote has
+  // returned to its opening line. That is still valid movement evidence.
+  const lineBasis = play.market === "Spread" ? "Spread Line" : "Total Line";
+  const movementAvailable = move != null && Boolean(movementLabel) && [lineBasis, `${lineBasis} History`, "Implied Probability"].includes(basis);
   const memberships = new Set(line == null ? [] : (sport === "NBA" ? nbaTrendSignals : sport === "NFL" ? nflTrendSignals : ncaafTrendSignals)(play, siblings));
   const category = ncaafTrendCategory(play);
   const publicMatches = ranking.slice(0, 20).map((subtype, i) => ({ ...subtype, rank: i + 1, ...matchRules(subtype, sport) }))

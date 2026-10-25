@@ -8,6 +8,7 @@ const exportsObject = {};
 const source = fs.readFileSync(path.join(root, 'app/FootballSignalsBoard.tsx'), 'utf8') + '\nexport const detailTest = SignalDetail; export const researchTest = CombinationResearch;';
 vm.runInNewContext(ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } }).outputText,
   { exports: exportsObject, Date, Intl, console, require: name => name === './TeamLogoName' ? { TeamLogoName: p => p.team }
+    : name === './NbaGameLineups' ? { __esModule: true, default: () => null }
     : name === '../lib/signalCombinationResearch' ? require('./load-typescript.cjs')(path.join(root, 'lib/signalCombinationResearch.ts')) : require(name) });
 const keys = ['money', 'move', 'system', 'team', 'model'];
 const team = name => ({ team: name, venue: 'Away', role: 'Favorite', opposing: name === 'GB', score: 80, trackedGames: 5, seasonGames: 5, missingGames: 0,
@@ -32,6 +33,40 @@ const opposite = { ...side, id: 'game|Spread|gb', selection: 'GB +1.5', line: 1.
 const board = { sport: 'NFL', today: '2026-10-18', captureAvailable: true, sides: [side, opposite],
   summary: { record: '0-0-0', settled: 0, pending: 0, winPct: null, roiPct: null, netUnits: 0 }, breakdowns: [], history: [] };
 const render = node => renderToStaticMarkup(node);
+
+test('model details distinguish the regraded current quote from the original Strong play', () => {
+  const model = { ...side.signals.find(s => s.key === 'model'), available: true, active: true, value: 2.54, level: 'Over' };
+  const changed = { ...side, market: 'Total', side: 'Over', selection: 'Over 43.5', line: 43.5,
+    modelContext: { play: 'Over 43.5', grade: 'Over', projection: 46, line: 43.5, probability: .5776,
+      regraded: true, originalPlay: 'Over 42.5', originalGrade: 'Strong Over', probabilityEstimated: true,
+      reason: 'Re-evaluated the saved forecast at this line and price.' } };
+  const html = render(React.createElement(exportsObject.detailTest, { side: changed, signal: model, onClose() {} }));
+  assert.match(html, /Evaluated model play/);
+  assert.match(html, /Over 43\.5/);
+  assert.match(html, /Original model play/);
+  assert.match(html, /Over 42\.5/);
+  assert.match(html, /Original model grade/);
+  assert.match(html, /Strong Over/);
+  assert.match(html, /Probability estimate at this line/);
+  assert.match(html, /57\.8%/);
+});
+
+test('an archived inactive vote does not promise a future reevaluation or rewrite the saved count', () => {
+  const historical = { ...side, recorded: true, modelContext: { ...side.modelContext,
+    reason: 'The current line is worse than the saved qualifying model line; awaiting model re-evaluation.' } };
+  const html = render(React.createElement(exportsObject.detailTest, { side: historical, signal: side.signals.find(s => s.key === 'model'), onClose() {} }));
+  assert.match(html, /historical vote is preserved/);
+  assert.doesNotMatch(html, /awaiting model re-evaluation/);
+  assert.match(html, /Adds no signal/);
+});
+
+test('retained line-history details explain support even when opening and current quotes are equal', () => {
+  const history = { ...side, marketContext: { ...side.marketContext, openingLine: -1.5, movementBasis: 'Spread Line History' } };
+  const html = render(React.createElement(exportsObject.detailTest, { side: history, signal: side.signals.find(s => s.key === 'move'), onClose() {} }));
+  assert.match(html, /Most recent recorded move/);
+  assert.match(html, /\+0\.5 points/);
+  assert.match(html, /returned to its opening number/);
+});
 
 test('combination research shows exact pairs, counts, overlapping baselines and honest price provenance', () => {
   const research = require('./load-typescript.cjs')(path.join(root, 'lib/signalCombinationResearch.ts'));
