@@ -6,12 +6,13 @@ import {
 } from "../../../lib/ezpzCurrentPicks";
 import { GET as getPublicDataV2 } from "../public-data-v2/route";
 import { currentPickSnapshotMaxAge } from "../../../lib/marketRefreshPolicy";
+import { MCP_SPORTS, normalizeMcpPick } from "../../../lib/ezpzMcpPicks";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 export const maxDuration = 120;
 
-const SUPPORTED_SPORTS = new Set<EzpzCurrentSport>(["MLB", "NFL", "NCAAF"]);
+const SUPPORTED_SPORTS = new Set<EzpzCurrentSport>(MCP_SPORTS);
 
 type AnyRow = Record<string, any>;
 
@@ -44,7 +45,8 @@ function inferredLine(value: unknown) {
   return String(parsed);
 }
 
-function normalizePick(pick: AnyRow, sport: string) {
+function normalizePick(pick: AnyRow, sport: EzpzCurrentSport) {
+  const verified = normalizeMcpPick(sport, pick);
   const awayTeam = String(firstValue(pick.awayTeam, pick["Away Team"]));
   const homeTeam = String(firstValue(pick.homeTeam, pick["Home Team"]));
   const game = String(
@@ -59,6 +61,9 @@ function normalizePick(pick: AnyRow, sport: string) {
   const play = String(firstValue(pick.play, pick.Play, selection));
 
   return {
+    ...(verified ? { pickId: verified.pickId, pickCategory: verified.pickCategory, pickLabel: verified.pickLabel,
+      signalCount: verified.signalCount, threshold: verified.threshold, signalNames: verified.signalNames,
+      finalizedAt: verified.finalizedAt, eligibleForPosting: verified.eligibleForPosting } : {}),
     sport,
     date: String(firstValue(pick.date, pick.Date)),
     gameTime: String(firstValue(pick.gameTime, pick["Game Time"], pick["Game Time ET"])),
@@ -125,6 +130,11 @@ export async function GET(request: NextRequest) {
   }
 
   const sport = requested as EzpzCurrentSport;
+  // NBA decisions are produced only by its existing paced snapshot job.
+  if (sport === "NBA" && request.nextUrl.searchParams.get("prime") === "1") {
+    return NextResponse.json({ ok: false, sport, error: "NBA snapshot priming is not supported; use the scheduled saved-pick feed." },
+      { status: 400, headers: { "Cache-Control": "no-store, max-age=0" } });
+  }
 
   try {
     let snapshot = await readEzpzCurrentPicks(sport);

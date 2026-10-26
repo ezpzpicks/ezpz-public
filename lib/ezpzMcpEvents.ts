@@ -41,8 +41,8 @@ async function ensureSchema(): Promise<void> {
 
 export function subscriptionSports(value: unknown): McpSport[] {
   if (value === undefined) return [...MCP_SPORTS].sort() as McpSport[];
-  if (!Array.isArray(value) || !value.length || value.length > 3 || value.some(sport => !MCP_SPORTS.includes(sport as McpSport))) {
-    throw new McpEventError(-32602, "sports must contain MLB, NFL, or NCAAF.");
+  if (!Array.isArray(value) || !value.length || value.length > MCP_SPORTS.length || value.some(sport => !MCP_SPORTS.includes(sport as McpSport))) {
+    throw new McpEventError(-32602, `sports must contain only ${MCP_SPORTS.join(", ")}.`);
   }
   return [...new Set(value)].sort() as McpSport[];
 }

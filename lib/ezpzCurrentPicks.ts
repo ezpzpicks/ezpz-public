@@ -11,7 +11,7 @@ import { NCAAF_EZPZ_POLICY_VERSION } from "./ncaafEzpzPolicy";
 import { captureEzpzFinalPickEvents } from "./ezpzMcpEvents";
 import { isSelectedTeamTrendPick, isVerifiedFrozenFootballMcpPick } from "./ezpzMcpPicks";
 
-export type EzpzCurrentSport = Extract<TursoSport, "MLB" | "NFL" | "NCAAF">;
+export type EzpzCurrentSport = Extract<TursoSport, "MLB" | "NFL" | "NCAAF" | "NBA">;
 
 const DATASET = "current_ezpz_picks";
 const HEADERS = [
@@ -66,6 +66,8 @@ function parseJson(value: unknown): AnyRow | null {
 
 function currentPickEligible(pick: AnyRow, sport: EzpzCurrentSport) {
   if (isSignalFeedPick(pick, sport)) return true;
+  // NBA enters this feed through the same official signal selector only.
+  if (sport === "NBA") return false;
   // Prior-date captures retain their original format; current picks use signals.
   if (normalizedDate(pick.date || pick.Date) >= SIGNAL_EZPZ_EFFECTIVE_DATE) return false;
   if (sport === "MLB") return true;
@@ -77,15 +79,16 @@ function currentPickEligible(pick: AnyRow, sport: EzpzCurrentSport) {
 export async function persistEzpzCurrentPicks(
   sport: EzpzCurrentSport,
   payload: AnyRow,
+  now = Date.now(),
 ) {
   const picks = (Array.isArray(payload?.aiPicks) ? payload.aiPicks : [])
     .filter((pick: AnyRow) => currentPickEligible(pick, sport));
-  const teamTrendPicks = sport === "MLB" ? []
-    : (Array.isArray(payload?.teamTrendTestPicks) ? payload.teamTrendTestPicks : [])
+  const teamTrendPicks = sport === "NFL" || sport === "NCAAF"
+    ? (Array.isArray(payload?.teamTrendTestPicks) ? payload.teamTrendTestPicks : [])
       .filter((pick: AnyRow) => normalizedDate(pick.date) < SIGNAL_EZPZ_EFFECTIVE_DATE && isSelectedTeamTrendPick(pick))
-      .map((pick: AnyRow) => ({ ...pick, pickCategory: "team_trend" }));
+      .map((pick: AnyRow) => ({ ...pick, pickCategory: "team_trend" })) : [];
   const date = normalizedDate(firstValue(payload?.today, payload?.date));
-  const updatedAt = new Date().toISOString();
+  const updatedAt = new Date(now).toISOString();
   const sourceUpdatedAt = String(firstValue(payload?.lastUpdated, payload?.generatedAt, updatedAt));
   const sourceStale = payload?.stale === true || payload?.draftKings?.stale === true
     || payload?.draftKings?.displayMode === "STALE_FALLBACK";
@@ -125,9 +128,9 @@ export async function persistEzpzCurrentPicks(
   try {
     const allPicks = [...picks, ...teamTrendPicks];
     const eventPicks = sourceStale
-      ? allPicks.filter((pick: AnyRow) => isVerifiedFrozenFootballMcpPick(sport, pick))
+      ? allPicks.filter((pick: AnyRow) => isVerifiedFrozenFootballMcpPick(sport, pick, now))
       : allPicks;
-    const capture = await captureEzpzFinalPickEvents(sport, eventPicks);
+    const capture = await captureEzpzFinalPickEvents(sport, eventPicks, now);
     console.info("[ezpz-mcp] final-pick capture", { sport, sourceStale, ...capture });
   } catch {
     console.warn("[ezpz-mcp] final-pick event capture deferred", { sport });
@@ -144,10 +147,10 @@ export async function readEzpzCurrentPicks(sport: EzpzCurrentSport) {
     .map((row) => parseJson(row["Details JSON"]))
     .filter((row): row is AnyRow => Boolean(row))
     .filter((pick) => currentPickEligible(pick, sport));
-  const teamTrendPicks = sport === "MLB" ? [] : rows.filter(row => row.Kind === "TEAM_TREND_PICK")
+  const teamTrendPicks = sport === "NFL" || sport === "NCAAF" ? rows.filter(row => row.Kind === "TEAM_TREND_PICK")
     .map(row => parseJson(row["Details JSON"]))
     .filter((pick): pick is AnyRow => Boolean(pick && normalizedDate(pick.date) < SIGNAL_EZPZ_EFFECTIVE_DATE
-      && pick.pickCategory === "team_trend" && isSelectedTeamTrendPick(pick)));
+      && pick.pickCategory === "team_trend" && isSelectedTeamTrendPick(pick))) : [];
 
   return {
     sport,

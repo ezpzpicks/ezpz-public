@@ -74,7 +74,7 @@ export function savedResultFromRow(sport: McpSport, row: Row, category: Category
 export async function readSavedEzpzResults(sport: McpSport, date: string) {
   if (date >= SIGNAL_EZPZ_EFFECTIVE_DATE) {
     if (sport === "MLB") return [];
-    const rows = await readTursoDatasetByDateKeys(sport, "football_signal_observations", [date]);
+    const rows = await readTursoDatasetByDateKeys(sport, sport === "NBA" ? "nba_signal_observations" : "football_signal_observations", [date]);
     const sides = savedSignalPicks(rows, sport, date);
     return sides.map(side => {
       const raw = signalPickForFeed(side, sport), pick = normalizeMcpPick(sport, raw)!;
@@ -84,6 +84,8 @@ export async function readSavedEzpzResults(sport: McpSport, date: string) {
         resultUpdated: side.resultUpdated, finalizedAt: pick.finalizedAt };
     });
   }
+  // NBA has no legacy independently published football trend categories.
+  if (sport === "NBA") return [];
   const publicDataset = sport === "MLB" ? "trend_v2_daily_picks" : "ezpz_pick_history";
   const sources: Array<[string, Category]> = [[publicDataset, "public_bet_trend"]];
   if (sport === "MLB") sources.push(["ai_pick_selector", "public_bet_trend"]);

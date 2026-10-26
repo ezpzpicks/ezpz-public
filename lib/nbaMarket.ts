@@ -10,8 +10,11 @@ import { NBA_MODEL_RECORD_POLICY, nbaEzpzSelections, nbaModelPlays, nbaRecordTot
 import { readNbaModelRecordSeed } from "./nbaModelRecordStore";
 import { readNbaSavedLineups, refreshNbaLineups } from "./nbaLineups";
 import { mergeNbaLineups, type NbaGameLineup } from "./nbaLineupsCore";
+import { signalEzpzPayload } from "./signalPicks";
 
-export async function collectNbaMarket({ persist = true, now = Date.now() } = {}) {
+export async function collectNbaMarket({ persist = true, now = Date.now(), refresh }: {
+  persist?: boolean; now?: number; refresh?: { policy: string; intervalMinutes: number };
+} = {}) {
   const date = nbaDate(now);
   const response = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?dates=${date.replaceAll("-", "")}&limit=1000`, {
     cache: "no-store", signal: AbortSignal.timeout(12_000), headers: { Accept: "application/json" },
@@ -37,7 +40,7 @@ export async function collectNbaMarket({ persist = true, now = Date.now() } = {}
     await saveNbaMarketRows("weekly_market_trends", advanced.latest);
     await saveNbaMarketRows("odds_snapshot", advanced.history, true);
     await saveNbaMarketRows("public_split_snapshots", advanced.finals);
-    analysis = await refreshNbaAnalysis(date, schedule, capturedAt);
+    analysis = await refreshNbaAnalysis(date, schedule, capturedAt, refresh);
   }
   // A lineup-provider outage must never prevent a real market observation or
   // its final pregame lock from being saved.
@@ -79,7 +82,7 @@ export async function readNbaPublicData(date = nbaDate()) {
   const ezpzRecords = { overall: nbaRecordTotals(ezpzHistory.filter(row => row.date <= date)),
     last7Days: nbaRecordTotals(ezpzHistory.filter(row => row.date >= last7Start && row.date <= date)),
     history: ezpzHistory.filter(row => row.date <= date).sort((a, b) => b.gameTime.localeCompare(a.gameTime)) };
-  return { ok: true, sport: "NBA", today: date, lastUpdated,
+  return { ok: true, sport: "NBA", today: date, lastUpdated, ...signalEzpzPayload(analysis.board, "NBA", date),
     tiles: { last7Days: { ...modelRecords.last7Days, label: "NBA model" }, overallGreen: { ...modelRecords.overall, label: "NBA model" },
       pendingGreen: modelPlays.filter(row => !row.result).length, bestPlaysToday: modelPlays.length },
     bestPlays: modelPlays, slateToday: games, betTrackerRows: [], trendPlays: analysis.plays, recordSummary: [], last7RecordSummary: [],

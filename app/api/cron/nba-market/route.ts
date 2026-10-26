@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
       const startedAt = Date.now();
       const refresh = dryRun ? null : await scheduledMarketRefresh("NBA", "market", startedAt);
       if (refresh && !refresh.due) return NextResponse.json({ ok: true, sport: "NBA", skipped: true, refresh });
-      const result = await collectNbaMarket({ persist: !dryRun });
+      const result = await collectNbaMarket({ persist: !dryRun, refresh: refresh || undefined });
       if (!dryRun && result.refreshCompleted) await recordScheduledMarketRefresh("NBA", "market", startedAt);
       return NextResponse.json({ ...result, refresh }, { headers: { "Cache-Control": "no-store" } });
     } catch (error) {
