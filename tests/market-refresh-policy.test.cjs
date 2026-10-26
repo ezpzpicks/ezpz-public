@@ -52,7 +52,8 @@ test('the durable gate survives cold instances and never treats a failed attempt
   const make=durableGate(tables);
   const first=make();
   assert.equal((await first.scheduledMarketRefresh('NFL','market',now)).due,true);
-  assert.equal((await make().scheduledMarketRefresh('NFL','market',now+5*minute)).due,true);
+  assert.equal((await make().scheduledMarketRefresh('NFL','market',now+5*minute)).due,false);
+  assert.equal(tables.refresh_state_market[0]['Updated At'],undefined,'attempts must not claim successful freshness');
   await first.recordScheduledMarketRefresh('NFL','market',now);
   assert.equal((await make().scheduledMarketRefresh('NFL','market',now+5*minute)).due,false);
   assert.equal((await make().scheduledMarketRefresh('NFL','market',now+30*minute)).due,true);
@@ -71,4 +72,34 @@ test('public snapshots refresh on the new Eastern game date, then resume their n
     await make().recordScheduledMarketRefresh('NFL','public',tick);
     assert.equal((await make().scheduledMarketRefresh('NFL','public',tick+5*minute)).due,false);
   }
+});
+
+
+test('failed NBA and NCAAF refreshes obey the slow cadence across cold starts and Eastern rollover',async()=>{
+ for(const [sport,stage] of [['NBA','market'],['NCAAF','market'],['NCAAF','public']]){
+  const midnight=Date.parse('2026-10-26T04:00:00Z'),tables={},make=durableGate(tables);
+  await make().recordScheduledMarketRefresh(sport,stage,midnight-5*minute);
+  const first=midnight+5*minute;
+  const rollover=await make().scheduledMarketRefresh(sport,stage,first);
+  if(stage==='public'||sport==='NBA') assert.equal(rollover.due,true);
+  const attempted=rollover.due?first:midnight+30*minute;
+  if(!rollover.due) assert.equal((await make().scheduledMarketRefresh(sport,stage,attempted)).due,true);
+  for(let offset=5;offset<30;offset+=5) assert.equal((await make().scheduledMarketRefresh(sport,stage,attempted+offset*minute)).due,false);
+  assert.equal((await make().scheduledMarketRefresh(sport,stage,attempted+30*minute)).due,true);
+  assert.equal(tables['refresh_state_'+stage][0]['Updated At'],new Date(midnight-5*minute).toISOString());
+ }
+});
+
+test('failed slow attempts cannot delay the final countdown or the 10–20 minute snapshot window',async()=>{
+ const kickoff=now+95*minute,tables={schedule:[{Date:'2026-10-24','Game Time':new Date(kickoff).toISOString()}]},make=durableGate(tables);
+ assert.equal((await make().scheduledMarketRefresh('NBA','market',now)).intervalMinutes,30);
+ // The previous attempt failed; entering the countdown must still retry now.
+ assert.equal((await make().scheduledMarketRefresh('NBA','market',now+5*minute)).due,true);
+ for(let offset=10;offset<=80;offset+=5){
+  const decision=await make().scheduledMarketRefresh('NBA','market',now+offset*minute);
+  assert.equal(decision.intervalMinutes,5);assert.equal(decision.due,true);
+ }
+ assert.equal(tables.refresh_state_market[0]['Updated At'],undefined);
+ await make().recordScheduledMarketRefresh('NBA','market',now+80*minute);
+ assert.equal(tables.refresh_state_market[0]['Updated At'],new Date(kickoff-15*minute).toISOString());
 });

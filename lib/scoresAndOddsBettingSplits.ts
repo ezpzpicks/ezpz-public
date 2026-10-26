@@ -90,8 +90,29 @@ const SPORT_SLUG: Record<ScoresAndOddsSport, string> = {
 const EMPTY = "__SAO_EMPTY__";
 const ALT = "__SAO_ALT__";
 
-export function scoresAndOddsConsensusUrl(sport: ScoresAndOddsSport) {
-  return `${SCORES_AND_ODDS_BASE_URL}/${SPORT_SLUG[sport]}/consensus-picks`;
+type ConsensusRequest = { date?: string; week?: string };
+
+export function scoresAndOddsConsensusUrl(sport: ScoresAndOddsSport, request: ConsensusRequest = {}) {
+  const base = `${SCORES_AND_ODDS_BASE_URL}/${SPORT_SLUG[sport]}/consensus-picks`;
+  if (sport === "NBA" && request.date) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(request.date)) throw new Error("Invalid NBA consensus date.");
+    return `${base}?date=${request.date}`;
+  }
+  if (sport === "NCAAF" && request.week) {
+    if (!/^20\d{2}-reg-\d{1,2}$/.test(request.week)) throw new Error("Invalid NCAAF consensus week.");
+    return `${base}?week=${request.week}`;
+  }
+  return base;
+}
+
+// The default source page can remain on the previous slate during overnight
+// rollover. Select the same Sunday-Saturday college week used by our board.
+export function scoresAndOddsNcaafWeek(date: string) {
+  const year = Number(date.slice(0, 4)), stamp = Date.parse(`${date}T12:00:00Z`);
+  const first = new Date(Date.UTC(year, 8, 1, 12));
+  const firstSaturday = first.getTime() + ((6 - first.getUTCDay() + 7) % 7) * 86_400_000;
+  const week = Math.floor((stamp - (firstSaturday - 6 * 86_400_000)) / (7 * 86_400_000)) + 1;
+  return Number.isFinite(week) && week >= 0 && week <= 16 ? `${year}-reg-${week}` : undefined;
 }
 
 function decodeHtmlEntities(value: string) {
@@ -467,7 +488,7 @@ export function parseScoresAndOddsConsensus(
   const tokens = stripTagsToTokens(rawHtml);
   const sourceUrl = scoresAndOddsConsensusUrl(sport);
   const pageDate = dateFromPage(rawHtml);
-  const sourceSchedules = sport === "NCAAF" ? ncaafSourceSchedules(rawHtml, pageDate) : null;
+  const sourceSchedules = sport === "NCAAF" || sport === "NBA" ? ncaafSourceSchedules(rawHtml, pageDate) : null;
   const rows: ScoresAndOddsMarketSplit[] = [];
   const matchupOccurrenceState = new Map<
     string,
@@ -484,7 +505,7 @@ export function parseScoresAndOddsConsensus(
     const descriptor = descriptorSelections(tokens, anchor);
     const header = headerAroundAnchor(tokens, anchor);
     const market = marketFromHeader(header, sport);
-    const sourceSchedule = sport === "NCAAF"
+    const sourceSchedule = sourceSchedules
       ? sourceSchedules!.get(ncaafScheduleKey(contextAway, contextHome))
         || (sourceSchedules!.size ? { date: "", eventTime: "" } : ncaafSourceScheduleNearAnchor(tokens, anchor, pageDate))
       : { date: "", eventTime: "" };
@@ -593,8 +614,12 @@ export function parseScoresAndOddsConsensus(
   return [...deduped.values()];
 }
 
-export async function fetchScoresAndOddsConsensusHtml(sport: ScoresAndOddsSport) {
-  const url = scoresAndOddsConsensusUrl(sport);
+export async function fetchScoresAndOddsConsensusHtml(sport: ScoresAndOddsSport, request: ConsensusRequest = {}) {
+  const date = request.date || new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(new Date());
+  const url = scoresAndOddsConsensusUrl(sport, sport === "NCAAF"
+    ? { ...request, week: request.week || scoresAndOddsNcaafWeek(date) } : request);
   const response = await fetch(url, {
     cache: "no-store",
     headers: {
@@ -615,9 +640,9 @@ export async function fetchScoresAndOddsConsensusHtml(sport: ScoresAndOddsSport)
   return { url, html };
 }
 
-export async function loadScoresAndOddsConsensus(sport: ScoresAndOddsSport) {
-  const fetched = await fetchScoresAndOddsConsensusHtml(sport);
-  const splits = parseScoresAndOddsConsensus(fetched.html, sport);
+export async function loadScoresAndOddsConsensus(sport: ScoresAndOddsSport, request: ConsensusRequest = {}) {
+  const fetched = await fetchScoresAndOddsConsensusHtml(sport, request);
+  const splits = parseScoresAndOddsConsensus(fetched.html, sport).map(row => ({ ...row, sourceUrl: fetched.url }));
   const plain = decodeHtmlEntities(fetched.html).replace(/<[^>]+>/g, " ").replace(/\\s+/g, " ");
   if (!splits.length && !/no games scheduled|no games|no consensus/i.test(plain)) {
     throw new Error(`ScoresAndOdds ${sport} consensus page was reachable but no betting-split rows could be parsed.`);

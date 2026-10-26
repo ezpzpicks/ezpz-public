@@ -110,8 +110,13 @@ export function buildNbaSignals({ date, games, splits, forecasts, storedRows, st
   state: NbaAnalysisState; now?: number; capture?: boolean;
 }) {
   const plays = nbaRowsToPlays(splits, now);
-  const stale = plays.some(play => play.snapshotStatus === "LIVE" && Date.parse(play.gameTime) > now
-    && now - Date.parse(play.updatedAt) > (Date.parse(play.gameTime) - now <= 90 * 60_000 ? 10 : 35) * 60_000);
+  const missingMarkets = games.some(game => game.Date === date && game.Status === "STATUS_SCHEDULED"
+    && Date.parse(game["Game Time"]) > now
+    && new Set(splits.filter(row => row["Game Key"] === game["Game Key"])
+      .map(nbaRowKey)).size !== 4);
+  const stale = missingMarkets || plays.some(play => play.snapshotStatus === "LIVE" && Date.parse(play.gameTime) > now
+    && (!Number.isFinite(Date.parse(play.updatedAt))
+      || now - Date.parse(play.updatedAt) > (Date.parse(play.gameTime) - now <= 90 * 60_000 ? 10 : 35) * 60_000));
   const result = buildFootballSignalsState({ sport: "NBA", now, capture, storedRows, policy: NBA_SIGNALS_POLICY,
     leaderboard: state.leaderboard, leaderboardAsOf: Date.parse(state.leaderboardAsOf), history: new Map(state.teamHistory),
     core: { today: date, slateToday: games, teamTrendScheduleRows: games, trendPlays: plays, nbaForecasts: forecasts, stale } });
