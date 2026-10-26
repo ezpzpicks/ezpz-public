@@ -88,6 +88,7 @@ type FootballSignalHistoryRow = {
 };
 
 type FootballData = {
+  footballWeeklyMarket?: WeeklyMarketData;
   today: string; lastUpdated: string; database?: string; bestPlays: Play[]; slateToday: SheetRow[];
   betTrackerRows?: SheetRow[]; trendRecordRows?: SheetRow[]; draftKingsSignalRows?: FootballSignalHistoryRow[];
   ncaafPublicTrendLeaderboard?: NcaafPublicTrendSubtype[];
@@ -1487,7 +1488,7 @@ function SlateCard({ row, splits, sport }: { row: SheetRow; splits: DraftKingsSp
 }
 
 export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab: Tab; data: FootballData }) {
-  const [weeklyData, setWeeklyData] = useState<WeeklyMarketData | null>(null);
+  const [weeklyData, setWeeklyData] = useState<WeeklyMarketData | null>(data.footballWeeklyMarket || null);
   const [selectedWeek, setSelectedWeek] = useState("");
   const [weeklyLoading, setWeeklyLoading] = useState(false);
   const [weeklyError, setWeeklyError] = useState("");
@@ -1497,6 +1498,13 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
 
   useEffect(() => {
     if (!needsWeeklyMarket) return;
+    const saved = data.footballWeeklyMarket;
+    if (saved && (!requestedMarketWeek || saved.selectedWeek === requestedMarketWeek)) {
+      setWeeklyData(saved);
+      setWeeklyLoading(false);
+      setWeeklyError("");
+      return;
+    }
     let active = true;
     let timedOut = false;
     const controller = new AbortController();
@@ -1514,7 +1522,7 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
       .catch(error => { if (active) setWeeklyError(timedOut ? "Saved markets took too long to load. Try again." : error instanceof Error ? error.message : "Failed to load saved markets"); })
       .finally(() => { if (timeout != null) window.clearTimeout(timeout); if (active) setWeeklyLoading(false); });
     return () => { active = false; if (timeout != null) window.clearTimeout(timeout); controller.abort(); };
-  }, [sport, needsWeeklyMarket, data.lastUpdated, requestedMarketWeek, weeklyRetry]);
+  }, [sport, needsWeeklyMarket, data.lastUpdated, data.footballWeeklyMarket, requestedMarketWeek, weeklyRetry]);
 
   const scoresAndOddsFresh = data.draftKings?.status === "LIVE" && !data.draftKings?.stale && data.draftKings?.displayMode !== "STALE_FALLBACK";
   const scoresAndOddsStatus = data.draftKings?.stale || data.draftKings?.displayMode === "STALE_FALLBACK"

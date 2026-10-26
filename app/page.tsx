@@ -300,6 +300,8 @@ type Play = {
 type SheetRow = Record<string, string>;
 
 type ApiData = {
+  publicBoard?: { savedAt: string; sourceDate: string; sourceStale: boolean; stale?: boolean };
+  marketAvailableDates?: string[];
   nbaMarket?: NbaMarketPayload;
   ok: boolean;
   error?: string;
@@ -6854,6 +6856,7 @@ export default function Home() {
   const [error, setError] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   const [activeSport, setActiveSport] = useState<Sport>("MLB");
+  const [sportReady, setSportReady] = useState(false);
   const nflEzpzRecords = useMemo(() => activeSport === "NFL" && data
     ? data.ezpzRecords || buildNflEzpzRecords(data.aiPickRecordRows || [], data.today)
     : null, [activeSport, data]);
@@ -6870,6 +6873,7 @@ export default function Home() {
         setActive(TABS.includes(requested) ? requested : "Today’s Model Plays");
       }
     }
+    setSportReady(true);
   }, []);
   const [selectedEzpzDate, setSelectedEzpzDate] = useState("");
   const [selectedMlbTrendDate, setSelectedMlbTrendDate] = useState("");
@@ -6887,11 +6891,12 @@ export default function Home() {
   }, [activeSport, data?.today]);
 
   useEffect(() => {
-    if (activeSport !== "MLB" || !data?.today) return;
+    if (activeSport !== "MLB" || active !== "Public Betting Splits" || !data?.today) return;
     const selectedDate =
       normalizedDateKey(selectedMlbTrendDate) ||
       normalizedDateKey(data.today);
     if (!selectedDate) return;
+    if (Array.isArray(data.marketAvailableDates) && selectedDate === normalizedDateKey(data.today)) return;
 
     const controller = new AbortController();
     let mounted = true;
@@ -6919,7 +6924,7 @@ export default function Home() {
       mounted = false;
       controller.abort();
     };
-  }, [activeSport, data?.today, data?.lastUpdated, selectedMlbTrendDate]);
+  }, [activeSport, active, data?.today, data?.lastUpdated, data?.marketAvailableDates, selectedMlbTrendDate]);
 
   const loadData = useCallback(async (silent = false, forceFresh = false) => {
     // Reuse an active request instead of starting overlapping public-data
@@ -6944,11 +6949,8 @@ export default function Home() {
     const request = (async () => {
       try {
         const endpoint =
-          activeSport === "NBA" ? "/api/nba-public-data" : activeSport === "NFL" || activeSport === "NCAAF"
-            ? `/api/public-data-v2?sport=${activeSport}&compact=3${forceFresh ? "&refresh=1" : ""}`
-            : forceFresh
-              ? "/api/public-data-v2?refresh=1"
-              : "/api/public-data-v2";
+          activeSport === "NBA" ? "/api/nba-public-data"
+            : `/api/sport-public-data?sport=${activeSport}${forceFresh ? "&refresh=1" : ""}`;
         const response = await fetch(endpoint, {
           cache: "no-store",
           signal: controller.signal,
@@ -6957,6 +6959,7 @@ export default function Home() {
         if (!response.ok || !json.ok) {
           throw new Error(json.error || "Failed to load EZPZ data");
         }
+        if (json.publicBoard) json.publicBoard.stale = response.headers.get("x-ezpz-board-stale") === "true";
         if (controller.signal.aborted) return;
         setData(json);
         setError("");
@@ -6994,6 +6997,7 @@ export default function Home() {
   }, [activeSport]);
 
   useEffect(() => {
+    if (!sportReady) return;
     void loadData();
 
     const isAutoRefreshWindowET = () => {
@@ -7024,7 +7028,7 @@ export default function Home() {
       activeLoadControllerRef.current = null;
       activeLoadRef.current = null;
     };
-  }, [loadData]);
+  }, [loadData, sportReady]);
 
   const trackerTodayRecordSummary = useMemo(
     () => calculateTrackerRecordSummary(data?.betTrackerRows, "today", data?.today || ""),
@@ -7231,6 +7235,7 @@ export default function Home() {
         : [];
     const availableMlbTrendDates = Array.from(new Set([
       currentMlbTrendDate,
+      ...(data.marketAvailableDates || []),
       ...(mlbDailyMarket?.availableDates || []),
     ].filter(Boolean))).sort((a, b) => b.localeCompare(a));
     const activeMlbTrendDateLabel = (() => {
@@ -7688,6 +7693,12 @@ export default function Home() {
       {error && data ? (
         <div className="staleBanner">
           Showing the last successful update. Refresh failed: {error}
+        </div>
+      ) : null}
+
+      {data?.publicBoard?.stale && !error ? (
+        <div className="staleBanner" role="status">
+          Showing the saved {activeSport} board for {data.publicBoard.sourceDate}. A background update is pending.
         </div>
       ) : null}
 

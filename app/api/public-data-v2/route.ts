@@ -15,6 +15,7 @@ import { persistEzpzCurrentPicks } from "../../../lib/ezpzCurrentPicks";
 import { repairHistoricalEzpzGrades } from "../../../lib/ezpzHistoricalGrading";
 import { MARKET_REFRESH_POLICY } from "../../../lib/marketRefreshPolicy";
 import { persistPublicBoardSnapshot } from "../../../lib/publicBoardSnapshot";
+import { GET as readSavedPublicData } from "../sport-public-data/route";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 180;
@@ -386,6 +387,19 @@ function compactScheduledPayload(payload:AnyRow){
 export async function GET(request:NextRequest){
   const startedAt = Date.now();
   const sport=String(request.nextUrl.searchParams.get("sport")||"MLB").trim().toUpperCase();
+  // Compatibility reads (including Refresh board) use the same saved display.
+  // Only authenticated producers may enter the expensive capture workflow.
+  const scheduled = isV2ScheduledCapture(request)
+    || request.headers.get("x-ezpz-background-snapshot") === "true"
+    || request.headers.get("x-ezpz-scheduled-snapshot") === "true"
+    || request.nextUrl.searchParams.get("tracking") === "15m";
+  if (!scheduled) return readSavedPublicData(request);
+  const secrets = [process.env.CRON_SECRET, process.env.EZPZ_SNAPSHOT_SECRET].filter(Boolean);
+  if (!secrets.some(secret => request.headers.get("authorization") === `Bearer ${secret}`
+    || request.headers.get("x-ezpz-snapshot-secret") === secret)) {
+    return NextResponse.json({ ok: false, error: "Unauthorized scheduled capture." }, { status: 401 });
+  }
+  if (!["MLB", "NFL", "NCAAF"].includes(sport)) return NextResponse.json({ ok: false, error: "Unsupported capture sport." }, { status: 400 });
   if(sport==="NFL"||sport==="NCAAF")return buildPublicDataResponse(request);
 
   const compact=truthy(request.nextUrl.searchParams.get("compact"));

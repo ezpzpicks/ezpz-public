@@ -12463,6 +12463,7 @@ async function buildUncachedPublicResponse(request: NextRequest) {
       },
       bestPlays,
       slateToday,
+      marketAvailableDates: [...new Set((slateTodayRaw as SheetRow[]).map(row => isoPublicDate(row.Date)).filter(Boolean))].sort(),
       betTrackerRows: trackerRows,
       draftKingsSignalRows,
       trendRecordRows,

@@ -49,6 +49,7 @@ type Split = {
 };
 
 type FootballData = {
+  footballWeeklyMarket?: WeeklyData;
   today?: string;
   lastUpdated?: string;
   bestPlays?: Play[];
@@ -420,9 +421,13 @@ function ModelPlayRow({ play, sport, data }: { play: Play; sport: Sport; data: F
 }
 
 export default function FootballGameTabs({ sport, tab, data }: { sport: Sport; tab: Tab; data: FootballData }) {
-  const [weekly, setWeekly] = useState<WeeklyData | null>(null);
+  const [weekly, setWeekly] = useState<WeeklyData | null>(data.footballWeeklyMarket || null);
 
   useEffect(() => {
+    if (data.footballWeeklyMarket) {
+      setWeekly(data.footballWeeklyMarket);
+      return;
+    }
     let active = true;
     const controller = new AbortController();
     fetch(`/api/football-weekly-market?sport=${sport}`, { cache: "no-store", signal: controller.signal })
@@ -430,7 +435,7 @@ export default function FootballGameTabs({ sport, tab, data }: { sport: Sport; t
       .then((result) => { if (active && result?.ok) setWeekly(result as WeeklyData); })
       .catch(() => undefined);
     return () => { active = false; controller.abort(); };
-  }, [sport, data.lastUpdated]);
+  }, [sport, data.lastUpdated, data.footballWeeklyMarket]);
 
   const slate = useMemo(() => mergeSlateRows(data, weekly, sport), [data, weekly, sport]);
   const plays = data.bestPlays || [];
