@@ -71,10 +71,16 @@ async function runCron(request: NextRequest) {
       };
     }
 
-    const payload = await buildFootballPublicData(sport, {
-      forceFresh: true,
-      persist: true,
-    });
+    let payload: Record<string, any>;
+    try {
+      payload = await buildFootballPublicData(sport, { forceFresh: true, persist: true });
+    } catch (error) {
+      // Empty/off-day feeds must not prevent the saved display from updating
+      // its records and weekly markets. Preserve monitoring's failed status.
+      console.warn(`${sport} capture failed; preparing retained public display`, error);
+      payload = { ...await buildFootballPublicData(sport, { forceFresh: true, persist: false, publicDisplay: true }),
+        stale: true, marketRefreshError: error instanceof Error ? error.message : String(error) };
+    }
     payload.refreshPolicy = refresh.policy;
     payload.refreshIntervalMinutes = refresh.intervalMinutes;
     // Keep the lightweight EZPZ Picks notification snapshot independent from

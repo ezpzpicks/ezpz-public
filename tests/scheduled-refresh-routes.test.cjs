@@ -1,7 +1,7 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
 const ts=require('typescript'),{NextRequest}=require('next/server'),root=path.join(__dirname,'..');
 function harness(file,options={}){
- let due=false,collections=0,reads=0,commits=0;
+ let due=false,collections=0,reads=0,commits=0,publications=0;
  let now=Date.parse('2026-10-24T16:00:00Z');
  class Clock extends Date{constructor(...args){super(...(args.length?args:[now]));}static now(){return now;}}
  const refresh={scheduledMarketRefresh:async(...args)=>{reads++;return options.refresh?options.refresh.scheduledMarketRefresh(...args):{due,intervalMinutes:due?5:30,policy:'30m-until-90m-v1'};},recordScheduledMarketRefresh:async(...args)=>{commits++;if(options.refresh)await options.refresh.recordScheduledMarketRefresh(...args);}};
@@ -14,9 +14,9 @@ function harness(file,options={}){
    syncPostedFootballMarkets:async()=>{collections++;if(options.error)throw options.error;return options.result||{ok:true,refreshCompleted:true,errors:[]};},
    inspectPostedFootballMarkets:async()=>{collections++;return{ok:true,dryRun:true,errors:[]};},
   },
-  '../../../../lib/footballPublicData':{buildFootballPublicData:async()=>{collections++;return{ok:true,today:'2026-10-24'};}},
+  '../../../../lib/footballPublicData':{buildFootballPublicData:async(_,opts)=>{collections++;if(options.captureError&&opts.persist)throw options.captureError;return{ok:true,today:'2026-10-24'};}},
   '../../../../lib/ezpzCurrentPicks':{persistEzpzCurrentPicks:async()=>{}},
-  '../../../../lib/publicBoardSnapshot':{persistPublicBoardSnapshot:async()=>({saved:true})},
+  '../../../../lib/publicBoardSnapshot':{persistPublicBoardSnapshot:async()=>{publications++;return{saved:true};}},
   '../../../../lib/footballPublicDisplay':{restoreFootballPublicDisplay:value=>value},
   '../../football-weekly-market/route':{GET:async()=>Response.json({ok:true,games:[],trendPlays:[]})},
   '../../../../lib/footballResultSettlement':{settlePendingFootballResults:async()=>({})},
@@ -25,8 +25,8 @@ function harness(file,options={}){
   '../../../../lib/ezpzHistoricalGrading':{repairHistoricalEzpzGrades:async()=>({})},
   '../../public-data-v2/route':{GET:async()=>{collections++;return Response.json({ok:true,draftKingsPersistence:{status:'SAVED'}});}},
  };
- vm.runInNewContext(source,{exports:api,Date:Clock,Intl,URL,Response,console:{info(){},error(){}},setTimeout,process:{env:{CRON_SECRET:'test',VERCEL_ENV:'production'}},require:id=>imports[id]||{}});
- return{get:api.GET,due:()=>{due=true;},setTime:time=>{now=Date.parse(time);},counts:()=>({collections,reads,commits})};
+ vm.runInNewContext(source,{exports:api,Date:Clock,Intl,URL,Response,console:{info(){},error(){},warn(){}},setTimeout,process:{env:{CRON_SECRET:'test',VERCEL_ENV:'production'}},require:id=>imports[id]||{}});
+ return{get:api.GET,due:()=>{due=true;},setTime:time=>{now=Date.parse(time);},publications:()=>publications,counts:()=>({collections,reads,commits})};
 }
 for(const [file,sport] of [
  ['app/api/cron/football-market-discovery/route.ts','NFL'],
@@ -44,6 +44,15 @@ for(const [file,sport] of [
 });
 
 const marketRoute='app/api/cron/football-market-discovery/route.ts';
+test('a failed off-day feed still publishes the retained board and does not report collection success',async()=>{
+ const h=harness('app/api/cron/football-public-snapshot/route.ts',{captureError:new Error('empty live slate')});
+ h.due();
+ const response=await h.get(new NextRequest('https://example.test/api/cron?sport=NCAAF',{headers:{authorization:'Bearer test'}}));
+ assert.equal(response.status,500);
+ assert.equal(h.publications(),1);
+ assert.equal(h.counts().commits,0);
+ assert.equal(h.counts().collections,2);
+});
 const marketRequest=(suffix='')=>new NextRequest(`https://example.test/api/cron?sport=NCAAF${suffix}`,{headers:{authorization:'Bearer test'}});
 test('a saved refresh with feed warnings persists the clock and skips the next cold instance',async()=>{
  const tables={posted_games:[{Date:'2026-10-24','Game Time':'2026-10-24T20:00:00Z'}]};

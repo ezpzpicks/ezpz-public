@@ -18,7 +18,7 @@ function harness() {
   });
   vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(root, 'lib/publicBoardSnapshot.ts'), 'utf8'),
     { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, {
-    exports: api, Buffer, Uint8Array, Date: Clock, Intl, console: { info() {}, error() {} },
+    exports: api, Buffer, Uint8Array, Date: Clock, Intl, process: { env: { VERCEL_GIT_COMMIT_SHA: 'test-revision' } }, console: { info() {}, error() {} },
     require: id => id === './tursoStore' ? { runTursoSql } : id === './footballPublicDisplay' ? display : require(id),
   });
   return { ...api, calls, db, now: () => now, advance: ms => { now += ms; } };

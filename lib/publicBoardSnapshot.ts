@@ -51,9 +51,9 @@ export async function persistPublicBoardSnapshot(sport: PublicBoardSport, payloa
   return result;
 }
 
-async function readBoard(sport: PublicBoardSport): Promise<SavedBoard | null> {
+async function readBoard(sport: PublicBoardSport, forceRead = false): Promise<SavedBoard | null> {
   const existing = cache.get(sport);
-  if (existing && Date.now() - existing.readAt < 30_000) return existing.board;
+  if (!forceRead && existing && Date.now() - existing.readAt < 30_000) return existing.board;
   const pending = inFlight.get(sport);
   if (pending) return pending;
   const operation = (async () => {
@@ -83,19 +83,22 @@ async function readBoard(sport: PublicBoardSport): Promise<SavedBoard | null> {
 
 export async function savedPublicBoardResponse(request: NextRequest, sport: PublicBoardSport) {
   try {
-    const board = await readBoard(sport);
+    const forceRead = request.nextUrl.searchParams.get("refresh") === "1";
+    const board = await readBoard(sport, forceRead);
     if (!board) return NextResponse.json({ ok: false, sport, pending: true,
+      deploymentRevision: process.env.VERCEL_GIT_COMMIT_SHA || "",
       error: `${sport} is preparing its saved board. Please try again shortly.` },
     { status: 503, headers: { "Cache-Control": "no-store", "Retry-After": "15" } });
     const stale = board.sourceStale || board.date !== dateET(Date.now())
       || Date.now() - board.savedAt > Math.max(10, board.intervalMinutes * 2) * 60_000;
     const headers: Record<string, string> = {
-      "Content-Type": "application/json", "Cache-Control": "public, s-maxage=30, stale-while-revalidate=60",
+      "Content-Type": "application/json", "Cache-Control": forceRead ? "no-store" : "public, s-maxage=30, stale-while-revalidate=60",
       Vary: "Accept-Encoding", "X-EZPZ-Board-Version": PUBLIC_BOARD_VERSION,
       "X-EZPZ-Board-Saved-At": new Date(board.savedAt).toISOString(),
       "X-EZPZ-Board-Stale": String(stale), "X-EZPZ-Board-Date": board.date,
     };
     if (request.nextUrl.searchParams.get("inspect") === "1") return NextResponse.json({ ok: true, sport,
+      deploymentRevision: process.env.VERCEL_GIT_COMMIT_SHA || "",
       version: PUBLIC_BOARD_VERSION, date: board.date, savedAt: headers["X-EZPZ-Board-Saved-At"],
       stale, bytes: board.bytes, compressedBytes: board.compressedBytes }, { headers });
     if (/\bgzip\b/.test(request.headers.get("accept-encoding") || "")) {

@@ -24,7 +24,8 @@ jobs:
         run: |
           for attempt in $(seq 1 40); do
             status=$(curl --silent --show-error --max-time 20 --output /tmp/board-status.json --write-out '%{http_code}' "https://ezpzpicks.com/api/sport-public-data?sport=$SPORT&inspect=1")
-            if [ "$status" = 200 ] || [ "$status" = 503 ]; then exit 0; fi
+            if { [ "$status" = 200 ] || [ "$status" = 503 ]; } && \
+              jq -e --arg revision "$GITHUB_SHA" '.deploymentRevision == $revision' /tmp/board-status.json >/dev/null; then exit 0; fi
             sleep 10
           done
           echo 'Saved board endpoint was not deployed in time.'
@@ -44,6 +45,6 @@ jobs:
           # has been saved. The read below verifies publication independently.
           curl --silent --show-error --max-time 240 -H "Authorization: Bearer $CRON_SECRET" \
             "https://ezpzpicks.com/api/cron/$route" --output /tmp/producer.json
-          jq '{ok, error, publicBoard}' /tmp/producer.json
+          jq '{ok, skipped, reason, error, publicBoard}' /tmp/producer.json
           curl --fail-with-body --silent --show-error --retry 3 --retry-delay 10 --max-time 30 \
             "https://ezpzpicks.com/api/sport-public-data?sport=$SPORT&inspect=1"
