@@ -11,6 +11,7 @@ import type { FootballSport, SheetRow } from "./sportSheets";
 import { buildNbaTrendLeaderboard, nbaModelFor, nbaTrendSignals } from "./nbaTrendLeaderboard";
 import { buildSignalResearchDays, buildSignalResearchReport, type SignalResearchReport } from "./signalCombinationResearch";
 import { quoteImpliedProbability, regradeModelQuote } from "./modelSignalQuote";
+import { evaluateSignalMovement, type SignalMovement } from "./signalMovement";
 
 import { signalPickThreshold, selectSignalEzpzPicks } from "./signalPicks";
 
@@ -36,7 +37,7 @@ export type FootballSignalSide = {
   teamGames: { team: string; date: string; opponent: string; venue: string; line: number | null; result: string }[];
   marketContext: { bets: number | null; money: number | null; openingBets: number | null; openingMoney: number | null;
     openingLine: number | null; openingOdds: string; publicChange: number | null; moneyChange: number | null;
-    movementBasis: string; movementLabel: string; history: AnyRow[] };
+    movementBasis: string; movementLabel: string; history: AnyRow[]; movement?: SignalMovement };
   modelContext: { play: string; grade: string; version: string; projection: number | null; probability: number | null; line: number | null; reason: string;
     regraded?: boolean; originalPlay?: string; originalGrade?: string; probabilityEstimated?: boolean };
   sosContext: { sourceUrl: string; capturedAt: string; teams: { team: string; rank: number; elo: number; opponentRecord: string }[]; gap: number | null };
@@ -154,13 +155,10 @@ function evaluateSide(play: AnyRow, siblings: AnyRow[], input: SignalsInput, ran
   const pctValid = bets != null && money != null && bets >= 0 && bets <= 100 && money >= 0 && money <= 100;
   const placeholder = (bets === 100 && money === 100) || (bets === 0 && money === 0);
   const gap = pctValid ? rounded(money! - bets!) : null;
-  const move = signalNumber(play.lineMovementValue), basis = String(play.lineMovementBasis || ""), movementLabel = String(play.lineMovementSignal || "");
-  const positiveMove = play.lineMovementTone === "positive" || (play.signals || []).some((s: AnyRow) => s.signalType === "Line Movement" && s.tone === "positive")
-    || /^(?:Line Movement Confirmation|(?:Strong )?Reverse Line Movement Support)$/.test(movementLabel);
-  // The collector classifies the last retained move when the current quote has
-  // returned to its opening line. That is still valid movement evidence.
-  const lineBasis = play.market === "Spread" ? "Spread Line" : "Total Line";
-  const movementAvailable = move != null && Boolean(movementLabel) && [lineBasis, `${lineBasis} History`, "Implied Probability"].includes(basis);
+  const movementLabel = String(play.lineMovementSignal || "");
+  const movement = evaluateSignalMovement({ market: play.market, side: play.side || play.selection || "",
+    openingLine: play.openingLine, line,
+    retainedBasis: play.lineMovementBasis, retainedValue: signalNumber(play.lineMovementValue), retainedLabel: movementLabel });
   const memberships = new Set(line == null ? [] : (sport === "NBA" ? nbaTrendSignals : sport === "NFL" ? nflTrendSignals : ncaafTrendSignals)(play, siblings));
   const category = ncaafTrendCategory(play);
   const publicMatches = ranking.slice(0, 20).map((subtype, i) => ({ ...subtype, rank: i + 1, ...matchRules(subtype, sport) }))
@@ -182,8 +180,8 @@ function evaluateSide(play: AnyRow, siblings: AnyRow[], input: SignalsInput, ran
   const signals: FootballSignal[] = [
     signal("money", pctValid && !placeholder, gap != null && gap >= 15, gap, gap == null ? "Unavailable" : tier(gap, [15, 25, 35]),
       "Money percentage minus bet percentage. Qualifying +15, strong +25, very strong +35 percentage points."),
-    signal("move", movementAvailable, positiveMove && Number(move) > 0, move, positiveMove ? movementLabel : "Inactive",
-      "Uses the existing market feed’s line movement classification and thresholds, including its RLM rules."),
+    signal("move", movement.available, movement.active, movement.value,
+      movement.active ? "Qualifying" : "Inactive", movement.reason),
     signal("system", Boolean(play.catalogEvaluation && !play.catalogEvaluation.invalid), publicMatches.length > 0
       && publicQuoteEligible,
       publicMatches[0]?.wilsonScore ?? null, publicMatches.length && publicQuoteEligible ? "Top-20 match" : "Inactive",
@@ -215,7 +213,7 @@ function evaluateSide(play: AnyRow, siblings: AnyRow[], input: SignalsInput, ran
     selected: false, mixed: false, combination: active.map(s => s.key).join(" + "), teamTrend, teamGames, publicMatches,
     marketContext: { bets, money, openingBets: signalNumber(play.openingBetsPct), openingMoney: signalNumber(play.openingMoneyPct),
       openingLine: signalNumber(play.openingLine), openingOdds: String(play.openingOdds || ""), publicChange: signalNumber(play.publicMovementPct),
-      moneyChange: signalNumber(play.sharpMovementPct), movementBasis: basis, movementLabel,
+      moneyChange: signalNumber(play.sharpMovementPct), movementBasis: movement.basis, movementLabel, movement,
       history: (play.movementHistory || []).map((p: AnyRow) => ({ snapshotTime: p.snapshotTime, line: p.line, odds: p.odds, betsPct: p.betsPct, moneyPct: p.moneyPct })) },
     modelContext: model.context,
     sosContext: { sourceUrl: sos?.sourceUrl || "", capturedAt: completeSos ? sos!.fetchedAt : "", gap: sosGap,

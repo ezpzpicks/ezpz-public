@@ -9,7 +9,7 @@ const source = fs.readFileSync(path.join(root, 'app/FootballSignalsBoard.tsx'), 
 vm.runInNewContext(ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } }).outputText,
   { exports: exportsObject, Date, Intl, console, require: name => name === './TeamLogoName' ? { TeamLogoName: p => p.team }
     : name === './NbaGameLineups' ? { __esModule: true, default: () => null }
-    : ['../lib/signalCombinationResearch', '../lib/signalPicks'].includes(name) ? require('./load-typescript.cjs')(path.join(root, name.replace('../', '') + '.ts')) : require(name) });
+    : ['../lib/signalCombinationResearch', '../lib/signalPicks', '../lib/signalMovement'].includes(name) ? require('./load-typescript.cjs')(path.join(root, name.replace('../', '') + '.ts')) : require(name) });
 const keys = ['money', 'move', 'system', 'team', 'model'];
 const team = name => ({ team: name, venue: 'Away', role: 'Favorite', opposing: name === 'GB', score: 80, trackedGames: 5, seasonGames: 5, missingGames: 0,
   records: Object.fromEntries([['betType', 'Favorite ATS', 50], ['venue', 'Away ATS', 30], ['recent', 'Last 5 ATS', 20]].map(([k, label, weight]) => [k,
@@ -45,8 +45,8 @@ test('EZPZ shows only qualifying saved signal tests, with NFL two and NCAAF thre
   assert.match(html, /DAL/); assert.doesNotMatch(html, /GB \+1\.5/);
   assert.equal((html.match(/aria-expanded="false"/g) || []).length, 2);
   assert.match(html, /aria-label="DAL -1.5 EZPZ Pick"/);
-  assert.match(html, /Line movement. Qualifying. \+2 pts/);
-  assert.match(html, /Model edge. Qualifying. \+2 pts/);
+  assert.match(html, /Line movement. Qualifying. \+2 points/);
+  assert.match(html, /Model edge. Qualifying. \+2 points/);
   assert.doesNotMatch(html, /Sort games by signal|Inactive or unavailable|class="fs-signals"|class="fs-game"|Money support. Qualifying/);
   const cfb = render(React.createElement(exportsObject.default, { board: { ...data, sport: 'NCAAF' }, picksOnly: true }));
   assert.match(cfb, /3\+ signals/); assert.match(cfb, /No qualifying NCAAF EZPZ Picks/);
@@ -59,7 +59,7 @@ test('pick tiles distinguish frozen results from live quotes and label triggered
     status: 'FINAL_PREGAME', snapshotAt: '2026-10-19T00:05:00Z', result: 'W', signalCount: 2,
     signals: keys.map(key => ({ key, active: ['money', 'team'].includes(key), available: true, value: key === 'money' ? 27 : 80, level: 'Qualifying' })) };
   const frozen = render(React.createElement(exportsObject.default, { board: { ...board, sides: [total] }, picksOnly: true }));
-  for (const text of ['Over 43.5 EZPZ Pick', 'Game total', 'Saved odds', '-110', 'Won', 'Graded at saved line', 'Money support', '+27 pp', 'Team trends', '80 / 100']) assert(frozen.includes(text), text);
+  for (const text of ['Over 43.5 EZPZ Pick', 'Game total', 'Saved odds', '-110', 'Won', 'Graded at saved line', 'Money support', '+27', 'Team trends', '80 / 100']) assert(frozen.includes(text), text);
   assert.doesNotMatch(frozen.match(/<article[\s\S]*?<\/article>/)[0], /Live preview|Current odds|Inactive or unavailable/);
   const now = Date.now(), tip = new Date(now + 3_600_000).toISOString(), date = tip.slice(0, 10);
   const live = { ...total, date, recorded: false, status: 'LIVE', gameTime: tip, snapshotAt: new Date(now).toISOString(), result: '' };
@@ -98,7 +98,8 @@ test('retained line-history details explain support even when opening and curren
   const history = { ...side, marketContext: { ...side.marketContext, openingLine: -1.5, movementBasis: 'Spread Line History' } };
   const html = render(React.createElement(exportsObject.detailTest, { side: history, signal: side.signals.find(s => s.key === 'move'), onClose() {} }));
   assert.match(html, /Most recent recorded move/);
-  assert.match(html, /\+0\.5 points/);
+  assert.match(html, /\+0\.5/);
+  assert.match(html, />points</);
   assert.match(html, /returned to its opening number/);
 });
 
@@ -135,7 +136,8 @@ test('public summary keeps every matched trend and its key performance records',
 
 test('team summary keeps both teams and the three relevant records without the game-by-game audit', () => {
   const html = render(React.createElement(exportsObject.detailTest, { side, signal: side.signals[3], onClose() {} }));
-  for (const text of ['DAL', 'GB', 'Favorite ATS', 'Away ATS', 'Last 5 ATS', '80 out of 100', 'Qualifies at 75', '4-1-0', 'ATS losses support this play']) assert(html.includes(text), text);
+  for (const text of ['DAL', 'GB', 'Favorite ATS', 'Away ATS', 'Last 5 ATS', '80 out of 100', 'Qualifies at 75', '4-1-0']) assert(html.includes(text), text);
+  assert.doesNotMatch(html, /ATS losses support|50% bet type|then both grades/);
   assert.doesNotMatch(html, /BAL|Games behind these records|Final grade calculation|Evidence captured|Weight version/);
 });
 
@@ -154,7 +156,25 @@ test('incomplete totals history stays visible with an explicit pending combined 
     teams: side.teamTrend.teams.map((team, i) => ({ ...team, missingGames: i ? 0 : 1, seasonGames: i ? 5 : 6 })) } };
   const signal = { ...side.signals[3], available: false, active: false, value: null, level: 'Unavailable' };
   const html = render(React.createElement(exportsObject.detailTest, { side: incomplete, signal, onClose() {} }));
-  for (const text of ['Awaiting complete history', 'Available records are shown below', 'DAL', 'GB', '4-1-0', 'partial grade', 'missing for 1 season game', 'Adds no signal']) assert(html.includes(text), text);
+  for (const text of ['Awaiting complete history', 'Available records are shown below', 'DAL', 'GB', '4-1-0', 'Partial grade', 'missing for 1 season game', 'Adds no signal']) assert(html.includes(text), text);
+});
+
+test('a positive money gap is green below threshold without claiming a qualifying signal', () => {
+  const money = { ...side.signals[0], value: 11, active: false, level: 'Inactive' };
+  const html = render(React.createElement(exportsObject.detailTest, { side: { ...side, marketContext: { ...side.marketContext, bets: 57, money: 68 } }, signal: money, onClose() {} }));
+  for (const text of ['fs-tone-positive', '+11', '57%', '68%', 'Below +15', 'Adds no signal']) assert(html.includes(text), text);
+  assert.doesNotMatch(html, /percentage points|fs-state-active/);
+});
+
+test('movement details show lines and points even when the old feed selected an odds change', () => {
+  const moved = { ...side, line: -4.5, marketContext: { ...side.marketContext, openingLine: -4.5,
+    openingOdds: '-109', movementBasis: 'Implied Probability' }, odds: '+104' };
+  for (const available of [true, false]) {
+    const move = { ...side.signals[1], value: available ? 0 : null, available, active: false, level: 'Inactive' };
+    const html = render(React.createElement(exportsObject.detailTest, { side: moved, signal: move, onClose() {} }));
+    for (const text of ['Opening line', 'Current line', '-4.5', 'points', 'Line unchanged', 'No signal']) assert(html.includes(text), text);
+    assert.doesNotMatch(html, /\bpp\b|percentage points|Opening odds|Current odds|-109|\+104|Unavailable/);
+  }
 });
 
 test('saved dates stay in the slate selector when no games from those weeks are in the main response', () => {

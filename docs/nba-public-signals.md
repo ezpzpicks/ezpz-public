@@ -4,6 +4,18 @@ NBA Public Betting Splits uses the NFL market card, bars, movement charts and
 records table. Its selector browses daily slates. NBA Signals uses the NFL
 five-column board: money, line movement, public trends, team trends and model.
 
+Expanded details use compact colored metrics, money-share bars and a team-score
+meter. A positive money gap is green even below +15; the qualification badge
+separately states whether it adds a signal. Team cards retain both teams' records
+without the former opposing-team description.
+
+For NBA, NFL and NCAAF Signals, spread/total movement uses line points only.
+At least 0.5 points toward the selected side adds the one movement vote. Odds
+changes do not contribute. Opening/current lines and a change in points replace
+the former implied-probability display. Verified retained line-history movement
+still qualifies when a quote returns to its opening number. Already saved
+observations retain their original votes and counts.
+
 The 3+ test requires at least three signals and two independent sources. Money,
 movement and public trends share one market source. Multiple matching public
 systems count as one signal. This is prospective testing; it does not create

@@ -98,7 +98,7 @@ test('multiple matching Wilson systems count as exactly one public signal and pr
   assert.equal(over.publicMatches[0].lastSevenTotals.record, '6-1-0');
 });
 
-test('money support boundaries, neutral missing data, and unchanged market classification', () => {
+test('money support boundaries and line direction ignore a stale feed label', () => {
   for (const [gap, active, level] of [[14.9, false, 'Inactive'], [15, true, 'Qualifying'], [25, true, 'Strong'], [35, true, 'Very strong']]) {
     const x = input(); x.core.trendPlays[0].moneyPct = 20 + gap;
     const s = find(api.buildFootballSignalsState(x).board, 'money');
@@ -107,7 +107,26 @@ test('money support boundaries, neutral missing data, and unchanged market class
   const x = input(); x.core.trendPlays[0].moneyPct = null;
   assert.equal(find(api.buildFootballSignalsState(x).board, 'money').available, false);
   x.core.trendPlays[0].lineMovementSignal = 'Adverse Line Movement';
+  assert.equal(find(api.buildFootballSignalsState(x).board, 'move').active, true, 'the actual half-point rise supports Over');
+  x.core.trendPlays[0].line = 43.5;
   assert.equal(find(api.buildFootballSignalsState(x).board, 'move').active, false);
+});
+
+test('spread and total signals use line points and ignore changes in odds', () => {
+  for (const sport of ['NFL', 'NCAAF', 'NBA']) {
+    const x = input({ sport, leaderboard: [], history: new Map() });
+    x.core.trendPlays = markets(sport).map(play => ({ ...play, line: 44, openingLine: 44,
+      openingOdds: '+120', odds: '-140', lineMovementValue: 16.2, lineMovementBasis: 'Implied Probability' }));
+    let board = api.buildFootballSignalsState(x).board;
+    assert(board.sides.every(side => !side.signals.find(s => s.key === 'move').active));
+    assert.equal(find(board, 'move').value, 0);
+    x.core.trendPlays = x.core.trendPlays.map(play => ({ ...play, line: 44.5, openingOdds: '-140', odds: '+120' }));
+    board = api.buildFootballSignalsState(x).board;
+    assert.equal(find(board, 'move').active, true, 'Over follows the rising total regardless of odds');
+    assert.equal(find(board, 'move', 'Under').active, false);
+    assert.equal(find(board, 'move').value, .5);
+    assert.equal(board.sides[0].marketContext.movement.version, 'signal-line-points-2026-10-26-v1');
+  }
 });
 
 test('NFL and CFB count classified retained movement after a line returns to its opening quote', () => {
