@@ -169,10 +169,12 @@ test('a positive money gap is green below threshold without claiming a qualifyin
 test('movement details show lines and points even when the old feed selected an odds change', () => {
   const moved = { ...side, line: -4.5, marketContext: { ...side.marketContext, openingLine: -4.5,
     openingOdds: '-109', movementBasis: 'Implied Probability' }, odds: '+104' };
-  const move = { ...side.signals[1], value: 0, active: false, level: 'Inactive' };
-  const html = render(React.createElement(exportsObject.detailTest, { side: moved, signal: move, onClose() {} }));
-  for (const text of ['Opening line', 'Current line', '-4.5', 'points', 'Line unchanged', 'No signal']) assert(html.includes(text), text);
-  assert.doesNotMatch(html, /\bpp\b|percentage points|Opening odds|Current odds|-109|\+104/);
+  for (const available of [true, false]) {
+    const move = { ...side.signals[1], value: available ? 0 : null, available, active: false, level: 'Inactive' };
+    const html = render(React.createElement(exportsObject.detailTest, { side: moved, signal: move, onClose() {} }));
+    for (const text of ['Opening line', 'Current line', '-4.5', 'points', 'Line unchanged', 'No signal']) assert(html.includes(text), text);
+    assert.doesNotMatch(html, /\bpp\b|percentage points|Opening odds|Current odds|-109|\+104|Unavailable/);
+  }
 });
 
 test('saved dates stay in the slate selector when no games from those weeks are in the main response', () => {

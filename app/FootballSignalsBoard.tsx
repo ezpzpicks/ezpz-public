@@ -67,23 +67,24 @@ function SignalDetail({ side, signal, onClose, liveNba = false }: { side: Footba
     openingLine: context.openingLine, line: side.line, retainedBasis: context.movementBasis,
     retainedValue: signal.value, retainedLabel: context.movementLabel }) : null;
   const legacyMovement = key === "move" && side.recorded && !context.movement && context.movementBasis === "Implied Probability";
-  const magnitude = !signal.available ? key === "team" && side.teamTrend
+  const available = key === "move" && !side.recorded ? movement?.available === true : signal.available;
+  const magnitude = !available ? key === "team" && side.teamTrend
     ? side.market === "Spread" && side.line == null ? "Awaiting spread" : "Awaiting complete history"
     : "Unavailable" : key === "system" ? side.publicMatches.length ? "Match" : "No match"
     : key === "team" ? format(signal.value)
     : key === "move" ? movement?.lineChange == null ? "Unavailable" : format(movement.lineChange, true)
     : signal.value == null ? signal.active ? "Qualifying" : "Inactive"
     : format(signal.value, ["money", "model", "sos"].includes(key));
-  const tone = !signal.available ? "neutral" : key === "money" ? (signal.value || 0) > 0 ? "positive" : (signal.value || 0) < 0 ? "negative" : "neutral"
+  const tone = !available ? "neutral" : key === "money" ? (signal.value || 0) > 0 ? "positive" : (signal.value || 0) < 0 ? "negative" : "neutral"
     : key === "move" ? movement?.state || "neutral" : key === "team" ? signal.active ? "positive" : "warning" : signal.active ? "positive" : "neutral";
   const status = legacyMovement ? "Saved signal" : signal.active ? key === "money" ? signal.level : "Qualifying"
-    : !signal.available ? "Unavailable" : key === "money" ? "Below +15" : key === "team" ? "Below 75" : "No signal";
+    : !available ? "Unavailable" : key === "money" ? "Below +15" : key === "team" ? "Below 75" : "No signal";
   const unit = key === "team" ? "/100" : key === "move" ? movement?.lineChange == null ? "" : Math.abs(movement.lineChange) === 1 ? "point" : "points"
     : key === "sos" ? "rank places" : key === "model" && signal.value != null ? "points" : "";
   const { Icon } = META[key];
   return <section className={`fs-detail fs-detail-${key} fs-tone-${tone}`} role="region" id={`signal-detail-${side.id}-${key}`} aria-label={`${META[key].title} for ${side.selection}`}>
     <div className="fs-detail-head"><div className="fs-detail-title"><span className="fs-detail-icon"><Icon size={20} aria-hidden="true" /></span><div><span className="fs-kicker">{side.selection}</span><h3>{META[key].title}</h3></div></div><button type="button" className="fs-close" onClick={onClose} aria-label="Collapse signal details"><X size={18} /></button></div>
-    <div className="fs-detail-status"><div className="fs-metric"><strong>{magnitude}</strong>{unit && signal.available ? <small>{unit}</small> : null}</div><span className={`fs-state${signal.active ? " fs-state-active" : ""}`}>{status}</span></div>
+    <div className="fs-detail-status"><div className="fs-metric"><strong>{magnitude}</strong>{unit && available ? <small>{unit}</small> : null}</div><span className={`fs-state${signal.active ? " fs-state-active" : ""}`}>{status}</span></div>
     {key === "team" ? <>
       {signal.available && signal.value != null ? <div className="fs-score-meter" aria-label={`Team trend score ${format(signal.value)} out of 100. Qualifies at 75.`}>
         <div className="fs-meter-track" role="meter" aria-label="Team trend score" aria-valuemin={0} aria-valuemax={100} aria-valuenow={signal.value}>
@@ -107,7 +108,7 @@ function SignalDetail({ side, signal, onClose, liveNba = false }: { side: Footba
           ? "Line-history evidence was not counted when this pregame snapshot was saved. The correction applies to new snapshots; the historical vote is preserved."
           : "The line returned to its opening number. This signal uses the feed's classification of the most recent recorded move."}</p>
       </> : null}
-      {legacyMovement ? <p>Saved under the earlier movement rule.</p> : !movement?.usesHistory ? <span className="fs-metric-caption">{!signal.available ? "Opening or current line unavailable" : movement?.state === "positive"
+      {legacyMovement ? <p>Saved under the earlier movement rule.</p> : !movement?.usesHistory ? <span className="fs-metric-caption">{!available ? "Opening or current line unavailable" : movement?.state === "positive"
         ? "Moved toward this side" : movement?.state === "negative" ? "Moved against this side"
           : movement?.lineChange ? "Below 0.5-point threshold" : "Line unchanged"}</span> : null}
     </> : null}
@@ -288,9 +289,10 @@ export default function FootballSignals({ board, picksOnly = false, sport: fallb
         <div className="fs-side-heading"><div className="fs-selection">{side.market === "Spread" ? <TeamLogoName sport={board.sport} team={side.selection.replace(/\s+[+−-]?\d+(?:\.\d+)?$/, "")} className="fs-team-name" /> : <strong>{side.side}</strong>}<strong>{side.line == null ? "Line pending" : format(side.line, side.market === "Spread")}</strong><small>{side.odds}</small></div><span className={side.selected ? "fs-count fs-qualified" : "fs-count"}>{side.signalCount} {side.signalCount === 1 ? "signal" : "signals"}{side.mixed ? " · Mixed" : side.selected ? " · EZPZ" : ""}</span></div>
         <div className="fs-signals">{keys.map(key => { const s = side.signals.find(s => s.key === key), { Icon, title } = META[key]; if (!s) return null;
           const expanded = open?.id === side.id && open.key === key;
+          const available = s.available || key === "move" && !side.recorded && side.marketContext?.openingLine != null && side.line != null;
           const value = s.active ? key === "system" ? "Match" : s.value != null ? format(s.value, ["money", "move", "model", "sos"].includes(key)) : side.modelContext.grade.split(" ")[0]
             : key === "sos" && market === "Total" && s.available ? format(s.value) : "";
-          return <button type="button" key={key} className={`fs-signal ${s.active ? "fs-on" : ""}`} aria-expanded={expanded} aria-controls={`signal-detail-${side.id}-${key}`} aria-label={`${side.selection}: ${title}. ${s.available ? s.active ? "Qualifying" : "Inactive" : "Unavailable"}. ${value}`} onClick={e => { trigger.current = e.currentTarget; setOpen(expanded ? null : { id: side.id, key }); }}><span className="fs-signal-box"><Icon size={22} aria-hidden="true" /></span><span className="fs-signal-value">{value}</span></button>;
+          return <button type="button" key={key} className={`fs-signal ${s.active ? "fs-on" : ""}`} aria-expanded={expanded} aria-controls={`signal-detail-${side.id}-${key}`} aria-label={`${side.selection}: ${title}. ${available ? s.active ? "Qualifying" : "Inactive" : "Unavailable"}. ${value}`} onClick={e => { trigger.current = e.currentTarget; setOpen(expanded ? null : { id: side.id, key }); }}><span className="fs-signal-box"><Icon size={22} aria-hidden="true" /></span><span className="fs-signal-value">{value}</span></button>;
         })}</div>
         <div className="fs-snapshot">{side.recorded ? `Saved pregame · ${time(side.snapshotAt)}` : side.status === "LIVE" ? `Live preview · ${time(side.snapshotAt)}` : side.status === "MISSED_LOCK" ? "Missed final snapshot" : side.status === "UNAVAILABLE" ? "Awaiting market data" : liveNba ? "No saved pregame selection" : "Not recorded for this test"}{side.result ? ` · ${side.result}` : ""}</div>
         {open?.id === side.id ? <SignalDetail side={side} signal={side.signals.find(s => s.key === open.key)!} onClose={close} liveNba={liveNba} /> : null}
