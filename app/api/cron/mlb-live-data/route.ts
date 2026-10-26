@@ -64,7 +64,7 @@ async function runCron(request: NextRequest) {
   }
 
   const clock = easternClock();
-  if (!isMlbTrackingWindow(clock.minuteOfDay)) {
+  if (!isMlbTrackingWindow(clock.minuteOfDay) && request.nextUrl.searchParams.get("force") !== "1") {
     return NextResponse.json({
       ok: true,
       skipped: true,
@@ -77,7 +77,7 @@ async function runCron(request: NextRequest) {
 
   const startedAt = Date.now();
   const refresh = await scheduledMarketRefresh("MLB", "public", startedAt);
-  if (!refresh.due) return NextResponse.json({ ok: true, skipped: true, source: "VERCEL_CRON", refresh });
+  if (!refresh.due && request.nextUrl.searchParams.get("force") !== "1") return NextResponse.json({ ok: true, skipped: true, source: "VERCEL_CRON", refresh });
 
   const target = new URL("/api/public-data-v2", request.url);
   target.searchParams.set("scheduled", "1");
@@ -110,6 +110,7 @@ async function runCron(request: NextRequest) {
       }
       if (response.ok && payload?.ok) {
         if (payload.currentPicksPersistenceError) throw new Error("Current EZPZ picks persistence failed.");
+        if (payload.publicBoardPersistenceError) throw new Error("Saved public board publication failed.");
         let historicalGradeRepair = null;
         let historicalGradeRepairError = "";
         const historicalGradeRepairDue =

@@ -14,6 +14,7 @@ import { applyMlbTrendV2Adaptive } from "../../../lib/mlbTrendV2Lifecycle";
 import { persistEzpzCurrentPicks } from "../../../lib/ezpzCurrentPicks";
 import { repairHistoricalEzpzGrades } from "../../../lib/ezpzHistoricalGrading";
 import { MARKET_REFRESH_POLICY } from "../../../lib/marketRefreshPolicy";
+import { persistPublicBoardSnapshot } from "../../../lib/publicBoardSnapshot";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 180;
@@ -368,6 +369,7 @@ function compactScheduledPayload(payload:AnyRow){
   return{
     ok:Boolean(payload?.ok),
     currentPicksPersistenceError: Boolean(payload?.currentPicksPersistenceError),
+    publicBoardPersistenceError: Boolean(payload?.publicBoardPersistenceError),
     today:String(payload?.today||""),
     lastUpdated:String(payload?.lastUpdated||""),
     mlbResultSync:payload?.mlbResultSync||null,
@@ -382,6 +384,7 @@ function compactScheduledPayload(payload:AnyRow){
 }
 
 export async function GET(request:NextRequest){
+  const startedAt = Date.now();
   const sport=String(request.nextUrl.searchParams.get("sport")||"MLB").trim().toUpperCase();
   if(sport==="NFL"||sport==="NCAAF")return buildPublicDataResponse(request);
 
@@ -414,14 +417,20 @@ export async function GET(request:NextRequest){
   payload.trendV2=undefined;
   payload.trendV2Error="";
   if(isV2ScheduledCapture(request)){
-    if (request.headers.get("x-ezpz-refresh-interval") === "30"
+    if (["5", "30"].includes(request.headers.get("x-ezpz-refresh-interval") || "")
       && process.env.CRON_SECRET && request.headers.get("authorization") === `Bearer ${process.env.CRON_SECRET}`) {
       payload.refreshPolicy = MARKET_REFRESH_POLICY;
-      payload.refreshIntervalMinutes = 30;
+      payload.refreshIntervalMinutes = Number(request.headers.get("x-ezpz-refresh-interval"));
     }
     try{await persistEzpzCurrentPicks("MLB",payload)}catch(error){
       payload.currentPicksPersistenceError = true;
       console.error("MLB current EZPZ picks snapshot failed",error);
+    }
+    try {
+      await persistPublicBoardSnapshot("MLB", payload, startedAt);
+    } catch (error) {
+      payload.publicBoardPersistenceError = true;
+      console.error("MLB saved public board publication failed", error);
     }
   }
   return NextResponse.json(compact?compactScheduledPayload(payload):payload,{

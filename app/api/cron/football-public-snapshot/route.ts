@@ -7,6 +7,9 @@ import { withTursoReadCache } from "../../../../lib/tursoStore";
 import { persistEzpzCurrentPicks } from "../../../../lib/ezpzCurrentPicks";
 import { repairNcaafFinalScores } from "../../../../lib/ncaafFinalScoreRepair";
 import { scheduledMarketRefresh, recordScheduledMarketRefresh } from "../../../../lib/scheduledMarketRefresh";
+import { persistPublicBoardSnapshot } from "../../../../lib/publicBoardSnapshot";
+import { restoreFootballPublicDisplay } from "../../../../lib/footballPublicDisplay";
+import { GET as readWeeklyMarket } from "../../football-weekly-market/route";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -44,7 +47,7 @@ async function runCron(request: NextRequest) {
   try {
     const startedAt = Date.now();
     const refresh = await scheduledMarketRefresh(sport, "public", startedAt);
-    if (!refresh.due) return NextResponse.json({ ok: true, sport, skipped: true, refresh });
+    if (!refresh.due && request.nextUrl.searchParams.get("force") !== "1") return NextResponse.json({ ok: true, sport, skipped: true, refresh });
     let finalScoreRepair: unknown = null;
     if (sport === "NCAAF") {
       try {
@@ -87,6 +90,16 @@ async function runCron(request: NextRequest) {
       console.error(`${sport} current EZPZ picks snapshot failed`, error);
     }
 
+    // Prepare the complete weekly display in the producer. Opening Model Plays,
+    // Full Slate or Public Betting Splits must not replay this work per visitor.
+    const weeklyResponse = await readWeeklyMarket(new NextRequest(
+      new URL(`/api/football-weekly-market?sport=${sport}&compact=1`, request.url),
+    ));
+    const weekly = await weeklyResponse.json();
+    if (!weeklyResponse.ok || !weekly.ok) throw new Error(`Could not prepare ${sport} weekly display.`);
+    payload.footballWeeklyMarket = restoreFootballPublicDisplay(weekly);
+    const publicBoard = await persistPublicBoardSnapshot(sport, payload, startedAt);
+
     const staleDraftKings =
       payload?.stale === true ||
       payload?.draftKings?.stale === true ||
@@ -108,7 +121,9 @@ async function runCron(request: NextRequest) {
       };
     }
     if (picksSaved) await recordScheduledMarketRefresh(sport, "public", startedAt);
-    return NextResponse.json({ ...payload, refresh, finalScoreRepair, settlement, trendV2Lifecycle }, {
+    return NextResponse.json(request.nextUrl.searchParams.get("compact") === "1"
+      ? { ok: payload.ok, sport, publicBoard, refresh, finalScoreRepair, settlement, trendV2Lifecycle }
+      : { ...payload, publicBoard, refresh, finalScoreRepair, settlement, trendV2Lifecycle }, {
       headers: {
         "Cache-Control": "no-store, max-age=0",
       },

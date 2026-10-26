@@ -1,0 +1,49 @@
+name: Warm saved public boards after deployment
+on:
+  push:
+    branches: [main]
+    paths: ['lib/publicBoardSnapshot.ts', 'app/api/sport-public-data/route.ts', '.github/workflows/public-board-bootstrap.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: saved-public-board-bootstrap
+  cancel-in-progress: false
+jobs:
+  warm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        sport: [NFL, NCAAF, MLB]
+    steps:
+      - name: Wait for the saved board endpoint
+        env:
+          SPORT: ${{ matrix.sport }}
+        run: |
+          for attempt in $(seq 1 40); do
+            status=$(curl --silent --show-error --max-time 20 --output /tmp/board-status.json --write-out '%{http_code}' "https://ezpzpicks.com/api/sport-public-data?sport=$SPORT&inspect=1")
+            if [ "$status" = 200 ] || [ "$status" = 503 ]; then exit 0; fi
+            sleep 10
+          done
+          echo 'Saved board endpoint was not deployed in time.'
+          exit 1
+      - name: Publish the initial board through the authenticated producer
+        env:
+          SPORT: ${{ matrix.sport }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          test -n "$CRON_SECRET" || { echo 'Missing CRON_SECRET repository secret'; exit 1; }
+          if [ "$SPORT" = MLB ]; then
+            route='mlb-live-data?force=1'
+          else
+            route="football-public-snapshot?sport=$SPORT&force=1&compact=1"
+          fi
+          # A stale live feed may fail collection after a valid retained board
+          # has been saved. The read below verifies publication independently.
+          curl --silent --show-error --max-time 240 -H "Authorization: Bearer $CRON_SECRET" \
+            "https://ezpzpicks.com/api/cron/$route" --output /tmp/producer.json
+          jq '{ok, error, publicBoard}' /tmp/producer.json
+          curl --fail-with-body --silent --show-error --retry 3 --retry-delay 10 --max-time 30 \
+            "https://ezpzpicks.com/api/sport-public-data?sport=$SPORT&inspect=1"

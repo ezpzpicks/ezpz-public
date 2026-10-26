@@ -112,5 +112,6 @@ export function restoreFootballPublicDisplay<T>(payload: T): T {
   };
   delete next.catalogFilterGroups;
   delete next.chartHistoryGroups;
+  if (next.footballWeeklyMarket) next.footballWeeklyMarket = restoreFootballPublicDisplay(next.footballWeeklyMarket);
   return next as T;
 }
