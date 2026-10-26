@@ -30,13 +30,13 @@ const PICK_SCHEMA = {
 export const EZPZ_MCP_TOOLS = [
   {
     name: "get_ezpz_picks", title: "Read EZPZ Picks",
-    description: "Read the qualifying signal-test plays selected on EZPZ Picks: NFL requires 2+ signals and other sports require 3+. Defaults to finalized, unstarted games. Signal picks use pickCategory=signals and include pickLabel, signalCount, threshold and signalNames. Verify the exact saved line and finalization before posting. lastSeven is null for signal combinations because no validated last-seven combination record is supplied; never treat a component trend record as the combination's record. Prior-date legacy captures may retain public_bet_trend or team_trend categories.",
+    description: "Read saved EZPZ Picks for MLB, NFL, NCAAF and NBA: NFL requires 2+ signals and other sports require 3+, across at least two evidence groups. Defaults to finalized, unstarted games. Signal picks use pickCategory=signals and include pickLabel, signalCount, threshold and signalNames. Verify the exact saved line and finalization before posting. lastSeven is null for signal combinations because no validated last-seven combination record is supplied; never treat a component trend record as the combination's record. Prior-date legacy captures may retain public_bet_trend or team_trend categories.",
     inputSchema: { type: "object", properties: { sport: SPORT_SCHEMA, finalOnly: { type: "boolean", default: true } }, additionalProperties: false },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   },
   {
     name: "get_finalized_pick", title: "Verify a finalized EZPZ pick",
-    description: "Retrieve one final pick by the stable pickId supplied by ezpz.pick.finalized. Verify fresh saved data, FINAL_PREGAME status, eligibleForPosting, exact line and game time before a Buffer post. A verified frozen football capture remains readable when unrelated live markets are stale. Returns unavailable if the saved pick feed is expired, unverified or the selection disappeared; does not publish anything.",
+    description: "Retrieve one final pick by the stable pickId supplied by ezpz.pick.finalized, including NBA. Verify fresh saved data, FINAL_PREGAME status, eligibleForPosting, exact line and game time before a Buffer post. A verified frozen football/NBA capture remains readable when unrelated live markets are stale. Returns unavailable if the saved pick feed is expired, unverified or the selection disappeared; does not publish anything.",
     inputSchema: { type: "object", properties: { pickId: { type: "string", pattern: "^ezpz_[a-f0-9]{32}$" } }, required: ["pickId"], additionalProperties: false },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   },
@@ -44,9 +44,9 @@ export const EZPZ_MCP_TOOLS = [
 
 export const EZPZ_MCP_EVENTS = [{
   name: FINAL_PICK_EVENT,
-    description: "A qualifying EZPZ signal pick has been saved as FINAL_PREGAME before game time at the 10–20 minute final snapshot. NFL requires 2+ signals; other sports require 3+. Covers MLB, NFL, and NCAAF. Each event carries a category-specific stable pick ID and exact selection; verify with get_finalized_pick for pickCategory, pickLabel, signalCount, signalNames and the exact frozen line. Delivery uses existing snapshot jobs, durable deduplication, signed callbacks and bounded retries. Newly created subscriptions watch future finalizations.",
+    description: "A qualifying EZPZ signal pick has been saved as FINAL_PREGAME before game time at the 10–20 minute final snapshot. NFL requires 2+ signals; other sports, including NBA, require 3+, across at least two evidence groups. Covers MLB, NFL, NCAAF and NBA. Each event carries a category-specific stable pick ID and exact selection; verify with get_finalized_pick for pickCategory, pickLabel, signalCount, signalNames and the exact frozen line. Delivery uses existing snapshot jobs, durable deduplication, signed callbacks and bounded retries. Newly created subscriptions watch future finalizations.",
   delivery: ["webhook"],
-  inputSchema: { type: "object", properties: { sports: { type: "array", items: SPORT_SCHEMA, minItems: 1, maxItems: 3, uniqueItems: true } }, additionalProperties: false },
+  inputSchema: { type: "object", properties: { sports: { type: "array", items: SPORT_SCHEMA, minItems: 1, maxItems: MCP_SPORTS.length, uniqueItems: true } }, additionalProperties: false },
   payloadSchema: { type: "object", properties: { pick: PICK_SCHEMA }, required: ["pick"], additionalProperties: false },
 }];
 

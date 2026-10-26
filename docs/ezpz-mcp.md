@@ -2,13 +2,13 @@
 
 This connection exposes the existing public EZPZ Picks feed and the `ezpz.pick.finalized` event. The user's separately connected Buffer account performs publishing. No Buffer API key is stored on the website.
 
-The connected feed includes both **EZPZ Public Bet Trend** (`public_bet_trend`) picks and NFL/NCAAF **EZPZ Team Trend** (`team_trend`) plays. Each verified pick supplies `pickCategory`, `pickLabel`, and a nullable numeric `teamTrendScore`. Final events retain the original installed payload schema and carry a category-specific pick ID; the verification tool resolves its category and score. Team plays retain the existing 75/100 threshold, raw 50/30/20 weights, separate test ledger and -110 accounting. Their captured score is not a win probability. Their `lastSeven` is unavailable; neither team history nor a public subtype's record is a substitute.
+The connected tools and `ezpz.pick.finalized` subscriptions support **MLB, NFL, NCAAF and NBA**. Current official selections use the shared signal selector and are verified as `pickCategory=signals`, `pickLabel=EZPZ Signal Pick`. NFL retains its two-signal threshold; NBA/NCAAF retain three. At least two independent evidence groups, the existing price rules, one decision per game and the tie-wait rule remain unchanged. Neither this connection nor the publishing task changes qualification rules.
 
-Team plays are stored alongside the public saved snapshot as separate `TEAM_TREND_PICK` rows. The legacy `/api/ezpz-picks` reader and its counts remain public-only. Both connected read tools include the team category; neither runs selection or collection. A team final requires a successfully saved, locked pregame decision. Unsaved previews cannot notify.
+NBA's existing paced market/analysis job saves its signal observations and analysis state first, then passes that same board through `signalEzpzPayload` into `current_ezpz_picks`. This is the same durable-snapshot-to-event handoff used by football. It does not collect another market, rerun a model, read a full season, create another polling job or change the 30-minute/final-90-minute cadence. Plain `/api/ezpz-picks?sport=NBA` and both MCP tools read saved decisions only; missing/stale snapshots remain unavailable. NBA deliberately does not support `prime=1`.
 
-Team trends lock independently from **8 AM America/New_York on game day**, on the first successful existing snapshot run with healthy market data and complete qualifying team records. Later qualifiers lock on subsequent snapshot runs without waiting for the public betting snapshot. Their `FINAL_PREGAME` status means the team decision is saved, not that the public betting market has closed. The durable `team-trend-ready-2026-10-17-v1` capture policy retains the exact selection, line, score and six team records. Subsequent line moves never replace that decision; settlement and recaps use its saved line. Public bet trend timing, threshold, scoring weights and ledgers remain unchanged. No extra polling task is needed.
+Only a saved official `FINAL_PREGAME` decision from the existing 10–20-minute final snapshot may produce a new signal-pick event before kickoff/tipoff. Live previews, two-signal NBA sides, correlated market-only votes, tied leaders, missing captures, settled and already-started picks cannot notify. Stable IDs include sport and category and preserve existing public/team IDs. Each pick supplies its exact captured line, game time and signal metadata for verification. Combination `lastSeven` is null: a component trend record is not an overall EZPZ record.
 
-Verified team plays also provide `teamTrendRecords`: the same two teams and three labeled records shown on the website (bet type, venue and last five), copied from the captured score. A record with no matching games is null and displays as a dash. Opponent ATS records retain their actual W-L-P direction. Posts put both teams' records immediately under Team score. These are team histories, not the strategy's last-seven-bet record. Odds and score explanations are omitted from the post; the selection, matchup and date/time use three consecutive lines.
+Historical football captures before the signal migration retain their original `public_bet_trend`/`team_trend` categories, saved lines, team evidence and separate ledgers. They are not newly selected official signal picks and must not be relabeled or reposted during this migration. Team Trend's 75/100 threshold and raw 50/30/20 weights are unchanged.
 
 ## Install in ChatGPT Work
 
@@ -17,7 +17,7 @@ Verified team plays also provide `teamTrendRecords`: the same two teams and thre
 3. Server URL: **https://ezpzpicks.com/api/mcp**.
 4. Authentication: **No authentication**. The read tools expose only data already public on the website. Event subscriptions must prove ownership of an OpenAI callback with a signed challenge.
 5. Create and install the plugin. Invoke both EZPZ Picks and Buffer in the Work chat.
-6. Ask to subscribe to `ezpz.pick.finalized` for MLB, NFL, and NCAAF and publish the verified picks to the connected EZPZPICKS X account.
+6. Ask to subscribe to `ezpz.pick.finalized` for MLB, NFL, NCAAF and NBA and publish the verified official picks to the connected EZPZPICKS X account. An existing subscription with an explicit three-sport filter must be updated to include NBA after refreshing event discovery; changing server support alone does not broaden its filter.
 
 An installed endpoint alone does not enable posting. The user must create the event subscription/task in ChatGPT. Event support requires MCP 2.0 and an eligible Work environment.
 
@@ -25,7 +25,7 @@ An installed endpoint alone does not enable posting. The user must create the ev
 
 The existing snapshot jobs call the event hook after the selected-pick feed is successfully persisted. LIVE, blocked, unselected, settled, and started games do not produce a new posting event. A new subscription watches future finalizations and does not backfill earlier locked games. Callback records and delivery IDs live in separate Turso tables; no signing secrets are exposed by read tools or stored in source control.
 
-NFL live-slate coverage accepts a known slate with no games remaining outside the 15-minute lock window; an absent schedule or unknown kickoff still fails verification. When an unrelated live-market refresh fails, a freshly read selected NFL/NCAAF public pick can still notify and be verified if its saved final capture is within the official 10–20-minute pregame window. An independently saved team lock remains verifiable with its readiness policy and matching capture timestamps, even hours before kickoff. Unhealthy feeds cannot create new early team locks. LIVE and unverified retained picks remain unavailable, and expired saved-pick feeds are never accepted. This exception does not change MLB freshness rules.
+NFL live-slate coverage accepts a known slate with no games remaining outside the 15-minute lock window; an absent schedule or unknown kickoff still fails verification. When unrelated live markets are incomplete/stale, a freshly read saved football/NBA signal pick can still notify and be verified if its own final capture is within the official 10–20-minute pregame window. Expired saved-pick feeds, LIVE and unverified retained picks remain unavailable. The existing independently saved historical football team-lock policy is retained; this exception does not change MLB freshness rules.
 
 Callbacks are limited to OpenAI-controlled hosts. Every HTTPS connection resolves and validates public addresses, pins the chosen address for TLS, blocks redirects, and signs exact body bytes using Standard Webhooks. Verification must echo a fresh challenge before the subscription is saved. Subscription identity is stable across refreshes; secret changes require fresh verification.
 
@@ -33,21 +33,37 @@ Delivery is at least once. A durable delivery ID and lease prevent concurrent sn
 
 ## Posting task behavior
 
-For each event, use `get_finalized_pick` with the event's pickId to verify the current FINAL_PREGAME selection, freshness, and `eligibleForPosting`. Skip an unavailable or already-started pick. Use the exact selected trend/model type and the provided last-seven-bet record; if a record is null, explicitly label it unavailable rather than guessing or substituting last-seven-days/overall records.
+For each event, use `get_finalized_pick` with the event's stable pickId to verify the official signals category, saved FINAL_PREGAME decision, freshness and `eligibleForPosting`. Skip a preview, legacy-only, unavailable or already-started pick. Read eligible same-sport/date/kickoff siblings and verify each individually before grouping. Never select a pick from its signal count alone.
 
-Check the connected Buffer channel for an existing post for the same category, sport, game date, matchup, market, and selection. Create a concise text post with the selection, game time in ET, category-specific evidence and ezpzpicks.com link using automatic publishing with `shareNow`. Omit odds. Keep within X's current character limit. Do not publish a LIVE pick or invent a statistic. Check Buffer for publication success and report errors without blindly repeating a create call.
+Inspect every status and all relevant thread replies in Buffer before creation, and recheck immediately before submission. Match the saved official category, sport, game date, matchup, market and selection side even if a line/display label changed. Ambiguous matches and existing drafts/errors require review, not duplicate creation. Use automatic `shareNow` publishing and verify the returned state and X link. Pending is not proof of publication; never blindly repeat creation.
 
-Use the exact `pickLabel` as the post header and deduplicate within its category. Category-specific team pick IDs prevent collisions while preserving all existing public IDs and delivery records. Legacy "EZPZ Picks" posts count as public bet trend posts. Group by category as well as sport, game date and kickoff; inspect every reply of existing threads. The same matchup may legitimately appear once under each label, with independent selections. Team posts include the captured score as `/100`; public posts retain the exact captured subtype and its last-seven record. A label change never warrants reposting an existing public pick.
+The approved public display is intentionally clean and vertically stacked:
+
+```text
+🎯 EZPZ PICK
+[Sport]
+
+🔥 [Exact selection and line] ✅
+
+[Away team] @ [Home team]
+
+[Mon D]
+[h:mm AM/PM] ET
+
+🔗 https://ezpzpicks.com
+```
+
+The header is a public display label for the verified `signals` category, not a new selection type. Do not include odds, a signal/stat section, grades, records, scores or supporting-stat replies. Multiple selections in one kickoff group use an opener and numbered complete cards in one connected thread. Keep every entry within X Free's 280 weighted characters. Historical headings retain their actual category; a generic EZPZ heading alone proves neither public-trend nor official-signal qualification.
 
 The first real ChatGPT subscription and first approved live post establish actual end-to-end latency. Local tests and a successful webhook receipt cannot establish a publication-time guarantee.
 
 ## Saved results for recaps
 
-`GET /api/ezpz-results?sport=NCAAF&date=2026-10-15` reads the saved game-date ledgers without collecting markets, running selection, settling games, or writing data. `supportedSports` lists the implemented readers. MLB uses `trend_v2_daily_picks` and selected full-game public trends from `ai_pick_selector`; football reads `ezpz_pick_history` and the separate `team_trend_test_picks` ledger. Model/prop history and live previews are excluded.
+`GET /api/ezpz-results?sport=NBA&date=2026-10-26` reads saved game-date results without collecting markets, running models, settling games or writing data. `supportedSports` lists the implemented readers. From the signal migration, football reads `football_signal_observations`; NBA reads only `nba_signal_observations` with its own NBA policy. Both retain the saved grades and exact quotes. Prior-date legacy MLB/football ledgers remain readable, but no NBA pick is synthesized from a football or model-only ledger. Live previews are excluded.
 
 Each result includes the category, exact captured selection and line, game date/time, stored W/L/P or null, and explicit SETTLED/PENDING status. A database failure returns 503 rather than an empty successful slate. A result reader is not proof of publication: match each entry against an actually sent Buffer pick, including thread replies and its category, before counting it in a social recap. Never substitute subtype last-seven records or team histories for pick results.
 
-The recap format stacks each full category label above its W-L-P record, with a blank line between categories. Scheduled delivery is managed separately in ChatGPT/Buffer, not by this read endpoint.
+The recap uses one overall official EZPZ record and lists each verified actually published wager once. Supporting signals do not create additional bets. Scheduled recap delivery is managed separately in ChatGPT/Buffer, not by this read endpoint.
 
 ## References
 

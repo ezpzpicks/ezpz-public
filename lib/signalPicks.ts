@@ -64,11 +64,12 @@ export function isSignalFeedPick(pick: Record<string, any>, sport: string): bool
 
 /** Lightweight replay for result readers; no model or market collectors are imported. */
 export function savedSignalPicks(rows: Record<string, string>[], sport: string, date: string) {
+  const policyPrefix = sport === "NBA" ? "nba-signals-" : "football-signals-";
   const sides = rows.flatMap(row => {
     try {
       const side = JSON.parse(row["Details JSON"]);
       return row.Date === date && side.date === date && side.id === row["Pick Key"] && Array.isArray(side.signals)
-        && String(row["Policy Version"] || "").startsWith("football-signals-")
+        && String(row["Policy Version"] || "").startsWith(policyPrefix)
         ? [{ ...side, recorded: true, result: /^[WLP]$/.test(row.Result) ? row.Result : "", resultUpdated: row["Result Updated"] || "" }] : [];
     } catch { return []; }
   });

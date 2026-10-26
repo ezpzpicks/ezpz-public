@@ -120,7 +120,88 @@ test('MCP discovery lists read-only tools and the final-pick event without touch
   assert.ok(tools.result.tools.every(tool => tool.annotations.readOnlyHint));
   const events = await api.handleEzpzMcp({ jsonrpc: '2.0', id: 3, method: 'events/list' });
   assert.equal(events.result.events[0].name, 'ezpz.pick.finalized');
+  assert.deepEqual(Array.from(tools.result.tools[0].inputSchema.properties.sport.enum), ['MLB', 'NFL', 'NCAAF', 'NBA']);
+  assert.equal(events.result.events[0].inputSchema.properties.sports.maxItems, 4);
   assert.equal(h.database.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table'").get().n, 0);
+});
+
+function nbaSignalSide(overrides = {}) {
+  return { id: 'nba-cle-phi|Total|Over', date: '2026-10-26', gameKey: '2026-10-26|nba|101',
+    game: 'Cleveland Cavaliers @ Philadelphia 76ers', gameTime: '2026-10-26T23:00:00Z',
+    market: 'Total', side: 'Over', selection: 'Over 220.5', line: 220.5, odds: '-110',
+    snapshotAt: '2026-10-26T22:45:00Z', status: 'FINAL_PREGAME', recorded: true,
+    signalCount: 3, sourceCount: 2, candidate: false,
+    signals: ['money', 'move', 'model'].map(key => ({ key, active: true, available: true })),
+    result: '', ...overrides };
+}
+
+test('NBA saved signal picks notify once and verify through the same finalized-pick tools', async () => {
+  const h = harness({ realCurrentPicks: true });
+  h.setTime(Date.parse('2026-10-26T22:44:00Z'));
+  const events = h.load('lib/ezpzMcpEvents.ts');
+  await events.subscribeFinalPicks({ ...h.subscription(), arguments: { sports: ['NBA'] } });
+  const signals = h.load('lib/signalPicks.ts'), current = h.load('lib/ezpzCurrentPicks.ts');
+  const pick = signals.signalPickForFeed(nbaSignalSide(), 'NBA');
+  h.setTime(Date.parse('2026-10-26T22:46:00Z'));
+  const payload = { today: pick.date, aiPicks: [pick, { ...rawPick, date: pick.date }],
+    teamTrendTestPicks: [teamPick()], refreshPolicy: '30m-until-90m-v1', refreshIntervalMinutes: 5 };
+  await current.persistEzpzCurrentPicks('NBA', payload);
+  await current.persistEzpzCurrentPicks('NBA', payload);
+  await current.persistEzpzCurrentPicks('NBA', { ...payload, stale: true });
+  const saved = await current.readEzpzCurrentPicks('NBA');
+  assert.equal(saved.picks.length, 1); assert.equal(saved.teamTrendPicks.length, 0);
+  assert.equal(h.events().length, 1);
+  const wire = h.events()[0].payload.data.pick;
+  assert.equal(wire.sport, 'NBA'); assert.equal(wire.selection, 'Over 220.5');
+  assert.equal(wire.line, 220.5); assert.equal(wire.lastSeven, null);
+  const api = h.load('lib/ezpzMcp.ts');
+  const listed = await api.handleEzpzMcp({ jsonrpc: '2.0', id: 10, method: 'tools/call',
+    params: { name: 'get_ezpz_picks', arguments: { sport: 'NBA', finalOnly: true } } });
+  assert.equal(listed.result.isError, false); assert.equal(listed.result.structuredContent.picks.length, 1);
+  assert.equal(listed.result.structuredContent.picks[0].pickId, wire.pickId);
+  const verified = await api.handleEzpzMcp({ jsonrpc: '2.0', id: 11, method: 'tools/call',
+    params: { name: 'get_finalized_pick', arguments: { pickId: wire.pickId } } });
+  const final = verified.result.structuredContent.pick;
+  assert.equal(final.pickCategory, 'signals'); assert.equal(final.pickLabel, 'EZPZ Signal Pick');
+  assert.equal(final.threshold, 3); assert.equal(final.signalCount, 3);
+  assert.equal(final.finalizedAt, '2026-10-26T22:45:00.000Z');
+  assert.equal(final.gameTime, '2026-10-26T23:00:00.000Z');
+  assert.equal(final.eligibleForPosting, true);
+  h.setTime(Date.parse('2026-10-26T23:01:00Z'));
+  const started = await api.readMcpPicks(['NBA']);
+  assert.equal(started.picks.length, 0);
+  await current.persistEzpzCurrentPicks('NBA', payload);
+  assert.equal(h.events().length, 1, 'a started pick must never emit a new event');
+});
+
+test('NBA previews, two-signal and correlated-market-only sides cannot notify', async () => {
+  const h = harness({ realCurrentPicks: true });
+  h.setTime(Date.parse('2026-10-26T22:44:00Z'));
+  const events = h.load('lib/ezpzMcpEvents.ts');
+  await events.subscribeFinalPicks({ ...h.subscription(), arguments: { sports: ['NBA'] } });
+  h.setTime(Date.parse('2026-10-26T22:46:00Z'));
+  const signals = h.load('lib/signalPicks.ts'), current = h.load('lib/ezpzCurrentPicks.ts');
+  const variants = [
+    nbaSignalSide({ recorded: false, status: 'LIVE', candidate: true }),
+    nbaSignalSide({ signalCount: 2, signals: ['move', 'model'].map(key => ({ key, active: true, available: true })) }),
+    nbaSignalSide({ signals: ['money', 'move', 'system'].map(key => ({ key, active: true, available: true })) }),
+    nbaSignalSide({ snapshotAt: '2026-10-26T22:00:00Z' }),
+  ];
+  for (const side of variants) {
+    await current.persistEzpzCurrentPicks('NBA', { today: side.date, aiPicks: [signals.signalPickForFeed(side, 'NBA')] });
+    assert.equal((await h.load('lib/ezpzMcp.ts').readMcpPicks(['NBA'])).picks.length, 0);
+  }
+  assert.equal(h.events().length, 0);
+});
+
+test('four-sport subscriptions include NBA without changing IDs for existing sport-specific filters', async () => {
+  const h = harness(), events = h.load('lib/ezpzMcpEvents.ts');
+  const first = await events.subscribeFinalPicks(h.subscription());
+  const repeated = await events.subscribeFinalPicks(h.subscription());
+  assert.equal(first.id, repeated.id);
+  await events.subscribeFinalPicks({ ...h.subscription(), arguments: { sports: ['MLB', 'NFL', 'NCAAF', 'NBA'] } });
+  assert.equal(h.database.prepare('SELECT COUNT(*) AS n FROM ezpz_mcp_subscriptions WHERE active=1').get().n, 2);
+  assert.throws(() => events.subscriptionSports(['NCAAM']), /sports must contain/);
 });
 
 test('only fresh selected finalized picks are eligible; LIVE and expired feeds cannot look like no picks', async () => {

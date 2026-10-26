@@ -7,6 +7,8 @@ import { buildNbaSignals, emptyNbaAnalysis, mergeNbaTeamHistory, nbaSeason, sett
 import { buildNbaTrendLeaderboard, NBA_ANALYSIS_TAB, NBA_SIGNALS_TAB, NBA_TREND_RECORDS_TAB, NBA_SIGNALS_POLICY } from "./nbaTrendLeaderboard";
 import { readSavedFootballSignalsForDate } from "./footballSignals";
 import { buildSignalResearchDays, SIGNAL_RESEARCH_VERSION } from "./signalCombinationResearch";
+import { signalEzpzPayload } from "./signalPicks";
+import { persistEzpzCurrentPicks } from "./ezpzCurrentPicks";
 
 const q = (value: string) => `'${value.replaceAll("'", "''")}'`;
 export function nbaScheduleRows(games: NbaGame[], observedAt: number): TursoRow[] {
@@ -32,7 +34,8 @@ async function readSeasonRecords(season: string) {
 }
 
 /** Called only by the existing paced collector. Public page reads never write. */
-export async function refreshNbaAnalysis(date: string, currentSchedule: TursoRow[], now = Date.now()) {
+export async function refreshNbaAnalysis(date: string, currentSchedule: TursoRow[], now = Date.now(),
+  refresh: { policy?: string; intervalMinutes?: number } = {}) {
   const state = await readNbaAnalysis(date);
   const dates = [...new Set([...state.pendingDates, date])].sort();
   // Seed existing frozen observations once. Ordinary ticks keep the same bounded
@@ -77,11 +80,13 @@ export async function refreshNbaAnalysis(date: string, currentSchedule: TursoRow
   if (seedResearch) state.signalResearch = { version: SIGNAL_RESEARCH_VERSION, days: buildSignalResearchDays(
     signalDates.flatMap(day => readSavedFootballSignalsForDate(storedSignals, day, now, NBA_SIGNALS_POLICY)), NBA_SIGNALS_POLICY.version, now) };
   let captured = 0, settled = 0;
+  let currentSignals: ReturnType<typeof buildNbaSignals> | undefined;
   for (const day of dates) {
     const result = buildNbaSignals({ date: day, games: schedule.filter(row => row.Date === day), splits: splits.filter(row => row.Date === day),
       forecasts: forecastDates.get(day) || [], storedRows: storedSignals.filter(row => row.Date === day), state, now, capture: true });
     const changed: TursoRow[] = result.changedRows.map(row => ({ ...row, "Game Key": JSON.parse(row["Details JSON"]).gameKey }));
     await saveNbaMarketRows(NBA_SIGNALS_TAB, changed);
+    if (day === date) currentSignals = result;
     captured += changed.filter(row => !row.Result).length; settled += changed.filter(row => Boolean(row.Result)).length;
     state.tests = result.tests;
     state.signalResearch = result.signalResearch;
@@ -90,6 +95,12 @@ export async function refreshNbaAnalysis(date: string, currentSchedule: TursoRow
   state.pendingDates = dates.filter(day => schedule.some(row => row.Date === day && !/FINAL|CANCEL|POSTPON/i.test(row.Status)));
   await saveNbaMarketRows(NBA_ANALYSIS_TAB, [{ Date: `season-${state.season}`, "Game Key": `nba-analysis|${state.season}`,
     Market: "State", Selection: "NBA", "Details JSON": JSON.stringify(state) }]);
+  // Reuse the just-saved signal board; no extra collection, model run, history
+  // scan or page read. A durable pick snapshot owns the existing final event.
+  if (!currentSignals) throw new Error("NBA current signal board was not prepared.");
+  await persistEzpzCurrentPicks("NBA", { today: date, lastUpdated: new Date(now).toISOString(),
+    stale: currentSignals.stale, refreshPolicy: refresh.policy || "", refreshIntervalMinutes: refresh.intervalMinutes || 5,
+    ...signalEzpzPayload(currentSignals.board, "NBA", date) }, now);
   console.info("[nba-analysis]", JSON.stringify({ date, gradedSides: changedRecords.length, capturedSides: captured, settledSides: settled,
     rankedTrends: state.leaderboard.length, pendingDates: state.pendingDates.length }));
   return { gradedSides: changedRecords.length, capturedSides: captured, settledSides: settled, rankedTrends: state.leaderboard.length };

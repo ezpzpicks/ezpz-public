@@ -8,6 +8,8 @@ const root = path.resolve(__dirname, '..');
 
 function harness() {
   const datasets = new Map(), reads = [], cache = new Map();
+  class Clock extends Date { constructor(...args) { super(...(args.length ? args : ['2026-10-27T12:00:00Z'])); }
+    static now() { return Date.parse('2026-10-27T12:00:00Z'); } }
   let failure = false;
   function load(file) {
     const filename = path.resolve(root, file);
@@ -16,7 +18,7 @@ function harness() {
     const source = ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
       compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
     }).outputText;
-    vm.runInNewContext(source, { exports, Date, Intl, console, URL,
+    vm.runInNewContext(source, { exports, Date: Clock, Intl, console, URL,
       require: name => name.endsWith('/tursoStore') || name === './tursoStore' ? {
         readTursoDatasetByDateKeys: async (sport, dataset, dates) => {
           reads.push({ sport, dataset, dates });
@@ -109,7 +111,7 @@ test('read failures and conflicting grades fail closed', async () => {
 test('route validates dates/sports, returns explicit pending and reports unavailable reads', async () => {
   const h = harness();
   const request = query => ({ nextUrl: new URL(`https://example.test/api/ezpz-results?${query}`) });
-  assert.equal((await h.route.GET(request('sport=NBA&date=2026-10-15'))).status, 400);
+  assert.equal((await h.route.GET(request('sport=NCAAM&date=2026-10-15'))).status, 400);
   assert.equal((await h.route.GET(request('sport=NFL&date=2026-02-30'))).status, 400);
   assert.equal(h.reads.length, 0);
   h.datasets.set('NFL:ezpz_pick_history', [row(publicPick, '')]);
@@ -119,4 +121,28 @@ test('route validates dates/sports, returns explicit pending and reports unavail
   assert.match(response.headers['Cache-Control'], /no-store/);
   h.fail();
   assert.equal((await h.route.GET(request('sport=NFL&date=2026-10-15'))).status, 503);
+});
+
+test('NBA results read only its saved signal ledger, with exact quotes and captured grades', async () => {
+  const h = harness(), date = '2026-10-26';
+  const side = { id: 'nba-total-over', date, gameKey: 'nba-101', game: 'CLE @ PHI',
+    gameTime: date + 'T23:00:00Z', snapshotAt: date + 'T22:45:00Z', status: 'FINAL_PREGAME', recorded: true,
+    market: 'Total', side: 'Over', selection: 'Over 220.5', line: 220.5, odds: '-110',
+    signalCount: 3, sourceCount: 2, signals: ['money', 'move', 'model'].map(key => ({ key, active: true, available: true })), result: 'W' };
+  const saved = { Date: date, 'Pick Key': side.id, 'Policy Version': 'nba-signals-2026-10-22-v1',
+    'Details JSON': JSON.stringify(side), Result: 'L', 'Result Updated': '2026-10-27T02:00:00Z' };
+  h.datasets.set('NBA:nba_signal_observations', [saved]);
+  h.datasets.set('NBA:football_signal_observations', [{ ...saved, Result: 'W' }]);
+  const response = await h.route.GET({ nextUrl: new URL(`https://example.test/api/ezpz-results?sport=NBA&date=${date}`) });
+  assert.equal(response.body.ok, true); assert(response.body.supportedSports.includes('NBA'));
+  const [pick] = response.body.picks;
+  assert.equal(pick.pickCategory, 'signals'); assert.equal(pick.pickLabel, 'EZPZ Signal Pick');
+  assert.equal(pick.selection, 'Over 220.5'); assert.equal(pick.line, 220.5);
+  assert.equal(pick.result, 'L'); assert.equal(pick.settlementStatus, 'SETTLED');
+  assert.deepEqual(plain(h.reads), [{ sport: 'NBA', dataset: 'nba_signal_observations', dates: [date] }]);
+  h.datasets.set('NBA:nba_signal_observations', [{ ...saved, 'Policy Version': 'football-signals-2026-10-18-v1' }]);
+  assert.equal((await h.api.readSavedEzpzResults('NBA', date)).length, 0);
+  h.datasets.set('NBA:nba_signal_observations', [{ ...saved, Result: '' }]);
+  const [pending] = await h.api.readSavedEzpzResults('NBA', date);
+  assert.equal(pending.result, null); assert.equal(pending.settlementStatus, 'PENDING');
 });

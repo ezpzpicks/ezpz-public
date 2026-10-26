@@ -4,7 +4,7 @@ import { parseGameStart, isoDate } from "./mlbTrendV2";
 import { TEAM_TREND_TEST_THRESHOLD, TEAM_TREND_TEST_VERSION } from "./footballTeamTrendPlays";
 import { isSavedTeamTrendCapture, TEAM_TREND_READY_POLICY } from "./teamTrendPosting";
 
-export const MCP_SPORTS = ["MLB", "NFL", "NCAAF"] as const;
+export const MCP_SPORTS = ["MLB", "NFL", "NCAAF", "NBA"] as const;
 export type McpSport = (typeof MCP_SPORTS)[number];
 type AnyPick = Record<string, any>;
 type McpTeamRecord = { label: string; record: string | null; sample: number };
@@ -81,6 +81,7 @@ function capturedTeamRecords(pick: AnyPick): McpTeamRecords[] | null {
 
 export function normalizeMcpPick(sport: McpSport, pick: AnyPick, now = Date.now()): McpPick | null {
   const teamTrend = pick.pickCategory === "team_trend", signalTest = pick.pickCategory === "signals";
+  if (sport === "NBA" && !signalTest) return null;
   if (signalTest && !isSignalFeedPick(pick, sport)) return null;
   if (teamTrend && (sport === "MLB" || !isSelectedTeamTrendPick(pick))) return null;
   if (pick.selected === false || (pick.protectionStatus && pick.protectionStatus !== "PASSED")) return null;
@@ -116,7 +117,7 @@ export function normalizeMcpPick(sport: McpSport, pick: AnyPick, now = Date.now(
   };
 }
 
-// A recently read, selected football pick owns its frozen snapshot independently
+// A recently read, selected football/NBA pick owns its frozen snapshot independently
 // of unrelated LIVE markets. A FINAL label alone is insufficient on a stale feed.
 export function isVerifiedFrozenFootballMcpPick(sport: McpSport, raw: AnyPick, now = Date.now()): boolean {
   if (sport === "MLB") return false;
