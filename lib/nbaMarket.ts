@@ -18,23 +18,34 @@ export async function collectNbaMarket({ persist = true, now = Date.now() } = {}
   });
   if (!response.ok) throw new Error(`ESPN NBA schedule request failed: ${response.status}`);
   const games = normalizeNbaSlate(await response.json(), date);
-  const loaded = await loadScoresAndOddsConsensus("NBA");
+  const schedule = nbaScheduleRows(games, now);
+  // Persist the verified schedule even while lines are unpublished. Otherwise
+  // a cold/new-date collector cannot know when to enter the final countdown.
+  if (persist) {
+    await saveNbaMarketRows("schedule", schedule);
+    await saveNbaMarketRows("posted_games", schedule);
+  }
+  const loaded = await loadScoresAndOddsConsensus("NBA", { date });
   const capturedAt = Date.now();
   const bound = bindNbaSplits(loaded.splits, games, capturedAt);
   const upcoming = games.filter(g => g.status === "STATUS_SCHEDULED" && Date.parse(g.tipoff) > capturedAt);
   if (upcoming.length && !bound.rows.length) throw new Error(`NBA ScoresAndOdds returned no complete matching spread/total pairs: ${bound.missing.join(", ")}`);
   const previous = await readTursoDatasetByDateKeys("NBA", "weekly_market_trends", [date]);
   const advanced = advanceNbaMarkets(bound.rows, previous, capturedAt);
-  const schedule = nbaScheduleRows(games, capturedAt);
-  const lineups = await refreshNbaLineups(date, games, persist, capturedAt);
   let analysis;
   if (persist) {
-    await saveNbaMarketRows("schedule", schedule);
-    await saveNbaMarketRows("posted_games", schedule);
     await saveNbaMarketRows("weekly_market_trends", advanced.latest);
     await saveNbaMarketRows("odds_snapshot", advanced.history, true);
     await saveNbaMarketRows("public_split_snapshots", advanced.finals);
     analysis = await refreshNbaAnalysis(date, schedule, capturedAt);
+  }
+  // A lineup-provider outage must never prevent a real market observation or
+  // its final pregame lock from being saved.
+  let lineups;
+  try { lineups = await refreshNbaLineups(date, games, persist, capturedAt); }
+  catch (error) {
+    console.warn("NBA lineup refresh unavailable; market snapshots saved independently", error);
+    lineups = { ok: false, error: error instanceof Error ? error.message : String(error) };
   }
   return { ok: true, sport: "NBA", date, source: "ScoresAndOdds", sourceUrl: loaded.url,
     policy: NBA_MARKET_POLICY, capturedAt: new Date(capturedAt).toISOString(), dryRun: !persist,

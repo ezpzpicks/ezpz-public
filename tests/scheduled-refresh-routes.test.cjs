@@ -9,6 +9,7 @@ function harness(file,options={}){
  const imports={
   'next/server':require('next/server'),
   '../../../../lib/scheduledMarketRefresh':refresh,
+  '../../../../lib/nbaMarket':{collectNbaMarket:async()=>{collections++;if(options.error)throw options.error;return options.result||{ok:true,refreshCompleted:true};}},
   '../../../../lib/tursoStore':{withTursoReadCache:fn=>fn()},
   '../../../../lib/footballWeeklyMarket':{
    syncPostedFootballMarkets:async()=>{collections++;if(options.error)throw options.error;return options.result||{ok:true,refreshCompleted:true,errors:[]};},
@@ -29,6 +30,7 @@ function harness(file,options={}){
  return{get:api.GET,due:()=>{due=true;},setTime:time=>{now=Date.parse(time);},publications:()=>publications,counts:()=>({collections,reads,commits})};
 }
 for(const [file,sport] of [
+ ['app/api/cron/nba-market/route.ts','NBA'],
  ['app/api/cron/football-market-discovery/route.ts','NFL'],
  ['app/api/cron/football-public-snapshot/route.ts','NCAAF'],
  ['app/api/cron/mlb-live-data/route.ts','MLB'],
@@ -80,4 +82,24 @@ test('incomplete saves, thrown failures and dry runs never record successful col
  const dry=harness(marketRoute);dry.due();
  assert.equal((await(await dry.get(marketRequest('&dryRun=1'))).json()).dryRun,true);
  assert.deepEqual(dry.counts(),{collections:1,reads:0,commits:0});
+});
+
+
+test('a failed NBA source stays visibly unsuccessful while cold cron ticks obey 30m/5m timing',async()=>{
+ const tables={schedule:[{Date:'2026-10-24','Game Time':'2026-10-24T20:00:00Z'}]};
+ const policy=require('./load-typescript.cjs')(path.join(root,'lib/marketRefreshPolicy.ts'));
+ const storage={readTursoDataset:async(_,tab)=>tables[tab]||[],readTursoDatasetByDateKeys:async(_,tab)=>tables[tab]||[],replaceTursoDataset:async(_,tab,rows)=>{tables[tab]=rows;}};
+ const makeRefresh=()=>{const api={};vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(root,'lib/scheduledMarketRefresh.ts'),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,
+  {exports:api,Date,Intl,console:{info(){}},require:id=>id==='./tursoStore'?storage:id==='./marketRefreshPolicy'?policy:id==='./footballWeeklyMarket'?{nflKickoffIso:(_,time)=>time}:id==='./mlbTrendV2'?{isoDate:x=>x}:{}});return api;};
+ const invoke=async(time)=>{
+  const h=harness('app/api/cron/nba-market/route.ts',{refresh:makeRefresh(),error:new Error('missing paired markets')});
+  h.setTime(time);const response=await h.get(marketRequest());return{h,response,body:await response.json()};
+ };
+ assert.equal((await invoke('2026-10-24T16:00:00Z')).response.status,500);
+ assert.equal((await invoke('2026-10-24T16:05:00Z')).body.skipped,true);
+ assert.equal((await invoke('2026-10-24T16:25:00Z')).body.skipped,true);
+ assert.equal((await invoke('2026-10-24T16:30:00Z')).response.status,500);
+ assert.equal((await invoke('2026-10-24T18:30:00Z')).response.status,500);
+ assert.equal((await invoke('2026-10-24T18:35:00Z')).response.status,500);
+ assert.equal(tables.refresh_state_market[0]['Updated At'],undefined);
 });

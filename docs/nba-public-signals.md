@@ -30,3 +30,14 @@ runs only when results change. The 30-minute/5-minute refresh policy is retained
 
 Datasets: `nba_trend_records`, `nba_signal_observations`, `nba_analysis_state`.
 Archives: `/api/nba-signals-history?date=YYYY-MM-DD`.
+
+Collection attempts and successful freshness have separate durable timestamps.
+Failures, partial responses and date rollover therefore still obey 30-minute
+collection outside the final 90 minutes; the countdown immediately switches to
+five-minute attempts. A failed attempt does not update the last-success clock.
+NBA requests explicitly select the Eastern slate date, and event ISO kickoffs
+supply each market's date rather than a potentially stale page title. NCAAF
+requests select the current Sunday-Saturday source week. Verified NBA schedules
+are saved even while markets are unavailable, so the countdown remains known.
+Missing market quartets mark the NBA board stale; retained prices cannot become
+new final observations. Market locks are persisted independently of lineups.

@@ -58,6 +58,15 @@ function withRanking(f) {
 }
 function stored(result) { return result.changedRows.map(row => ({ ...row, 'Game Key': JSON.parse(row['Details JSON']).gameKey })); }
 
+test('missing or partial NBA market coverage cannot report a fresh slate',()=>{
+ const f=fixture();
+ assert.equal(build(f,{splits:[]}).stale,true);
+ assert.equal(build(f,{splits:f.rows.slice(1)}).stale,true);
+ assert.equal(build(f).stale,false);
+ const second={...f.game,'Game ID':'102','Game Key':f.date+'|nba|102'};
+ assert.equal(build(f,{games:[f.game,second]}).stale,true);
+});
+
 test('NBA research accumulates saved days, replaces settlements, and never promotes two-signal observations', () => {
   const first = fixture(), captured = build(first, { capture: true });
   const saved = stored(captured), late = first.kickoff + 4 * 3600000;
