@@ -2343,6 +2343,59 @@ body::after {
 @media(max-width:359px){.fs-six .fs-signals,.fs-six .fs-sorters{grid-template-columns:repeat(3,minmax(0,1fr))}.fs-game-header{flex-wrap:wrap}.fs-team-name img{display:none}}
 @media(pointer:coarse){.fs-close{width:44px;height:44px}.fs-toolbar button{min-height:44px}}
 
+/* Expanded signal cards: color shows direction; the badge shows qualification. */
+.fs-detail{--fs-accent:#9eafc6;border-left:3px solid var(--fs-accent)}
+.fs-tone-positive{--fs-accent:#53e7a4}
+.fs-tone-negative{--fs-accent:#ff8c87}
+.fs-tone-warning{--fs-accent:#ffd16a}
+.fs-detail-title{display:flex;align-items:center;gap:10px;min-width:0}
+.fs-detail-icon{display:grid;place-items:center;flex:none;width:37px;height:37px;border:1px solid var(--fs-border);border-radius:10px;background:var(--fs-field);color:var(--fs-accent)}
+.fs-detail h3{font-size:1.05rem;line-height:1.35}
+.fs-detail-status{justify-content:space-between;gap:8px 14px;margin-top:16px}
+.fs-metric{display:flex;align-items:baseline;flex-wrap:wrap;gap:7px;min-width:0;color:var(--fs-accent)}
+.fs-metric strong{font-size:clamp(1.6rem,8vw,2.8rem);font-weight:750;letter-spacing:-.045em;line-height:1.2}
+.fs-metric small{color:var(--fs-dim);font-size:.85rem;letter-spacing:0}
+.fs-detail-status .fs-state{font-size:.68rem;line-height:1.4;padding:6px 9px;border:1px solid var(--fs-border);border-radius:8px;background:var(--fs-field);color:#c4d0df}
+.fs-detail-status .fs-state-active{color:#7cf1ba;border-color:#53e7a445;background:#53e7a40d}
+.fs-metric-caption{display:block;margin-top:5px;font-size:.72rem;color:var(--fs-dim);line-height:1.6}
+.fs-share-bars{display:grid;gap:13px;margin:18px 0 12px;font-size:.8rem;font-variant-numeric:tabular-nums}
+.fs-share-bars>div{display:grid;grid-template-columns:46px minmax(0,1fr);gap:10px;align-items:center}
+.fs-share-bars dt{color:var(--fs-dim)}
+.fs-share-bars dd{display:flex;align-items:center;gap:11px;min-width:0;margin:0}
+.fs-share-bars strong{font-size:.95rem;min-width:40px;text-align:right}
+.fs-share-track{display:block;flex:1;height:8px;overflow:hidden;border-radius:8px;background:#243145}
+.fs-share-track>span{display:block;height:100%;border-radius:inherit;background:#a7bad7}
+.fs-share-money>span{background:#53e7a4}
+.fs-method{margin-top:12px;border-top:1px solid var(--fs-border);padding-top:10px;font-size:.7rem;color:var(--fs-dim)}
+.fs-method summary{cursor:pointer;padding:3px 0;min-height:30px;display:flex;align-items:center;gap:6px}
+.fs-method summary::after{content:"ⓘ";color:#a7bad7}
+.fs-quote-pair{display:grid;grid-template-columns:minmax(0,1fr) 22px minmax(0,1fr);gap:7px;align-items:center;margin:17px 0 10px}
+.fs-quote-pair>div{text-align:center;padding:10px 5px;border:1px solid var(--fs-border);border-radius:10px;background:#142033}
+.fs-quote-pair dt{color:var(--fs-dim);font-size:.68rem;line-height:1.5}
+.fs-quote-pair dd{margin:3px 0 0;font-size:1.3rem;font-weight:650;font-variant-numeric:tabular-nums}
+.fs-quote-pair>span{text-align:center;font-size:1.3rem;color:var(--fs-dim)}
+.fs-score-meter{margin:16px 0 20px}
+.fs-meter-track{height:9px;border-radius:10px;background:#243145;position:relative}
+.fs-meter-track>span{display:block;height:100%;border-radius:inherit;background:var(--fs-accent)}
+.fs-meter-track>i{position:absolute;top:-4px;bottom:-4px;border-left:2px dashed #c2cede;transform:translateX(-1px)}
+.fs-meter-target{display:block;text-align:right;margin-top:7px;font-size:.65rem;color:var(--fs-dim)}
+.fs-team-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:14px}
+.fs-team-card{min-width:0;border:1px solid var(--fs-border);border-radius:11px;padding:12px 10px;background:#10203355}
+.fs-team-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:8px}
+.fs-team-card-head h4{font-size:.83rem;min-width:0;margin:0;overflow-wrap:anywhere}
+.fs-team-card-head>div{text-align:right;flex:none}
+.fs-team-card-head strong{font-size:1.15rem;line-height:1.2;font-variant-numeric:tabular-nums}
+.fs-team-card-head small,.fs-team-card-head>span{display:block;font-size:.59rem;line-height:1.5;color:var(--fs-dim)}
+.fs-team-card .fs-table{margin:0;font-size:.72rem}
+.fs-team-card .fs-table th:first-child{width:auto;padding-right:6px}
+.fs-team-card .fs-table td{font-weight:600;white-space:nowrap;width:40%;text-align:right}
+.fs-team-card .fs-table tr:last-child>*{border-bottom:0;padding-bottom:0}
+.fs-team-card .fs-table th,.fs-team-card .fs-table td{padding-top:8px;padding-bottom:8px;line-height:1.4}
+.fs-detail-system .fs-detail-status strong{font-size:1.65rem}
+.fs-detail .fs-detail-foot{margin-top:15px;padding-top:10px;font-size:.64rem;line-height:1.65}
+@media(max-width:480px){.fs-detail-head{gap:8px}.fs-detail h3{font-size:.95rem}.fs-detail-icon{width:31px;height:31px}.fs-team-card-head{flex-wrap:wrap}.fs-team-card-head>div{text-align:left}.fs-team-card .fs-table{font-size:.67rem}.fs-team-card .fs-table td{width:35%}.fs-team-card .fs-table th:first-child{width:65%}}
+@media(max-width:359px){.fs-team-grid{grid-template-columns:minmax(0,1fr)}.fs-team-card-head{flex-wrap:nowrap}.fs-team-card-head>div{text-align:right}}
+
 /* EZPZ Picks: a play-first card, with the saved signal evidence one tap away. */
 .ep-board{max-width:1100px;--ep-accent:#91efc2;--ep-muted:#a2b6ca}
 .ep-heading{margin-top:16px;margin-bottom:8px}

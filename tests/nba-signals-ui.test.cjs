@@ -67,7 +67,8 @@ test('a team with no graded history never presents its internal neutral prior as
   const team = { team: 'Denver Nuggets', score: 50, hasData: false, missingGames: 0,
     records: Object.fromEntries(['betType', 'venue', 'recent'].map(key => [key, { label: key, sample: 0, record: '0-0-0' }])) };
   const html = render(React.createElement(football.testTeamDetail, { side: { market: 'Total', line: 236.5, teamTrend: { score: null, teams: [team] } } }));
-  assert.match(html, /Denver Nuggets · Awaiting graded history/);
+  assert.match(html, /Denver Nuggets/);
+  assert.match(html, /Awaiting graded history/);
   assert.match(html, /No matching games/);
   assert.doesNotMatch(html, /supporting grade 50/);
 });

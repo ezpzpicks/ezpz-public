@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Banknote, TrendingUp, FlaskConical, Users, Calculator, Mountain, Search, X, ChevronUp, ChevronRight, Clock3, Zap, Check, LockKeyhole, Radio } from "lucide-react";
+import { Banknote, TrendingUp, FlaskConical, Users, Calculator, Mountain, Search, X, ChevronRight, Clock3, Zap, Check, LockKeyhole, Radio } from "lucide-react";
 import { TeamLogoName } from "./TeamLogoName";
 import NbaGameLineups from "./NbaGameLineups";
 import type { NbaGameLineup } from "../lib/nbaLineupsCore";
 import type { FootballSignalKey, FootballSignalSide, FootballSignalsBoard, FootballSignal } from "../lib/footballSignals";
 import { selectSignalEzpzPicks, signalPickThreshold } from "../lib/signalPicks";
 import { signalResearchView, signalCombinationLabel, type ResearchPhase, type SignalResearchReport } from "../lib/signalCombinationResearch";
+import { evaluateSignalMovement } from "../lib/signalMovement";
 
 const META = {
   money: { label: "Money", title: "Money support", Icon: Banknote },
@@ -34,20 +35,18 @@ function TeamDetail({ side }: { side: FootballSignalSide }) {
   if (!score) return <p>Team records are awaiting a complete matchup and market line.</p>;
   const awaitingSpread = side.market === "Spread" && side.line == null;
   return <>
-    {awaitingSpread
-      ? <p>The spread is unavailable. Overall ATS, home/away and last-five records are shown below. Favorite/underdog records and the grade await the line.</p>
-      : <p>Qualifies at 75. Each team’s grade uses 50% bet type, 30% venue and 20% last five, then both grades are averaged.</p>}
+    {awaitingSpread ? <p>Favorite/underdog records and the grade await the line.</p> : null}
     {score.score == null && score.teams.some(team => team.missingGames > 0)
       ? <p>The combined grade is awaiting complete history. Available records are shown below.</p> : null}
-    {score.teams.map(team => <Section key={team.team} title={team.hasData === false ? `${team.team} · Awaiting graded history` : awaitingSpread ? team.team
-      : `${team.team} · ${team.missingGames ? "partial" : "supporting"} grade ${format(team.score)}`}>
-      <table className="fs-table"><thead><tr><th>Trend</th><th>Record</th></tr></thead><tbody>
+    <div className="fs-team-grid">{score.teams.map(team => <section className="fs-team-card" key={team.team} aria-label={`${team.team} trend records`}>
+      <div className="fs-team-card-head"><h4>{team.team}</h4>{team.hasData === false ? <span>Awaiting graded history</span>
+        : !awaitingSpread ? <div><strong>{format(team.score)}</strong><small>{team.missingGames ? "Partial grade" : "Support score"}</small></div> : null}</div>
+      <table className="fs-table"><tbody>
         {Object.entries(team.records).map(([key, record]) => <tr key={key}><th scope="row">{record.label}</th>
           <td>{record.sample ? record.record : "No matching games"}</td></tr>)}
       </tbody></table>
-      {team.opposing ? <p>{team.team}’s ATS losses support this play.</p> : null}
       {team.missingGames ? <p>Market results missing for {team.missingGames} season {team.missingGames === 1 ? "game" : "games"}.</p> : null}
-    </Section>)}
+    </section>)}</div>
   </>;
 }
 function PublicDetail({ side }: { side: FootballSignalSide }) {
@@ -64,35 +63,53 @@ function PublicDetail({ side }: { side: FootballSignalSide }) {
 }
 function SignalDetail({ side, signal, onClose, liveNba = false }: { side: FootballSignalSide; signal: FootballSignal; onClose: () => void; liveNba?: boolean }) {
   const key = signal.key, context = side.marketContext;
+  const movement = key === "move" ? context.movement || evaluateSignalMovement({ market: side.market, side: side.side,
+    openingLine: context.openingLine, line: side.line, retainedBasis: context.movementBasis,
+    retainedValue: signal.value, retainedLabel: context.movementLabel }) : null;
+  const legacyMovement = key === "move" && side.recorded && !context.movement && context.movementBasis === "Implied Probability";
   const magnitude = !signal.available ? key === "team" && side.teamTrend
     ? side.market === "Spread" && side.line == null ? "Awaiting spread" : "Awaiting complete history"
     : "Unavailable" : key === "system" ? side.publicMatches.length ? "Match" : "No match"
-    : key === "team" ? `${format(signal.value)} out of 100`
+    : key === "team" ? format(signal.value)
+    : key === "move" ? movement?.lineChange == null ? "Unavailable" : format(movement.lineChange, true)
     : signal.value == null ? signal.active ? "Qualifying" : "Inactive"
-    : `${format(signal.value, ["money", "move", "model", "sos"].includes(key))}${key === "money" || (key === "move" && context.movementBasis === "Implied Probability") ? " percentage points" : key === "sos" ? " rank places" : " points"}`;
-  return <section className="fs-detail" role="region" id={`signal-detail-${side.id}-${key}`} aria-label={`${META[key].title} for ${side.selection}`}>
-    <div className="fs-detail-head"><div><span className="fs-kicker">{side.selection}</span><h3>{META[key].title}</h3></div><button type="button" className="fs-close" onClick={onClose} aria-label="Collapse signal details"><X size={18} /></button></div>
-    <div className="fs-detail-status"><strong>{magnitude}</strong><span>{signal.level}</span></div>
-    {key === "team" ? <TeamDetail side={side} /> : null}
+    : format(signal.value, ["money", "model", "sos"].includes(key));
+  const tone = !signal.available ? "neutral" : key === "money" ? (signal.value || 0) > 0 ? "positive" : (signal.value || 0) < 0 ? "negative" : "neutral"
+    : key === "move" ? movement?.state || "neutral" : key === "team" ? signal.active ? "positive" : "warning" : signal.active ? "positive" : "neutral";
+  const status = legacyMovement ? "Saved signal" : signal.active ? key === "money" ? signal.level : "Qualifying"
+    : !signal.available ? "Unavailable" : key === "money" ? "Below +15" : key === "team" ? "Below 75" : "No signal";
+  const unit = key === "team" ? "/100" : key === "move" ? movement?.lineChange == null ? "" : Math.abs(movement.lineChange) === 1 ? "point" : "points"
+    : key === "sos" ? "rank places" : key === "model" && signal.value != null ? "points" : "";
+  const { Icon } = META[key];
+  return <section className={`fs-detail fs-detail-${key} fs-tone-${tone}`} role="region" id={`signal-detail-${side.id}-${key}`} aria-label={`${META[key].title} for ${side.selection}`}>
+    <div className="fs-detail-head"><div className="fs-detail-title"><span className="fs-detail-icon"><Icon size={20} aria-hidden="true" /></span><div><span className="fs-kicker">{side.selection}</span><h3>{META[key].title}</h3></div></div><button type="button" className="fs-close" onClick={onClose} aria-label="Collapse signal details"><X size={18} /></button></div>
+    <div className="fs-detail-status"><div className="fs-metric"><strong>{magnitude}</strong>{unit && signal.available ? <small>{unit}</small> : null}</div><span className={`fs-state${signal.active ? " fs-state-active" : ""}`}>{status}</span></div>
+    {key === "team" ? <>
+      {signal.available && signal.value != null ? <div className="fs-score-meter" aria-label={`Team trend score ${format(signal.value)} out of 100. Qualifies at 75.`}>
+        <div className="fs-meter-track" role="meter" aria-label="Team trend score" aria-valuemin={0} aria-valuemax={100} aria-valuenow={signal.value}>
+          <span style={{ width: `${Math.max(0, Math.min(100, signal.value))}%` }} /><i style={{ left: "75%" }} /></div><span className="fs-meter-target">Qualifies at 75</span>
+      </div> : null}
+      <TeamDetail side={side} />
+    </> : null}
     {key === "system" ? <PublicDetail side={side} /> : null}
     {key === "money" ? <>
-      <Lines items={[["Bets on this side", percent(context.bets)], ["Money on this side", percent(context.money)]]} />
-      <p>Money minus bets. Qualifies at +15; strong at +25; very strong at +35 percentage points.</p>
+      <span className="fs-metric-caption">Money − bets</span>
+      <dl className="fs-share-bars">{([["Bets", context.bets], ["Money", context.money]] as const).map(([label, value]) =>
+        <div key={label}><dt>{label}</dt><dd><span className={`fs-share-track${label === "Money" ? " fs-share-money" : ""}`} aria-hidden="true"><span style={{ width: `${value == null ? 0 : Math.max(0, Math.min(100, value))}%` }} /></span><strong>{percent(value)}</strong></dd></div>)}</dl>
+      <details className="fs-method"><summary>Signal starts at +15</summary><p>Money minus bets. Strong at +25; very strong at +35.</p></details>
       {!signal.available ? <p>Valid ticket and money percentages are unavailable.</p> : null}
     </> : null}
     {key === "move" ? <>
-      <Lines items={context.movementBasis === "Implied Probability"
-        ? [["Opening odds", context.openingOdds || "Unavailable"], ["Current odds", side.odds || "Unavailable"]]
-        : [["Opening line", format(context.openingLine, side.market === "Spread")], ["Current line", format(side.line, side.market === "Spread")]]} />
-      {context.movementBasis.endsWith(" Line History") ? <>
-        {signal.value != null ? <Lines items={[["Most recent recorded move", `${format(signal.value, true)} points`]]} /> : null}
+      <dl className="fs-quote-pair"><div><dt>Opening line</dt><dd>{format(context.openingLine, side.market === "Spread")}</dd></div><span aria-hidden="true">→</span><div><dt>{side.recorded ? "Saved line" : "Current line"}</dt><dd>{format(side.line, side.market === "Spread")}</dd></div></dl>
+      {movement?.usesHistory ? <>
+        <span className="fs-metric-caption">Most recent recorded move</span>
         <p>{side.recorded && !signal.available
           ? "Line-history evidence was not counted when this pregame snapshot was saved. The correction applies to new snapshots; the historical vote is preserved."
           : "The line returned to its opening number. This signal uses the feed's classification of the most recent recorded move."}</p>
       </> : null}
-      {!(side.recorded && !signal.available && context.movementBasis.endsWith(" Line History")) ? <p>{!signal.available ? "Line movement data is unavailable." : signal.active
-        ? "Movement supports this side under the existing line movement rules."
-        : "Movement does not qualify for this side under the existing rules."}</p> : null}
+      {legacyMovement ? <p>Saved under the earlier movement rule.</p> : !movement?.usesHistory ? <span className="fs-metric-caption">{!signal.available ? "Opening or current line unavailable" : movement?.state === "positive"
+        ? "Moved toward this side" : movement?.state === "negative" ? "Moved against this side"
+          : movement?.lineChange ? "Below 0.5-point threshold" : "Line unchanged"}</span> : null}
     </> : null}
     {key === "model" ? <>
       {signal.available ? <Lines items={[[side.modelContext.regraded ? "Evaluated model play" : "Qualifying model play", side.modelContext.play || "None on this side"], ["Model grade", side.modelContext.grade || "Unavailable"],
@@ -111,7 +128,6 @@ function SignalDetail({ side, signal, onClose, liveNba = false }: { side: Footba
       {side.sosContext.sourceUrl ? <a href={side.sosContext.sourceUrl} target="_blank" rel="noreferrer">Warren Nolan current ELO SOS</a> : null}
     </> : null}
     <p className="fs-detail-foot">{signal.active ? "Adds 1 signal" : "Adds no signal"} · {side.signalCount} total · {side.recorded ? "Saved pregame" : side.status === "LIVE" ? "Live preview" : liveNba ? "No saved pregame snapshot" : "Not recorded for this test"} · {time(side.snapshotAt)}</p>
-    <button type="button" className="fs-collapse" onClick={onClose}><ChevronUp size={16} />Collapse details</button>
   </section>;
 }
 
@@ -128,8 +144,9 @@ function EzpzPickTile({ side, sport, expandedKey, onSignalClick, children, lineu
     if (signal.key === "system") return "Match";
     if (signal.value == null) return "Triggered";
     if (signal.key === "team") return `${format(signal.value)} / 100`;
-    const unit = signal.key === "money" || (signal.key === "move" && side.marketContext.movementBasis === "Implied Probability") ? "pp"
-      : signal.key === "sos" ? "ranks" : Math.abs(signal.value) === 1 ? "pt" : "pts";
+    if (signal.key === "money") return format(signal.value, true);
+    if (signal.key === "move" && side.recorded && !side.marketContext.movement && side.marketContext.movementBasis === "Implied Probability") return "Saved signal";
+    const unit = signal.key === "sos" ? "ranks" : Math.abs(signal.value) === 1 ? "point" : "points";
     return `${format(signal.value, true)} ${unit}`;
   };
   return <article className={`ep-pick${preview ? " ep-preview" : ""}`} aria-label={`${side.selection} EZPZ Pick`}>
