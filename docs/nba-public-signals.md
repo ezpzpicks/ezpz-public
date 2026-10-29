@@ -16,10 +16,14 @@ the former implied-probability display. Verified retained line-history movement
 still qualifies when a quote returns to its opening number. Already saved
 observations retain their original votes and counts.
 
-The 3+ test requires at least three signals and two independent sources. Money,
+NBA EZPZ Picks and the signal test require at least two signals and two evidence groups. Money,
 movement and public trends share one market source. Multiple matching public
-systems count as one signal. This is prospective testing; it does not create
-EZPZ picks or social posts.
+systems count as one signal. Model and team trends each form another group.
+One clear leader per game qualifies; tied leaders wait. Individual signal cutoffs
+are unchanged. Saved official final selections use the existing posting feed.
+Historical tests replay the captured evidence at the current threshold; they
+were not necessarily published picks. The paced collector rebuilds its compact
+test rollup once when the threshold changes, without rewriting observations.
 
 NBA has a separate market-only catalog and results ledger. Its top 20 use the
 same one-sided 95% Wilson formula and eligibility as NFL Signals: strictly above

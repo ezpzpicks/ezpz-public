@@ -41,9 +41,9 @@ test('live NBA signals retain the shared five-column controls and collapsed deta
   const html = render(React.createElement(football.default, { board }));
   const nfl = render(React.createElement(football.default, { board: { ...board, sport: 'NFL' } }));
   assert.equal((html.match(/aria-expanded="false"/g) || []).length, 10);
-  for (const text of ['NBA Signals', 'Live signals', '3+ signal test results', '3+ only', 'Sort by Public bet trends', 'Sort by Team trends', 'Sort by Model edge']) assert(html.includes(text), text);
+  for (const text of ['NBA Signals', 'Live signals', '2+ signal test results', '2+ only', 'Sort by Public bet trends', 'Sort by Team trends', 'Sort by Model edge']) assert(html.includes(text), text);
   assert.match(nfl, /2\+ signal test results/);
-  assert.doesNotMatch(html, /3\+ test results|Saved test play|Prospective testing/);
+  assert.doesNotMatch(html, /3\+ signal test results|3\+ only|Saved test play|Prospective testing/);
   assert.doesNotMatch(html, /class="fs-signal fs-on"|class="fs-detail"|Strength of schedule/);
 });
 test('NBA public market cards retain shared markets and add NBA-only collapsed lineups', () => {

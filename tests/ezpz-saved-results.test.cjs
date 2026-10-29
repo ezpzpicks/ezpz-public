@@ -128,7 +128,7 @@ test('NBA results read only its saved signal ledger, with exact quotes and captu
   const side = { id: 'nba-total-over', date, gameKey: 'nba-101', game: 'CLE @ PHI',
     gameTime: date + 'T23:00:00Z', snapshotAt: date + 'T22:45:00Z', status: 'FINAL_PREGAME', recorded: true,
     market: 'Total', side: 'Over', selection: 'Over 220.5', line: 220.5, odds: '-110',
-    signalCount: 3, sourceCount: 2, signals: ['money', 'move', 'model'].map(key => ({ key, active: true, available: true })), result: 'W' };
+    signalCount: 2, sourceCount: 2, signals: ['move', 'model'].map(key => ({ key, active: true, available: true })), result: 'W' };
   const saved = { Date: date, 'Pick Key': side.id, 'Policy Version': 'nba-signals-2026-10-22-v1',
     'Details JSON': JSON.stringify(side), Result: 'L', 'Result Updated': '2026-10-27T02:00:00Z' };
   h.datasets.set('NBA:nba_signal_observations', [saved]);

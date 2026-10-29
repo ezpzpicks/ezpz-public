@@ -166,6 +166,27 @@ test('saved votes and lines replay unchanged; only an official completed game se
   assert.equal(settled.board.sides.find(s => s.side === 'Over').result, 'W');
   assert.equal(settled.board.summary.record, '1-0-0');
 });
+test('two-source frozen pairs enter current NBA records without rewriting captured flags or quotes', () => {
+  const f = fixture(), captured = build(f, { forecasts: [forecast(f)], capture: true });
+  const saved = stored(captured).map(row => {
+    const side = JSON.parse(row['Details JSON']);
+    if (side.side === 'Over') {
+      side.signals.find(signal => signal.key === 'money').active = false;
+      side.signalCount = 2; side.combination = 'move + model'; side.selected = false; side.candidate = false;
+      return { ...row, 'Signal Count': '2', Selected: 'FALSE', Combination: side.combination, 'Details JSON': JSON.stringify(side) };
+    }
+    return row;
+  });
+  const original = JSON.stringify(saved), late = f.kickoff + 4 * 3600000;
+  const replay = build(f, { storedRows: saved, now: late, games: [finalGame(f)] });
+  assert.equal(replay.board.summary.record, '1-0-0');
+  assert.equal(replay.board.history.length, 1);
+  assert.equal(replay.board.history[0].signalCount, 2);
+  assert.equal(replay.board.history[0].selection, 'Over 220.5');
+  assert.equal(replay.board.sides.find(side => side.side === 'Over').selected, true);
+  assert.equal(JSON.parse(saved.find(row => row.Selection === 'Over 220.5')['Details JSON']).selected, false);
+  assert.equal(JSON.stringify(saved), original);
+});
 test('trend grading requires an identity-matched final score and a complete original quartet', () => {
   const f = fixture(), game = finalGame(f), now = f.kickoff + 3 * 3600000;
   const rows = core.settleNbaTrendRows(f.rows, [game], now);

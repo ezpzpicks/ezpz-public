@@ -61,9 +61,9 @@ test('daily rollups are idempotent, keep earlier results, and calculate seven Ea
   assert.equal(later.overall.record, '2-2-0');
 });
 
-test('EZPZ keeps the existing 3+ qualification, deduplicates games and does not choose between tied candidates by results', () => {
-  const base = { id: 'spread', date, game: 'Cleveland Cavaliers @ Philadelphia 76ers', signalCount: 3, result: 'W', odds: '-110' };
-  assert.equal(api.nbaEzpzSelections([{ ...base, signalCount: 2 }]).length, 0);
+test('EZPZ uses the shared 2+ NBA threshold, deduplicates games and does not break ties by results', () => {
+  const base = { id: 'spread', date, game: 'Cleveland Cavaliers @ Philadelphia 76ers', signalCount: 2, result: 'W', odds: '-110' };
+  assert.equal(api.nbaEzpzSelections([{ ...base, signalCount: 1 }]).length, 0);
   assert.equal(api.nbaEzpzSelections([base, base]).length, 1);
   assert.equal(api.nbaEzpzSelections([base, { ...base, id: 'total', result: 'L' }]).length, 0);
   const picks = api.nbaEzpzSelections([base, { ...base, id: 'total', signalCount: 4, result: 'L' }]);

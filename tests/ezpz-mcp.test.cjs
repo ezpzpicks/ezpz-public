@@ -130,8 +130,8 @@ function nbaSignalSide(overrides = {}) {
     game: 'Cleveland Cavaliers @ Philadelphia 76ers', gameTime: '2026-10-26T23:00:00Z',
     market: 'Total', side: 'Over', selection: 'Over 220.5', line: 220.5, odds: '-110',
     snapshotAt: '2026-10-26T22:45:00Z', status: 'FINAL_PREGAME', recorded: true,
-    signalCount: 3, sourceCount: 2, candidate: false,
-    signals: ['money', 'move', 'model'].map(key => ({ key, active: true, available: true })),
+    signalCount: 2, sourceCount: 2, candidate: false,
+    signals: ['move', 'model'].map(key => ({ key, active: true, available: true })),
     result: '', ...overrides };
 }
 
@@ -163,7 +163,7 @@ test('NBA saved signal picks notify once and verify through the same finalized-p
     params: { name: 'get_finalized_pick', arguments: { pickId: wire.pickId } } });
   const final = verified.result.structuredContent.pick;
   assert.equal(final.pickCategory, 'signals'); assert.equal(final.pickLabel, 'EZPZ Signal Pick');
-  assert.equal(final.threshold, 3); assert.equal(final.signalCount, 3);
+  assert.equal(final.threshold, 2); assert.equal(final.signalCount, 2);
   assert.equal(final.finalizedAt, '2026-10-26T22:45:00.000Z');
   assert.equal(final.gameTime, '2026-10-26T23:00:00.000Z');
   assert.equal(final.eligibleForPosting, true);
@@ -174,7 +174,7 @@ test('NBA saved signal picks notify once and verify through the same finalized-p
   assert.equal(h.events().length, 1, 'a started pick must never emit a new event');
 });
 
-test('NBA previews, two-signal and correlated-market-only sides cannot notify', async () => {
+test('NBA previews, one-signal and correlated-market-only sides cannot notify', async () => {
   const h = harness({ realCurrentPicks: true });
   h.setTime(Date.parse('2026-10-26T22:44:00Z'));
   const events = h.load('lib/ezpzMcpEvents.ts');
@@ -183,8 +183,8 @@ test('NBA previews, two-signal and correlated-market-only sides cannot notify', 
   const signals = h.load('lib/signalPicks.ts'), current = h.load('lib/ezpzCurrentPicks.ts');
   const variants = [
     nbaSignalSide({ recorded: false, status: 'LIVE', candidate: true }),
-    nbaSignalSide({ signalCount: 2, signals: ['move', 'model'].map(key => ({ key, active: true, available: true })) }),
-    nbaSignalSide({ signals: ['money', 'move', 'system'].map(key => ({ key, active: true, available: true })) }),
+    nbaSignalSide({ signalCount: 1, signals: [{ key: 'model', active: true, available: true }] }),
+    nbaSignalSide({ signalCount: 3, signals: ['money', 'move', 'system'].map(key => ({ key, active: true, available: true })) }),
     nbaSignalSide({ snapshotAt: '2026-10-26T22:00:00Z' }),
   ];
   for (const side of variants) {

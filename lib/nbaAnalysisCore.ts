@@ -8,6 +8,7 @@ import { NBA_ASSUMED_ODDS, NBA_MARKET_POLICY, nbaDate, nbaRowKey, nbaTeamKey } f
 import type { TursoRow } from "./tursoStore";
 import { buildSignalResearchDays, buildSignalResearchReport, SIGNAL_RESEARCH_VERSION, type SignalResearchDay } from "./signalCombinationResearch";
 import type { NbaModelRecordState } from "./nbaRecords";
+import { selectSignalEzpzPicks, signalPickThreshold } from "./signalPicks";
 
 type Row = Record<string, any>;
 export type NbaSignalTest = Pick<FootballSignalSide, "id" | "date" | "game" | "gameTime" | "selection" | "market" | "odds" | "signalCount" | "combination" | "result">;
@@ -16,6 +17,7 @@ export type NbaAnalysisState = {
   leaderboard: NcaafEzpzSubtype[]; leaderboardAsOf: string;
   teamHistory: Array<[string, TeamTrendHistory extends Map<string, infer G> ? G : never]>;
   tests: Record<string, NbaSignalTest>;
+  selectionThreshold?: number;
   modelRecords?: NbaModelRecordState;
   signalResearch?: { version: string; days: Record<string, SignalResearchDay> };
 };
@@ -23,7 +25,15 @@ export const NBA_ANALYSIS_VERSION = "nba-analysis-2026-10-22-v1";
 export function nbaSeason(date: string) { return String(Number(date.slice(0, 4)) - (Number(date.slice(5, 7)) < 7 ? 1 : 0)); }
 export function emptyNbaAnalysis(date: string): NbaAnalysisState {
   return { version: NBA_ANALYSIS_VERSION, season: nbaSeason(date), archiveDates: [], pendingDates: [], leaderboard: [], leaderboardAsOf: "",
-    teamHistory: [], tests: {} };
+    teamHistory: [], tests: {}, selectionThreshold: signalPickThreshold("NBA") };
+}
+
+/** Reclassify frozen evidence without changing its captured signals, lines or grades. */
+export function buildNbaSignalTests(sides: FootballSignalSide[], now = Date.now()): Record<string, NbaSignalTest> {
+  return Object.fromEntries(selectSignalEzpzPicks(sides.filter(side => side.recorded), "NBA", now).map(side => {
+    const { id, date, game, gameTime, selection, market, odds, signalCount, combination, result } = side;
+    return [id, { id, date, game, gameTime, selection, market, odds, signalCount, combination, result }];
+  }));
 }
 export function nbaRowsToPlays(rows: TursoRow[], now = Date.now()): Row[] {
   const plays = rows.filter(row => ["Spread", "Total"].includes(row.Market)).map(row => {
@@ -121,11 +131,8 @@ export function buildNbaSignals({ date, games, splits, forecasts, storedRows, st
     leaderboard: state.leaderboard, leaderboardAsOf: Date.parse(state.leaderboardAsOf), history: new Map(state.teamHistory),
     core: { today: date, slateToday: games, teamTrendScheduleRows: games, trendPlays: plays, nbaForecasts: forecasts, stale } });
   result.board.archiveDates = [...new Set([...state.archiveDates, ...result.board.archiveDates])].sort();
-  const tests = { ...state.tests };
-  for (const side of result.board.sides) if (side.recorded && side.selected) {
-    const { id, date, game, gameTime, selection, market, odds, signalCount, combination, result: settled } = side;
-    tests[id] = { id, date, game, gameTime, selection, market, odds, signalCount, combination, result: settled };
-  }
+  const tests = { ...Object.fromEntries(Object.entries(state.tests).filter(([, test]) => test.date !== date)),
+    ...buildNbaSignalTests(result.board.sides, now) };
   const selected = Object.values(tests);
   result.board.summary = signalRecord(selected);
   result.board.history = selected.sort((a, b) => b.gameTime.localeCompare(a.gameTime)).slice(0, 200);

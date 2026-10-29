@@ -3,11 +3,11 @@ import { saveNbaMarketRows } from "./nbaMarketStore";
 import { readNbaForecasts, readNbaForecastHistory } from "./nbaForecasts";
 import { NBA_MODEL_RECORD_POLICY, updateNbaModelRecords } from "./nbaRecords";
 import { nbaRowKey, normalizeNbaSlate, type NbaGame } from "./nbaMarketCore";
-import { buildNbaSignals, emptyNbaAnalysis, mergeNbaTeamHistory, nbaSeason, settleNbaTrendRows, NBA_ANALYSIS_VERSION, type NbaAnalysisState } from "./nbaAnalysisCore";
+import { buildNbaSignals, buildNbaSignalTests, emptyNbaAnalysis, mergeNbaTeamHistory, nbaSeason, settleNbaTrendRows, NBA_ANALYSIS_VERSION, type NbaAnalysisState } from "./nbaAnalysisCore";
 import { buildNbaTrendLeaderboard, NBA_ANALYSIS_TAB, NBA_SIGNALS_TAB, NBA_TREND_RECORDS_TAB, NBA_SIGNALS_POLICY } from "./nbaTrendLeaderboard";
 import { readSavedFootballSignalsForDate } from "./footballSignals";
 import { buildSignalResearchDays, SIGNAL_RESEARCH_VERSION } from "./signalCombinationResearch";
-import { signalEzpzPayload } from "./signalPicks";
+import { signalEzpzPayload, signalPickThreshold } from "./signalPicks";
 import { persistEzpzCurrentPicks } from "./ezpzCurrentPicks";
 
 const q = (value: string) => `'${value.replaceAll("'", "''")}'`;
@@ -41,7 +41,8 @@ export async function refreshNbaAnalysis(date: string, currentSchedule: TursoRow
   // Seed existing frozen observations once. Ordinary ticks keep the same bounded
   // day reads and update compact daily totals in the existing analysis row.
   const seedResearch = state.signalResearch?.version !== SIGNAL_RESEARCH_VERSION;
-  const signalDates = seedResearch ? [...new Set([...state.archiveDates, ...dates])].sort() : dates;
+  const seedSelections = state.selectionThreshold !== signalPickThreshold("NBA");
+  const signalDates = seedResearch || seedSelections ? [...new Set([...state.archiveDates, ...dates])].sort() : dates;
   const schedule = [...currentSchedule];
   const previousDays = await Promise.all(dates.filter(day => day !== date).map(async day => {
     const response = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?dates=${day.replaceAll("-", "")}&limit=1000`,
@@ -73,6 +74,12 @@ export async function refreshNbaAnalysis(date: string, currentSchedule: TursoRow
   } else state.teamHistory = mergeNbaTeamHistory(state.teamHistory, existingRecords, schedule);
   for (const rows of previousDays) await saveNbaMarketRows("schedule", rows);
   const forecastDates = new Map(forecasts);
+  // Once per threshold change, rebuild only the compact test rollup from saved
+  // observations. Do not rerank trends, run models or rewrite captured evidence.
+  if (seedSelections) {
+    state.tests = buildNbaSignalTests(signalDates.flatMap(day => readSavedFootballSignalsForDate(storedSignals, day, now, NBA_SIGNALS_POLICY)), now);
+    state.selectionThreshold = signalPickThreshold("NBA");
+  }
   if (state.modelRecords?.version !== NBA_MODEL_RECORD_POLICY) {
     state.modelRecords = updateNbaModelRecords(undefined, await readNbaForecastHistory(date), schedule, now);
   }

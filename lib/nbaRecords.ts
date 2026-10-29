@@ -1,4 +1,5 @@
 import { nbaDate, nbaTeamKey, settleNbaForecast } from "./nbaMarketCore";
+import { signalPickThreshold } from "./signalPicks";
 
 type Row = Record<string, any>;
 export const NBA_MODEL_RECORD_POLICY = "nba-latest-pregame-ab-v1";
@@ -101,9 +102,9 @@ export function summarizeNbaModelRecords(state: NbaModelRecordState, today: stri
     history: state.recent.filter(p => p.date <= today), availableDates: days.map(([date]) => date).sort() };
 }
 
-/** Preserve the existing 3+ / two-source qualification; an unresolved game tie stays unselected. */
+/** Summarize qualified signal tests at the current NBA threshold; tied leaders wait. */
 export function nbaEzpzSelections<T extends { id: string; date: string; game: string; signalCount: number; result: string; odds: string }>(rows: T[]): T[] {
-  const unique = new Map(rows.filter(row => row.signalCount >= 3).map(row => [row.id, row]));
+  const unique = new Map(rows.filter(row => row.signalCount >= signalPickThreshold("NBA")).map(row => [row.id, row]));
   const games = new Map<string, T[]>();
   for (const row of unique.values()) {
     const key = `${row.date}|${row.game.split(/\s*(?:@|\bat\b)\s*/i).map(nbaTeamKey).sort().join("|")}`;
