@@ -1740,7 +1740,7 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
           <RecordTile key={row.betType} label={`${row.betType} - Running Total`} value={row} />
         )}
       </div>
-      <div className="sectionHead"><div><h2>EZPZ Picks Records</h2><p>Results of saved qualifying signal tests: NFL 2+ signals; other sports 3+</p></div></div>
+      <div className="sectionHead"><div><h2>EZPZ Picks Records</h2><p>Results of saved qualifying signal tests: NFL and NBA 2+ signals; other sports 3+</p></div></div>
       <div className="qualifiedGrid">
         <RecordTile label="EZPZ Picks - Last 7 Days" value={ezpzLast7} />
         <RecordTile label="EZPZ Picks - Running Total" value={ezpzOverall} />

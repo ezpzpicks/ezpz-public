@@ -13,14 +13,17 @@ function side(active = ['move', 'model'], overrides = {}) {
     signals: keys.map(key => ({ key, active: active.includes(key), available: true })), signalCount: active.length,
     sourceCount: 2, combination: active.join(' + '), result: '', resultUpdated: '', ...overrides };
 }
-test('NFL uses two signals; every other sport keeps three', () => {
-  assert.equal(api.signalPickThreshold('NFL'), 2);
-  for (const sport of ['NCAAF', 'NBA', 'MLB', 'NCAAM']) {
+test('NFL and NBA use two signals; every other sport keeps three', () => {
+  for (const sport of ['NFL', 'NBA']) {
+    assert.equal(api.signalPickThreshold(sport), 2);
+    assert.equal(api.selectSignalEzpzPicks([side()], sport, now).length, 1);
+    assert.equal(api.selectSignalEzpzPicks([side(['money', 'move'])], sport, now).length, 0);
+  }
+  for (const sport of ['NCAAF', 'MLB', 'NCAAM']) {
     assert.equal(api.signalPickThreshold(sport), 3);
     assert.equal(api.selectSignalEzpzPicks([side()], sport, now).length, 0);
     assert.equal(api.selectSignalEzpzPicks([side(['money', 'move', 'model'])], sport, now).length, 1);
   }
-  assert.equal(api.selectSignalEzpzPicks([side()], 'NFL', now).length, 1);
 });
 test('frozen two-signal evidence is reusable without altering its old selected flag or votes', () => {
   const original = side(), before = JSON.stringify(original);

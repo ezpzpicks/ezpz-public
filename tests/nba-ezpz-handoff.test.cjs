@@ -7,8 +7,8 @@ const plain = value => JSON.parse(JSON.stringify(value));
 function side(overrides = {}) {
   return { id: 'nba-101|Total|Over', date, gameKey: date + '|nba|101', game: 'CLE @ PHI',
     gameTime: date + 'T23:00:00Z', snapshotAt: date + 'T22:45:00Z', status: 'FINAL_PREGAME', recorded: true,
-    market: 'Total', side: 'Over', selection: 'Over 220.5', line: 220.5, odds: '-110', signalCount: 3, sourceCount: 2,
-    signals: ['money', 'move', 'model'].map(key => ({ key, active: true, available: true })), result: '', ...overrides };
+    market: 'Total', side: 'Over', selection: 'Over 220.5', line: 220.5, odds: '-110', signalCount: 2, sourceCount: 2,
+    signals: ['move', 'model'].map(key => ({ key, active: true, available: true })), result: '', ...overrides };
 }
 function loader(stubs) {
   const cache = new Map();
@@ -42,7 +42,7 @@ test('the existing NBA analysis job hands off its saved board once, carrying cad
     './nbaRecords': { NBA_MODEL_RECORD_POLICY: 'models', updateNbaModelRecords: previous => previous },
     './nbaAnalysisCore': { NBA_ANALYSIS_VERSION: 'analysis', nbaSeason: () => '2026', mergeNbaTeamHistory: () => [],
       settleNbaTrendRows: () => [], emptyNbaAnalysis: () => ({ version: 'analysis', season: '2026', teamHistory: [],
-        archiveDates: [], pendingDates: [], leaderboard: [], tests: {}, modelRecords: { version: 'models' },
+        archiveDates: [], pendingDates: [], leaderboard: [], tests: {}, selectionThreshold: 2, modelRecords: { version: 'models' },
         signalResearch: { version: 'research', days: {} } }),
       buildNbaSignals: () => ({ board, stale: false, tests: {}, signalResearch: { version: 'research', days: {} },
         changedRows: [{ Date: date, 'Details JSON': JSON.stringify(captured) }] }) },
@@ -58,7 +58,7 @@ test('the existing NBA analysis job hands off its saved board once, carrying cad
   const payload = payloads[0].payload, [pick] = payload.aiPicks;
   assert.equal(payload.refreshPolicy, '30m-until-90m-v1'); assert.equal(payload.refreshIntervalMinutes, 30);
   assert.equal(payload.lastUpdated, '2026-10-26T22:46:00.000Z');
-  assert.equal(pick.pickCategory, 'signals'); assert.equal(pick.threshold, 3);
+  assert.equal(pick.pickCategory, 'signals'); assert.equal(pick.threshold, 2);
   assert.equal(pick.selection, 'Over 220.5'); assert.equal(pick.lockedAt, captured.snapshotAt);
   assert.deepEqual(plain(pick.signals), captured.signals);
   rejectSignalWrite = true;
@@ -88,4 +88,47 @@ test('NBA saved-picks API reads only persisted decisions and fails closed for st
   snapshot = null;
   assert.equal((await api.GET(request(''))).status, 503);
   assert.equal(writes, 0);
+});
+
+test('a threshold change reseeds the compact test rollup once from frozen observations only', async () => {
+  const core = loader({})('lib/nbaAnalysisCore.ts'), priorDate = '2026-10-25';
+  const captured = side({ date: priorDate, gameKey: priorDate + '|nba|101', selected: false,
+    gameTime: priorDate + 'T23:00:00Z', snapshotAt: priorDate + 'T22:45:00Z',
+    combination: 'move + model', result: 'W', resultUpdated: date + 'T02:00:00Z' });
+  const saved = { Date: priorDate, 'Pick Key': captured.id, 'Policy Version': 'nba-signals-2026-10-22-v1',
+    Result: 'W', 'Result Updated': captured.resultUpdated, 'Details JSON': JSON.stringify(captured) };
+  const original = JSON.stringify(saved), reads = [], writes = [];
+  let state = { ...core.emptyNbaAnalysis(date), selectionThreshold: 3, archiveDates: [priorDate],
+    modelRecords: { version: 'models' }, signalResearch: { version: 'research', days: {} } };
+  const load = loader({
+    './tursoStore': { readTursoDatasetByDateKeys: async (sport, dataset, dates) => {
+      reads.push({ dataset, dates: [...dates] });
+      if (dataset === 'nba_analysis_state') return [{ 'Details JSON': JSON.stringify(state) }];
+      return dataset === 'nba_signal_observations' && dates.includes(priorDate) ? [saved] : [];
+    } },
+    './nbaMarketStore': { saveNbaMarketRows: async (dataset, rows) => {
+      writes.push({ dataset, rows });
+      if (dataset === 'nba_analysis_state') state = JSON.parse(rows[0]['Details JSON']);
+    } },
+    './nbaForecasts': { readNbaForecasts: async () => [] },
+    './nbaRecords': { NBA_MODEL_RECORD_POLICY: 'models', updateNbaModelRecords: previous => previous },
+    './nbaAnalysisCore': { ...core, mergeNbaTeamHistory: () => [], settleNbaTrendRows: () => [],
+      buildNbaSignals: ({ state }) => ({ board: { sides: [], history: [] }, stale: false, tests: state.tests,
+        signalResearch: state.signalResearch, changedRows: [] }) },
+    './signalCombinationResearch': { SIGNAL_RESEARCH_VERSION: 'research' },
+    './ezpzCurrentPicks': { persistEzpzCurrentPicks: async () => {} },
+  });
+  const api = load('lib/nbaAnalysis.ts');
+  await api.refreshNbaAnalysis(date, [], now);
+  assert.equal(state.selectionThreshold, 2);
+  assert.equal(state.tests[captured.id].signalCount, 2);
+  assert.equal(state.tests[captured.id].result, 'W');
+  assert.equal(state.tests[captured.id].selection, captured.selection);
+  await api.refreshNbaAnalysis(date, [], now);
+  const signalReads = reads.filter(read => read.dataset === 'nba_signal_observations');
+  assert.equal(signalReads.length, 2);
+  assert(signalReads[0].dates.includes(priorDate));
+  assert.deepEqual(signalReads[1].dates, [date]);
+  assert(writes.filter(write => write.dataset === 'nba_signal_observations').every(write => write.rows.length === 0));
+  assert.equal(JSON.stringify(saved), original);
 });

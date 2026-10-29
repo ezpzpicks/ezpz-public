@@ -2,7 +2,7 @@ import type { FootballSignalSide, FootballSignalsBoard } from "./footballSignals
 
 export const SIGNAL_EZPZ_EFFECTIVE_DATE = "2026-10-25";
 export const SIGNAL_EZPZ_VERSION = "signal-ezpz-2026-10-25-v1";
-export const signalPickThreshold = (sport?: string) => sport === "NFL" ? 2 : 3;
+export const signalPickThreshold = (sport?: string) => sport === "NFL" || sport === "NBA" ? 2 : 3;
 export const SIGNAL_NAMES: Record<string, string> = { money: "Money support", move: "Line movement", system: "Public bet trends",
   team: "Team trends", model: "Model edge", sos: "Strength of schedule" };
 
