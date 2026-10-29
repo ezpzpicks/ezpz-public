@@ -350,6 +350,65 @@ test('scheduled games without a posted market remain visible without an invented
   assert.equal(result.board.sides[0].selection, 'DAL');
 });
 
+function coversOnlyInput(overrides = {}) {
+  const row = { Date: date, 'Away Team': 'Kennesaw State', 'Home Team': 'Middle Tennessee', 'Game Time': iso(kickoff),
+    'Build Source': 'Scheduled Covers builder', 'Build Captured At': iso(lock - 3600000), 'Odds Assumption': '-110',
+    'Market Source URL': 'https://www.covers.com/sport/football/ncaaf/matchup/378342',
+    'Market Home Spread': '-2.5', 'Market Total': '50.5', 'Model Version': 'cfb-v2.8.1',
+    'Projected Away': '22.12', 'Projected Home': '25.91', 'Projected Total': '48.03', ...overrides };
+  return input({ sport: 'NCAAF', history: new Map(), leaderboard: [], capture: true,
+    core: { today: date, trendPlays: [], trendRecordRows: [], bestPlays: [], slateToday: [row],
+      teamTrendScheduleRows: [{ Date: date, 'Away Team': row['Away Team'], 'Home Team': row['Home Team'], 'Game Time': row['Game Time'] }] } });
+}
+
+test('Covers-only saved model inputs display oriented lines without claiming betting splits or final captures', () => {
+  const x = coversOnlyInput(), original = JSON.stringify(x.core);
+  for (const now of [lock, kickoff + 3600000]) {
+    const result = api.buildFootballSignalsState({ ...x, now });
+    assert.equal(result.board.sides.length, 4);
+    const away = result.board.sides.find(s => s.market === 'Spread' && s.side === 'kennesaw state');
+    const home = result.board.sides.find(s => s.market === 'Spread' && s.side === 'middle tennessee');
+    assert.equal(away.line, 2.5); assert.equal(home.line, -2.5);
+    assert(result.board.sides.filter(s => s.market === 'Total').every(s => s.line === 50.5));
+    for (const side of result.board.sides) {
+      assert.equal(side.lineSource.name, 'Covers');
+      assert.equal(side.lineSource.capturedAt, iso(lock - 3600000));
+      assert.equal(side.odds, '-110'); assert.equal(side.oddsAssumed, true);
+      assert.equal(side.status, 'UNAVAILABLE'); assert(!side.candidate && !side.selected && !side.recorded);
+      for (const key of ['money', 'move', 'system']) assert.equal(side.signals.find(s => s.key === key).available, false);
+      assert.equal(side.marketContext.bets, null); assert.equal(side.marketContext.money, null);
+      assert.equal(side.marketContext.history.length, 0);
+    }
+    assert.equal(result.changedRows.length, 0);
+    assert.equal(result.board.summary.pending, 0);
+  }
+  assert.equal(JSON.stringify(x.core), original);
+});
+
+test('real market rows and frozen signal observations take priority over a Covers model input', () => {
+  const x = coversOnlyInput();
+  x.core.trendPlays = markets('NCAAF', ['Kennesaw State', 'Middle Tennessee'])
+    .map(play => ({ ...play, snapshotStatus: 'FINAL_PREGAME', frozenAt: iso(lock) }));
+  const captured = api.buildFootballSignalsState(x);
+  const totals = captured.board.sides.filter(side => side.market === 'Total');
+  assert(totals.every(side => side.line === 44.5 && side.recorded && !side.lineSource));
+  assert.equal(captured.changedRows.length, 2);
+  const replay = api.buildFootballSignalsState({ ...x, now: kickoff + 3600000, storedRows: captured.changedRows,
+    core: { ...x.core, trendPlays: [] } });
+  assert(replay.board.sides.filter(side => side.market === 'Total').every(side => side.line === 44.5 && !side.lineSource));
+});
+
+test('missing, unverified, late and professional-sport inputs stay unavailable', () => {
+  for (const overrides of [
+    { 'Build Source': '' }, { 'Build Captured At': iso(kickoff + 1) }, { 'Build Captured At': '' },
+    { 'Build Captured At': iso(lock + 1) }, { 'Market Home Spread': '' }, { 'Market Total': '' }, { 'Odds Assumption': '' },
+  ]) {
+    assert(api.buildFootballSignalsState(coversOnlyInput(overrides)).board.sides.every(side => side.line == null));
+  }
+  const x = coversOnlyInput();
+  assert(api.buildFootballSignalsState({ ...x, sport: 'NFL' }).board.sides.every(side => side.line == null));
+});
+
 test('Warren Nolan parser reads actual table columns and refuses partial or unrelated pages', () => {
   const rows = Array.from({ length: 136 }, (_, i) => `<tr><td><a href="team-clubhouse?team=Team-${i}">Team ${i}</a></td><td>${1600-i}</td><td>${i+1}</td><td>20-10</td><td>0.6667</td></tr>`).join('');
   const html = '<table><tr><th>Team</th><th>ELO SOS</th><th>Rank</th><th>Opp Record</th><th>Opp Win Percent</th></tr>' + rows + '</table>';
