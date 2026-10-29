@@ -49,6 +49,7 @@ type Split = {
 };
 
 type FootballData = {
+  historicalSlate?: boolean;
   footballWeeklyMarket?: WeeklyData;
   today?: string;
   lastUpdated?: string;
@@ -457,7 +458,7 @@ export default function FootballGameTabs({ sport, tab, data }: { sport: Sport; t
   }, [plays, slate, sport]);
 
   const live = data.draftKings?.status === "LIVE" && !data.draftKings?.stale && data.draftKings?.displayMode !== "STALE_FALLBACK";
-  const sourceStatus = data.draftKings?.stale || data.draftKings?.displayMode === "STALE_FALLBACK"
+  const sourceStatus = data.historicalSlate ? "Saved projections" : data.draftKings?.stale || data.draftKings?.displayMode === "STALE_FALLBACK"
     ? "ScoresAndOdds stale"
     : live
       ? "ScoresAndOdds live"

@@ -1,6 +1,7 @@
 "use client";
 
 import FootballBoard from "./FootballBoard";
+import FullSlateHistory from "./FullSlateHistory";
 import dynamic from "next/dynamic";
 const SignalEzpzPicks = dynamic(() => import("./FootballSignalsBoard"), { loading: () => <div className="empty">Loading EZPZ Picks…</div> });
 import NbaBoard, { type NbaMarketPayload } from "./NbaBoard";
@@ -7180,6 +7181,9 @@ export default function Home() {
     }
 
     if (activeSport !== "MLB") {
+      if (active === "Full Slate" && activeSport === "NCAAM") return <FullSlateHistory sport="NCAAM" data={data}>
+        {view => <SportDevelopmentContent sport="NCAAM" tab={active} today={view.today} />}
+      </FullSlateHistory>;
       return (
         <SportDevelopmentContent
           sport={activeSport}
@@ -7481,20 +7485,22 @@ export default function Home() {
     }
 
     if (active === "Full Slate") {
-      return (
+      return <FullSlateHistory sport="MLB" data={data}>{(slateData, historical) => {
+        const slateMarket = historical ? null : draftKings;
+        return (
         <>
           <div className="sectionHead">
             <div>
               <h2>Full Slate</h2>
-              <div className={`dkFeedStatus ${draftKings?.status === "LIVE" ? "live" : "partial"}`}>
-                {draftKings?.displayMode === "FINAL_PREGAME"
-                  ? `ScoresAndOdds final pregame snapshots • ${draftKings.finalSnapshotGames || 0} games locked`
-                  : draftKings?.displayMode === "MIXED"
-                    ? `ScoresAndOdds live + final snapshots • ${draftKings.finalSnapshotGames || 0} games locked`
-                    : draftKings?.status === "LIVE"
-                      ? `ScoresAndOdds live splits • updated ${draftKings.updatedAt}`
-                      : draftKings?.status === "PARTIAL"
-                        ? `ScoresAndOdds partial feed • updated ${draftKings.updatedAt}`
+              <div className={`dkFeedStatus ${slateMarket?.status === "LIVE" ? "live" : "partial"}`}>
+                {historical ? `Saved projections • ${slateData.today}` : slateMarket?.displayMode === "FINAL_PREGAME"
+                  ? `ScoresAndOdds final pregame snapshots • ${slateMarket.finalSnapshotGames || 0} games locked`
+                  : slateMarket?.displayMode === "MIXED"
+                    ? `ScoresAndOdds live + final snapshots • ${slateMarket.finalSnapshotGames || 0} games locked`
+                    : slateMarket?.status === "LIVE"
+                      ? `ScoresAndOdds live splits • updated ${slateMarket.updatedAt}`
+                      : slateMarket?.status === "PARTIAL"
+                        ? `ScoresAndOdds partial feed • updated ${slateMarket.updatedAt}`
                         : draftKingsError
                           ? "ScoresAndOdds live feed temporarily unavailable"
                           : "Loading ScoresAndOdds live splits…"}
@@ -7502,12 +7508,12 @@ export default function Home() {
             </div>
           </div>
 
-          {data.slateToday.length ? (
+          {slateData.slateToday.length ? (
             <div className="slateDropdownStack">
-              {[...data.slateToday]
+              {[...slateData.slateToday]
       .sort((a, b) => {
-        const aTime = publicSlateTimeSortValue(a, draftKings);
-        const bTime = publicSlateTimeSortValue(b, draftKings);
+        const aTime = publicSlateTimeSortValue(a, slateMarket);
+        const bTime = publicSlateTimeSortValue(b, slateMarket);
         if (aTime !== bTime) return aTime - bTime;
         const aGame = a["Game Label"] || `${a["Away Team"]} at ${a["Home Team"]}`;
         const bGame = b["Game Label"] || `${b["Away Team"]} at ${b["Home Team"]}`;
@@ -7521,27 +7527,28 @@ export default function Home() {
                   <details
                     className="slateDropdown"
                     key={`${row["Game ID"]}-${index}`}
-                    open={data.slateToday.length === 1}
+                    open={slateData.slateToday.length === 1}
                   >
                     <summary className="slateDropdownSummary">
                       <div>
                         <div className="slateDropdownTitle">{game}</div>
-                        {displayPublicSlateTime(row, draftKings) ? <div className="slateDropdownSub">{displayPublicSlateTime(row, draftKings)}</div> : null}
+                        {displayPublicSlateTime(row, slateMarket) ? <div className="slateDropdownSub">{displayPublicSlateTime(row, slateMarket)}</div> : null}
                       </div>
                       <span className="slateDropdownAction">View matchup</span>
                     </summary>
                     <div className="slateDropdownBody">
-                      <SlateCard row={row} draftKings={draftKings} />
+                      <SlateCard row={row} draftKings={slateMarket} />
                     </div>
                   </details>
                 );
               })}
             </div>
           ) : (
-            <div className="empty">No games saved today yet.</div>
+            <div className="empty">No games saved for {slateData.today}.</div>
           )}
         </>
       );
+      }}</FullSlateHistory>;
     }
 
     return (

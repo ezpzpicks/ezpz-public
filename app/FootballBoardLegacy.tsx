@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import FootballBoardBase from "./FootballBoardBase";
 import FootballGameTabs from "./FootballGameTabs";
+import FullSlateHistory from "./FullSlateHistory";
 import { DirectTrendRecords } from "./FootballTrendMarketBoard";
 import { MatchupWithLogos, SelectionWithTeamLogo, TeamLogoName } from "./TeamLogoName";
 import { buildNflEzpzRecords } from "../lib/nflEzpzRecords";
@@ -570,7 +571,12 @@ function FootballRecords({ sport, data }: { sport: Sport; data: FootballData }) 
 }
 
 export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab: Tab; data: FootballData & Record<string, any> }) {
-  if (tab === "Full Slate" || tab === "Today’s Model Plays") {
+  if (tab === "Full Slate") {
+    return <FullSlateHistory key={sport} sport={sport} data={data}>
+      {view => <FootballGameTabs sport={sport} tab={tab} data={view} />}
+    </FullSlateHistory>;
+  }
+  if (tab === "Today’s Model Plays") {
     return <FootballGameTabs sport={sport} tab={tab} data={data} />;
   }
   if (tab === "Records") return <FootballRecords sport={sport} data={data} />;
