@@ -5,6 +5,13 @@ import { useEffect, useState, type ReactNode } from "react";
 type Slate = { today?: string; slateToday?: Record<string, string>[]; marketAvailableDates?: string[] };
 type Sport = "MLB" | "NFL" | "NCAAF" | "NCAAM";
 const todayET = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+function slateDay(value: string | undefined) {
+  const raw = String(value || "").trim();
+  const us = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  const date = us ? `${us[3]}-${us[1].padStart(2, "0")}-${us[2].padStart(2, "0")}` : raw;
+  const stamp = /^\d{4}-\d{2}-\d{2}$/.test(date) ? Date.parse(`${date}T12:00:00Z`) : NaN;
+  return Number.isFinite(stamp) && new Date(stamp).toISOString().slice(0, 10) === date ? date : "";
+}
 const dateLabel = (date: string) => new Intl.DateTimeFormat("en-US", {
   timeZone: "UTC", weekday: "short", month: "short", day: "numeric", year: "numeric",
 }).format(new Date(`${date}T12:00:00Z`));
@@ -12,7 +19,7 @@ const dateLabel = (date: string) => new Intl.DateTimeFormat("en-US", {
 export default function FullSlateHistory<T extends Slate>({ sport, data, children }: {
   sport: Sport; data: T; children: (view: T, historical: boolean) => ReactNode;
 }) {
-  const current = data.today || todayET();
+  const current = slateDay(data.today) || todayET();
   const [choice, setChoice] = useState<{ sport: Sport; date: string } | null>(null);
   const [dates, setDates] = useState<{ sport: Sport; values: string[] } | null>(null);
   const [archive, setArchive] = useState<{ sport: Sport; date: string; data?: Slate; error?: boolean } | null>(null);
@@ -42,8 +49,8 @@ export default function FullSlateHistory<T extends Slate>({ sport, data, childre
     return () => controller.abort();
   }, [sport, selected, current, retry]);
 
-  const available = [...new Set([current, selected, ...(data.marketAvailableDates || []), ...(dates?.sport === sport ? dates.values : [])])]
-    .filter(date => /^\d{4}-\d{2}-\d{2}$/.test(date)).sort().reverse();
+  const available = [...new Set([current, selected, ...(data.marketAvailableDates || []), ...(dates?.sport === sport ? dates.values : [])]
+    .map(slateDay).filter(Boolean))].sort().reverse();
   const historical = selected !== current;
   const saved = archive?.sport === sport && archive.date === selected ? archive : null;
   const view = historical ? saved?.data ? { ...data, ...saved.data, draftKings: undefined, bestPlays: [], betTrackerRows: [] } as T : null : data;

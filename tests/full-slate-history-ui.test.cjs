@@ -81,3 +81,17 @@ test('date switching loads the requested saved slate, guards races and failures,
     assert.deepEqual([...document.querySelectorAll('option')].map(option => option.value), [current.today]);
   } finally { await act(async () => h.root.unmount()); }
 });
+
+test('MLB US-formatted current dates select today correctly and normalize saved date options', async () => {
+  const h = harness();
+  try {
+    await h.render('MLB', { ...current, today: '10/29/2026', marketAvailableDates: ['10/28/2026', '2026-10-27'] });
+    const select = document.querySelector('select');
+    const props = select[Object.keys(select).find(key => key.startsWith('__reactProps'))];
+    assert.equal(props.value, '2026-10-29');
+    assert.deepEqual([...document.querySelectorAll('option')].map(option => option.value), ['2026-10-29', '2026-10-28', '2026-10-27']);
+    assert.equal(document.querySelector('article').textContent, 'Current game');
+    assert.equal(document.querySelector('article').getAttribute('data-historical'), 'false');
+    assert.equal(h.requests.length, 1, 'today uses the existing current board');
+  } finally { await act(async () => h.root.unmount()); }
+});
