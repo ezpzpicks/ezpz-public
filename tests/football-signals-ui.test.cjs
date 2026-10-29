@@ -127,6 +127,14 @@ test('the slate starts collapsed; active money shows +27 while the opposite side
   assert.doesNotMatch(html, /fs-signal-value">-27|class="fs-detail"/);
 });
 
+test('saved Covers model lines are identified separately from public betting and final snapshots', () => {
+  const savedInput = { ...side, status: 'UNAVAILABLE', recorded: false,
+    lineSource: { name: 'Covers', capturedAt: '2026-10-18T13:06:30Z', url: 'https://www.covers.com/sport/football/ncaaf/matchup/378342' } };
+  const html = render(React.createElement(exportsObject.default, { board: { ...board, sport: 'NCAAF', sides: [savedInput] } }));
+  for (const label of ['Saved Covers line', '9:06 AM ET', '−110 assumed', 'Public betting splits unavailable']) assert(html.includes(label), label);
+  assert.doesNotMatch(html, /Saved pregame ·|Live preview ·|Awaiting market data/);
+});
+
 test('public summary keeps every matched trend and its key performance records', () => {
   const html = render(React.createElement(exportsObject.detailTest, { side, signal: side.signals[2], onClose() {} }));
   assert.match(html, /#1 · Matched system 1/); assert.match(html, /#2 · Matched system 2/);

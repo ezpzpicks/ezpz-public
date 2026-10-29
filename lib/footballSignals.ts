@@ -32,6 +32,7 @@ export type FootballSignalSide = {
   id: string; date: string; gameKey: string; game: string; gameTime: string; awayTeam: string; homeTeam: string;
   market: "Spread" | "Total"; side: string; selection: string; line: number | null; odds: string;
   status: "LIVE" | "FINAL_PREGAME" | "MISSED_LOCK" | "UNAVAILABLE"; snapshotAt: string; recorded: boolean;
+  lineSource?: { name: "Covers"; capturedAt: string; url: string };
   signals: FootballSignal[]; signalCount: number; sourceCount: number; candidate: boolean; selected: boolean; mixed: boolean;
   combination: string; teamTrend: FootballTeamTrendScore | null; publicMatches: PublicSignalMatch[];
   teamGames: { team: string; date: string; opponent: string; venue: string; line: number | null; result: string }[];
@@ -209,7 +210,8 @@ function evaluateSide(play: AnyRow, siblings: AnyRow[], input: SignalsInput, ran
     side: selectionKey(play, sport), selection, line, odds, status: play.snapshotStatus || "LIVE",
     snapshotAt: play.snapshotStatus === "FINAL_PREGAME" ? new Date(asOf).toISOString()
       : new Date(Date.parse(String(play.updatedAt || "").replace(/ EDT$/, " -0400").replace(/ EST$/, " -0500")) || asOf).toISOString(), recorded: false,
-    signals, signalCount, sourceCount, candidate: signalCount >= signalPickThreshold(sport) && sourceCount >= 2 && quoteValid,
+    lineSource: play.lineSource,
+    signals, signalCount, sourceCount, candidate: !play.lineSource && signalCount >= signalPickThreshold(sport) && sourceCount >= 2 && quoteValid,
     selected: false, mixed: false, combination: active.map(s => s.key).join(" + "), teamTrend, teamGames, publicMatches,
     marketContext: { bets, money, openingBets: signalNumber(play.openingBetsPct), openingMoney: signalNumber(play.openingMoneyPct),
       openingLine: signalNumber(play.openingLine), openingOdds: String(play.openingOdds || ""), publicChange: signalNumber(play.publicMovementPct),
@@ -286,6 +288,34 @@ export function buildFootballSignalsState(input: SignalsInput): { board: Footbal
     const pair = footballTeamPair(raw)!, play = { ...raw, date: raw.date || raw.recordDate || core.today, awayTeam: raw.awayTeam || pair[0], homeTeam: raw.homeTeam || pair[1] };
     if (play.date < displayStart) continue;
     marketPlays.set(identifier(play, sport), play);
+  }
+  // A college build can have Covers lines even when ScoresAndOdds has no
+  // matchup. Display those saved inputs without manufacturing split history,
+  // live market quotes or a final pregame signal capture.
+  if (sport === "NCAAF") {
+    const covered = new Set([...marketPlays.values()].map(play => `${footballTeamGameKey(play, sport)}|${play.market}`));
+    for (const row of core.slateToday || []) {
+      const date = dateOf(row), pair = footballTeamPair(row);
+      const captured = Date.parse(row["Build Captured At"] || ""), kickoff = Date.parse(nflKickoffIso(date, row["Game Time"]));
+      const spread = signalNumber(row["Market Home Spread"]), total = signalNumber(row["Market Total"]);
+      if (!pair || row["Build Source"] !== "Scheduled Covers builder" || !row["Model Version"]
+        || String(row["Odds Assumption"]) !== "-110" || !Number.isFinite(captured) || !Number.isFinite(kickoff)
+        || captured > now || captured >= kickoff || spread == null || Math.abs(spread) > 100 || total == null || total <= 0 || total >= 300
+        || date < displayStart || date > (core.draftKings?.trackingWeekEnd || core.today)) continue;
+      for (const market of ["Spread", "Total"] as const) {
+        if (covered.has(`${footballTeamGameKey(row, sport)}|${market}`)) continue;
+        for (const [index, selection] of (market === "Spread" ? pair : ["Over", "Under"]).entries()) {
+          const play = { date, game: row.Game || `${pair[0]} @ ${pair[1]}`, gameTime: row["Game Time"],
+            awayTeam: pair[0], homeTeam: pair[1], market, selection,
+            selectionTeam: market === "Spread" ? selection : "", side: market === "Total" ? selection : "",
+            line: market === "Spread" ? index === 0 ? -spread : spread : total,
+            odds: "-110", oddsSource: "DEFAULT_110", observedPriceMissing: true,
+            updatedAt: new Date(captured).toISOString(), snapshotStatus: "UNAVAILABLE",
+            lineSource: { name: "Covers", capturedAt: new Date(captured).toISOString(), url: String(row["Market Source URL"] || "") } };
+          marketPlays.set(identifier(play, sport), play);
+        }
+      }
+    }
   }
   // Include scheduled matchups even before a market feed has posted both sides.
   for (const row of [...(core.teamTrendScheduleRows || []), ...(core.slateToday || [])]) {
