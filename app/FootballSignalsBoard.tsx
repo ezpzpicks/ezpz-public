@@ -177,8 +177,8 @@ function CombinationResearch({ report, market, scopeLabel = "Cumulative" }: { re
   const sample = (value: typeof view.total) => <>{value.samples ? value.record : "No observations"}
     <small>{value.settled} settled · {value.pending} pending{value.settled ? ` · ${format(value.netUnits, true)}u` : ""}</small></>;
   const rows = (items: { label: string; record: typeof view.total }[]) => <table className="fs-table">
-    <thead><tr><th>Signals</th><th>Record / sample</th><th>ROI</th></tr></thead>
-    <tbody>{items.map(row => <tr key={row.label}><th scope="row">{row.label}</th><td>{sample(row.record)}</td><td>{percent(row.record.roiPct)}</td></tr>)}</tbody>
+    <thead><tr><th scope="col">Signals</th><th scope="col">Record / sample</th><th scope="col">ROI</th></tr></thead>
+    <tbody>{items.map(row => <tr key={row.label}><th scope="row">{row.label}</th><td data-label="Record / sample">{sample(row.record)}</td><td data-label="ROI">{percent(row.record.roiPct)}</td></tr>)}</tbody>
   </table>;
   return <details className="fs-results fs-research">
     <summary>Signal combination research <span>1 · 2 · 3+ signals · {market === "Spread" ? "Spreads" : "Totals"}</span></summary>
@@ -302,11 +302,12 @@ export default function FootballSignals({ board, picksOnly = false, sport: fallb
       : <div className="fs-legend"><span><i className="fs-legend-on" />Qualifying signal</span><span><i />Inactive or unavailable</span></div>}
     <details className="fs-results"><summary>{`${threshold}+ signal test results`} <strong>{board.summary.record}</strong><span>{board.summary.settled} settled · {board.summary.pending} pending</span></summary>
       <Lines items={[["Win rate", percent(board.summary.winPct)], ["Net units", format(board.summary.netUnits, true)], ["ROI", percent(board.summary.roiPct)], ["Mode", "Saved pregame tests evaluated at the current EZPZ threshold"]]} />
-      {board.breakdowns.length ? <table className="fs-table"><thead><tr><th>Group</th><th>Record / sample</th><th>ROI</th></tr></thead><tbody>{board.breakdowns.map(row => <tr key={`${row.dimension}-${row.label}`}><th scope="row">{row.label}<small>{row.dimension}</small></th><td>{row.record.record}<small>{row.record.settled} settled · {row.record.pending} pending</small></td><td>{percent(row.record.roiPct)}</td></tr>)}</tbody></table> : <p>{liveNba ? "Results appear after qualifying selections are saved before tipoff and settled." : "Results appear after qualifying test selections are saved before kickoff and settled."}</p>}
-      {board.history.length ? <table className="fs-table"><thead><tr><th>{liveNba ? "Saved signal play" : "Saved test play"}</th><th>Signals</th><th>Result</th></tr></thead><tbody>{board.history.map((row, i) => <tr key={`${row.date}-${row.selection}-${i}`}><th scope="row">{row.selection}<small>{row.game} · {row.date}</small></th><td>{row.signalCount}<small>{row.combination}</small></td><td>{row.result || "Pending"}</td></tr>)}</tbody></table> : null}
+      {board.breakdowns.length ? <table className="fs-table"><thead><tr><th scope="col">Group</th><th scope="col">Record / sample</th><th scope="col">ROI</th></tr></thead><tbody>{board.breakdowns.map(row => <tr key={`${row.dimension}-${row.label}`}><th scope="row">{row.label}<small>{row.dimension}</small></th><td data-label="Record / sample">{row.record.record}<small>{row.record.settled} settled · {row.record.pending} pending</small></td><td data-label="ROI">{percent(row.record.roiPct)}</td></tr>)}</tbody></table> : <p>{liveNba ? "Results appear after qualifying selections are saved before tipoff and settled." : "Results appear after qualifying test selections are saved before kickoff and settled."}</p>}
+      {board.history.length ? <table className="fs-table"><thead><tr><th scope="col">{liveNba ? "Saved signal play" : "Saved test play"}</th><th scope="col">Signals</th><th scope="col">Result</th></tr></thead><tbody>{board.history.map((row, i) => <tr key={`${row.date}-${row.selection}-${i}`}><th scope="row">{row.selection}<small>{row.game} · {row.date}</small></th><td data-label="Signals">{row.signalCount}<small>{row.combination}</small></td><td data-label="Result">{row.result || "Pending"}</td></tr>)}</tbody></table> : null}
       <p>{liveNba ? "All signal observations are saved. Each settled qualifying selection risks one unit at its saved odds. Official selections appear on EZPZ Picks." : "All signal observations are saved, including games that produce no test selection. Each settled test selection risks one unit at its saved odds."}</p>
     </details>
     {!picksOnly && market !== "All" ? <CombinationResearch report={needsArchive ? archiveReady ? archive?.research : undefined : board.research} market={market}
       scopeLabel={needsArchive ? "Selected slate:" : "Cumulative"} /> : null}
   </section>;
 }
+
