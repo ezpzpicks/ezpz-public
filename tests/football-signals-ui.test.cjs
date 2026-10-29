@@ -34,6 +34,22 @@ const board = { sport: 'NFL', today: '2026-10-18', captureAvailable: true, sides
   summary: { record: '0-0-0', settled: 0, pending: 0, winPct: null, roiPct: null, netUnits: 0 }, breakdowns: [], history: [] };
 const render = node => renderToStaticMarkup(node);
 
+test('signal tiles place exact combination and no-signal records between odds and count', () => {
+  const stats = (wins, losses, pushes, pending = 0) => ({ wins, losses, pushes, pending, netUnits: 0, assumedPrices: 0, unknownPrices: 0 });
+  const research = { sport: 'NFL', dates: [], forwardFrom: '2026-10-23T22:27:21Z', cells: [
+    { market: 'Spread', phase: 'history', combination: 'money+move+system+team', stats: stats(8, 3, 1) },
+    { market: 'Spread', phase: 'forward', combination: 'money+move+system+team', stats: stats(2, 1, 0, 1) },
+    { market: 'Spread', phase: 'forward', combination: '', stats: stats(5, 9, 0) },
+  ] };
+  const html = render(React.createElement(exportsObject.default, { board: { ...board, research } }));
+  assert.match(html, /-110<\/small><\/div><small class="fs-combination-record"[^>]*>Combo 10-4-1<\/small><span class="fs-count/);
+  assert.match(html, /Combo 5-9-0<\/small><span class="fs-count">0 signals/);
+  assert.match(html, /No active signals · Spreads · Cumulative saved history/);
+  assert.match(html, /10-4-1 \(wins-losses-pushes\) · 1 pending/);
+  const missing = render(React.createElement(exportsObject.default, { board }));
+  assert.match(missing, /No settled history[^>]*>Combo —/);
+});
+
 test('EZPZ shows only qualifying saved signal tests, with NFL two and NCAAF three', () => {
   const frozen = { ...side, recorded: true, status: 'FINAL_PREGAME', snapshotAt: '2026-10-19T00:05:00Z',
     signalCount: 2, selected: false, candidate: false,

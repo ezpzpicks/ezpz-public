@@ -2287,6 +2287,7 @@ body::after {
 .fs-side{padding:14px 16px}
 .fs-side+.fs-side{border-top:1px solid var(--fs-border)}
 .fs-side-heading{display:flex;align-items:center;justify-content:space-between;gap:9px;margin-bottom:13px}
+.fs-combination-record{flex:none;margin-left:auto;color:var(--fs-dim);font-size:.65rem;line-height:1.5;white-space:nowrap;font-variant-numeric:tabular-nums}
 .fs-selection{display:flex;align-items:center;flex-wrap:wrap;gap:6px;min-width:0;font-size:.95rem;line-height:1.4}
 .fs-selection strong{font-weight:600}
 .fs-selection small{font-size:.7rem;color:var(--fs-dim);font-variant-numeric:tabular-nums}

@@ -16,6 +16,25 @@ function report(sides, at = now) { return api.buildSignalResearchReport('NCAAF',
 const view = (sides, market = 'Total', phase = 'all') => api.signalResearchView(report(sides), market, phase);
 const completed = (result, odds = '-110') => ({ result, odds, resultUpdated: iso(now - 1000) });
 
+test('tile records use the exact active set, including zero and one, with separate markets', () => {
+  const values = [side('zero', [], completed('L')), side('one', ['model'], completed('P')),
+    side('pair', ['move', 'sos'], completed('W')), side('pending', ['move', 'sos']),
+    side('triple', ['move', 'sos', 'money'], completed('L')),
+    side('spread', ['move', 'sos'], { ...completed('L'), market: 'Spread', line: -14 }),
+    side('earlier', ['move', 'sos'], { ...completed('P'), snapshotAt: '2026-10-23T20:45:00Z', gameTime: '2026-10-23T21:00:00Z' })];
+  const research = report(values);
+  const lookup = keys => api.signalCombinationRecord(research, 'Total', side('live', keys).signals.reverse());
+  assert.equal(lookup([]).record, '0-1-0');
+  assert.equal(lookup(['model']).record, '0-0-1');
+  const pair = lookup(['sos', 'move']);
+  assert.equal(pair.combination, 'move+sos');
+  assert.equal(pair.record, '1-0-1');
+  assert.equal(pair.pending, 1);
+  assert.equal(api.signalCombinationRecord(research, 'Spread', side('live', ['move', 'sos']).signals).record, '0-1-0');
+  assert.equal(lookup(['money']).samples, 0);
+  assert.equal(api.signalCombinationRecord(undefined, 'Spread', []), null);
+});
+
 test('all frozen sides supply baselines and exact two/three-signal cohorts without creating picks', () => {
   const values = [side('zero', []), side('one', ['model']), side('two'), side('three', ['system', 'money', 'model'])];
   const result = view(values);

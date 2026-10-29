@@ -7,7 +7,7 @@ import NbaGameLineups from "./NbaGameLineups";
 import type { NbaGameLineup } from "../lib/nbaLineupsCore";
 import type { FootballSignalKey, FootballSignalSide, FootballSignalsBoard, FootballSignal } from "../lib/footballSignals";
 import { selectSignalEzpzPicks, signalPickThreshold } from "../lib/signalPicks";
-import { signalResearchView, signalCombinationLabel, type ResearchPhase, type SignalResearchReport } from "../lib/signalCombinationResearch";
+import { signalResearchView, signalCombinationLabel, signalCombinationRecord, type ResearchPhase, type SignalResearchReport } from "../lib/signalCombinationResearch";
 import { evaluateSignalMovement } from "../lib/signalMovement";
 
 const META = {
@@ -170,6 +170,15 @@ function EzpzPickTile({ side, sport, expandedKey, onSignalClick, children, lineu
   </article>;
 }
 
+function CombinationRecord({ side, report }: { side: FootballSignalSide; report?: SignalResearchReport }) {
+  const record = signalCombinationRecord(report, side.market, side.signals);
+  const label = record ? signalCombinationLabel(record.combination) : "Signal combination";
+  const description = `${label} · ${side.market === "Spread" ? "Spreads" : "Totals"} · Cumulative saved history · ${record?.settled
+    ? `${record.record} (wins-losses-pushes) · ${record.pending} pending`
+    : record?.pending ? `No settled history · ${record.pending} pending` : "No settled history"}`;
+  return <small className="fs-combination-record" title={description} aria-label={description}>Combo {record?.settled ? record.record : "—"}</small>;
+}
+
 function CombinationResearch({ report, market, scopeLabel = "Cumulative" }: { report?: SignalResearchReport; market: "Spread" | "Total"; scopeLabel?: string }) {
   const [phase, setPhase] = useState<ResearchPhase | "all">("all");
   const view = useMemo(() => report ? signalResearchView(report, market, phase) : null, [report, market, phase]);
@@ -286,7 +295,7 @@ export default function FootballSignals({ board, picksOnly = false, sport: fallb
       <header className="fs-game-header"><span>{rows[0].game}</span><time dateTime={rows[0].gameTime}>{time(rows[0].gameTime)}</time></header>
       {liveNba ? <NbaGameLineups game={rows[0].game} date={selectedDate} lineups={needsArchive ? archive?.lineups || [] : undefined} /> : null}
       {rows.slice().sort((a, b) => a.market.localeCompare(b.market) || (a.market === "Total" ? (a.side === "Over" ? -1 : 1) : 0)).map(side => <div className="fs-side" key={side.id}>
-        <div className="fs-side-heading"><div className="fs-selection">{side.market === "Spread" ? <TeamLogoName sport={board.sport} team={side.selection.replace(/\s+[+−-]?\d+(?:\.\d+)?$/, "")} className="fs-team-name" /> : <strong>{side.side}</strong>}<strong>{side.line == null ? "Line pending" : format(side.line, side.market === "Spread")}</strong><small>{side.odds}</small></div><span className={side.selected ? "fs-count fs-qualified" : "fs-count"}>{side.signalCount} {side.signalCount === 1 ? "signal" : "signals"}{side.mixed ? " · Mixed" : side.selected ? " · EZPZ" : ""}</span></div>
+        <div className="fs-side-heading"><div className="fs-selection">{side.market === "Spread" ? <TeamLogoName sport={board.sport} team={side.selection.replace(/\s+[+−-]?\d+(?:\.\d+)?$/, "")} className="fs-team-name" /> : <strong>{side.side}</strong>}<strong>{side.line == null ? "Line pending" : format(side.line, side.market === "Spread")}</strong><small>{side.odds}</small></div><CombinationRecord side={side} report={board.research?.sport === board.sport ? board.research : undefined} /><span className={side.selected ? "fs-count fs-qualified" : "fs-count"}>{side.signalCount} {side.signalCount === 1 ? "signal" : "signals"}{side.mixed ? " · Mixed" : side.selected ? " · EZPZ" : ""}</span></div>
         <div className="fs-signals">{keys.map(key => { const s = side.signals.find(s => s.key === key), { Icon, title } = META[key]; if (!s) return null;
           const expanded = open?.id === side.id && open.key === key;
           const available = s.available || key === "move" && !side.recorded && side.marketContext?.openingLine != null && side.line != null;

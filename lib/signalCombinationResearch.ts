@@ -37,6 +37,16 @@ function record(stats: ResearchStats) {
     winPct: stats.wins + stats.losses ? round(stats.wins / (stats.wins + stats.losses) * 100) : null,
     roiPct: settled ? round(stats.netUnits / settled * 100) : null };
 }
+
+/** Exact active set, including zero/one signals, within one sport's market history. */
+export function signalCombinationRecord(report: SignalResearchReport | undefined, market: string, signals: ResearchObservation["signals"]) {
+  if (!report) return null;
+  const combination = RESEARCH_SIGNAL_KEYS.filter(key => signals.some(signal => signal.key === key && signal.active && signal.available)).join("+");
+  const stats = report.cells.filter(cell => cell.market === market && cell.combination === combination)
+    .reduce((sum, cell) => add(sum, cell.stats), empty());
+  return { combination, ...record(stats) };
+}
+
 function mergeCells(cells: ResearchCell[]) {
   const merged = new Map<string, ResearchCell>();
   for (const cell of cells) {
