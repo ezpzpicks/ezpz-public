@@ -3,7 +3,8 @@ import { upsertSportRows, type FootballSport, type SheetRow } from "./sportSheet
 
 export const TEAM_SEASON_HISTORY_TAB = "team_season_history";
 const HEADERS = ["Date", "Game ID", "Game", "Away Team", "Home Team", "Away Score", "Home Score",
-  "Completed", "Neutral Site", "Home Spread", "Total", "Odds", "History Source", "History URL", "History Checked At"];
+  "Completed", "Neutral Site", "Home Spread", "Total", "Odds", "History Source", "History URL", "History Checked At",
+  "Closing Quote Kind", "Closing Home Spread", "Closing Total", "Closing Provider"];
 const SOURCE = "ESPN completed-game closing lines";
 const RETRY_AFTER_MS = 6 * 60 * 60 * 1000;
 const MAX_GAMES_PER_REFRESH = 24;
@@ -54,13 +55,20 @@ export function parseEspnTeamSeasonGame(payload: any, sport: FootballSport, expe
     "Neutral Site": competition.neutralSite ? "TRUE" : "FALSE" };
   if (footballTeamGameKey(row, sport) !== footballTeamGameKey(expected, sport)) return null;
   const quotes = (Array.isArray(payload.pickcenter) ? payload.pickcenter : [])
-    .map((quote: any) => ({ ...closingLines(quote), priority: num(quote.provider?.priority) ?? 999 }))
+    .map((quote: any) => ({ ...closingLines(quote), priority: num(quote.provider?.priority) ?? 999,
+      explicitHomeSpread: num(quote.pointSpread?.home?.close?.line),
+      explicitTotal: num(quote.total?.over?.close?.line) ?? num(quote.total?.under?.close?.line),
+      provider: String(quote.provider?.name || "") }))
     .sort((a: any, b: any) => a.priority - b.priority);
   const quote = quotes.find((q: any) => q.homeSpread != null && q.total != null) || quotes.find((q: any) => q.homeSpread != null || q.total != null);
   return { ...row, "Home Spread": quote?.homeSpread == null ? "" : String(quote.homeSpread), Total: quote?.total == null ? "" : String(quote.total),
     Odds: "-110", "History Source": SOURCE,
     "History URL": `https://site.api.espn.com/apis/site/v2/sports/football/${sport === "NFL" ? "nfl" : "college-football"}/summary?event=${header.id}`,
-    "History Checked At": new Date(now).toISOString() };
+    "History Checked At": new Date(now).toISOString(),
+    "Closing Quote Kind": quote && (quote.explicitHomeSpread != null || quote.explicitTotal != null) ? "EXPLICIT_CLOSE" : "",
+    "Closing Home Spread": quote?.explicitHomeSpread == null ? "" : String(quote.explicitHomeSpread),
+    "Closing Total": quote?.explicitTotal == null || quote.explicitTotal <= 0 ? "" : String(quote.explicitTotal),
+    "Closing Provider": quote?.provider || "" };
 }
 
 /** Refresh only in the existing snapshot job. Public page reads never fetch summaries. */

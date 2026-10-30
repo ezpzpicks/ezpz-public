@@ -14,6 +14,7 @@ import { refreshFootballTeamSeasonHistory, TEAM_SEASON_HISTORY_TAB } from "./foo
 import { buildTeamTrendTestState, TEAM_TREND_TEST_HEADERS, TEAM_TREND_TEST_TAB } from "./footballTeamTrendPlays";
 import { buildFootballSignalsState, FOOTBALL_SIGNALS_HEADERS, FOOTBALL_SIGNALS_TAB } from "./footballSignals";
 import { loadFootballSos } from "./footballSos";
+import { mergeNcaafResearchPatches, ncaafModelResearchPatches, ncaafResearchTrackerKey } from "./ncaafModelResearch";
 import {
   readSportWorksheet,
   upsertSportRows,
@@ -1074,6 +1075,22 @@ export async function buildFootballPublicData(
       teamSeasonRows = await refreshFootballTeamSeasonHistory(sport, core.teamTrendScheduleRows, historyTargets, teamSeasonRows, selectionTime);
     } catch (error) {
       console.warn(`${sport} team season history refresh failed`, error);
+    }
+  }
+  if (sport === "NCAAF" && options.persist) {
+    const tracker = (core.betTrackerRows || []) as SheetRow[];
+    const changes = ncaafModelResearchPatches(tracker, teamSeasonRows);
+    if (changes.length) {
+      try {
+        const stored = await readSportWorksheet(sport, "bet_tracker");
+        const writes = mergeNcaafResearchPatches(stored, changes);
+        const headers = [...new Set([...stored, ...writes].flatMap(row => Object.keys(row)))];
+        if (writes.length) await upsertSportRows(sport, "bet_tracker", headers, writes, ncaafResearchTrackerKey);
+        const patches = new Map(changes.map(row => [ncaafResearchTrackerKey(row), row]));
+        core.betTrackerRows = tracker.map(row => patches.get(ncaafResearchTrackerKey(row)) || row);
+      } catch (error) {
+        console.warn("NCAAF model research capture failed", error);
+      }
     }
   }
   const teamTrendHistory = buildTeamTrendHistory(sport, rows, core.betTrackerRows || [], core.teamTrendScheduleRows, teamSeasonRows);
