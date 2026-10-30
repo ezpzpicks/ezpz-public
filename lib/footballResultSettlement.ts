@@ -4,6 +4,7 @@ import {
   type FootballSport,
   type SheetRow,
 } from "./sportSheets";
+import { captureNcaafTotalForward } from "./ncaafTotalForwardStore";
 
 type FinalGame = {
   gameId: string;
@@ -427,6 +428,13 @@ async function settlePendingFootballResultsNow(sport: FootballSport): Promise<Se
     readSportWorksheet(sport, "schedule"),
     readSportWorksheet(sport, "daily_slate"),
   ]);
+
+  // The existing scheduled settlement phase runs even if the live market feed
+  // is unavailable. Reuse its saved frames for the separate forward experiment.
+  if (sport === "NCAAF") {
+    try { await captureNcaafTotalForward(slate, schedule); }
+    catch (error) { console.warn("NCAAF total forward capture failed", error); }
+  }
 
   const reconciled = await reconcileModelTrackerRows(sport, trackerRaw, slate);
   const tracker = reconciled.tracker;
