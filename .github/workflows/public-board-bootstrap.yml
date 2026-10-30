@@ -2,7 +2,7 @@ name: Warm saved public boards after deployment
 on:
   push:
     branches: [main]
-    paths: ['lib/publicBoardSnapshot.ts', 'app/api/sport-public-data/route.ts', '.github/workflows/public-board-bootstrap.yml']
+    paths: ['lib/publicBoardSnapshot.ts', 'lib/signalCombinationResearch.ts', 'app/api/sport-public-data/route.ts', '.github/workflows/public-board-bootstrap.yml']
   workflow_dispatch:
 permissions:
   contents: read

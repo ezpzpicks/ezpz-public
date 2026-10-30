@@ -5,7 +5,7 @@ const ts = require('typescript'), React = require('react');
 const { renderToStaticMarkup } = require('react-dom/server');
 const root = path.resolve(__dirname, '..');
 const exportsObject = {};
-const source = fs.readFileSync(path.join(root, 'app/FootballSignalsBoard.tsx'), 'utf8') + '\nexport const detailTest = SignalDetail; export const researchTest = CombinationResearch;';
+const source = fs.readFileSync(path.join(root, 'app/FootballSignalsBoard.tsx'), 'utf8') + '\nexport const detailTest = SignalDetail; export const researchTest = CombinationResearch; export const comboTest = CombinationRecord;';
 vm.runInNewContext(ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } }).outputText,
   { exports: exportsObject, Date, Intl, console, require: name => name === './TeamLogoName' ? { TeamLogoName: p => p.team }
     : name === './NbaGameLineups' ? { __esModule: true, default: () => null }
@@ -36,18 +36,35 @@ const render = node => renderToStaticMarkup(node);
 
 test('signal tiles place exact combination and no-signal records between odds and count', () => {
   const stats = (wins, losses, pushes, pending = 0) => ({ wins, losses, pushes, pending, netUnits: 0, assumedPrices: 0, unknownPrices: 0 });
-  const research = { sport: 'NFL', dates: [], forwardFrom: '2026-10-23T22:27:21Z', cells: [
-    { market: 'Spread', phase: 'history', combination: 'money+move+system+team', stats: stats(8, 3, 1) },
-    { market: 'Spread', phase: 'forward', combination: 'money+move+system+team', stats: stats(2, 1, 0, 1) },
-    { market: 'Spread', phase: 'forward', combination: '', stats: stats(5, 9, 0) },
+  const { SIGNAL_RESEARCH_VERSION } = require('./load-typescript.cjs')(path.join(root, 'lib/signalCombinationResearch.ts'));
+  const research = { version: SIGNAL_RESEARCH_VERSION, sport: 'NFL', dates: [], forwardFrom: '2026-10-23T22:27:21Z', cells: [
+    { market: 'Spread', phase: 'history', sideGroup: 'Favorite', combination: 'money+move+system+team', stats: stats(8, 3, 1) },
+    { market: 'Spread', phase: 'forward', sideGroup: 'Favorite', combination: 'money+move+system+team', stats: stats(2, 1, 0, 1) },
+    { market: 'Spread', phase: 'forward', sideGroup: 'Underdog', combination: 'money+move+system+team', stats: stats(0, 20, 0) },
+    { market: 'Spread', phase: 'forward', sideGroup: 'Underdog', combination: '', stats: stats(5, 9, 0) },
+    { market: 'Spread', phase: 'forward', sideGroup: 'Favorite', combination: '', stats: stats(0, 30, 0) },
   ] };
   const html = render(React.createElement(exportsObject.default, { board: { ...board, research } }));
   assert.match(html, /-110<\/small><\/div><small class="fs-combination-record"[^>]*>Combo 10-4-1<\/small><span class="fs-count/);
   assert.match(html, /Combo 5-9-0<\/small><span class="fs-count">0 signals/);
-  assert.match(html, /No active signals · Spreads · Cumulative saved history/);
+  assert.match(html, /No active signals · Underdog · Spreads · Cumulative saved history/);
+  assert.match(html, /Money support \+ Line movement \+ Public trend \+ Team trend · Favorite · Spreads/);
   assert.match(html, /10-4-1 \(wins-losses-pushes\) · 1 pending/);
   const missing = render(React.createElement(exportsObject.default, { board }));
   assert.match(missing, /No settled history[^>]*>Combo —/);
+});
+
+test('total combo labels use the selected direction and exclude the opposite direction', () => {
+  const research = require('./load-typescript.cjs')(path.join(root, 'lib/signalCombinationResearch.ts'));
+  const now = Date.parse('2026-10-19T05:00:00Z'), policy = 'ui-total-v1';
+  const observations = ['Over', 'Under'].map((direction, i) => ({ ...side, id: direction,
+    market: 'Total', side: direction, selection: direction + ' 44.5', line: 44.5, policyVersion: policy,
+    recorded: true, status: 'FINAL_PREGAME', snapshotAt: '2026-10-19T00:05:00Z',
+    result: i ? 'L' : 'W', resultUpdated: '2026-10-19T04:00:00Z' }));
+  const report = research.buildSignalResearchReport('NFL', policy, research.buildSignalResearchDays(observations, policy, now));
+  const recordFor = value => render(React.createElement(exportsObject.comboTest, { side: value, report }));
+  assert.match(recordFor(observations[0]), /Over · Totals.*>Combo 1-0-0<\/small>/);
+  assert.match(recordFor(observations[1]), /Under · Totals.*>Combo 0-1-0<\/small>/);
 });
 
 test('EZPZ shows only qualifying saved signal tests, with NFL two and NCAAF three', () => {

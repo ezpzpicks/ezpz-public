@@ -7,7 +7,7 @@ import NbaGameLineups from "./NbaGameLineups";
 import type { NbaGameLineup } from "../lib/nbaLineupsCore";
 import type { FootballSignalKey, FootballSignalSide, FootballSignalsBoard, FootballSignal } from "../lib/footballSignals";
 import { selectSignalEzpzPicks, signalPickThreshold } from "../lib/signalPicks";
-import { signalResearchView, signalCombinationLabel, signalCombinationRecord, type ResearchPhase, type SignalResearchReport } from "../lib/signalCombinationResearch";
+import { signalResearchView, signalCombinationLabel, signalCombinationRecord, signalResearchSideGroup, type ResearchPhase, type SignalResearchReport } from "../lib/signalCombinationResearch";
 import { evaluateSignalMovement } from "../lib/signalMovement";
 
 const META = {
@@ -171,9 +171,9 @@ function EzpzPickTile({ side, sport, expandedKey, onSignalClick, children, lineu
 }
 
 function CombinationRecord({ side, report }: { side: FootballSignalSide; report?: SignalResearchReport }) {
-  const record = signalCombinationRecord(report, side.market, side.signals);
+  const record = signalCombinationRecord(report, side);
   const label = record ? signalCombinationLabel(record.combination) : "Signal combination";
-  const description = `${label} · ${side.market === "Spread" ? "Spreads" : "Totals"} · Cumulative saved history · ${record?.settled
+  const description = `${label} · ${signalResearchSideGroup(side) || "Side unavailable"} · ${side.market === "Spread" ? "Spreads" : "Totals"} · Cumulative saved history · ${record?.settled
     ? `${record.record} (wins-losses-pushes) · ${record.pending} pending`
     : record?.pending ? `No settled history · ${record.pending} pending` : "No settled history"}`;
   return <small className="fs-combination-record" title={description} aria-label={description}>Combo {record?.settled ? record.record : "—"}</small>;
