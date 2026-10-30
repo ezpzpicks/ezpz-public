@@ -7,7 +7,7 @@ const policy = 'frozen-policy-v1', kickoff = Date.parse('2026-10-24T00:00:00Z'),
 const iso = n => new Date(n).toISOString();
 const plain = x => JSON.parse(JSON.stringify(x));
 function side(id, keys = ['model', 'system'], changes = {}) {
-  return { id, date: '2026-10-23', market: 'Total', line: 50.5, odds: '-110', recorded: true,
+  return { id, date: '2026-10-23', market: 'Total', side: 'Over', selection: 'Over 50.5', line: 50.5, odds: '-110', recorded: true,
     status: 'FINAL_PREGAME', snapshotAt: iso(kickoff - 15 * 60000), gameTime: iso(kickoff), policyVersion: policy,
     signalCount: keys.length, signals: api.RESEARCH_SIGNAL_KEYS.map(key => ({ key, active: keys.includes(key), available: true })),
     result: '', resultUpdated: '', ...changes };
@@ -23,16 +23,58 @@ test('tile records use the exact active set, including zero and one, with separa
     side('spread', ['move', 'sos'], { ...completed('L'), market: 'Spread', line: -14 }),
     side('earlier', ['move', 'sos'], { ...completed('P'), snapshotAt: '2026-10-23T20:45:00Z', gameTime: '2026-10-23T21:00:00Z' })];
   const research = report(values);
-  const lookup = keys => api.signalCombinationRecord(research, 'Total', side('live', keys).signals.reverse());
+  const lookup = keys => api.signalCombinationRecord(research, { ...side('live', keys), signals: side('live', keys).signals.reverse() });
   assert.equal(lookup([]).record, '0-1-0');
   assert.equal(lookup(['model']).record, '0-0-1');
   const pair = lookup(['sos', 'move']);
   assert.equal(pair.combination, 'move+sos');
   assert.equal(pair.record, '1-0-1');
   assert.equal(pair.pending, 1);
-  assert.equal(api.signalCombinationRecord(research, 'Spread', side('live', ['move', 'sos']).signals).record, '0-1-0');
+  assert.equal(api.signalCombinationRecord(research, side('live', ['move', 'sos'], { market: 'Spread', line: -14 })).record, '0-1-0');
   assert.equal(lookup(['money']).samples, 0);
-  assert.equal(api.signalCombinationRecord(undefined, 'Spread', []), null);
+  assert.equal(api.signalCombinationRecord(undefined, side('live')), null);
+});
+
+test('exact combo tiles separate favorites, underdogs, pickems, overs and unders at the saved line', () => {
+  for (const keys of [[], ['model'], ['move', 'sos']]) {
+    const values = [side('over', keys, completed('W')),
+      side('under', keys, { ...completed('L'), side: 'Under', selection: 'Under 50.5' }),
+      side('favorite', keys, { ...completed('L'), market: 'Spread', line: -3.5 }),
+      side('underdog', keys, { ...completed('W'), market: 'Spread', line: 3.5 }),
+      side('pending-dog', keys, { market: 'Spread', line: 2.5 }),
+      side('pickem', keys, { ...completed('P'), market: 'Spread', line: 0 }),
+      side('extra-signal', [...keys, 'team'], { ...completed('L'), market: 'Spread', line: 3.5 })];
+    const research = report(values);
+    const expected = [['over', 'Over', '1-0-0'], ['under', 'Under', '0-1-0'],
+      ['favorite', 'Favorite', '0-1-0'], ['underdog', 'Underdog', '1-0-0'], ['pickem', "Pick'em", '0-0-1']];
+    for (const [id, group, record] of expected) {
+      const result = api.signalCombinationRecord(research, values.find(value => value.id === id));
+      assert.equal(result.sideGroup, group); assert.equal(result.record, record);
+      assert.equal(result.pending, group === 'Underdog' ? 1 : 0);
+    }
+    assert.equal(api.signalResearchView(research, 'Total').total.record, '1-1-0', 'overall tables still combine directions');
+    assert.equal(api.signalResearchView(research, 'Spread').total.record, '1-2-1', 'overall tables still combine spread categories');
+  }
+});
+
+test('unknown sides and legacy pooled aggregates never fall back to an overall tile record', () => {
+  const known = side('known', ['model'], completed('W'));
+  const unknown = side('unknown', ['model'], { ...completed('L'), side: '', selection: '' });
+  const research = report([known, unknown]);
+  assert.equal(api.signalCombinationRecord(research, known).record, '1-0-0');
+  assert.equal(api.signalCombinationRecord(research, unknown), null);
+  assert.equal(api.signalResearchView(research, 'Total').total.record, '1-1-0');
+  assert.equal(api.signalCombinationRecord({ ...research, version: 'signal-combinations-2026-10-23-v1' }, known), null);
+  for (const line of [null, NaN, Infinity]) assert.equal(api.signalResearchSideGroup({ market: 'Spread', line }), null);
+  assert.equal(api.signalResearchSideGroup({ market: 'Total', side: ' under ', line: 50.5 }), 'Under');
+  assert.equal(api.signalResearchSideGroup({ market: 'Total', selection: 'Over 50.5', line: 50.5 }), 'Over');
+  assert.equal(api.signalResearchSideGroup({ market: 'Spread', line: 2.5, openingLine: -2.5 }), 'Underdog');
+});
+
+test('conflicting total directions for the same frozen observation are excluded', () => {
+  const over = side('same', ['model'], completed('W'));
+  const under = { ...over, side: 'Under', selection: 'Under 50.5' };
+  assert.equal(view([over, under]).total.samples, 0);
 });
 
 test('all frozen sides supply baselines and exact two/three-signal cohorts without creating picks', () => {

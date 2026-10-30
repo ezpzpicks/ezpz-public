@@ -1,20 +1,22 @@
 /** Descriptive research from frozen observations; never selects or posts bets. */
-export const SIGNAL_RESEARCH_VERSION = "signal-combinations-2026-10-23-v1";
+export const SIGNAL_RESEARCH_VERSION = "signal-combinations-2026-10-30-v2";
 export const SIGNAL_RESEARCH_FORWARD_AT = "2026-10-23T22:27:21.000Z";
 export const RESEARCH_SIGNAL_KEYS = ["money", "move", "system", "team", "model", "sos"] as const;
 type SignalKey = typeof RESEARCH_SIGNAL_KEYS[number];
 export type ResearchPhase = "history" | "forward";
+export type ResearchSideGroup = "Favorite" | "Underdog" | "Pick'em" | "Over" | "Under";
 export type ResearchStats = {
   wins: number; losses: number; pushes: number; pending: number; netUnits: number;
   assumedPrices: number; unknownPrices: number;
 };
-export type ResearchCell = { market: string; phase: ResearchPhase; combination: string; stats: ResearchStats };
+export type ResearchCell = { market: string; phase: ResearchPhase; combination: string; sideGroup: ResearchSideGroup | null; stats: ResearchStats };
 export type SignalResearchDay = { version: string; policyVersion: string; date: string; cells: ResearchCell[] };
 export type SignalResearchReport = {
   version: string; sport: string; policyVersion: string; forwardFrom: string; dates: string[]; cells: ResearchCell[];
 };
 export type ResearchObservation = {
   id: string; date: string; market: string; line: number | null; odds: string; recorded: boolean;
+  side?: string; selection?: string;
   status: string; snapshotAt: string; gameTime: string; policyVersion?: string; oddsAssumed?: boolean;
   signalCount: number; signals: { key: string; active: boolean; available: boolean }[];
   result: string; resultUpdated: string;
@@ -38,23 +40,35 @@ function record(stats: ResearchStats) {
     roiPct: settled ? round(stats.netUnits / settled * 100) : null };
 }
 
-/** Exact active set, including zero/one signals, within one sport's market history. */
-export function signalCombinationRecord(report: SignalResearchReport | undefined, market: string, signals: ResearchObservation["signals"]) {
-  if (!report) return null;
-  const combination = RESEARCH_SIGNAL_KEYS.filter(key => signals.some(signal => signal.key === key && signal.active && signal.available)).join("+");
-  const stats = report.cells.filter(cell => cell.market === market && cell.combination === combination)
+/** Classify the selected side at its saved/current line, never the opening line. */
+export function signalResearchSideGroup(side: Pick<ResearchObservation, "market" | "line" | "side" | "selection">): ResearchSideGroup | null {
+  if (side.market === "Spread") return side.line == null || !Number.isFinite(side.line) ? null
+    : side.line < 0 ? "Favorite" : side.line > 0 ? "Underdog" : "Pick'em";
+  if (side.market !== "Total") return null;
+  const direction = (side.side?.trim() || side.selection?.trim() || "").match(/^(over|under)(?:\s|$)/i)?.[1];
+  return direction ? direction.toLowerCase() === "over" ? "Over" : "Under" : null;
+}
+
+/** Exact active set, including zero/one signals, for one sport, market and side. */
+export function signalCombinationRecord(report: SignalResearchReport | undefined,
+  side: Pick<ResearchObservation, "market" | "line" | "side" | "selection" | "signals">) {
+  const sideGroup = signalResearchSideGroup(side);
+  if (!report || report.version !== SIGNAL_RESEARCH_VERSION || !sideGroup) return null;
+  const combination = RESEARCH_SIGNAL_KEYS.filter(key => side.signals.some(signal => signal.key === key && signal.active && signal.available)).join("+");
+  const stats = report.cells.filter(cell => cell.market === side.market && cell.combination === combination && cell.sideGroup === sideGroup)
     .reduce((sum, cell) => add(sum, cell.stats), empty());
-  return { combination, ...record(stats) };
+  return { combination, sideGroup, ...record(stats) };
 }
 
 function mergeCells(cells: ResearchCell[]) {
   const merged = new Map<string, ResearchCell>();
   for (const cell of cells) {
-    const key = `${cell.market}|${cell.phase}|${cell.combination}`;
+    const key = `${cell.market}|${cell.phase}|${cell.combination}|${cell.sideGroup || ""}`;
     if (!merged.has(key)) merged.set(key, { ...cell, stats: empty() });
     add(merged.get(key)!.stats, cell.stats);
   }
-  return [...merged.values()].sort((a, b) => a.market.localeCompare(b.market) || a.phase.localeCompare(b.phase) || a.combination.localeCompare(b.combination));
+  return [...merged.values()].sort((a, b) => a.market.localeCompare(b.market) || a.phase.localeCompare(b.phase)
+    || a.combination.localeCompare(b.combination) || (a.sideGroup || "").localeCompare(b.sideGroup || ""));
 }
 
 /** Replays captured flags only. No current projections or leaderboards enter it. */
@@ -71,7 +85,7 @@ export function buildSignalResearchDays(observations: ResearchObservation[], pol
     if (active.some(signal => !signal.available || !RESEARCH_SIGNAL_KEYS.includes(signal.key as SignalKey))
       || new Set(active.map(signal => signal.key)).size !== active.length || active.length !== side.signalCount) continue;
     const combination = RESEARCH_SIGNAL_KEYS.filter(key => active.some(signal => signal.key === key)).join("+");
-    const fingerprint = JSON.stringify([side.date, side.market, side.line, odds, side.snapshotAt, combination, side.oddsAssumed]);
+    const fingerprint = JSON.stringify([side.date, side.market, side.line, odds, side.snapshotAt, combination, side.oddsAssumed, signalResearchSideGroup(side)]);
     const previous = unique.get(side.id);
     if (previous && previous.fingerprint !== fingerprint) { conflicts.add(side.id); continue; }
     // A settlement update may replace an outcome, never the original decision.
@@ -94,7 +108,7 @@ export function buildSignalResearchDays(observations: ResearchObservation[], pol
     if (side.oddsAssumed === true) stats.assumedPrices = 1;
     else if (side.oddsAssumed !== false) stats.unknownPrices = 1;
     const day = days[side.date] ||= { version: SIGNAL_RESEARCH_VERSION, policyVersion, date: side.date, cells: [] };
-    day.cells.push({ market: side.market,
+    day.cells.push({ market: side.market, sideGroup: signalResearchSideGroup(side),
       phase: Date.parse(side.snapshotAt) >= Date.parse(SIGNAL_RESEARCH_FORWARD_AT) ? "forward" : "history",
       combination: RESEARCH_SIGNAL_KEYS.filter(key => side.signals.some(signal => signal.key === key && signal.active)).join("+"), stats });
   }

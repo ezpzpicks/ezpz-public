@@ -1,10 +1,10 @@
 name: NBA ScoresAndOdds checks
 on:
   pull_request:
-    paths: ['lib/nba*.ts', 'lib/catalog/nbaCatalog.ts', 'lib/footballSignals.ts', 'lib/footballTeamTrends.ts', 'lib/footballTrendCatalog.ts', 'lib/footballWeeklyMarket.ts', 'lib/tursoStore.ts', 'lib/scheduledMarketRefresh.ts', 'lib/marketRefreshPolicy.ts', 'lib/scoresAndOddsBettingSplits.ts', 'app/Nba*.tsx', 'app/FootballSignalsBoard.tsx', 'app/FootballTrendMarketBoard.tsx', 'app/FootballBoardBase.tsx', 'app/globals.css', 'app/page.tsx', 'app/api/nba-*/**', 'app/api/cron/nba-market/**', 'tests/nba-*', 'tests/market-*', 'tests/scheduled-refresh-routes.test.cjs', 'tests/nfl-last-seven.test.cjs', 'tests/fixtures/nba-consensus*', '.github/workflows/nba-market.yml']
+    paths: ['lib/nba*.ts', 'lib/catalog/nbaCatalog.ts', 'lib/footballSignals.ts', 'lib/signalCombinationResearch.ts', 'lib/footballTeamTrends.ts', 'lib/footballTrendCatalog.ts', 'lib/footballWeeklyMarket.ts', 'lib/tursoStore.ts', 'lib/scheduledMarketRefresh.ts', 'lib/marketRefreshPolicy.ts', 'lib/scoresAndOddsBettingSplits.ts', 'app/Nba*.tsx', 'app/FootballSignalsBoard.tsx', 'app/FootballTrendMarketBoard.tsx', 'app/FootballBoardBase.tsx', 'app/globals.css', 'app/page.tsx', 'app/api/nba-*/**', 'app/api/cron/nba-market/**', 'tests/nba-*', 'tests/signal-combinations.test.cjs', 'tests/market-*', 'tests/scheduled-refresh-routes.test.cjs', 'tests/nfl-last-seven.test.cjs', 'tests/fixtures/nba-consensus*', '.github/workflows/nba-market.yml']
   push:
     branches: [main]
-    paths: ['lib/nba*.ts', 'lib/catalog/nbaCatalog.ts', 'lib/marketRefreshPolicy.ts', 'lib/scheduledMarketRefresh.ts', 'lib/scoresAndOddsBettingSplits.ts', 'app/Nba*.tsx', 'tests/nba-*', 'tests/market-*', 'tests/scheduled-refresh-routes.test.cjs', 'tests/fixtures/nba-consensus*', '.github/workflows/nba-market.yml']
+    paths: ['lib/nba*.ts', 'lib/catalog/nbaCatalog.ts', 'lib/signalCombinationResearch.ts', 'lib/marketRefreshPolicy.ts', 'lib/scheduledMarketRefresh.ts', 'lib/scoresAndOddsBettingSplits.ts', 'app/Nba*.tsx', 'tests/nba-*', 'tests/signal-combinations.test.cjs', 'tests/market-*', 'tests/scheduled-refresh-routes.test.cjs', 'tests/fixtures/nba-consensus*', '.github/workflows/nba-market.yml']
 permissions:
   contents: read
 jobs:
@@ -22,5 +22,5 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: node tests/nba-market.cjs
       - run: node --test tests/market-refresh-policy.test.cjs tests/scheduled-refresh-routes.test.cjs tests/market-source-rollover.test.cjs tests/nba-collection-recovery.test.cjs
-      - run: node --test tests/nba-signals.test.cjs tests/nba-signals-ui.test.cjs tests/football-signals.test.cjs tests/football-signals-ui.test.cjs tests/football-signals-history.test.cjs tests/football-team-trends.test.cjs tests/football-trend-catalog.test.cjs tests/nfl-ezpz-wilson.test.cjs tests/ncaaf-public-trend-leaderboard.test.cjs tests/nfl-last-seven.test.cjs
+      - run: node --test tests/nba-signals.test.cjs tests/nba-signals-ui.test.cjs tests/signal-combinations.test.cjs tests/nba-signal-research-migration.test.cjs tests/football-signals.test.cjs tests/football-signals-ui.test.cjs tests/football-signals-history.test.cjs tests/football-team-trends.test.cjs tests/football-trend-catalog.test.cjs tests/nfl-ezpz-wilson.test.cjs tests/ncaaf-public-trend-leaderboard.test.cjs tests/nfl-last-seven.test.cjs
       - run: npx tsc --noEmit

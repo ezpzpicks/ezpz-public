@@ -21,6 +21,10 @@ one-pick-per-game selector, price cap, or posting behavior.
 - Keep each sport and market separate. An exact pair excludes observations with
   a third signal. An individual baseline includes every observation matching
   that signal, so its sample overlaps with combination samples.
+- Tile combo records also match the selected side: favorite, underdog, pick'em,
+  over or under. Spread categories use the saved line; totals use the saved
+  direction. Missing directions stay unavailable rather than using pooled
+  totals. The expanded research tables retain their overall market totals.
 - These are **side observations**, not a simulated final betting card. Both
   sides and multiple markets from one game can appear. They are correlated;
   sample sizes are not counts of independent games.
@@ -36,6 +40,8 @@ NFL and NCAAF reuse the observations already loaded by the board. NBA seeds
 existing archived signal observations once through the existing date-keyed
 read, then replaces compact daily aggregates in its existing analysis state as
 results arrive. Repeated collector ticks cannot append the same sample again.
+The side-aware research version rebuilds NBA's existing daily aggregates from
+the original saved observations once, using that same collector seeding path.
 Public reads perform no research writes and no full-season trend rebuilding.
 There is no additional poller or cadence change.
 
