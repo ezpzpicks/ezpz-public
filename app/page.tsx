@@ -7833,7 +7833,7 @@ export default function Home() {
       ) : null}
 
       <nav className="tabs">
-        {TABS.filter(tab => tab !== "Signals" || activeSport === "NFL" || activeSport === "NCAAF" || activeSport === "NBA").map((tab) => (
+        {TABS.filter(tab => tab !== "Signals" || activeSport === "NFL" || activeSport === "NCAAF" || activeSport === "NBA" || activeSport === "NCAAM").map((tab) => (
           <button
             key={tab}
             className={`tabBtn ${active === tab ? "active" : ""}`}
