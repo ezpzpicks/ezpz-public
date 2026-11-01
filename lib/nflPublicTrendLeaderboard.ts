@@ -3,6 +3,7 @@ import {
   type NcaafPublicTrendSubtype,
 } from "./ncaafPublicTrendLeaderboard";
 import { nflTrendGameIdentity, nflTrendTeamKey } from "./nflTrendIdentity";
+import { buildNflConsolidatedLeaderboard, nflConsolidatedSignals, nflGroupCategoryMatches } from "./nflConsolidatedTrends";
 
 type TrendSide = Record<string, unknown>;
 type SheetRow = Record<string, string>;
@@ -23,13 +24,14 @@ export function buildNflTrendSubtypes(rows: SheetRow[]): NflPublicTrendSubtype[]
 }
 
 export function buildNflPublicTrendLeaderboard(rows: SheetRow[]) {
-  return rankNcaafPublicTrendSubtypes(buildNflTrendSubtypes(rows));
+  return buildNflConsolidatedLeaderboard(rows);
 }
 
 export function visibleNflTrendBadges(play: TrendSide, siblings: TrendSide[], leaderboard: readonly NflPublicTrendSubtype[]) {
   const category = ncaafTrendCategory(play);
-  const signals = new Set(nflTrendSignals(play, siblings));
+  const grouped = leaderboard.some(type => type.signal.startsWith("nfl-group:"));
+  const signals = new Set(grouped ? nflConsolidatedSignals(play, siblings) : nflTrendSignals(play, siblings));
   return leaderboard.slice(0, NFL_PUBLIC_TREND_LIMIT)
     .filter(subtype => subtype.totals.wins * 5 > (subtype.totals.wins + subtype.totals.losses) * 3
-      && subtype.category === category && signals.has(subtype.signal));
+      && (grouped ? nflGroupCategoryMatches(subtype.category, play) : subtype.category === category) && signals.has(subtype.signal));
 }

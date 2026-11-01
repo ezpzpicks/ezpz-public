@@ -1169,14 +1169,14 @@ type DirectTrendRecordProps = {
 export function DirectTrendRecords({ ncaafLeaderboard, nflLeaderboard, nbaLeaderboard, ...props }: DirectTrendRecordProps) {
   if (props.sport === "MLB") return <LegacyDirectTrendRecords {...props} />;
   const saved = props.sport === "NFL" ? nflLeaderboard : ncaafLeaderboard;
-  const leaderboard = ["NBA", "NCAAM"].includes(props.sport) ? (nbaLeaderboard || []).slice(0, 20) : saved ? rankNcaafPublicTrendSubtypes(saved)
+  const leaderboard = ["NBA", "NCAAM"].includes(props.sport) ? (nbaLeaderboard || []).slice(0, 20) : props.sport === "NFL" && saved ? saved.slice(0, 20) : saved ? rankNcaafPublicTrendSubtypes(saved)
     : props.sport === "NFL" ? buildNflPublicTrendLeaderboard(props.rows) : buildNcaafPublicTrendLeaderboard(props.rows);
   return (
     <details className="recordsDropdown directTrendRecords" open>
       <summary className="recordsSummary">
         <div>
           <div className="recordsSummaryTitle">Top 20 {props.sport} Sub Bet Types</div>
-          <small>{["NBA", "NCAAM"].includes(props.sport) ? "Final snapshots only · Above 60% wins · Positive ROI · One-sided 95% Wilson ranking. Pushes excluded from win %."
+          <small>{props.sport === "NFL" ? "96 grouped types · 8+ decided plays · Above 60% wins · ROI 10%+ · Wilson ranking. Pushes excluded from win %." : ["NBA", "NCAAM"].includes(props.sport) ? "Final snapshots only · Above 60% wins · Positive ROI · One-sided 95% Wilson ranking. Pushes excluded from win %."
             : "Final snapshots only · Above 60% wins · All-time win %; ties favor more settled bets. Pushes excluded from win %."}</small>
         </div>
         <span className="recordsCount">{leaderboard.length} types</span>
@@ -1453,7 +1453,7 @@ export function FootballTrendMarketBoard({ groups, sport, ncaafLeaderboard = [],
   groups: Group[]; sport: Sport; ncaafLeaderboard?: NcaafPublicTrendSubtype[]; nflLeaderboard?: NcaafPublicTrendSubtype[]; nbaLeaderboard?: NcaafPublicTrendSubtype[];
 }) {
   const leaderboard = sport === "NCAAF" ? rankNcaafPublicTrendSubtypes(ncaafLeaderboard)
-    : sport === "NFL" ? rankNcaafPublicTrendSubtypes(nflLeaderboard) : ["NBA", "NCAAM"].includes(sport) ? nbaLeaderboard.slice(0, 20) : [];
+    : sport === "NFL" ? nflLeaderboard.slice(0, 20) : ["NBA", "NCAAM"].includes(sport) ? nbaLeaderboard.slice(0, 20) : [];
   const sortedGroups = [...groups].sort((a, b) => {
     const timeDifference = trendGroupSortValue(a) - trendGroupSortValue(b);
     if (Number.isFinite(timeDifference) && timeDifference !== 0) return timeDifference;

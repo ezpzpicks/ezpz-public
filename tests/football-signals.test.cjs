@@ -51,6 +51,41 @@ function input(changes = {}) {
 const state = changes => api.buildFootballSignalsState(input(changes));
 const find = (board, key, side = 'Over') => board.sides.find(s => s.side === side).signals.find(s => s.key === key);
 
+test('NFL grouped policy captures new votes while settlement preserves old policy and original evidence', () => {
+  const oldInput = input({ capture: true });
+  oldInput.core.trendPlays = markets().map(play => ({ ...play, snapshotStatus: 'FINAL_PREGAME', frozenAt: iso(lock) }));
+  const captured = api.buildFootballSignalsState(oldInput), original = JSON.stringify(captured.changedRows);
+  const now = Date.parse('2026-11-02T18:00:00Z');
+  const finished = api.buildFootballSignalsState({ ...oldInput, now, capture: false, storedRows: captured.changedRows,
+    core: { ...oldInput.core, today: '2026-11-02', trendPlays: [], teamTrendScheduleRows: [{ Date: date,
+      'Away Team': 'DAL', 'Home Team': 'GB', Completed: 'TRUE', 'Away Score': '30', 'Home Score': '24',
+      'Result Updated': iso(kickoff + 3 * 3600000) }] } });
+  assert.equal(finished.board.version, 'football-signals-nfl-grouped-2026-11-01-v2');
+  assert.equal(finished.changedRows.length, 2);
+  assert(finished.changedRows.every(row => row['Policy Version'] === api.FOOTBALL_SIGNALS_VERSION));
+  assert.equal(JSON.stringify(captured.changedRows), original);
+  assert.equal(finished.board.legacyResearch.policyVersion, api.FOOTBALL_SIGNALS_VERSION);
+
+  const day = '2026-11-02', futureKickoff = Date.parse(day + 'T18:00:00Z'), futureLock = futureKickoff - 900000;
+  const x = input({ now: futureLock, capture: true, leaderboard: undefined });
+  x.core.today = day;
+  x.core.trendPlays = markets().map(play => ({ ...play, date: day, gameTime: iso(futureKickoff),
+    snapshotStatus: 'FINAL_PREGAME', frozenAt: iso(futureLock), updatedAt: iso(futureLock) }));
+  x.core.trendRecordRows = Array.from({ length: 8 }, (_, i) => ({ Date: '2026-10-25', Game: `Visitor${i} @ Host${i}`,
+    'Game Time': '2026-10-25T17:00:00Z', 'Away Team': `Visitor${i}`, 'Home Team': `Host${i}`,
+    Market: 'Total', Side: 'Over', Selection: 'Over', 'Public Split Selection': 'Over', 'Public Split Line': '44.5',
+    'Public Split Odds': '-110', 'Snapshot Status': 'FINAL_PREGAME', 'Record Snapshot Policy': 'verified-final-snapshot-v1',
+    'Public Split Snapshot Time': '2026-10-25T16:45:00Z', Result: 'W', 'Result Updated': '2026-10-25T21:00:00Z',
+    'Catalog Membership JSON': JSON.stringify(membership()) }));
+  const next = api.buildFootballSignalsState(x);
+  assert.equal(next.changedRows.length, 2);
+  assert(next.changedRows.every(row => row['Policy Version'] === 'football-signals-nfl-grouped-2026-11-01-v2'));
+  const over = next.board.sides.find(side => side.side === 'Over');
+  assert.equal(over.signals.find(signal => signal.key === 'system').active, true);
+  assert(over.publicMatches.every(match => match.signal.startsWith('nfl-group:')));
+  assert(next.board.research.cells.every(cell => cell.phase === 'forward'));
+});
+
 test('a corrected schedule updates the displayed kickoff without rewriting saved signal evidence', () => {
   const x = input({ capture: true });
   x.core.trendPlays = markets().map(play => ({ ...play, snapshotStatus: 'FINAL_PREGAME', frozenAt: iso(lock) }));

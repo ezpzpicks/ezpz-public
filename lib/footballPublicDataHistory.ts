@@ -13,6 +13,8 @@ import { buildTeamTrendHistory, withFootballTeamTrends } from "./footballTeamTre
 import { refreshFootballTeamSeasonHistory, TEAM_SEASON_HISTORY_TAB } from "./footballTeamSeasonHistory";
 import { buildTeamTrendTestState, TEAM_TREND_TEST_HEADERS, TEAM_TREND_TEST_TAB } from "./footballTeamTrendPlays";
 import { buildFootballSignalsState, FOOTBALL_SIGNALS_HEADERS, FOOTBALL_SIGNALS_TAB } from "./footballSignals";
+import { buildNflConsolidatedSubtypes, NFL_GROUPED_MIN_DECISIONS, NFL_GROUPED_MIN_ROI } from "./nflConsolidatedTrends";
+import { NFL_CONSOLIDATED_TYPES, NFL_CONSOLIDATED_VERSION, NFL_CONSOLIDATED_SIGNAL_POLICY, NFL_CONSOLIDATED_EFFECTIVE_AT } from "./catalog/nflConsolidatedCatalog";
 import { loadFootballSos } from "./footballSos";
 import { mergeNcaafResearchPatches, ncaafModelResearchPatches, ncaafResearchTrackerKey } from "./ncaafModelResearch";
 import {
@@ -1051,6 +1053,21 @@ export async function buildFootballPublicData(
   core.trendRecordRows = catalogCapture.rows;
   core.trendPlays = catalogCapture.plays;
   core.catalogTracking = catalogCapture.status;
+  if (sport === "NFL" && Date.now() >= Date.parse(NFL_CONSOLIDATED_EFFECTIVE_AT)) {
+    const types = buildNflConsolidatedSubtypes(catalogCapture.rows);
+    core.catalogTracking = { version: NFL_CONSOLIDATED_VERSION, registeredDirections: NFL_CONSOLIDATED_TYPES.length,
+      subsetFilters: 0, combinedDefinitions: 0, trackingDirections: types.length,
+      waitingForInputs: NFL_CONSOLIDATED_TYPES.length - types.length,
+      matchedMemberships: types.reduce((n, type) => n + type.totals.totalBets, 0),
+      gradedMemberships: types.reduce((n, type) => n + type.totals.totalBets, 0),
+      marketEntries: catalogCapture.status.marketEntries, persistedEntries: catalogCapture.status.persistedEntries,
+      fullCatalogEvaluated: true, publicLimit: 20, publicWinPctExclusiveMinimum: 60,
+      publicMinDecisions: NFL_GROUPED_MIN_DECISIONS, publicMinRoiPct: NFL_GROUPED_MIN_ROI,
+      evidenceCatalog: { version: catalogCapture.status.version, registeredDirections: catalogCapture.status.registeredDirections } };
+    core.nflConsolidation = { version: NFL_CONSOLIDATED_VERSION, typeCount: NFL_CONSOLIDATED_TYPES.length,
+      signalPolicy: NFL_CONSOLIDATED_SIGNAL_POLICY, topLimit: 20,
+      minDecisions: NFL_GROUPED_MIN_DECISIONS, minRoiPct: NFL_GROUPED_MIN_ROI, winPctExclusiveMinimum: 60 };
+  }
   const today = isoDate(core.today) || new Date().toISOString().slice(0, 10);
   let history = await (historyRead || readHistory(sport));
   const selectionTime = Date.now();

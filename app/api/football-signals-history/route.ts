@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { FOOTBALL_SIGNALS_HEADERS, FOOTBALL_SIGNALS_TAB, FOOTBALL_SIGNALS_VERSION, readSavedFootballSignalsForDate } from "../../../lib/footballSignals";
 import { readSportWorksheetByDateKeys, type FootballSport } from "../../../lib/sportSheets";
 import { buildSignalResearchDays, buildSignalResearchReport } from "../../../lib/signalCombinationResearch";
+import { NFL_CONSOLIDATED_SIGNAL_POLICY } from "../../../lib/catalog/nflConsolidatedCatalog";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,8 +18,12 @@ export async function GET(request: NextRequest) {
   try {
     const rows = await readSportWorksheetByDateKeys(sport as FootballSport, FOOTBALL_SIGNALS_TAB, [date], FOOTBALL_SIGNALS_HEADERS);
     const sides = readSavedFootballSignalsForDate(rows, date);
-    const research = buildSignalResearchReport(sport, FOOTBALL_SIGNALS_VERSION, buildSignalResearchDays(sides, FOOTBALL_SIGNALS_VERSION));
-    return NextResponse.json({ ok: true, sport, date, sides, research },
+    const policy = sport === "NFL" && sides.some(side => side.policyVersion === NFL_CONSOLIDATED_SIGNAL_POLICY)
+      ? NFL_CONSOLIDATED_SIGNAL_POLICY : FOOTBALL_SIGNALS_VERSION;
+    const research = buildSignalResearchReport(sport, policy, buildSignalResearchDays(sides, policy));
+    const legacyResearch = policy !== FOOTBALL_SIGNALS_VERSION ? buildSignalResearchReport(sport, FOOTBALL_SIGNALS_VERSION,
+      buildSignalResearchDays(sides, FOOTBALL_SIGNALS_VERSION)) : undefined;
+    return NextResponse.json({ ok: true, sport, date, sides, research, ...(legacyResearch ? { legacyResearch } : {}) },
       { headers: { "Cache-Control": "no-store, max-age=0" } });
   } catch (error) {
     console.error("Football Signals archive read failed", { sport, date, error });

@@ -13,6 +13,7 @@ export type ResearchCell = { market: string; phase: ResearchPhase; combination: 
 export type SignalResearchDay = { version: string; policyVersion: string; date: string; cells: ResearchCell[] };
 export type SignalResearchReport = {
   version: string; sport: string; policyVersion: string; forwardFrom: string; dates: string[]; cells: ResearchCell[];
+  reclassification?: { version: string; replayedObservations: number; changedPublicFlags: number; excludedObservations: number; usesPriorResultsOnly: true };
 };
 export type ResearchObservation = {
   id: string; date: string; market: string; line: number | null; odds: string; recorded: boolean;
@@ -20,6 +21,7 @@ export type ResearchObservation = {
   status: string; snapshotAt: string; gameTime: string; policyVersion?: string; oddsAssumed?: boolean;
   signalCount: number; signals: { key: string; active: boolean; available: boolean }[];
   result: string; resultUpdated: string;
+  researchOrigin?: "replay";
 };
 const labels: Record<SignalKey, string> = {
   money: "Money support", move: "Line movement", system: "Public trend", team: "Team trend", model: "Model", sos: "SOS",
@@ -51,9 +53,10 @@ export function signalResearchSideGroup(side: Pick<ResearchObservation, "market"
 
 /** Exact active set, including zero/one signals, for one sport, market and side. */
 export function signalCombinationRecord(report: SignalResearchReport | undefined,
-  side: Pick<ResearchObservation, "market" | "line" | "side" | "selection" | "signals">) {
+  side: Pick<ResearchObservation, "market" | "line" | "side" | "selection" | "signals" | "policyVersion">) {
   const sideGroup = signalResearchSideGroup(side);
-  if (!report || report.version !== SIGNAL_RESEARCH_VERSION || !sideGroup) return null;
+  if (!report || report.version !== SIGNAL_RESEARCH_VERSION || !sideGroup
+    || side.policyVersion && side.policyVersion !== report.policyVersion) return null;
   const combination = RESEARCH_SIGNAL_KEYS.filter(key => side.signals.some(signal => signal.key === key && signal.active && signal.available)).join("+");
   const stats = report.cells.filter(cell => cell.market === side.market && cell.combination === combination && cell.sideGroup === sideGroup)
     .reduce((sum, cell) => add(sum, cell.stats), empty());
@@ -109,7 +112,7 @@ export function buildSignalResearchDays(observations: ResearchObservation[], pol
     else if (side.oddsAssumed !== false) stats.unknownPrices = 1;
     const day = days[side.date] ||= { version: SIGNAL_RESEARCH_VERSION, policyVersion, date: side.date, cells: [] };
     day.cells.push({ market: side.market, sideGroup: signalResearchSideGroup(side),
-      phase: Date.parse(side.snapshotAt) >= Date.parse(SIGNAL_RESEARCH_FORWARD_AT) ? "forward" : "history",
+      phase: side.researchOrigin !== "replay" && Date.parse(side.snapshotAt) >= Date.parse(SIGNAL_RESEARCH_FORWARD_AT) ? "forward" : "history",
       combination: RESEARCH_SIGNAL_KEYS.filter(key => side.signals.some(signal => signal.key === key && signal.active)).join("+"), stats });
   }
   for (const day of Object.values(days)) day.cells = mergeCells(day.cells);

@@ -113,15 +113,19 @@ test('changing the viewed market week does not rerank badges from that week; the
 });
 
 test('NFL record and badge behavior does not depend on the NCAAF leaderboard', () => {
-  const row = verifiedRow('One @ Game', 'W', { 'Catalog Membership JSON': JSON.stringify(membership('NFL')) });
-  const html = renderToStaticMarkup(board.DirectTrendRecords({ rows: [row], sport: 'NFL' }));
-  assert.match(html, /Total: Sharp Follow - Over/);
+  const saved = { version: catalog.footballCatalog('NFL').version,
+    memberships: [{ pair: 'total-increase-any-total', direction: 0, filters: [] }], missing: [], ambiguous: [] };
+  const rows = Array.from({ length: 8 }, (_, i) => verifiedRow(`One${i} @ Game${i}`, 'W', {
+    'Catalog Membership JSON': JSON.stringify(saved), 'Game Time': '2026-10-10T16:00:00Z', 'Result Updated': '2026-10-10T20:00:00Z' }));
+  const nflList = load(path.join(root, 'lib/nflPublicTrendLeaderboard.ts')).buildNflPublicTrendLeaderboard(rows);
+  const html = renderToStaticMarkup(board.DirectTrendRecords({ rows, sport: 'NFL' }));
+  assert.match(html, /Total: Total Rise 0.5\+ Follow · Over/);
+  assert.match(html, /8-0-0/);
   assert.match(html, /Top 20 NFL/);
   assert.doesNotMatch(html, /Top 20 NCAAF/);
   const play = { game: 'One @ Game', gameKey: 'one', market: 'Total', side: 'Over', selection: 'Over',
-    line: 52.5, odds: '-110', betsPct: 30, moneyPct: 60, catalogEvaluation: membership('NFL') };
+    line: 52.5, odds: '-110', betsPct: 30, moneyPct: 60, catalogEvaluation: saved };
   const splits = renderToStaticMarkup(board.FootballTrendMarketBoard({ groups: [{ game: play.game, plays: [play] }], sport: 'NFL',
-    nflLeaderboard: [{ id: `${signal('NFL')}|over`, signal: signal('NFL'), category: 'Over', label: 'Total: Sharp Follow - Over',
-      totals: { wins: 1, losses: 0 } }] }));
-  assert.ok(splits.includes(`data-trend-subtype="${signal('NFL')}|over"`));
+    nflLeaderboard: nflList }));
+  assert.ok(splits.includes(`data-trend-subtype="${nflList[0].id}"`));
 });

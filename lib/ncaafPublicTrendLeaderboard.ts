@@ -6,7 +6,7 @@ export const NCAAF_PUBLIC_TREND_LIMIT = 20;
 
 type SheetRow = Record<string, string>;
 type TrendSide = Record<string, unknown>;
-export type NcaafTrendCategory = "Favorite Spread" | "Underdog Spread" | "Pick'em Spread" | "Over" | "Under";
+export type NcaafTrendCategory = "Spread" | "Favorite Spread" | "Underdog Spread" | "Pick'em Spread" | "Over" | "Under";
 export type NcaafTrendTotals = {
   record: string;
   totalBets: number;

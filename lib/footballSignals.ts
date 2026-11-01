@@ -15,6 +15,9 @@ import { buildSignalResearchDays, buildSignalResearchReport, type SignalResearch
 import { attachComboScores, comboPickPolicy, validComboFinalWindow, type ComboScore } from "./comboScore";
 import { quoteImpliedProbability, regradeModelQuote } from "./modelSignalQuote";
 import { evaluateSignalMovement, type SignalMovement } from "./signalMovement";
+import { nflConsolidatedSignals, nflGroupCategoryMatches } from "./nflConsolidatedTrends";
+import { replayNflConsolidatedSignals } from "./nflConsolidatedResearch";
+import { NFL_CONSOLIDATED_EFFECTIVE_AT, NFL_CONSOLIDATED_SIGNAL_POLICY, nflConsolidatedDefinition } from "./catalog/nflConsolidatedCatalog";
 
 import { signalPickThreshold, selectSignalEzpzPicks } from "./signalPicks";
 
@@ -49,6 +52,7 @@ export type FootballSignalSide = {
   result: "W" | "L" | "P" | ""; resultUpdated: string;
   policyVersion?: string; oddsAssumed?: boolean;
   comboScore?: ComboScore;
+  researchOrigin?: "replay";
 };
 export type FootballSignalsBoard = {
   version: string; sport: SignalSport; today: string; asOf: string; captureAvailable: boolean;
@@ -56,6 +60,7 @@ export type FootballSignalsBoard = {
   breakdowns: { dimension: string; label: string; record: ReturnType<typeof signalRecord> }[];
   history: { date: string; game: string; selection: string; market: string; odds: string; signalCount: number; combination: string; result: string; score?: number; selectorVersion?: string }[];
   research?: SignalResearchReport;
+  legacyResearch?: SignalResearchReport;
 };
 
 export const signalNumber = (value: unknown): number | null => {
@@ -89,6 +94,8 @@ export function signalFinalWindow(side: Pick<FootballSignalSide, "status" | "sna
     && kickoff - stamp >= 10 * 60_000 && kickoff - stamp <= 20 * 60_000;
 }
 function matchRules(subtype: NcaafEzpzSubtype, sport: SignalSport) {
+  const grouped = sport === "NFL" ? nflConsolidatedDefinition(subtype.signal) : undefined;
+  if (grouped) return { rules: [grouped.rule], selectionDescription: grouped.category };
   const [, , pair, direction, filters] = subtype.signal.split(":");
   const config = footballCatalog(sport), rule = config.rules.find(rule => rule.id === pair);
   return { rules: [rule?.trigger || "Saved catalog membership", ...(filters || "").split(",").filter(Boolean)
@@ -166,10 +173,11 @@ function evaluateSide(play: AnyRow, siblings: AnyRow[], input: SignalsInput, ran
   const movement = evaluateSignalMovement({ market: play.market, side: play.side || play.selection || "",
     openingLine: play.openingLine, line,
     retainedBasis: play.lineMovementBasis, retainedValue: signalNumber(play.lineMovementValue), retainedLabel: movementLabel });
-  const memberships = new Set(line == null ? [] : (sport === "NCAAM" ? ncaamTrendSignals : sport === "NBA" ? nbaTrendSignals : sport === "NFL" ? nflTrendSignals : ncaafTrendSignals)(play, siblings));
+  const groupedNfl = sport === "NFL" && asOf >= Date.parse(NFL_CONSOLIDATED_EFFECTIVE_AT);
+  const memberships = new Set(line == null ? [] : (groupedNfl ? nflConsolidatedSignals : sport === "NCAAM" ? ncaamTrendSignals : sport === "NBA" ? nbaTrendSignals : sport === "NFL" ? nflTrendSignals : ncaafTrendSignals)(play, siblings));
   const category = ncaafTrendCategory(play);
   const publicMatches = ranking.slice(0, 20).map((subtype, i) => ({ ...subtype, rank: i + 1, ...matchRules(subtype, sport) }))
-    .filter(subtype => subtype.category === category && memberships.has(subtype.signal));
+    .filter(subtype => (groupedNfl ? nflGroupCategoryMatches(subtype.category, play) : subtype.category === category) && memberships.has(subtype.signal));
   const teamTrend = scoreFootballTeamTrends(play, sport, history, asOf, { allowMissingSpreadLine: true }), grade = teamTrend?.score ?? null;
   const teamGames = (teamTrend?.teams || []).flatMap(team => [...new Set(Object.values(team.records).flatMap(r => r.gameKeys))].flatMap(key => {
     const game = history.get(key); if (!game) return [];
@@ -228,7 +236,7 @@ function evaluateSide(play: AnyRow, siblings: AnyRow[], input: SignalsInput, ran
     modelContext: model.context,
     sosContext: { sourceUrl: sos?.sourceUrl || "", capturedAt: (sport === "NCAAM" ? schedule.every(Boolean) : completeSos) ? sos!.fetchedAt : "", gap: sosGap,
       teams: (sport === "NCAAM" ? schedule.every(Boolean) : completeSos) ? schedule.map((s, i) => ({ team: [play.awayTeam, play.homeTeam][i], rank: s!.rank, elo: s!.elo, opponentRecord: s!.opponentRecord })) : [] },
-    policyVersion: (input.policy || DEFAULT_POLICY).version,
+    policyVersion: (input.policy || (groupedNfl ? { version: NFL_CONSOLIDATED_SIGNAL_POLICY } : DEFAULT_POLICY)).version,
     oddsAssumed: play.observedPriceMissing === true || play.oddsSource === "DEFAULT_110" || !play.odds ? true
       : play.observedPriceMissing === false || play.oddsSource === "SNAPSHOT" ? false : undefined,
     result: "", resultUpdated: "" };
@@ -254,7 +262,7 @@ export function readSavedFootballSignalsForDate(rows: SheetRow[], date: string, 
 }
 function storageRow(side: FootballSignalSide, policy = DEFAULT_POLICY): SheetRow {
   return { Date: side.date, "Pick Key": side.id, Game: side.game, Market: side.market, Selection: side.selection, Line: String(side.line ?? ""), Odds: side.odds,
-    "Captured At": side.snapshotAt, "Policy Version": policy.version, "Signal Count": String(side.signalCount), "Source Count": String(side.sourceCount),
+    "Captured At": side.snapshotAt, "Policy Version": side.policyVersion || policy.version, "Signal Count": String(side.signalCount), "Source Count": String(side.sourceCount),
     Combination: side.combination, "SOS Tier": side.signals.find(s => s.key === "sos")?.level || "Not used", Selected: side.selected ? "TRUE" : "FALSE",
     Result: side.result, "Result Updated": side.resultUpdated, "Details JSON": JSON.stringify({ ...side, recorded: true }) };
 }
@@ -282,12 +290,13 @@ export function signalRecord(sides: Pick<FootballSignalSide, "result" | "odds">[
 
 export function buildFootballSignalsState(input: SignalsInput): { board: FootballSignalsBoard; changedRows: SheetRow[] } {
   const { sport, core, history, now = Date.now() } = input;
-  const policy = input.policy || DEFAULT_POLICY;
+  const groupedNfl = sport === "NFL" && now >= Date.parse(NFL_CONSOLIDATED_EFFECTIVE_AT);
+  const policy = input.policy || (groupedNfl ? { ...DEFAULT_POLICY, version: NFL_CONSOLIDATED_SIGNAL_POLICY } : DEFAULT_POLICY);
   const archived = (input.storedRows || []).flatMap(row => {
     const side = fromStored(row, now, policy);
     return side ? [{ side, policy: row["Policy Version"] }] : [];
   });
-  const saved = archived.filter(row => row.policy === policy.version).map(row => row.side);
+  const saved = archived.filter(row => row.policy === policy.version || groupedNfl && row.policy === FOOTBALL_SIGNALS_VERSION).map(row => row.side);
   const stored = new Map(saved.map(side => [side.id, side])), updated = new Map(saved.map(side => [side.id, settle(side, input)]));
   const changedRows: SheetRow[] = [...updated.values()].filter(side => side.result !== stored.get(side.id)?.result).map(side => storageRow(side, policy));
   const marketPlays = new Map<string, AnyRow>();
@@ -408,7 +417,8 @@ export function buildFootballSignalsState(input: SignalsInput): { board: Footbal
   for (const side of updated.values()) {
     if (!visibleIds.has(side.id) && (visibleDates.has(side.date) || (side.date >= displayStart && side.date <= displayEnd))) sides.push(side);
   }
-  const scoreDays = { ...input.researchDays, ...buildSignalResearchDays([...updated.values()], policy.version, now) };
+  const replay = groupedNfl ? replayNflConsolidatedSignals([...updated.values()], core.trendRecordRows || [], core.trendPlays || [], now) : null;
+  const scoreDays = { ...input.researchDays, ...buildSignalResearchDays(replay?.observations || [...updated.values()], policy.version, now) };
   const scoreInputs = sides.filter(side => side.recorded || !(core.staleGameKeys || []).includes(side.gameKey));
   const scored = new Map(attachComboScores(scoreInputs.map(side => scheduledTimes.has(side.gameKey)
     ? { ...side, scheduledGameTime: scheduledTimes.get(side.gameKey) } : side), sport, scoreDays, policy.version, now, !stale).map(side => [side.id, side]));
@@ -437,9 +447,14 @@ export function buildFootballSignalsState(input: SignalsInput): { board: Footbal
   const displaySides = sides.map(side => ({ ...side, selected: pickIds.has(side.id),
     ...(scheduledTimes.has(side.gameKey) ? { scheduledGameTime: scheduledTimes.get(side.gameKey) } : {}) }));
   const archiveDates = [...new Set([...archived.map(row => row.side.date), ...[...updated.values()].map(side => side.date)])].sort();
-  const research = buildSignalResearchReport(sport, policy.version, buildSignalResearchDays([...updated.values()], policy.version, now));
+  const researchSides = replay ? [...replay.observations.filter(side => side.researchOrigin === "replay"),
+    ...[...updated.values()].filter(side => side.policyVersion === policy.version)] : [...updated.values()];
+  const research = { ...buildSignalResearchReport(sport, policy.version, buildSignalResearchDays(researchSides, policy.version, now)),
+    ...(replay ? { reclassification: replay.status } : {}) };
+  const legacyResearch = groupedNfl ? buildSignalResearchReport(sport, FOOTBALL_SIGNALS_VERSION,
+    buildSignalResearchDays([...updated.values()], FOOTBALL_SIGNALS_VERSION, now)) : undefined;
   return { board: { version: policy.version, sport, today: core.today, asOf: new Date(now).toISOString(), captureAvailable: input.storedRows != null,
-    sides: displaySides, archiveDates, summary: signalRecord(selected), breakdowns, research,
+    sides: displaySides, archiveDates, summary: signalRecord(selected), breakdowns, research, ...(legacyResearch ? { legacyResearch } : {}),
     history: selected.slice().sort((a, b) => b.gameTime.localeCompare(a.gameTime)).slice(0, 200).map(s => ({ date: s.date, game: s.game,
       selection: s.selection, market: s.market, odds: s.odds, signalCount: s.signalCount, combination: s.combination, result: s.result,
       ...(s.comboScore ? { score: s.comboScore.score } : {}), selectorVersion: comboPickPolicy(sport, s.date)?.version })) }, changedRows };
