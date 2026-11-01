@@ -9,7 +9,8 @@ import { nflKickoffIso } from "./footballWeeklyMarket";
 import { sosForTeam, type FootballSosSnapshot } from "./footballSos";
 import type { FootballSport, SheetRow } from "./sportSheets";
 import { buildNbaTrendLeaderboard, nbaModelFor, nbaTrendSignals } from "./nbaTrendLeaderboard";
-import { buildSignalResearchDays, buildSignalResearchReport, type SignalResearchReport } from "./signalCombinationResearch";
+import { buildSignalResearchDays, buildSignalResearchReport, type SignalResearchReport, type SignalResearchDay } from "./signalCombinationResearch";
+import { attachComboScores, comboPickPolicy, validComboFinalWindow, type ComboScore } from "./comboScore";
 import { quoteImpliedProbability, regradeModelQuote } from "./modelSignalQuote";
 import { evaluateSignalMovement, type SignalMovement } from "./signalMovement";
 
@@ -45,12 +46,13 @@ export type FootballSignalSide = {
   sosContext: { sourceUrl: string; capturedAt: string; teams: { team: string; rank: number; elo: number; opponentRecord: string }[]; gap: number | null };
   result: "W" | "L" | "P" | ""; resultUpdated: string;
   policyVersion?: string; oddsAssumed?: boolean;
+  comboScore?: ComboScore;
 };
 export type FootballSignalsBoard = {
   version: string; sport: SignalSport; today: string; asOf: string; captureAvailable: boolean;
   sides: FootballSignalSide[]; archiveDates: string[]; summary: ReturnType<typeof signalRecord>;
   breakdowns: { dimension: string; label: string; record: ReturnType<typeof signalRecord> }[];
-  history: { date: string; game: string; selection: string; market: string; odds: string; signalCount: number; combination: string; result: string }[];
+  history: { date: string; game: string; selection: string; market: string; odds: string; signalCount: number; combination: string; result: string; score?: number; selectorVersion?: string }[];
   research?: SignalResearchReport;
 };
 
@@ -227,6 +229,7 @@ function evaluateSide(play: AnyRow, siblings: AnyRow[], input: SignalsInput, ran
     result: "", resultUpdated: "" };
 }
 type SignalsInput = { sport: SignalSport; core: AnyRow; history: TeamTrendHistory; storedRows?: SheetRow[] | null;
+  researchDays?: Record<string, SignalResearchDay>;
   sos?: FootballSosSnapshot | null; now?: number; capture?: boolean; leaderboard?: NcaafEzpzSubtype[];
   leaderboardAsOf?: number; policy?: SignalsPolicy;
   buildSubtypes?: Parameters<typeof buildNcaafEzpzLeaderboard>[3] extends infer T ? T : never };
@@ -336,7 +339,14 @@ export function buildFootballSignalsState(input: SignalsInput): { board: Footbal
   }
   const rankings = new Map<number, NcaafEzpzSubtype[]>();
   const stale = core.stale === true || core.draftKings?.stale === true || core.draftKings?.displayMode === "STALE_FALLBACK";
-  const sides: FootballSignalSide[] = [];
+  let sides: FootballSignalSide[] = [];
+  const captureIds = new Set<string>();
+  const scheduledTimes = new Map<string, string>();
+  for (const row of [...(core.teamTrendScheduleRows || []), ...(core.slateToday || [])]) {
+    const kickoff = nflKickoffIso(dateOf(row), row["Game Time"] || row["Game Time ET"] || "");
+    const key = footballTeamGameKey(row, sport);
+    if (footballTeamPair(row) && kickoff && !scheduledTimes.has(key)) scheduledTimes.set(key, kickoff);
+  }
   for (const plays of groups.values()) {
     const evaluated = plays.map(play => {
       const previous = updated.get(identifier(play, sport));
@@ -376,7 +386,7 @@ export function buildFootballSignalsState(input: SignalsInput): { board: Footbal
       if (!side.recorded) {
         side = { ...side, mixed: leaders.length > 1 && candidates.includes(side), selected: leaders.length === 1 && leaders[0] === side };
         if (input.capture && input.storedRows != null && !stale && paired && signalFinalWindow(side, now, policy.launchAt) && Date.parse(side.gameTime) > now) {
-          side = { ...side, recorded: true }; changedRows.push(storageRow(side, policy)); updated.set(side.id, side);
+          captureIds.add(side.id);
         }
       }
       sides.push(side);
@@ -390,7 +400,21 @@ export function buildFootballSignalsState(input: SignalsInput): { board: Footbal
   for (const side of updated.values()) {
     if (!visibleIds.has(side.id) && (visibleDates.has(side.date) || (side.date >= displayStart && side.date <= displayEnd))) sides.push(side);
   }
-  const selected = selectSignalEzpzPicks([...updated.values()], sport, now), breakdowns: FootballSignalsBoard["breakdowns"] = [];
+  const scoreDays = { ...input.researchDays, ...buildSignalResearchDays([...updated.values()], policy.version, now) };
+  sides = attachComboScores(sides.map(side => scheduledTimes.has(side.gameKey)
+    ? { ...side, scheduledGameTime: scheduledTimes.get(side.gameKey) } : side), sport, scoreDays, policy.version, now, !stale);
+  sides = sides.map(side => {
+    if (!captureIds.has(side.id)) return side;
+    if (comboPickPolicy(sport, side.date) && (!side.comboScore || !validComboFinalWindow(side, now))) return side;
+    const captured = { ...side, recorded: true };
+    changedRows.push(storageRow(captured, policy)); updated.set(captured.id, captured);
+    return captured;
+  });
+  const scorePolicy = comboPickPolicy(sport, core.today);
+  const selected = selectSignalEzpzPicks([...updated.values()].map(side => scheduledTimes.has(side.gameKey)
+    ? { ...side, scheduledGameTime: scheduledTimes.get(side.gameKey) } : side), sport, now)
+    .filter(side => !scorePolicy || comboPickPolicy(sport, side.date)?.version === scorePolicy.version);
+  const breakdowns: FootballSignalsBoard["breakdowns"] = [];
   for (const [dimension, value] of [["Market", (s: FootballSignalSide) => s.market], ["Signal count", (s: FootballSignalSide) => String(s.signalCount)],
     ["Combination", (s: FootballSignalSide) => s.combination], ["SOS tier", (s: FootballSignalSide) => s.signals.find(x => x.key === "sos")?.level || "Not used"]] as const) {
     const buckets = new Map<string, FootballSignalSide[]>();
@@ -400,12 +424,6 @@ export function buildFootballSignalsState(input: SignalsInput): { board: Footbal
   const pickIds = new Set(selectSignalEzpzPicks(sides, sport, now).map(side => side.id));
   // Saved evidence retains its original lock clock. Display the current
   // schedule separately so a corrected kickoff never rewrites a saved test.
-  const scheduledTimes = new Map<string, string>();
-  if (sport !== "NBA") for (const row of [...(core.teamTrendScheduleRows || []), ...(core.slateToday || [])]) {
-    const kickoff = nflKickoffIso(dateOf(row), row["Game Time"] || row["Game Time ET"] || "");
-    const key = footballTeamGameKey(row, sport);
-    if (footballTeamPair(row) && kickoff && !scheduledTimes.has(key)) scheduledTimes.set(key, kickoff);
-  }
   const displaySides = sides.map(side => ({ ...side, selected: pickIds.has(side.id),
     ...(scheduledTimes.has(side.gameKey) ? { scheduledGameTime: scheduledTimes.get(side.gameKey) } : {}) }));
   const archiveDates = [...new Set([...archived.map(row => row.side.date), ...[...updated.values()].map(side => side.date)])].sort();
@@ -413,5 +431,6 @@ export function buildFootballSignalsState(input: SignalsInput): { board: Footbal
   return { board: { version: policy.version, sport, today: core.today, asOf: new Date(now).toISOString(), captureAvailable: input.storedRows != null,
     sides: displaySides, archiveDates, summary: signalRecord(selected), breakdowns, research,
     history: selected.slice().sort((a, b) => b.gameTime.localeCompare(a.gameTime)).slice(0, 200).map(s => ({ date: s.date, game: s.game,
-      selection: s.selection, market: s.market, odds: s.odds, signalCount: s.signalCount, combination: s.combination, result: s.result })) }, changedRows };
+      selection: s.selection, market: s.market, odds: s.odds, signalCount: s.signalCount, combination: s.combination, result: s.result,
+      ...(s.comboScore ? { score: s.comboScore.score } : {}), selectorVersion: comboPickPolicy(sport, s.date)?.version })) }, changedRows };
 }

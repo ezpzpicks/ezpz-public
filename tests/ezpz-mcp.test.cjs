@@ -88,6 +88,41 @@ function harness({ realCurrentPicks = false } = {}) {
   };
 }
 
+test('a zero-signal NCAAF score pick persists, verifies and emits exactly one final event', async () => {
+  const h = harness({ realCurrentPicks: true });
+  const at = Date.parse('2026-11-01T17:46:00Z'); h.setTime(at - 120_000);
+  const events = h.load('lib/ezpzMcpEvents.ts');
+  const subscription = h.subscription(); subscription.arguments.sports = ['NCAAF'];
+  await events.subscribeFinalPicks(subscription);
+  const captured = '2026-11-01T17:45:00.000Z';
+  const side = { id: 'alpha-spread', date: '2026-11-01', gameKey: 'alpha-beta', game: 'Alpha @ Beta',
+    gameTime: '2026-11-01T18:00:00.000Z', market: 'Spread', side: 'alpha', selection: 'Alpha -3.5', line: -3.5, odds: '-110',
+    snapshotAt: captured, status: 'FINAL_PREGAME', recorded: true, signalCount: 0, sourceCount: 0,
+    signals: ['money','move','system','team','model','sos'].map(key => ({ key, active: false, available: true })), result: '',
+    comboScore: { version: 'combo-score-2026-11-01-v1', sport: 'NCAAF', score: 70, rawScore: 170 / 3,
+      capturedAt: captured, historyAsOf: captured, historyDates: ['2026-10-31'], mode: 'locked',
+      own: { combination: '', sideGroup: 'Favorite', wins: 14, losses: 6, pushes: 0 },
+      opponent: { combination: 'move', sideGroup: 'Underdog', wins: 4, losses: 6, pushes: 0,
+        id: 'beta-spread', gameKey: 'alpha-beta', market: 'Spread', selection: 'Beta +3.5', line: 3.5, snapshotAt: captured } } };
+  const pick = h.load('lib/signalPicks.ts').signalPickForFeed(side, 'NCAAF');
+  h.setTime(at);
+  assert.equal(h.load('lib/signalPicks.ts').isSignalFeedPick(pick, 'NCAAF', at), true, 'saved feed validates the zero-signal score');
+  assert.equal(h.load('lib/ezpzMcpPicks.ts').normalizeMcpPick('NCAAF', pick, at)?.eligibleForPosting, true, 'MCP validates the frozen score');
+  const current = h.load('lib/ezpzCurrentPicks.ts');
+  await current.persistEzpzCurrentPicks('NCAAF', { today: side.date, aiPicks: [pick] }, at);
+  assert.equal((await current.readEzpzCurrentPicks('NCAAF')).picks.length, 1, 'durable snapshot retains the score decision');
+  await current.persistEzpzCurrentPicks('NCAAF', { today: side.date, aiPicks: [pick] }, at + 1000);
+  assert.equal(h.events().length, 1);
+  const published = h.events()[0].payload;
+  assert.equal(published.data.pick.threshold, 65); assert.equal(published.data.pick.signalCount, 0);
+  assert.equal(published.data.pick.score, undefined, 'event wire contract stays compatible; fresh verification supplies score metadata');
+  const read = await h.load('lib/ezpzMcp.ts').readMcpPicks(['NCAAF'], true, at + 1000);
+  assert.equal(read.picks.length, 1); assert.equal(read.picks[0].score, 70);
+  assert.equal(read.picks[0].selectionMethod, 'combo_score'); assert.equal(read.picks[0].pickLabel, 'EZPZ Signal Pick');
+  assert.equal(read.picks[0].selection, 'Alpha -3.5');
+  h.database.close();
+});
+
 test('the new NFL feed publishes only qualifying signal tests and deduplicates their final events', async () => {
   const h = harness({ realCurrentPicks: true });
   h.setTime(Date.parse('2026-10-25T19:44:00Z'));

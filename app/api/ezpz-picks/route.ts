@@ -63,6 +63,8 @@ function normalizePick(pick: AnyRow, sport: EzpzCurrentSport) {
   return {
     ...(verified ? { pickId: verified.pickId, pickCategory: verified.pickCategory, pickLabel: verified.pickLabel,
       signalCount: verified.signalCount, threshold: verified.threshold, signalNames: verified.signalNames,
+      selectionMethod: verified.selectionMethod, selectorVersion: verified.selectorVersion,
+      score: verified.score, scoreThreshold: verified.scoreThreshold, scoreVersion: verified.scoreVersion,
       finalizedAt: verified.finalizedAt, eligibleForPosting: verified.eligibleForPosting } : {}),
     sport,
     date: String(firstValue(pick.date, pick.Date)),

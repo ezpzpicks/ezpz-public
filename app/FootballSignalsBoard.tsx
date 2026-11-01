@@ -6,7 +6,7 @@ import { TeamLogoName } from "./TeamLogoName";
 import NbaGameLineups from "./NbaGameLineups";
 import type { NbaGameLineup } from "../lib/nbaLineupsCore";
 import type { FootballSignalKey, FootballSignalSide, FootballSignalsBoard, FootballSignal } from "../lib/footballSignals";
-import { selectSignalEzpzPicks, signalPickThreshold } from "../lib/signalPicks";
+import { selectSignalEzpzPicks, signalPickThreshold, comboPickPolicy } from "../lib/signalPicks";
 import { signalResearchView, signalCombinationLabel, signalCombinationRecord, signalResearchSideGroup, type ResearchPhase, type SignalResearchReport } from "../lib/signalCombinationResearch";
 import { evaluateSignalMovement } from "../lib/signalMovement";
 
@@ -132,6 +132,19 @@ function SignalDetail({ side, signal, onClose, liveNba = false }: { side: Footba
   </section>;
 }
 
+function ComboScoreEvidence({ side, sport }: { side: FootballSignalSide; sport: string }) {
+  const value = side.comboScore;
+  if (!value) return null;
+  const policy = comboPickPolicy(sport, side.date);
+  const record = (r: typeof value.own) => `${r.wins}–${r.losses}–${r.pushes}`;
+  return <div className="ep-score-evidence" aria-label={`${side.selection}: combo score ${format(value.score)}`}>
+    <div className="ep-score-heading"><strong>{format(value.score)}<small> / 100</small></strong><span>{policy ? `Minimum ${policy.threshold}` : "Score preview"}</span></div>
+    <dl className="ep-score-records"><div><dt>Own combo · {value.own.sideGroup}<small>{signalCombinationLabel(value.own.combination)}</small></dt><dd>{record(value.own)}</dd></div>
+      <div><dt>Opposing combo · {value.opponent.sideGroup}<small>{signalCombinationLabel(value.opponent.combination)}</small></dt><dd>{record(value.opponent)}</dd></div></dl>
+    <p>{policy ? "Both sides’ exact combination history determines the score." : "Calibration in progress. This score does not determine this sport’s official picks yet."}</p>
+  </div>;
+}
+
 function EzpzPickTile({ side, sport, expandedKey, onSignalClick, children, lineup }: {
   side: FootballSignalSide; sport: FootballSignalsBoard["sport"]; expandedKey?: FootballSignalKey;
   onSignalClick: (event: React.MouseEvent<HTMLButtonElement>, key: FootballSignalKey) => void;
@@ -158,7 +171,7 @@ function EzpzPickTile({ side, sport, expandedKey, onSignalClick, children, lineu
       <h3>{side.market === "Spread" ? <TeamLogoName sport={sport} team={side.selection.replace(/\s+[+−-]?\d+(?:\.\d+)?$/, "")} className="ep-team" /> : <span>{side.selection.replace(/\s+[+−-]?\d+(?:\.\d+)?$/, "")}</span>}
         <span className="ep-line">{side.line == null ? "Line pending" : format(side.line, side.market === "Spread")}</span></h3></div>
       <div className="ep-price"><span>{preview ? "Current odds" : "Saved odds"}</span><strong>{side.odds}</strong></div></div>
-    <div className="ep-evidence"><div className="ep-evidence-heading"><span><Check size={13} aria-hidden="true" />{active.length} signals triggered</span><small>Tap to explore</small></div>
+    <div className="ep-evidence"><ComboScoreEvidence side={side} sport={sport} /><div className="ep-evidence-heading"><span><Check size={13} aria-hidden="true" />{active.length} signals triggered</span><small>{active.length ? "Tap to explore" : "Exact combo history"}</small></div>
       <div className="ep-signals">{active.map(signal => { const { Icon, title } = META[signal.key], expanded = expandedKey === signal.key;
         return <button type="button" className="ep-signal" key={signal.key} aria-expanded={expanded} aria-controls={`signal-detail-${side.id}-${signal.key}`}
           aria-label={`${side.selection}: ${title}. Qualifying. ${signalValue(signal)}`} onClick={event => onSignalClick(event, signal.key)}>
@@ -219,7 +232,7 @@ export default function FootballSignals({ board, picksOnly = false, sport: fallb
   const [market, setMarket] = useState<"All" | "Spread" | "Total">(picksOnly ? "All" : "Spread");
   const [date, setDate] = useState(board?.today || ""), [query, setQuery] = useState("");
   const [onlyCandidates, setOnlyCandidates] = useState(false);
-  const [sort, setSort] = useState<FootballSignalKey | "time">("time"), [direction, setDirection] = useState(-1);
+  const [sort, setSort] = useState<FootballSignalKey | "time" | "score">("time"), [direction, setDirection] = useState(-1);
   const [open, setOpen] = useState<{ id: string; key: FootballSignalKey } | null>(null);
   const [archive, setArchive] = useState<{ key: string; status: "loading" | "ready" | "error"; sides: FootballSignalSide[]; research?: SignalResearchReport; lineups?: NbaGameLineup[] } | null>(null);
   const [archiveRetry, setArchiveRetry] = useState(0);
@@ -227,7 +240,8 @@ export default function FootballSignals({ board, picksOnly = false, sport: fallb
   const keys: FootballSignalKey[] = board?.sport === "NCAAF" ? ["money", "move", "system", "team", "model", "sos"] : ["money", "move", "system", "team", "model"];
   const dates = [...new Set([board?.today || "", ...(board?.sides || []).map(side => side.date), ...(board?.archiveDates || [])])].filter(Boolean).sort();
   const selectedDate = dates.includes(date) ? date : board?.today || "";
-  const sport = board?.sport || fallbackSport, threshold = signalPickThreshold(sport), archiveKey = `${sport}:${selectedDate}`;
+  const sport = board?.sport || fallbackSport, scorePolicy = comboPickPolicy(sport || "", selectedDate);
+  const threshold = scorePolicy?.threshold ?? signalPickThreshold(sport), archiveKey = `${sport}:${selectedDate}`;
   const needsArchive = Boolean(board && selectedDate !== board.today && ((selectedDate < board.today && board.archiveDates?.includes(selectedDate)) || !board.sides.some(side => side.date === selectedDate)));
   const archiveReady = archive?.key === archiveKey && archive.status === "ready";
   const archiveError = archive?.key === archiveKey && archive.status === "error";
@@ -261,6 +275,7 @@ export default function FootballSignals({ board, picksOnly = false, sport: fallb
       byGame.set(side.gameKey, [...(byGame.get(side.gameKey) || []), side]);
     }
     const value = (rows: FootballSignalSide[]) => Math.max(...rows.map(row => {
+      if (sort === "score") return row.comboScore?.score ?? -Infinity;
       const s = row.signals.find(s => s.key === sort); return s?.available && s.value != null ? s.value : -Infinity;
     }));
     return [...byGame.values()].filter(rows => !onlyCandidates || rows.some(row => row.selected))
@@ -272,21 +287,25 @@ export default function FootballSignals({ board, picksOnly = false, sport: fallb
       });
   }, [viewSides, market, selectedDate, query, onlyCandidates, sort, direction, picksOnly]);
   if (!board) return picksOnly ? <section className="fs-board ep-board" aria-label={`${sport} EZPZ Picks`}><div className="fs-heading ep-heading"><h2>{sport} EZPZ Picks</h2></div>
-    <p className="fs-description">{threshold}+ signals qualify for EZPZ Picks.</p><div className="fs-empty">No qualifying {sport} EZPZ Picks yet. Saved signal tests are awaiting the next successful board refresh.</div></section>
+    <p className="fs-description">{scorePolicy ? `A combo score of ${threshold} or higher qualifies for EZPZ Picks.` : `${threshold}+ signals qualify for EZPZ Picks.`}</p><div className="fs-empty">No qualifying {sport} EZPZ Picks yet. Saved signal tests are awaiting the next successful board refresh.</div></section>
     : <div className="fs-empty">Signals are awaiting the next successful board refresh.</div>;
   const liveNba = board.sport === "NBA";
+  const resultPolicy = comboPickPolicy(board.sport, board.today);
   const close = () => { setOpen(null); trigger.current?.focus(); };
   return <section className={`fs-board ${keys.length === 6 ? "fs-six" : ""}${picksOnly ? " ep-board" : ""}`} aria-label={`${board.sport} ${picksOnly ? "EZPZ Picks" : "Signals"}`} onKeyDown={e => { if (e.key === "Escape" && open) { close(); e.preventDefault(); } }}>
-    <div className={`fs-heading${picksOnly ? " ep-heading" : ""}`}><div><span className="fs-kicker">{picksOnly ? "THE QUALIFYING CARD" : board.sport === "NCAAF" ? "College football" : board.sport}</span><h2>{picksOnly ? `${board.sport} EZPZ Picks` : "Signals"}</h2></div><span className="fs-test-label">{picksOnly ? <><Zap size={13} aria-hidden="true" />{threshold}+ signals</> : liveNba ? "Live signals" : "Signal research"}</span></div>
-    <p className="fs-description">{picksOnly ? `One play per game. Backed by ${threshold}+ signals. See what’s behind every pick.` : `Every matchup. ${threshold}+ signals qualify for EZPZ Picks. Tap a signal for the key details.`}</p>
+    <div className={`fs-heading${picksOnly ? " ep-heading" : ""}`}><div><span className="fs-kicker">{picksOnly ? "THE QUALIFYING CARD" : board.sport === "NCAAF" ? "College football" : board.sport}</span><h2>{picksOnly ? `${board.sport} EZPZ Picks` : "Signals"}</h2></div><span className="fs-test-label">{picksOnly ? <><Zap size={13} aria-hidden="true" />{scorePolicy ? `Score ${threshold}+` : `${threshold}+ signals`}</> : liveNba ? "Live signals" : "Signal research"}</span></div>
+    <p className="fs-description">{scorePolicy ? picksOnly ? `Highest combo score per game. Minimum ${threshold}. See the history behind each pick.` : `Every matchup. A combo score of ${threshold} or higher qualifies for EZPZ Picks.`
+      : picksOnly ? `One play per game. Backed by ${threshold}+ signals. See what’s behind every pick.` : `Every matchup. ${threshold}+ signals qualify for EZPZ Picks. Tap a signal for the key details.`}</p>
+    {board.sport === "NCAAF" && selectedDate < "2026-11-01" ? <p className="fs-notice">From Nov 1, NCAAF EZPZ Picks use a minimum combo score of 65. Earlier dates retain their original signal rules.</p> : null}
+    {["NFL", "NBA"].includes(board.sport) && selectedDate >= "2026-11-01" && !scorePolicy ? <p className="fs-notice">{board.sport} combo scores are in calibration. Official picks use 2+ signals across two evidence groups.</p> : null}
     {!board.captureAvailable ? <p className="fs-notice" role="status">{liveNba ? "Pregame capture is unavailable. Signals below are previews." : "Test capture is unavailable. Signals below are previews."}</p> : null}
     <div className="fs-controls"><div className="fs-markets" role="group" aria-label="Market">{(picksOnly ? ["All", "Spread", "Total"] as const : ["Spread", "Total"] as const).map(m => <button type="button" key={m} aria-pressed={market === m} onClick={() => { setMarket(m); setOpen(null); }}>{m === "All" ? "All plays" : m === "Spread" ? "Spreads" : "Totals"}</button>)}</div>
       <label className="fs-date">Slate<select value={selectedDate} onChange={e => { setDate(e.target.value); setOpen(null); }}>{dates.map(d => <option key={d} value={d}>{new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric" }).format(new Date(d + "T12:00:00Z"))}</option>)}</select></label>
     </div>
-    <div className="fs-search-row"><label className="fs-search"><Search size={18} aria-hidden="true" /><input type="search" aria-label="Search teams" placeholder="Search teams" value={query} onChange={e => { setQuery(e.target.value); setOpen(null); }} /></label>{!picksOnly ? <button type="button" className="fs-filter" aria-pressed={onlyCandidates} onClick={() => { setOnlyCandidates(value => !value); setOpen(null); }}>{threshold}+ only</button> : null}</div>
+    <div className="fs-search-row"><label className="fs-search"><Search size={18} aria-hidden="true" /><input type="search" aria-label="Search teams" placeholder="Search teams" value={query} onChange={e => { setQuery(e.target.value); setOpen(null); }} /></label>{!picksOnly ? <button type="button" className="fs-filter" aria-pressed={onlyCandidates} onClick={() => { setOnlyCandidates(value => !value); setOpen(null); }}>{scorePolicy ? "EZPZ only" : `${threshold}+ only`}</button> : null}</div>
     <div className="fs-toolbar"><span aria-live="polite">{needsArchive && !archiveReady ? archiveError ? "Saved slate unavailable" : "Loading saved slate…" : `${groups.length} ${groups.length === 1 ? "game" : "games"} · ${market === "All" ? "All plays" : market === "Spread" ? "Spreads" : "Totals"}`}</span><button type="button" onClick={() => { setSort("time"); setOpen(null); }}><Clock3 size={13} />Game time</button></div>
-    {!picksOnly ? <><div className="fs-sorters" role="group" aria-label="Sort games by signal">{keys.map(key => { const { Icon, label } = META[key]; return <button type="button" key={key} aria-pressed={sort === key} aria-label={`Sort by ${META[key].title}`} onClick={() => { setDirection(sort === key ? -direction : -1); setSort(key); setOpen(null); }}><Icon size={18} aria-hidden="true" /><span>{label}{sort === key ? direction < 0 ? " ↓" : " ↑" : ""}</span></button>; })}</div>
-    <div className="fs-sort-caption" aria-live="polite">{sort === "time" ? "Game time order" : `${META[sort].title} · ${direction < 0 ? "highest" : "lowest"} first`}{sort === "sos" && market === "Total" ? " · context only" : ""}</div></> : null}
+    {!picksOnly ? <><div className="fs-sorters" role="group" aria-label="Sort games by signal">{viewSides.some(side => side.comboScore) ? <button type="button" aria-pressed={sort === "score"} onClick={() => { setDirection(sort === "score" ? -direction : -1); setSort("score"); setOpen(null); }}><Zap size={18} aria-hidden="true" /><span>Score</span></button> : null}{keys.map(key => { const { Icon, label } = META[key]; return <button type="button" key={key} aria-pressed={sort === key} aria-label={`Sort by ${META[key].title}`} onClick={() => { setDirection(sort === key ? -direction : -1); setSort(key); setOpen(null); }}><Icon size={18} aria-hidden="true" /><span>{label}{sort === key ? direction < 0 ? " ↓" : " ↑" : ""}</span></button>; })}</div>
+    <div className="fs-sort-caption" aria-live="polite">{sort === "time" ? "Game time order" : `${sort === "score" ? "Combo score" : META[sort].title} · ${direction < 0 ? "highest" : "lowest"} first`}{sort === "sos" && market === "Total" ? " · context only" : ""}</div></> : null}
     <div className={picksOnly ? "ep-grid" : "fs-games"}>{needsArchive && !archiveReady ? <div className="fs-empty" role="status">{archiveError ? <><p>The saved slate could not be loaded.</p><button type="button" className="fs-filter" onClick={() => setArchiveRetry(value => value + 1)}>Try again</button></> : "Loading saved pregame signals…"}</div> : groups.length ? groups.map(rows => picksOnly ? <EzpzPickTile key={rows[0].id} side={rows[0]} sport={board.sport} expandedKey={open?.id === rows[0].id ? open.key : undefined}
       onSignalClick={(event, key) => { trigger.current = event.currentTarget; setOpen(open?.id === rows[0].id && open.key === key ? null : { id: rows[0].id, key }); }}
       lineup={liveNba ? <NbaGameLineups game={rows[0].game} date={selectedDate} lineups={needsArchive ? archive?.lineups || [] : undefined} /> : undefined}>
@@ -295,7 +314,7 @@ export default function FootballSignals({ board, picksOnly = false, sport: fallb
       <header className="fs-game-header"><span>{rows[0].game}</span><time dateTime={rows[0].scheduledGameTime || rows[0].gameTime}>{time(rows[0].scheduledGameTime || rows[0].gameTime)}</time></header>
       {liveNba ? <NbaGameLineups game={rows[0].game} date={selectedDate} lineups={needsArchive ? archive?.lineups || [] : undefined} /> : null}
       {rows.slice().sort((a, b) => a.market.localeCompare(b.market) || (a.market === "Total" ? (a.side === "Over" ? -1 : 1) : 0)).map(side => <div className="fs-side" key={side.id}>
-        <div className="fs-side-heading"><div className="fs-selection">{side.market === "Spread" ? <TeamLogoName sport={board.sport} team={side.selection.replace(/\s+[+−-]?\d+(?:\.\d+)?$/, "")} className="fs-team-name" /> : <strong>{side.side}</strong>}<strong>{side.line == null ? "Line pending" : format(side.line, side.market === "Spread")}</strong><small>{side.odds}</small></div><CombinationRecord side={side} report={board.research?.sport === board.sport ? board.research : undefined} /><span className={side.selected ? "fs-count fs-qualified" : "fs-count"}>{side.signalCount} {side.signalCount === 1 ? "signal" : "signals"}{side.mixed ? " · Mixed" : side.selected ? " · EZPZ" : ""}</span></div>
+        <div className={`fs-side-heading${side.comboScore ? " fs-has-score" : ""}`}><div className="fs-selection">{side.market === "Spread" ? <TeamLogoName sport={board.sport} team={side.selection.replace(/\s+[+−-]?\d+(?:\.\d+)?$/, "")} className="fs-team-name" /> : <strong>{side.side}</strong>}<strong>{side.line == null ? "Line pending" : format(side.line, side.market === "Spread")}</strong><small>{side.odds}</small></div>{side.comboScore ? <small className="fs-score-label" title={`${side.recorded ? "Saved" : "Preview"} combo score · ${comboPickPolicy(board.sport, side.date) ? "Official qualifying score" : "Calibration only"}`}>Score {format(side.comboScore.score)}</small> : null}<CombinationRecord side={side} report={board.research?.sport === board.sport ? board.research : undefined} /><span className={side.selected ? "fs-count fs-qualified" : "fs-count"}>{side.signalCount} {side.signalCount === 1 ? "signal" : "signals"}{side.mixed ? " · Mixed" : side.selected ? " · EZPZ" : ""}</span></div>
         <div className="fs-signals">{keys.map(key => { const s = side.signals.find(s => s.key === key), { Icon, title } = META[key]; if (!s) return null;
           const expanded = open?.id === side.id && open.key === key;
           const available = s.available || key === "move" && !side.recorded && side.marketContext?.openingLine != null && side.line != null;
@@ -306,13 +325,13 @@ export default function FootballSignals({ board, picksOnly = false, sport: fallb
         <div className="fs-snapshot">{side.lineSource ? `Saved Covers line · ${time(side.lineSource.capturedAt)} · −110 assumed · Public betting splits unavailable` : side.recorded ? `Saved pregame · ${time(side.snapshotAt)}` : side.status === "LIVE" ? `Live preview · ${time(side.snapshotAt)}` : side.status === "MISSED_LOCK" ? "Missed final snapshot" : side.status === "UNAVAILABLE" ? "Awaiting market data" : liveNba ? "No saved pregame selection" : "Not recorded for this test"}{side.result ? ` · ${side.result}` : ""}</div>
         {open?.id === side.id ? <SignalDetail side={side} signal={side.signals.find(s => s.key === open.key)!} onClose={close} liveNba={liveNba} /> : null}
       </div>)}
-    </article>) : <div className="fs-empty">{picksOnly ? `No qualifying ${board.sport} EZPZ Picks for this view. Plays need ${threshold}+ signals and a clear qualifying leader.` : "No games match this view."}</div>}</div>
-    {picksOnly ? <details className="ep-method"><summary>How plays qualify &amp; how they’re saved</summary><p>Qualifying signal tests need {threshold}+ signals across at least two evidence sources, odds of −150 or better, and one clear leader per game. Tied leaders wait.</p><p>Live previews update before the final snapshot. Saved tests keep their pregame lines, signals and results. Historical tests are evaluated under the current threshold; they were not necessarily published EZPZ picks.</p></details>
+    </article>) : <div className="fs-empty">{picksOnly ? scorePolicy ? `No qualifying ${board.sport} EZPZ Picks for this view. The highest score must reach ${threshold}, with both markets saved before kickoff.` : `No qualifying ${board.sport} EZPZ Picks for this view. Plays need ${threshold}+ signals and a clear qualifying leader.` : "No games match this view."}</div>}</div>
+    {picksOnly ? <details className="ep-method"><summary>How plays qualify &amp; how they’re saved</summary>{scorePolicy ? <><p>The highest combo score per game must reach {threshold}, with odds of −150 or better. The score combines the selected side’s exact combination record and the opposing combination’s weakness, keeping favorites, underdogs, overs and unders separate. Small samples are adjusted toward neutral.</p><p>Both markets must be captured before the final decision. The original score inputs, signals and line are saved. Score ties prefer the spread, then a fixed selection order. Scores are historical rankings, not win probabilities. Official score records begin Nov 1.</p></> : <><p>Qualifying signal tests need {threshold}+ signals across at least two evidence sources, odds of −150 or better, and one clear leader per game. Tied leaders wait.</p><p>Live previews update before the final snapshot. Saved tests keep their pregame lines, signals and results. Historical tests are evaluated under the current threshold; they were not necessarily published EZPZ picks.</p></>}</details>
       : <div className="fs-legend"><span><i className="fs-legend-on" />Qualifying signal</span><span><i />Inactive or unavailable</span></div>}
-    <details className="fs-results"><summary>{`${threshold}+ signal test results`} <strong>{board.summary.record}</strong><span>{board.summary.settled} settled · {board.summary.pending} pending</span></summary>
-      <Lines items={[["Win rate", percent(board.summary.winPct)], ["Net units", format(board.summary.netUnits, true)], ["ROI", percent(board.summary.roiPct)], ["Mode", "Saved pregame tests evaluated at the current EZPZ threshold"]]} />
+    <details className="fs-results"><summary>{resultPolicy ? `Score ${resultPolicy.threshold}+ EZPZ results` : `${signalPickThreshold(board.sport)}+ signal test results`} <strong>{board.summary.record}</strong><span>{board.summary.settled} settled · {board.summary.pending} pending</span></summary>
+      <Lines items={[["Win rate", percent(board.summary.winPct)], ["Net units", format(board.summary.netUnits, true)], ["ROI", percent(board.summary.roiPct)], ["Mode", resultPolicy ? "Official score selections from Nov 1; original score inputs retained" : "Saved pregame tests evaluated at the current EZPZ threshold"]]} />
       {board.breakdowns.length ? <table className="fs-table"><thead><tr><th scope="col">Group</th><th scope="col">Record / sample</th><th scope="col">ROI</th></tr></thead><tbody>{board.breakdowns.map(row => <tr key={`${row.dimension}-${row.label}`}><th scope="row">{row.label}<small>{row.dimension}</small></th><td data-label="Record / sample">{row.record.record}<small>{row.record.settled} settled · {row.record.pending} pending</small></td><td data-label="ROI">{percent(row.record.roiPct)}</td></tr>)}</tbody></table> : <p>{liveNba ? "Results appear after qualifying selections are saved before tipoff and settled." : "Results appear after qualifying test selections are saved before kickoff and settled."}</p>}
-      {board.history.length ? <table className="fs-table"><thead><tr><th scope="col">{liveNba ? "Saved signal play" : "Saved test play"}</th><th scope="col">Signals</th><th scope="col">Result</th></tr></thead><tbody>{board.history.map((row, i) => <tr key={`${row.date}-${row.selection}-${i}`}><th scope="row">{row.selection}<small>{row.game} · {row.date}</small></th><td data-label="Signals">{row.signalCount}<small>{row.combination}</small></td><td data-label="Result">{row.result || "Pending"}</td></tr>)}</tbody></table> : null}
+      {board.history.length ? <table className="fs-table"><thead><tr><th scope="col">{liveNba ? "Saved signal play" : "Saved test play"}</th><th scope="col">{resultPolicy ? "Score" : "Signals"}</th><th scope="col">Result</th></tr></thead><tbody>{board.history.map((row, i) => <tr key={`${row.date}-${row.selection}-${i}`}><th scope="row">{row.selection}<small>{row.game} · {row.date}</small></th><td data-label={resultPolicy ? "Score" : "Signals"}>{row.score != null && resultPolicy ? format(row.score) : row.signalCount}<small>{row.combination || "No active signals"}</small></td><td data-label="Result">{row.result || "Pending"}</td></tr>)}</tbody></table> : null}
       <p>{liveNba ? "All signal observations are saved. Each settled qualifying selection risks one unit at its saved odds. Official selections appear on EZPZ Picks." : "All signal observations are saved, including games that produce no test selection. Each settled test selection risks one unit at its saved odds."}</p>
     </details>
     {!picksOnly && market !== "All" ? <CombinationResearch report={needsArchive ? archiveReady ? archive?.research : undefined : board.research} market={market}

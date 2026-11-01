@@ -81,7 +81,9 @@ export async function readSavedEzpzResults(sport: McpSport, date: string) {
       return { pickId: pick.pickId, sport, date, gameTime: pick.gameTime, game: pick.game, market: pick.market,
         selection: pick.selection, line: pick.line, pickCategory: "signals" as const, pickLabel: pick.pickLabel,
         result: resultCode(side.result), settlementStatus: side.result ? "SETTLED" as const : "PENDING" as const,
-        resultUpdated: side.resultUpdated, finalizedAt: pick.finalizedAt };
+        resultUpdated: side.resultUpdated, finalizedAt: pick.finalizedAt,
+        selectionMethod: pick.selectionMethod, selectorVersion: pick.selectorVersion,
+        ...(pick.score != null ? { score: pick.score, scoreThreshold: pick.scoreThreshold, scoreVersion: pick.scoreVersion } : {}) };
     });
   }
   // NBA has no legacy independently published football trend categories.

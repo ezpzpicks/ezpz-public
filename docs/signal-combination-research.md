@@ -1,9 +1,12 @@
 # Signal combination research
 
 The Signals board compares frozen 0-, 1-, 2- and 3+-signal observations, exact
-combinations, and inclusive individual-signal baselines. It does not promote
-combinations into EZPZ picks or change the existing 3+ test, raw signal rules,
-one-pick-per-game selector, price cap, or posting behavior.
+combinations, and inclusive individual-signal baselines. This research engine
+does not itself select or publish picks. From November 1, 2026, the separately
+versioned [NCAAF combo-score selector](combo-score-selector.md) uses this prior
+history with a 65 minimum. NFL and NBA retain their two-signal selector while
+their prospective scores are calibrated. Raw signal definitions stay separate
+from selection policies.
 
 ## Evidence and scope
 
@@ -50,7 +53,7 @@ the sports with an existing Signals capture pipeline. MLB/NCAAM can use the same
 engine when their signal adapters exist; this change invents no unsupported
 signal feeds or historical records for them.
 
-## Promotion remains a later decision
+## Versioned promotion
 
 Use earlier history to identify candidates, then evaluate their later results
 separately, including ROI, price quality, sample size and uncertainty. Compare

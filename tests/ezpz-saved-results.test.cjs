@@ -6,10 +6,10 @@ const vm = require('node:vm');
 const ts = require('typescript');
 const root = path.resolve(__dirname, '..');
 
-function harness() {
+function harness(clock = '2026-10-27T12:00:00Z') {
   const datasets = new Map(), reads = [], cache = new Map();
-  class Clock extends Date { constructor(...args) { super(...(args.length ? args : ['2026-10-27T12:00:00Z'])); }
-    static now() { return Date.parse('2026-10-27T12:00:00Z'); } }
+  class Clock extends Date { constructor(...args) { super(...(args.length ? args : [clock])); }
+    static now() { return Date.parse(clock); } }
   let failure = false;
   function load(file) {
     const filename = path.resolve(root, file);
@@ -145,4 +145,37 @@ test('NBA results read only its saved signal ledger, with exact quotes and captu
   h.datasets.set('NBA:nba_signal_observations', [{ ...saved, Result: '' }]);
   const [pending] = await h.api.readSavedEzpzResults('NBA', date);
   assert.equal(pending.result, null); assert.equal(pending.settlementStatus, 'PENDING');
+});
+
+
+test('NCAAF saved results replay the frozen score decision and expose its sport-specific threshold', async () => {
+  const h = harness('2026-11-02T12:00:00Z');
+  const load = require('./load-typescript.cjs');
+  const scoring = load(path.join(root, 'lib/comboScore.ts'));
+  const research = load(path.join(root, 'lib/signalCombinationResearch.ts'));
+  const date = '2026-11-01', policy = 'football-signals-2026-10-18-v1', at = Date.parse(date + 'T17:45:00Z');
+  const base = { date, gameKey: 'alpha-beta', game: 'Alpha @ Beta', gameTime: date + 'T18:00:00Z',
+    snapshotAt: date + 'T17:45:00Z', status: 'FINAL_PREGAME', recorded: false, odds: '-110',
+    result: '', resultUpdated: '', signalCount: 0, signals: [] };
+  const sides = [
+    { ...base, id: 'a', market: 'Spread', side: 'Alpha', selection: 'Alpha -3.5', line: -3.5 },
+    { ...base, id: 'b', market: 'Spread', side: 'Beta', selection: 'Beta +3.5', line: 3.5,
+      signals: [{ key: 'move', active: true, available: true }], signalCount: 1 },
+    { ...base, id: 'over', market: 'Total', side: 'Over', selection: 'Over 45.5', line: 45.5 },
+    { ...base, id: 'under', market: 'Total', side: 'Under', selection: 'Under 45.5', line: 45.5 },
+  ];
+  const cell = (sideGroup, combination, wins, losses) => ({ market: 'Spread', sideGroup, combination, phase: 'forward',
+    stats: { wins, losses, pushes: 0, pending: 0, netUnits: 0, assumedPrices: 0, unknownPrices: 0 } });
+  const days = { '2026-10-31': { version: research.SIGNAL_RESEARCH_VERSION, policyVersion: policy, date: '2026-10-31',
+    cells: [cell('Favorite', '', 14, 6), cell('Underdog', 'move', 4, 6)] } };
+  const scored = scoring.attachComboScores(sides, 'NCAAF', days, policy, at);
+  h.datasets.set('NCAAF:football_signal_observations', scored.map(s => ({ Date: date, 'Pick Key': s.id, 'Policy Version': policy,
+    'Details JSON': JSON.stringify({ ...s, recorded: true }), Result: s.id === 'a' || s.id === 'over' ? 'W' : 'L',
+    'Result Updated': date + 'T21:00:00Z' })));
+  const result = await h.api.readSavedEzpzResults('NCAAF', date);
+  assert.equal(result.length, 1); assert.equal(result[0].selection, 'Alpha -3.5');
+  assert.equal(result[0].result, 'W'); assert.equal(result[0].line, -3.5);
+  assert.equal(result[0].selectionMethod, 'combo_score'); assert.equal(result[0].score, 70);
+  assert.equal(result[0].scoreThreshold, 65); assert.equal(result[0].pickLabel, 'EZPZ Signal Pick');
+  assert.deepEqual(plain(h.reads), [{ sport: 'NCAAF', dataset: 'football_signal_observations', dates: [date] }]);
 });

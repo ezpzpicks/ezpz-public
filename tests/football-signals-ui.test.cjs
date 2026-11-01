@@ -5,7 +5,7 @@ const ts = require('typescript'), React = require('react');
 const { renderToStaticMarkup } = require('react-dom/server');
 const root = path.resolve(__dirname, '..');
 const exportsObject = {};
-const source = fs.readFileSync(path.join(root, 'app/FootballSignalsBoard.tsx'), 'utf8') + '\nexport const detailTest = SignalDetail; export const researchTest = CombinationResearch; export const comboTest = CombinationRecord;';
+const source = fs.readFileSync(path.join(root, 'app/FootballSignalsBoard.tsx'), 'utf8') + '\nexport const detailTest = SignalDetail; export const researchTest = CombinationResearch; export const comboTest = CombinationRecord; export const pickTileTest = EzpzPickTile;';
 vm.runInNewContext(ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } }).outputText,
   { exports: exportsObject, Date, Intl, console, require: name => name === './TeamLogoName' ? { TeamLogoName: p => p.team }
     : name === './NbaGameLineups' ? { __esModule: true, default: () => null }
@@ -33,6 +33,18 @@ const opposite = { ...side, id: 'game|Spread|gb', selection: 'GB +1.5', line: 1.
 const board = { sport: 'NFL', today: '2026-10-18', captureAvailable: true, sides: [side, opposite],
   summary: { record: '0-0-0', settled: 0, pending: 0, winPct: null, roiPct: null, netUnits: 0 }, breakdowns: [], history: [] };
 const render = node => renderToStaticMarkup(node);
+
+test('a combo-score card explains both frozen records and a zero-active-signal qualifier', () => {
+  const noSignals = side.signals.map(s => ({ ...s, active: false }));
+  const value = { ...side, date: '2026-11-01', signals: noSignals, signalCount: 0, recorded: true, status: 'FINAL_PREGAME',
+    comboScore: { score: 70, own: { sideGroup: 'Favorite', combination: '', wins: 14, losses: 6, pushes: 0 },
+      opponent: { sideGroup: 'Underdog', combination: 'move', wins: 4, losses: 6, pushes: 0 } } };
+  const html = render(React.createElement(exportsObject.pickTileTest, { side: value, sport: 'NCAAF', onSignalClick() {} }));
+  for (const text of ['Minimum 65', 'Own combo', 'Opposing combo', '14–6–0', '4–6–0', 'No active signals', '0 signals triggered']) assert(html.includes(text), text);
+  assert.doesNotMatch(html, /Tap to explore|3\+ signals|Model grade/);
+  const preview = render(React.createElement(exportsObject.pickTileTest, { side: value, sport: 'NBA', onSignalClick() {} }));
+  assert.match(preview, /Score preview/); assert.match(preview, /Calibration in progress/);
+});
 
 test('Signals and EZPZ cards display the corrected schedule clock in Eastern', () => {
   const corrected = { ...side, recorded: true, status: 'FINAL_PREGAME', snapshotAt: '2026-10-19T00:05:00Z',

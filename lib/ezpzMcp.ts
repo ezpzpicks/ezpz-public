@@ -14,7 +14,9 @@ const PICK_SCHEMA = {
     market: { type: "string" }, selection: { type: "string" }, line: { type: ["string", "number", "null"] },
     odds: { type: ["string", "null"] }, gameTime: { type: "string", format: "date-time" }, pickType: { type: "string" },
     pickCategory: { type: "string", enum: ["signals", "public_bet_trend", "team_trend"] },
-    pickLabel: { type: "string" }, signalCount: { type: "integer" }, threshold: { type: "integer" },
+    pickLabel: { type: "string" }, signalCount: { type: "integer" }, threshold: { type: "number" },
+    selectionMethod: { type: "string", enum: ["combo_score", "signal_count"] },
+    score: { type: "number" }, scoreThreshold: { type: "number" }, scoreVersion: { type: "string" }, selectorVersion: { type: "string" },
     signalNames: { type: "array", items: { type: "string" } },
     teamTrendScore: { type: ["number", "null"] }, teamTrendRecords: { type: ["array", "null"] },
     lastSeven: { type: ["object", "null"], properties: {
@@ -30,7 +32,7 @@ const PICK_SCHEMA = {
 export const EZPZ_MCP_TOOLS = [
   {
     name: "get_ezpz_picks", title: "Read EZPZ Picks",
-    description: "Read saved EZPZ Picks for MLB, NFL, NCAAF and NBA: NFL and NBA require 2+ signals and other sports require 3+, across at least two evidence groups. Defaults to finalized, unstarted games. Signal picks use pickCategory=signals and include pickLabel, signalCount, threshold and signalNames. Verify the exact saved line and finalization before posting. lastSeven is null for signal combinations because no validated last-seven combination record is supplied; never treat a component trend record as the combination's record. Prior-date legacy captures may retain public_bet_trend or team_trend categories.",
+    description: "Read saved official EZPZ Picks. From Nov 1, 2026, NCAAF uses selectionMethod=combo_score with a minimum score of 65, based on exact combination history for both sides. It may qualify with zero active signals; do not apply a signal-count minimum to score picks. NFL and NBA retain 2+ signals across at least two evidence groups while their scores are calibrated separately. Defaults to finalized, unstarted games. Verify the saved selectionMethod, selectorVersion, score/scoreThreshold when present, exact line, finalization and eligibleForPosting before posting. lastSeven is null because no validated combination last-seven record is supplied. Older dates retain their original selector.",
     inputSchema: { type: "object", properties: { sport: SPORT_SCHEMA, finalOnly: { type: "boolean", default: true } }, additionalProperties: false },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   },
@@ -44,7 +46,7 @@ export const EZPZ_MCP_TOOLS = [
 
 export const EZPZ_MCP_EVENTS = [{
   name: FINAL_PICK_EVENT,
-    description: "A qualifying EZPZ signal pick has been saved as FINAL_PREGAME before game time at the 10–20 minute final snapshot. NFL and NBA require 2+ signals; other sports require 3+, across at least two evidence groups. Covers MLB, NFL, NCAAF and NBA. Each event carries a category-specific stable pick ID and exact selection; verify with get_finalized_pick for pickCategory, pickLabel, signalCount, signalNames and the exact frozen line. Delivery uses existing snapshot jobs, durable deduplication, signed callbacks and bounded retries. Newly created subscriptions watch future finalizations.",
+    description: "An official EZPZ selection has been saved as FINAL_PREGAME at the 10–20 minute final snapshot. NCAAF uses its dated combo-score policy (65 minimum from Nov 1, 2026); NFL and NBA retain their own signal-count rules while score calibration continues. Verify selectionMethod, score/scoreThreshold when present, selectorVersion, exact frozen line and eligibleForPosting with get_finalized_pick. Score picks do not require a minimum number of active signals. Existing jobs, stable pick IDs, durable deduplication and bounded retries deliver the event. Newly created subscriptions watch future finalizations.",
   delivery: ["webhook"],
   inputSchema: { type: "object", properties: { sports: { type: "array", items: SPORT_SCHEMA, minItems: 1, maxItems: MCP_SPORTS.length, uniqueItems: true } }, additionalProperties: false },
   payloadSchema: { type: "object", properties: { pick: PICK_SCHEMA }, required: ["pick"], additionalProperties: false },

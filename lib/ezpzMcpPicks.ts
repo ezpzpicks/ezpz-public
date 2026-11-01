@@ -16,6 +16,7 @@ export type McpPick = {
   pickId: string; sport: McpSport; date: string; game: string; market: string;
   selection: string; line: string | number | null; odds: string | null; gameTime: string;
   pickCategory: "public_bet_trend" | "team_trend" | "signals"; signalCount?: number; threshold?: number; signalNames?: string[]; pickLabel: string; teamTrendScore: number | null;
+  selectionMethod?: "combo_score" | "signal_count"; score?: number; scoreThreshold?: number; scoreVersion?: string; selectorVersion?: string;
   teamTrendRecords: McpTeamRecords[] | null;
   pickType: string; lastSeven: { record: string; wins: number; losses: number; pushes: number; totalBets: number } | null;
   snapshotStatus: "LIVE" | "FINAL_PREGAME"; finalizedAt: string | null;
@@ -82,7 +83,7 @@ function capturedTeamRecords(pick: AnyPick): McpTeamRecords[] | null {
 export function normalizeMcpPick(sport: McpSport, pick: AnyPick, now = Date.now()): McpPick | null {
   const teamTrend = pick.pickCategory === "team_trend", signalTest = pick.pickCategory === "signals";
   if (sport === "NBA" && !signalTest) return null;
-  if (signalTest && !isSignalFeedPick(pick, sport)) return null;
+  if (signalTest && !isSignalFeedPick(pick, sport, now)) return null;
   if (teamTrend && (sport === "MLB" || !isSelectedTeamTrendPick(pick))) return null;
   if (pick.selected === false || (pick.protectionStatus && pick.protectionStatus !== "PASSED")) return null;
   // MLB cards explicitly gate selection; football's feed is already the catalog-selected list.
@@ -101,12 +102,17 @@ export function normalizeMcpPick(sport: McpSport, pick: AnyPick, now = Date.now(
     line: pick.line ?? pick.propLine ?? null, odds: pick.odds == null || pick.odds === "" ? null : String(pick.odds),
     gameTime: new Date(gameStart).toISOString(),
     pickCategory: signalTest ? "signals" : teamTrend ? "team_trend" : "public_bet_trend",
-    ...(signalTest ? { signalCount: pick.signalCount, threshold: pick.threshold,
+    ...(signalTest ? { signalCount: pick.signalCount, threshold: pick.threshold, selectionMethod: pick.selectionMethod || "signal_count",
+      selectorVersion: pick.selectorVersion,
+      ...(pick.selectionMethod === "combo_score" ? { score: pick.score, scoreThreshold: pick.scoreThreshold, scoreVersion: pick.scoreVersion } : {}),
       signalNames: pick.signals.filter((s: AnyPick) => s.active && s.available).map((s: AnyPick) => SIGNAL_NAMES[s.key]) } : {}),
+    // Retain the integration label/category and stable IDs. selectionMethod
+    // identifies the new score policy without breaking existing subscribers.
     pickLabel: signalTest ? "EZPZ Signal Pick" : teamTrend ? "EZPZ Team Trend" : "EZPZ Public Bet Trend",
     teamTrendScore: teamTrend ? pick.teamTrendScore.score : null,
     teamTrendRecords: teamTrend ? capturedTeamRecords(pick) : null,
-    pickType: signalTest ? `${pick.signalCount} signals: ${pick.qualification}` : teamTrend ? `Team Trend (score >= ${pick.threshold}/100)`
+    pickType: signalTest ? pick.selectionMethod === "combo_score" ? `Combo score ${Number(pick.score).toFixed(1)}/100 (minimum ${pick.scoreThreshold})`
+      : `${pick.signalCount} signals: ${pick.qualification}` : teamTrend ? `Team Trend (score >= ${pick.threshold}/100)`
       : String(pick.tier || pick.trendTier || pick.bestPlayType || pick.source || "").trim(),
     // Team records used by the score are not the strategy's last seven bets.
     lastSeven: teamTrend || signalTest ? null : lastSeven(pick), snapshotStatus: status,

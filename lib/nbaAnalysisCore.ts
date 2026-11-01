@@ -8,10 +8,11 @@ import { NBA_ASSUMED_ODDS, NBA_MARKET_POLICY, nbaDate, nbaRowKey, nbaTeamKey } f
 import type { TursoRow } from "./tursoStore";
 import { buildSignalResearchDays, buildSignalResearchReport, SIGNAL_RESEARCH_VERSION, type SignalResearchDay } from "./signalCombinationResearch";
 import type { NbaModelRecordState } from "./nbaRecords";
-import { selectSignalEzpzPicks, signalPickThreshold } from "./signalPicks";
+import { selectSignalEzpzPicks, signalPickThreshold, signalSelectorVersion, comboPickPolicy } from "./signalPicks";
 
 type Row = Record<string, any>;
-export type NbaSignalTest = Pick<FootballSignalSide, "id" | "date" | "game" | "gameTime" | "selection" | "market" | "odds" | "signalCount" | "combination" | "result">;
+export type NbaSignalTest = Pick<FootballSignalSide, "id" | "date" | "game" | "gameTime" | "selection" | "market" | "odds" | "signalCount" | "combination" | "result">
+  & { score?: number; selectorVersion?: string };
 export type NbaAnalysisState = {
   version: string; season: string; archiveDates: string[]; pendingDates: string[];
   leaderboard: NcaafEzpzSubtype[]; leaderboardAsOf: string;
@@ -32,7 +33,8 @@ export function emptyNbaAnalysis(date: string): NbaAnalysisState {
 export function buildNbaSignalTests(sides: FootballSignalSide[], now = Date.now()): Record<string, NbaSignalTest> {
   return Object.fromEntries(selectSignalEzpzPicks(sides.filter(side => side.recorded), "NBA", now).map(side => {
     const { id, date, game, gameTime, selection, market, odds, signalCount, combination, result } = side;
-    return [id, { id, date, game, gameTime, selection, market, odds, signalCount, combination, result }];
+    return [id, { id, date, game, gameTime, selection, market, odds, signalCount, combination, result,
+      ...(comboPickPolicy("NBA", date) ? { score: side.comboScore?.score, selectorVersion: signalSelectorVersion("NBA", date) } : {}) }];
   }));
 }
 export function nbaRowsToPlays(rows: TursoRow[], now = Date.now()): Row[] {
@@ -128,12 +130,14 @@ export function buildNbaSignals({ date, games, splits, forecasts, storedRows, st
     && (!Number.isFinite(Date.parse(play.updatedAt))
       || now - Date.parse(play.updatedAt) > (Date.parse(play.gameTime) - now <= 90 * 60_000 ? 10 : 35) * 60_000));
   const result = buildFootballSignalsState({ sport: "NBA", now, capture, storedRows, policy: NBA_SIGNALS_POLICY,
+    researchDays: state.signalResearch?.days,
     leaderboard: state.leaderboard, leaderboardAsOf: Date.parse(state.leaderboardAsOf), history: new Map(state.teamHistory),
     core: { today: date, slateToday: games, teamTrendScheduleRows: games, trendPlays: plays, nbaForecasts: forecasts, stale } });
   result.board.archiveDates = [...new Set([...state.archiveDates, ...result.board.archiveDates])].sort();
   const tests = { ...Object.fromEntries(Object.entries(state.tests).filter(([, test]) => test.date !== date)),
     ...buildNbaSignalTests(result.board.sides, now) };
-  const selected = Object.values(tests);
+  const scorePolicy = comboPickPolicy("NBA", date);
+  const selected = Object.values(tests).filter(test => !scorePolicy || test.selectorVersion === scorePolicy.version);
   result.board.summary = signalRecord(selected);
   result.board.history = selected.sort((a, b) => b.gameTime.localeCompare(a.gameTime)).slice(0, 200);
   result.board.breakdowns = [];
