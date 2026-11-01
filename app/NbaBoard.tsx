@@ -109,13 +109,8 @@ function ModelSlate({ tab, data }: { tab: string; data: NbaMarketPayload }) {
   const qualified = latest.filter(forecast => [forecast.spread_grade, forecast.total_grade].some(grade => grade === "A" || grade === "B"));
   const games = [...data.games].sort((a, b) => Date.parse(a["Game Time"]) - Date.parse(b["Game Time"]));
   const fullSlate = tab === "Full Slate";
-  const gameCount = `${games.length} ${games.length === 1 ? "game" : "games"}`;
   return <section className="nbaBoard">
-    <div className="nbaIntro"><h2>{fullSlate ? `${sport} Full Slate` : `${sport} Model Plays`}</h2>
-      <p>{fullSlate ? gameCount : `${qualified.length} ${qualified.length === 1 ? "matchup" : "matchups"} with A/B plays · ${gameCount} on the slate`}</p>
-      <p className="nbaSmall">ScoresAndOdds · Spread and total prices assumed -110</p>
-      <p className="nbaSmall">{fullSlate ? "All forecasts and grades, including Lean and Pass." : "Qualified A/B spreads and totals. Full Slate includes every forecast and grade."} {sport === "NCAAM" ? "NCAAM projections use completed-season priors, opponent-adjusted offense and defense, tempo, and college player rotations. Research forecasts are shown in Full Slate while grades are validated." : "Lineup-aware projections use the saved availability report."}</p>
-    </div>
+    <div className="nbaIntro"><h2>{fullSlate ? `${sport} Full Slate` : `${sport} Model Plays`}</h2></div>
     {data.stale && <p role="status" className="nbaNotice">{sport === "NCAAM" ? "Some matchups are waiting for market lines. Saved forecasts remain visible." : "The latest live market observation is delayed. Saved lines remain visible; the builder waits for fresh, complete lines."}</p>}
     {fullSlate ? games.map(game => {
       const forecast = latestByGame.get(game["Game ID"]);

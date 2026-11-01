@@ -107,7 +107,7 @@ test('EZPZ shows only qualifying saved signal tests, with NFL two and NCAAF thre
   const cfb = render(React.createElement(exportsObject.default, { board: { ...data, sport: 'NCAAF' }, picksOnly: true }));
   assert.match(cfb, /3\+ signals/); assert.match(cfb, /No qualifying NCAAF EZPZ Picks/);
   const missing = render(React.createElement(exportsObject.default, { picksOnly: true, sport: 'NCAAM' }));
-  assert.match(missing, /NCAAM EZPZ Picks/); assert.match(missing, /collecting combination history/);
+  assert.match(missing, /NCAAM EZPZ Picks/); assert.match(missing, /No qualifying NCAAM EZPZ Picks yet/);
   assert.doesNotMatch(missing, /3\+ signals/);
 });
 

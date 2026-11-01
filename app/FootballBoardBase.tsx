@@ -1524,13 +1524,6 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
     return () => { active = false; if (timeout != null) window.clearTimeout(timeout); controller.abort(); };
   }, [sport, needsWeeklyMarket, data.lastUpdated, data.footballWeeklyMarket, requestedMarketWeek, weeklyRetry]);
 
-  const scoresAndOddsFresh = data.draftKings?.status === "LIVE" && !data.draftKings?.stale && data.draftKings?.displayMode !== "STALE_FALLBACK";
-  const scoresAndOddsStatus = data.draftKings?.stale || data.draftKings?.displayMode === "STALE_FALLBACK"
-    ? "ScoresAndOdds stale"
-    : scoresAndOddsFresh
-      ? "ScoresAndOdds live"
-      : "ScoresAndOdds pending";
-
   const splits = useMemo(() => {
     const map = new Map<string, DraftKingsSplit>();
     for (const split of [...(data.draftKings?.splits || []), ...(weeklyData?.splits || [])]) {
@@ -1688,7 +1681,7 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
     </>;
   } else if (tab === "EZPZ Picks") {
     content = <>
-      <div className="sectionHead"><div><h2>{sport} EZPZ Picks</h2><p>{footballPublicSplitCopy(data.aiSelectorStatus?.message) || "HOT Model Plays plus qualifying Public Fade, RLM, and Sharp betting split signals."}</p></div></div>
+      <div className="sectionHead"><div><h2>{sport} EZPZ Picks</h2></div></div>
       {todayEzpzPicks.length ? <div className="aiPickStack">{todayEzpzPicks.map((pick, index) => <EzpzPickCard key={`${pick.game}-${pick.market}-${pick.selection}-${index}`} pick={pick} splits={splits} trendPlays={ezpzTrendSource} slateRows={slateRows} todayByType={todayByType} recentByType={last7Map} lastSevenBetsByType={lastSevenBetsByType} overallByType={summaryMap} sport={sport} />)}</div> : <div className="empty footballEmpty">No {sport} EZPZ Picks qualify for {data.today} right now.</div>}
     </>;
   } else if (tab === "Full Slate") {
@@ -1732,7 +1725,7 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
     const ezpzLast7 = footballEzpzRecord(data.aiPickRecordRows, data.today, 7);
     const ezpzOverall = footballEzpzRecord(data.aiPickRecordRows, data.today);
     content = <div className="footballRecordsPage">
-      <div className="sectionHead"><div><h2>Model Play Records</h2><p>{sport === "NFL" ? "Official graded NFL game + player-prop plays" : "Official graded CFB model plays"}</p></div></div>
+      <div className="sectionHead"><div><h2>Model Play Records</h2></div></div>
       <div className="qualifiedGrid">
         <RecordTile label="Model Plays - Last 7 Days" value={last7Best} />
         <RecordTile label="Model Plays - Running Total" value={overallBest} />
@@ -1740,16 +1733,16 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
           <RecordTile key={row.betType} label={`${row.betType} - Running Total`} value={row} />
         )}
       </div>
-      <div className="sectionHead"><div><h2>EZPZ Picks Records</h2><p>Results of saved qualifying signal tests: NFL and NBA 2+ signals; other sports 3+</p></div></div>
+      <div className="sectionHead"><div><h2>EZPZ Picks Records</h2></div></div>
       <div className="qualifiedGrid">
         <RecordTile label="EZPZ Picks - Last 7 Days" value={ezpzLast7} />
         <RecordTile label="EZPZ Picks - Running Total" value={ezpzOverall} />
       </div>
-      <div className="sectionHead"><div><h2>Betting Split Records</h2><p>Only the three active market signals: Public Fade, RLM, and Sharp</p></div></div>
+      <div className="sectionHead"><div><h2>Betting Split Records</h2></div></div>
       <div className="advancedRecordsStack">
         <DirectTrendRecords rows={trendRows} trendPlays={data.trendPlays || []} today={data.today} sport={sport} ncaafLeaderboard={publicLeaderboard} nflLeaderboard={publicLeaderboard} />
       </div>
-      <div className="sectionHead"><div><h2>Bet Type Records</h2><p>Exact A/B grade + market + direction subsets used by HOT / COLD / SMALL SAMPLE</p></div></div>
+      <div className="sectionHead"><div><h2>Bet Type Records</h2></div></div>
       <div className="advancedRecordsStack">
         <FbRecordDropdown title="Last 7 Days Model Plays" subtitle={`Exact ${sport} grade / market / direction records`} rows={data.last7RecordSummary || []} defaultOpen />
         <FbRecordDropdown title="Overall Model Plays" subtitle={`Running exact ${sport} grade / market / direction records`} rows={data.recordSummary || []} />
@@ -1766,14 +1759,10 @@ export default function FootballBoard({ sport, tab, data }: { sport: Sport; tab:
         <div className="fbHead">
           <div>
             <h2>{sport === "NFL" ? "NFL" : "College Football"} {displayTab}</h2>
-            <p>Regression projections • ScoresAndOdds market tracking • Public Fade + RLM + Sharp</p>
           </div>
           <div className="fbHeadActions">
             {tab === "Today’s Model Plays" ? <span className="countPill">{data.bestPlays.length} plays</span> : null}
             {tab === "Full Slate" ? <span className="countPill">{slateRows.length} games</span> : null}
-            <span className={`fbStatus ${scoresAndOddsFresh ? "live" : ""}`}>
-              {scoresAndOddsStatus}
-            </span>
           </div>
         </div>
       ) : null}

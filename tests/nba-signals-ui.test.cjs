@@ -42,7 +42,7 @@ test('live NBA signals retain the shared five-column controls and collapsed deta
   const html = render(React.createElement(football.default, { board }));
   const nfl = render(React.createElement(football.default, { board: { ...board, sport: 'NFL' } }));
   assert.equal((html.match(/aria-expanded="false"/g) || []).length, 10);
-  for (const text of ['NBA Signals', 'Live signals', '2+ signal test results', '2+ only', 'Sort by Public bet trends', 'Sort by Team trends', 'Sort by Model edge']) assert(html.includes(text), text);
+  for (const text of ['NBA Signals', '2+ signal test results', '2+ only', 'Sort by Public bet trends', 'Sort by Team trends', 'Sort by Model edge']) assert(html.includes(text), text);
   assert.match(nfl, /2\+ signal test results/);
   assert.doesNotMatch(html, /3\+ signal test results|3\+ only|Saved test play|Prospective testing/);
   assert.doesNotMatch(html, /class="fs-signal fs-on"|class="fs-detail"|Strength of schedule/);
@@ -96,14 +96,14 @@ test('NBA Full Slate includes scheduled games without a forecast, their actual s
   const html = renderNba('Full Slate');
   assert.equal((html.match(/<article /g) || []).length, 2);
   assert(html.indexOf('data-game-id="first"') < html.indexOf('data-game-id="second"'));
-  for (const text of ['NBA Full Slate', '2 games', 'Cleveland Cavaliers @ Philadelphia 76ers', 'Final score', '106', '114',
+  for (const text of ['NBA Full Slate', 'Cleveland Cavaliers @ Philadelphia 76ers', 'Final score', '106', '114',
     'No saved model forecast for this matchup.', 'Market home spread · Philadelphia 76ers', '-2.5', 'Denver Nuggets @ Oklahoma City Thunder', 'Under 236.5']) assert(html.includes(text), text);
   assert.equal((html.match(/aria-label="Spread forecast"/g) || []).length, 1);
 });
 test('NBA model cards keep all comparisons and grades in labeled panels without a wide table', () => {
   const html = renderNba('Today’s Model Plays');
   assert.equal((html.match(/<article /g) || []).length, 1);
-  for (const text of ['1 matchup with A/B plays · 2 games on the slate', 'Total forecast', 'Projected score',
+  for (const text of ['NBA Model Plays', 'Total forecast', 'Projected score',
     '111.2', '119.4', 'Model total', 'Market total', 'Grade A',
     '5.9 pts', 'Result:', 'PENDING', 'Locked', 'assumed -110', 'Injury availability unchecked']) assert(html.includes(text), text);
   assert.doesNotMatch(html, /<table|nbaScroll|Cleveland Cavaliers|Grade Pass|Spread forecast|Research model/);
@@ -118,7 +118,7 @@ test('NBA model and Full Slate choose the newest lock regardless of API response
     }
   }
   const html = renderNba('Records');
-  for (const text of ['NBA Records', 'Model Plays', 'EZPZ Picks', 'Win rate', 'Net units', 'ROI', 'Season', 'Last 7 days', 'not counted twice']) assert(html.includes(text), text);
+  for (const text of ['NBA Records', 'Model Plays', 'EZPZ Picks', 'Win rate', 'Net units', 'ROI', 'Season', 'Last 7 days']) assert(html.includes(text), text);
   assert.doesNotMatch(html, /NBA Model Tracking|Early forecast|Pregame refresh/);
 });
 
@@ -135,7 +135,6 @@ test('an unmodeled NBA slate stays complete and never invents a projection, grad
   assert.equal((html.match(/Not captured/g) || []).length, 4);
   assert.doesNotMatch(html, /Grade |Projected score|Spread forecast|Total forecast/);
   const empty = renderNba('Full Slate', { ...forecastData, games: [], forecasts: [], splits: [] });
-  assert.match(empty, /0 games/);
   assert.match(empty, /No NBA games have been collected for this date/);
   assert.doesNotMatch(empty, /<article /);
 });
@@ -156,7 +155,7 @@ test('NCAAM reuses basketball pages with research status and its own pending qua
   assert.match(full,/NCAAM Full Slate/);assert.match(full,/Grade Research/);assert.match(full,/Player availability unchecked/);
   assert.doesNotMatch(full,/NBA Full Slate|Lineup-aware projections/);
   const picksHtml=render(React.createElement(ezpz.default,{data:{...data,signals:{...board,sport:'NCAAM',today:'2026-11-01',sides:[]}}}));
-  assert.match(picksHtml,/NCAAM EZPZ Picks/);assert.match(picksHtml,/In calibration/);
+  assert.match(picksHtml,/NCAAM EZPZ Picks/);
   assert.match(picksHtml,/Official NCAAM EZPZ Picks are on hold/);
   assert.doesNotMatch(picksHtml,/3\+ signals qualify|Backed by 3|need 3\+ signals/);
   const live=render(React.createElement(football.default,{board:{...board,sport:'NCAAM',today:date}}));

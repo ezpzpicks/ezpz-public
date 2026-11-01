@@ -820,7 +820,6 @@ function FootballEzpzHistory({ sport, data }: { sport: Sport; data: FootballData
         <div className="footballHistoryHead">
           <div>
             <h2>{sport} EZPZ Picks</h2>
-            <p>{viewingToday ? "Today’s qualifying EZPZ Picks." : `Saved EZPZ Picks for ${dateLabel}. Final grading is shown on each play.`}</p>
           </div>
           <span>{picks.length} {picks.length === 1 ? "pick" : "picks"}</span>
         </div>

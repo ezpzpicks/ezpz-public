@@ -60,7 +60,6 @@ export default function FullSlateHistory<T extends Slate>({ sport, data, childre
         onChange={event => setChoice({ sport, date: event.target.value })}>
         {available.map(date => <option key={date} value={date}>{dateLabel(date)}{date === todayET() ? " — Today" : ""}</option>)}
       </select></label>
-      <p>{historical ? `Saved projections for ${dateLabel(selected)}` : "Choose a date to review saved projections."}</p>
     </div>
     {datesError && <p className="slateHistoryStatus" role="alert">Saved dates could not be loaded. <button type="button" onClick={() => setRetry(n => n + 1)}>Try again</button></p>}
     {view ? children(view, historical) : <p className="slateHistoryStatus" role={saved?.error ? "alert" : "status"}>

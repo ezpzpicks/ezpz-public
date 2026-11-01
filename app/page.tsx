@@ -6703,10 +6703,6 @@ function SportDevelopmentContent({
         <div className="sectionHead">
           <div>
             <h2>{meta.name} Model Plays</h2>
-            <p>
-              This public board is ready for qualified {meta.shortName} plays as
-              soon as they are saved from the new builder.
-            </p>
           </div>
           <span className="countPill">0 plays</span>
         </div>
@@ -6755,10 +6751,6 @@ function SportDevelopmentContent({
         <div className="sectionHead">
           <div>
             <h2>{meta.name} Full Slate</h2>
-            <p>
-              Every saved matchup will appear here, including projected score,
-              spread, moneyline, total, personnel status, and reliability.
-            </p>
           </div>
         </div>
 
@@ -6783,10 +6775,6 @@ function SportDevelopmentContent({
       <div className="sectionHead">
         <div>
           <h2>{meta.name} Records</h2>
-          <p>
-            Results will begin at 0-0-0 and update only from official tracked
-            EZPZ plays.
-          </p>
         </div>
       </div>
 
@@ -7496,19 +7484,6 @@ export default function Home() {
           <div className="sectionHead">
             <div>
               <h2>Full Slate</h2>
-              <div className={`dkFeedStatus ${slateMarket?.status === "LIVE" ? "live" : "partial"}`}>
-                {historical ? `Saved projections • ${slateData.today}` : slateMarket?.displayMode === "FINAL_PREGAME"
-                  ? `ScoresAndOdds final pregame snapshots • ${slateMarket.finalSnapshotGames || 0} games locked`
-                  : slateMarket?.displayMode === "MIXED"
-                    ? `ScoresAndOdds live + final snapshots • ${slateMarket.finalSnapshotGames || 0} games locked`
-                    : slateMarket?.status === "LIVE"
-                      ? `ScoresAndOdds live splits • updated ${slateMarket.updatedAt}`
-                      : slateMarket?.status === "PARTIAL"
-                        ? `ScoresAndOdds partial feed • updated ${slateMarket.updatedAt}`
-                        : draftKingsError
-                          ? "ScoresAndOdds live feed temporarily unavailable"
-                          : "Loading ScoresAndOdds live splits…"}
-              </div>
             </div>
           </div>
 
