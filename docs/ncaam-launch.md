@@ -21,8 +21,13 @@ verified ESPN UTC timestamp, including the November 1 DST transition.
 
 ScoresAndOdds `NCAAB` consensus is requested for the Eastern calendar date.
 Four consistent spread/total sides are required to save a market observation;
-prices use the existing -110 assumption. Covers remains a model-only fallback
-in the Python builder. Its consensus votes never become sportsbook splits.
+prices use the existing -110 assumption. The Python builder falls back from
+ScoresAndOdds to ESPN, then Covers. Signals displays the newest saved builder
+quote for each missing market, with the source, observation time and assumed
+-110 prices. Verified feed markets and frozen signal observations retain
+priority. Backup quotes never create public splits, market movement history,
+final signal captures or official selections. Page reads reuse saved forecasts
+without another provider request or database write.
 
 ## Warren Nolan
 

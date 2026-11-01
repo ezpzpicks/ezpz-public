@@ -118,11 +118,50 @@ export function settleNcaamTrendRows(snapshots: TursoRow[], schedules: TursoRow[
   return output;
 }
 
+/** Display already-saved builder quotes without creating public split evidence. */
+function savedNcaamQuotePlays(date: string, games: TursoRow[], forecasts: Row[], now: number): Row[] {
+  return games.filter(game => game.Date === date).flatMap(game => {
+    const tipoff = Date.parse(game["Game Time"]);
+    if (!Number.isFinite(tipoff) || ncaamDate(tipoff) !== date) return [];
+    const eligible = forecasts.filter(forecast => {
+      const lockedAt = Date.parse(forecast.lockedAt), capturedAt = Date.parse(forecast.market?.as_of);
+      return forecast.modelVersion && forecast.gameId === game["Game ID"] && Date.parse(forecast.tipoff) === tipoff
+        && ncaamTeamKey(String(forecast.away_team || "")) === ncaamTeamKey(game["Away Team"])
+        && ncaamTeamKey(String(forecast.home_team || "")) === ncaamTeamKey(game["Home Team"])
+        && ["ScoresAndOdds", "ESPN", "Covers"].includes(forecast.market?.source)
+        && Number.isFinite(lockedAt) && Number.isFinite(capturedAt)
+        && capturedAt <= lockedAt && lockedAt <= now && lockedAt < tipoff;
+    }).sort((a, b) => Date.parse(b.lockedAt) - Date.parse(a.lockedAt)
+      || Date.parse(b.market.as_of) - Date.parse(a.market.as_of));
+    return (["Spread", "Total"] as const).flatMap(market => {
+      const field = market === "Spread" ? "home_spread" : "total";
+      const forecast = eligible.find(forecast => {
+        const line = signalNumber(forecast.market[field]);
+        return line != null && (market === "Spread" ? Math.abs(line) <= 100 : line > 0 && line < 400);
+      });
+      if (!forecast) return [];
+      const line = signalNumber(forecast.market[field])!, capturedAt = new Date(forecast.market.as_of).toISOString();
+      return (market === "Spread" ? [game["Away Team"], game["Home Team"]] : ["Over", "Under"]).map((selection, index) => ({
+        date, gameId: game["Game ID"], game: game.Game || `${game["Away Team"]} @ ${game["Home Team"]}`, gameTime: game["Game Time"],
+        awayTeam: game["Away Team"], homeTeam: game["Home Team"], market, selection,
+        selectionTeam: market === "Spread" ? selection : "", side: market === "Total" ? selection : "",
+        line: market === "Spread" && index === 0 ? -line : line,
+        odds: NCAAM_ASSUMED_ODDS, oddsSource: "DEFAULT_110", observedPriceMissing: true,
+        snapshotStatus: "UNAVAILABLE", updatedAt: capturedAt,
+        lineSource: { name: forecast.market.source, capturedAt, url: String(forecast.market.source_url || "") },
+      }));
+    });
+  });
+}
+
 export function buildNcaamSignals({ date, games, splits, forecasts, storedRows, state, now = Date.now(), capture = false, sos }: {
   date: string; games: TursoRow[]; splits: TursoRow[]; forecasts: Row[]; storedRows: TursoRow[] | null;
   state: NcaamAnalysisState; now?: number; capture?: boolean; sos?: FootballSosSnapshot | null;
 }) {
   const plays = ncaamRowsToPlays(splits, now);
+  const coveredMarkets = new Set(plays.map(play => `${footballTeamGameKey(play, "NCAAM")}|${play.market}`));
+  const savedQuotes = savedNcaamQuotePlays(date, games, forecasts, now)
+    .filter(play => !coveredMarkets.has(`${footballTeamGameKey(play, "NCAAM")}|${play.market}`));
   // College slates include games with no split coverage. Only an incomplete
   // or stale matchup is withheld; it cannot prevent another game from locking.
   const unavailable = new Set(games.filter(game => game.Date === date && game.Status === "STATUS_SCHEDULED"
@@ -137,7 +176,7 @@ export function buildNcaamSignals({ date, games, splits, forecasts, storedRows, 
   const result = buildFootballSignalsState({ sport: "NCAAM", now, capture, storedRows, sos, policy: NCAAM_SIGNALS_POLICY,
     researchDays: state.signalResearch?.days,
     leaderboard: state.leaderboard, leaderboardAsOf: Date.parse(state.leaderboardAsOf), history: new Map(state.teamHistory),
-    core: { today: date, slateToday: games, teamTrendScheduleRows: games, trendPlays: plays, ncaamForecasts: forecasts, stale: false, staleGameKeys: [...unavailable] } });
+    core: { today: date, slateToday: games, teamTrendScheduleRows: games, trendPlays: [...plays, ...savedQuotes], ncaamForecasts: forecasts, stale: false, staleGameKeys: [...unavailable] } });
   result.board.archiveDates = [...new Set([...state.archiveDates, ...result.board.archiveDates])].sort();
   const tests = { ...Object.fromEntries(Object.entries(state.tests).filter(([, test]) => test.date !== date)),
     ...buildNcaamSignalTests(result.board.sides, now) };

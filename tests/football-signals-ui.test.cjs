@@ -192,6 +192,14 @@ test('saved Covers model lines are identified separately from public betting and
   assert.doesNotMatch(html, /Saved pregame ·|Live preview ·|Awaiting market data/);
 });
 
+test('NCAAM fallback cards render their ESPN source, spread and price', () => {
+  const savedInput = { ...side, status: 'UNAVAILABLE', recorded: false, selected: false,
+    lineSource: { name: 'ESPN', capturedAt: '2026-10-18T13:06:30Z', url: 'https://www.espn.com/' } };
+  const html = render(React.createElement(exportsObject.default, { board: { ...board, sport: 'NCAAM', sides: [savedInput] } }));
+  for (const label of ['Saved ESPN line', '-1.5', '-110', '−110 assumed', 'Public betting splits unavailable']) assert(html.includes(label), label);
+  assert.doesNotMatch(html, /Saved Covers line|Line pending|Awaiting market data/);
+});
+
 test('public summary keeps every matched trend and its key performance records', () => {
   const html = render(React.createElement(exportsObject.detailTest, { side, signal: side.signals[2], onClose() {} }));
   assert.match(html, /#1 · Matched system 1/); assert.match(html, /#2 · Matched system 2/);

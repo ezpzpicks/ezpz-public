@@ -36,7 +36,7 @@ export type FootballSignalSide = {
   scheduledGameTime?: string;
   market: "Spread" | "Total"; side: string; selection: string; line: number | null; odds: string;
   status: "LIVE" | "FINAL_PREGAME" | "MISSED_LOCK" | "UNAVAILABLE"; snapshotAt: string; recorded: boolean;
-  lineSource?: { name: "Covers"; capturedAt: string; url: string };
+  lineSource?: { name: "Covers" | "ESPN" | "ScoresAndOdds"; capturedAt: string; url: string };
   signals: FootballSignal[]; signalCount: number; sourceCount: number; candidate: boolean; selected: boolean; mixed: boolean;
   combination: string; teamTrend: FootballTeamTrendScore | null; publicMatches: PublicSignalMatch[];
   teamGames: { team: string; date: string; opponent: string; venue: string; line: number | null; result: string }[];
