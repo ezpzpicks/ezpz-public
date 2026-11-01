@@ -51,6 +51,22 @@ function input(changes = {}) {
 const state = changes => api.buildFootballSignalsState(input(changes));
 const find = (board, key, side = 'Over') => board.sides.find(s => s.side === side).signals.find(s => s.key === key);
 
+test('a corrected schedule updates the displayed kickoff without rewriting saved signal evidence', () => {
+  const x = input({ capture: true });
+  x.core.trendPlays = markets().map(play => ({ ...play, snapshotStatus: 'FINAL_PREGAME', frozenAt: iso(lock) }));
+  const captured = api.buildFootballSignalsState(x);
+  const original = JSON.stringify(captured.changedRows), corrected = iso(kickoff + 3600000);
+  const current = api.buildFootballSignalsState({ ...x, capture: false, storedRows: captured.changedRows,
+    core: { ...x.core, teamTrendScheduleRows: [{ Date: date, 'Away Team': 'DAL', 'Home Team': 'GB', 'Game Time': corrected }] } });
+  assert(current.board.sides.every(side => side.scheduledGameTime === corrected));
+  const saved = current.board.sides.filter(side => side.recorded);
+  assert.equal(saved.length, 2);
+  assert(saved.every(side => side.gameTime === iso(kickoff) && side.snapshotAt === iso(lock)));
+  assert.equal(current.changedRows.length, 0);
+  assert.equal(JSON.stringify(captured.changedRows), original);
+  assert.equal(current.board.summary.record, captured.board.summary.record);
+});
+
 test('two correlated market signals enter research without passing the two-source selector', () => {
   const x = input({ history: new Map(), leaderboard: [], capture: true });
   x.core.trendPlays = markets().map(play => ({ ...play, snapshotStatus: 'FINAL_PREGAME', frozenAt: iso(lock) }));

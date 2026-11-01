@@ -30,6 +30,7 @@ export type FootballSignal = { key: FootballSignalKey; active: boolean; availabl
 export type PublicSignalMatch = NcaafEzpzSubtype & { rank: number; rules: string[]; selectionDescription: string };
 export type FootballSignalSide = {
   id: string; date: string; gameKey: string; game: string; gameTime: string; awayTeam: string; homeTeam: string;
+  scheduledGameTime?: string;
   market: "Spread" | "Total"; side: string; selection: string; line: number | null; odds: string;
   status: "LIVE" | "FINAL_PREGAME" | "MISSED_LOCK" | "UNAVAILABLE"; snapshotAt: string; recorded: boolean;
   lineSource?: { name: "Covers"; capturedAt: string; url: string };
@@ -397,7 +398,16 @@ export function buildFootballSignalsState(input: SignalsInput): { board: Footbal
     for (const [label, group] of buckets) breakdowns.push({ dimension, label, record: signalRecord(group) });
   }
   const pickIds = new Set(selectSignalEzpzPicks(sides, sport, now).map(side => side.id));
-  const displaySides = sides.map(side => ({ ...side, selected: pickIds.has(side.id) }));
+  // Saved evidence retains its original lock clock. Display the current
+  // schedule separately so a corrected kickoff never rewrites a saved test.
+  const scheduledTimes = new Map<string, string>();
+  if (sport !== "NBA") for (const row of [...(core.teamTrendScheduleRows || []), ...(core.slateToday || [])]) {
+    const kickoff = nflKickoffIso(dateOf(row), row["Game Time"] || row["Game Time ET"] || "");
+    const key = footballTeamGameKey(row, sport);
+    if (footballTeamPair(row) && kickoff && !scheduledTimes.has(key)) scheduledTimes.set(key, kickoff);
+  }
+  const displaySides = sides.map(side => ({ ...side, selected: pickIds.has(side.id),
+    ...(scheduledTimes.has(side.gameKey) ? { scheduledGameTime: scheduledTimes.get(side.gameKey) } : {}) }));
   const archiveDates = [...new Set([...archived.map(row => row.side.date), ...[...updated.values()].map(side => side.date)])].sort();
   const research = buildSignalResearchReport(sport, policy.version, buildSignalResearchDays([...updated.values()], policy.version, now));
   return { board: { version: policy.version, sport, today: core.today, asOf: new Date(now).toISOString(), captureAvailable: input.storedRows != null,
