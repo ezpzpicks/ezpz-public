@@ -1,13 +1,20 @@
 import { nbaTeamKey } from "./nbaMarketCore";
+import { ncaamTeamKey } from "./ncaamMarketCore";
 
 export const NBA_LINEUP_SOURCE = "https://www.rotowire.com/basketball/nba-lineups.php";
 export type NbaLineupPlayer = { id: string; name: string; position: string; status: string };
 export type NbaLineupTeam = {
-  team: string; confirmed: boolean; starters: NbaLineupPlayer[]; injuries: NbaLineupPlayer[];
+  team: string; confirmed: boolean; complete?: boolean; starters: NbaLineupPlayer[]; injuries: NbaLineupPlayer[];
 };
+export type CollegeRotationPlayer = { id: string; ratingId: string; name: string; referenceMinutes: number; minutes: number;
+  status: string; assumption: string; offensiveImpact: number; defensiveImpact: number; offenseChangePer100: number; defenseImprovementPer100: number };
+export type CollegeTeamImpact = { applied: boolean; offense_change_per_100: number; defense_improvement_per_100: number;
+  players: CollegeRotationPlayer[]; flags: string[]; complete?: boolean };
+export type CollegeModelImpact = { as_of: string; ratingsSource: string; ratingsSourceUrl: string; away: CollegeTeamImpact; home: CollegeTeamImpact };
 export type NbaGameLineup = {
   gameId: string; date: string; tipoff: string; observedAt: string;
   source: "RotoWire"; sourceUrl: string; away: NbaLineupTeam; home: NbaLineupTeam;
+  sport?: "NBA" | "NCAAM"; basis?: string; fingerprint?: string; modelImpact?: CollegeModelImpact;
 };
 export type NbaLineupGame = { gameId: string; date: string; tipoff: string; away: string; home: string };
 
@@ -47,7 +54,7 @@ export function lineupFromRotoWireReport(game: NbaLineupGame, report: any): NbaG
     source: "RotoWire", sourceUrl: NBA_LINEUP_SOURCE, away, home };
 }
 
-export const lineupFinal = (lineup?: NbaGameLineup | null) => Boolean(lineup?.away.confirmed && lineup?.home.confirmed
+export const lineupFinal = (lineup?: NbaGameLineup | null) => Boolean(lineup?.sport !== "NCAAM" && lineup?.away.confirmed && lineup?.home.confirmed
   && lineup.away.starters.length === 5 && lineup.home.starters.length === 5);
 
 export function mergeNbaLineups(...lists: NbaGameLineup[][]): NbaGameLineup[] {
@@ -61,7 +68,10 @@ export function mergeNbaLineups(...lists: NbaGameLineup[][]): NbaGameLineup[] {
 
 export function findNbaLineup(lineups: NbaGameLineup[], { gameId, game, date }: { gameId?: string; game?: string; date?: string }) {
   const teams = String(game || "").split(/\s*@\s*|\s+(?:at|vs\.?)\s+/i);
-  const matches = lineups.filter(lineup => (!date || lineup.date === date) && (gameId ? lineup.gameId === gameId
-    : teams.length === 2 && nbaTeamKey(lineup.away.team) === nbaTeamKey(teams[0]) && nbaTeamKey(lineup.home.team) === nbaTeamKey(teams[1])));
+  const matches = lineups.filter(lineup => {
+    const key = lineup.sport === "NCAAM" ? ncaamTeamKey : nbaTeamKey;
+    return (!date || lineup.date === date) && (gameId ? lineup.gameId === gameId
+      : teams.length === 2 && key(lineup.away.team) === key(teams[0]) && key(lineup.home.team) === key(teams[1]));
+  });
   return matches.length === 1 ? matches[0] : undefined;
 }

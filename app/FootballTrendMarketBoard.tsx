@@ -906,7 +906,7 @@ function GameCard({ group, sport, leaderboard }: {
         </div>
       </div>
 
-      {sport === "NBA" ? <NbaGameLineups game={group.game} date={gameDate} /> : null}
+      {(sport === "NBA" || sport === "NCAAM") ? <NbaGameLineups sport={sport} game={group.game} date={gameDate} /> : null}
       <div className="dkTrendMarketBoard">
         <div className="dkTrendMarketHeader">
           <span>Market</span><span>Line / Odds</span><span>Bets / Money</span><span>Split Signal</span>

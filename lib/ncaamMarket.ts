@@ -11,6 +11,8 @@ import { NCAAM_MODEL_RECORD_POLICY, ncaamEzpzSelections, ncaamModelPlays, ncaamR
 import { loadNcaamSos } from "./ncaamSos";
 
 import { signalEzpzPayload } from "./signalPicks";
+import { readNcaamSavedLineups, refreshNcaamLineups } from "./ncaamLineups";
+import { mergeNbaLineups } from "./nbaLineupsCore";
 
 export async function collectNcaamMarket({ persist = true, now = Date.now(), refresh }: {
   persist?: boolean; now?: number; refresh?: { policy: string; intervalMinutes: number };
@@ -40,29 +42,31 @@ export async function collectNcaamMarket({ persist = true, now = Date.now(), ref
 
   const previous = await readTursoDatasetByDateKeys("NCAAM", "weekly_market_trends", [date]);
   const advanced = advanceNcaamMarkets(bound.rows, previous, capturedAt);
-  let analysis;
+  let analysis, lineups;
   if (persist) {
     await saveNcaamMarketRows("weekly_market_trends", advanced.latest);
     await saveNcaamMarketRows("odds_snapshot", advanced.history, true);
     await saveNcaamMarketRows("public_split_snapshots", advanced.finals);
     analysis = await refreshNcaamAnalysis(date, schedule, capturedAt, refresh);
+    lineups = await refreshNcaamLineups(date, games, persist, capturedAt);
   }
   return { ok: true, sport: "NCAAM", date, source: "ScoresAndOdds", sourceUrl: loaded.url,
     policy: NCAAM_MARKET_POLICY, capturedAt: new Date(capturedAt).toISOString(), dryRun: !persist,
     games: games.length, matchedGames: bound.rows.length / 4, updatedSides: advanced.latest.length,
     finalSides: advanced.finals.length, historySides: advanced.history.length,
     missingMarkets: bound.missing, errors: [...bound.errors, ...(sourceError ? [sourceError] : [])], partial: Boolean(sourceError) || bound.missing.length > 0,
-    refreshCompleted: !sourceError && bound.missing.length === 0, analysis };
+    refreshCompleted: !sourceError && bound.missing.length === 0, analysis, lineups };
 }
 
 export async function readNcaamPublicData(date = ncaamDate()) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(`${date}T12:00:00Z`))
     || new Date(`${date}T12:00:00Z`).toISOString().slice(0,10) !== date) throw new Error("Choose a valid NCAAM slate date.");
-  const [games, splits, rawForecasts, state, storedRows, sos] = await Promise.all([
+  const [games, splits, rawForecasts, state, storedRows, sos, savedLineups] = await Promise.all([
     readTursoDatasetByDateKeys("NCAAM", "schedule", [date]),
     readTursoDatasetByDateKeys("NCAAM", "weekly_market_trends", [date]),
     readNcaamForecasts(date), readNcaamAnalysis(date), readTursoDatasetByDateKeys("NCAAM", NCAAM_SIGNALS_TAB, [date]),
     loadNcaamSos(Number(date.slice(0,4)) + (Number(date.slice(5,7)) >= 7 ? 1 : 0)),
+    readNcaamSavedLineups(date),
   ]);
   const now = Date.now();
   const forecasts = rawForecasts.map(forecast => {
@@ -76,6 +80,7 @@ export async function readNcaamPublicData(date = ncaamDate()) {
     return { ...forecast, ...result };
   });
   const analysis = buildNcaamSignals({ date, games, splits, forecasts, storedRows, state, sos });
+  const lineups = mergeNbaLineups(forecasts.flatMap(f => f.lineup?.sport === "NCAAM" ? [f.lineup] : []), savedLineups);
   const lastObservation = splits.map(r => r["Updated At"]).filter(Boolean).sort().at(-1) || "";
   const lastUpdated = Number.isFinite(Date.parse(lastObservation)) ? new Intl.DateTimeFormat("en-US", {
     timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit", hour: "numeric", minute: "2-digit", second: "2-digit", timeZoneName: "short",
@@ -95,7 +100,7 @@ export async function readNcaamPublicData(date = ncaamDate()) {
     bestPlays: modelPlays, slateToday: games, betTrackerRows: [], trendPlays: analysis.plays, recordSummary: [], last7RecordSummary: [],
     ncaamMarket: { sport: "NCAAM" as const, source: "ScoresAndOdds", date, availableDates: [...new Set([date, ...state.archiveDates])].sort(), games, splits,
       forecasts,
-      modelRecords, modelPlays, ezpzSelections, ezpzRecords, lineups: [], warrenNolan: sos, modelStatus: "Research baseline; grades await NCAAM validation",
+      modelRecords, modelPlays, ezpzSelections, ezpzRecords, lineups, warrenNolan: sos, modelStatus: "Research: completed-season priors, opponent-adjusted efficiencies and college player rotations; grades await validation",
       trendPlays: analysis.plays, leaderboard: state.leaderboard, signals: analysis.board, stale: analysis.stale,
       refreshPolicy: "30 minutes until 90 minutes before tipoff, then 5 minutes", finalWindow: "10–20 minutes before tipoff" } };
 }

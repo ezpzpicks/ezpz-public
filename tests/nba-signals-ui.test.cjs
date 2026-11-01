@@ -23,6 +23,7 @@ const records = component('app/NbaRecords.tsx', { './FootballTrendMarketBoard': 
 const ezpz = component('app/NbaEzpzPicks.tsx', { './FootballSignalsBoard': football });
 const nbaBoard = component('app/NbaBoard.tsx', { 'next/dynamic': { default: loader => String(loader).includes('NbaRecords') ? records.default : () => null },
   './NbaRecords': records, './NbaEzpzPicks': ezpz,
+  './NcaamModelDetails': component('app/NcaamModelDetails.tsx'),
   './TeamLogoName': { MatchupWithLogos: props => props.game } });
 const date = '2026-10-22', time = date + 'T23:00:00Z';
 const keys = ['money', 'move', 'system', 'team', 'model'];
@@ -158,8 +159,8 @@ test('NCAAM reuses basketball pages with research status and its own pending qua
   assert.match(picksHtml,/NCAAM EZPZ Picks/);assert.match(picksHtml,/In calibration/);
   assert.match(picksHtml,/Official NCAAM EZPZ Picks are on hold/);
   assert.doesNotMatch(picksHtml,/3\+ signals qualify|Backed by 3|need 3\+ signals/);
-  const live=render(React.createElement(football.default,{board:{...board,sport:'NCAAM',today:'2026-11-01'}}));
+  const live=render(React.createElement(football.default,{board:{...board,sport:'NCAAM',today:date}}));
   assert.match(live,/With signals/);assert.doesNotMatch(live,/EZPZ only|3\+ only/);
-  assert.doesNotMatch(live,/class="nbaLineups"/);
+  assert.match(live,/class="nbaLineups"/);
   assert.match(render(React.createElement(records.default,{data})),/NCAAM Records/);
 });

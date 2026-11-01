@@ -10,6 +10,7 @@ import type { FootballSignalSide } from "../lib/footballSignals";
 import type { NbaSignalTest } from "../lib/nbaAnalysisCore";
 import NbaEzpzPicks from "./NbaEzpzPicks";
 import NbaGameLineups, { NbaLineupProvider } from "./NbaGameLineups";
+import NcaamModelDetails, { type NcaamModelContext } from "./NcaamModelDetails";
 import type { NbaGameLineup } from "../lib/nbaLineupsCore";
 
 const PublicSplits = dynamic(() => import("./NbaPublicSplits"), { loading: () => <div className="fs-empty">Loading NBA markets…</div> });
@@ -17,7 +18,7 @@ const Signals = dynamic(() => import("./FootballSignalsBoard"), { loading: () =>
 const Records = dynamic(() => import("./NbaRecords"), { loading: () => <div className="fs-empty">Loading NBA records…</div> });
 
 type Row = Record<string, string>;
-type Forecast = {
+type Forecast = NcaamModelContext & {
   gameId: string; modelVersion: string; lockedAt: string; tipoff: string; phase: string;
   away_team: string; home_team: string; away_score: number; home_score: number;
   total: number; fair_home_spread: number; home_spread_edge: number | null; total_edge: number | null;
@@ -65,7 +66,8 @@ function ForecastCard({ forecast, game, qualifiedOnly = false, sport = "NBA" }: 
       {gameStatus(game) && <span>{gameStatus(game)}</span>}</p>
     {forecast.availability_mode === "expected_rotation" && <p className="nbaNotice">Expected rotation · Injury availability unchecked · Starters unconfirmed</p>}
     {forecast.availability_mode === "rotowire_html" && <p className="nbaNotice">RotoWire availability checked · {forecast.starters_confirmed ? "Starting fives confirmed" : "Projected starting fives"} · Unresolved statuses remain conditional</p>}
-    {sport === "NBA" ? <NbaGameLineups gameId={forecast.gameId} /> : <p className="nbaNotice">Research forecast · Player availability unchecked · NCAAM grades pending validation</p>}
+    <NbaGameLineups gameId={forecast.gameId} sport={sport} />
+    {sport === "NCAAM" && <NcaamModelDetails forecast={forecast} />}
     <Score away={forecast.away_team} home={forecast.home_team} awayScore={forecast.away_score.toFixed(1)} homeScore={forecast.home_score.toFixed(1)} label="Projected score" />
     <div className="nbaMarkets">{markets.filter(market => !qualifiedOnly || ["A", "B"].includes(market.grade || "")).map(market => <section className="nbaMarketCard" key={market.name} aria-label={`${market.name} forecast`}>
       <div className="nbaMarketHeading"><h4>{market.name}</h4><span className="nbaGrade" data-grade={market.grade}>Grade {market.grade || "—"}</span></div>
@@ -92,7 +94,7 @@ function MissingForecastCard({ game, splits, sport = "NBA" }: { game: Row; split
     <p className="nbaMeta"><time dateTime={game["Game Time"]}>{time(game["Game Time"])}</time>{gameStatus(game) && <span>{gameStatus(game)}</span>}</p>
     <GameScore game={game} />
     <p className="nbaNotice">No saved model forecast for this matchup.</p>
-    {sport === "NBA" ? <NbaGameLineups gameId={game["Game ID"]} /> : null}
+    <NbaGameLineups gameId={game["Game ID"]} sport={sport} />
     <dl className="nbaMarketQuotes">
       <div><dt>Market home spread · {game["Home Team"]}</dt><dd>{line(homeSpread, true)}</dd></div>
       <div><dt>Market total</dt><dd>{line(total)}</dd></div>
@@ -112,7 +114,7 @@ function ModelSlate({ tab, data }: { tab: string; data: NbaMarketPayload }) {
     <div className="nbaIntro"><h2>{fullSlate ? `${sport} Full Slate` : `${sport} Model Plays`}</h2>
       <p>{fullSlate ? gameCount : `${qualified.length} ${qualified.length === 1 ? "matchup" : "matchups"} with A/B plays · ${gameCount} on the slate`}</p>
       <p className="nbaSmall">ScoresAndOdds · Spread and total prices assumed -110</p>
-      <p className="nbaSmall">{fullSlate ? "All forecasts and grades, including Lean and Pass." : "Qualified A/B spreads and totals. Full Slate includes every forecast and grade."} {sport === "NCAAM" ? "NCAAM projections use dated efficiency and tempo ratings. Research forecasts are shown in Full Slate while grades are validated." : "Lineup-aware projections use the saved availability report."}</p>
+      <p className="nbaSmall">{fullSlate ? "All forecasts and grades, including Lean and Pass." : "Qualified A/B spreads and totals. Full Slate includes every forecast and grade."} {sport === "NCAAM" ? "NCAAM projections use completed-season priors, opponent-adjusted offense and defense, tempo, and college player rotations. Research forecasts are shown in Full Slate while grades are validated." : "Lineup-aware projections use the saved availability report."}</p>
     </div>
     {data.stale && <p role="status" className="nbaNotice">{sport === "NCAAM" ? "Some matchups are waiting for market lines. Saved forecasts remain visible." : "The latest live market observation is delayed. Saved lines remain visible; the builder waits for fresh, complete lines."}</p>}
     {fullSlate ? games.map(game => {

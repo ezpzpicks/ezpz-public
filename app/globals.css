@@ -2503,3 +2503,15 @@ body::after {
 .betTrendGlossary{overflow:hidden;border:1px solid rgba(78,145,255,.22);border-radius:16px;background:linear-gradient(145deg,rgba(9,20,39,.82),rgba(5,13,26,.86))}.betTrendGlossary>summary{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 15px;cursor:pointer;list-style:none}.betTrendGlossary>summary::-webkit-details-marker{display:none}.betTrendGlossary>summary span{color:#f3f7ff;font-size:.9rem;font-weight:900}.betTrendGlossary>summary small{color:var(--ez-muted);font-size:.72rem;font-weight:800}.betTrendGlossary>summary::after{content:"▾";color:#83c8ff;font-size:.85rem;transition:transform .18s ease}.betTrendGlossary[open]>summary::after{transform:rotate(180deg)}.betTrendGlossaryBody{padding:0 15px 15px}.betTrendGlossaryBody>span{width:100%;align-items:flex-start}.betTrendGlossaryBody>span>b{flex:0 0 145px;min-width:0;white-space:normal;overflow-wrap:break-word;line-height:1.35}
 @media(max-width:620px){.footballBoard .trendWeekControls{align-items:stretch;flex-direction:column}.footballBoard .trendWeekControls select{width:100%}}
 
+
+/* College availability and the saved model rotation share the basketball panels. */
+.ncaamAvailability { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; font-size: 11px; color: #b9cce0; }
+.ncaamAvailability span { background: #192c43; border-radius: 5px; padding: 4px 7px; }
+.ncaamModelDetails h4 { margin: 12px 0 6px; font-size: 13px; }
+.ncaamRotation { margin-top: 10px; font-size: 11px; }
+.ncaamRotation summary { cursor: pointer; padding: 8px 0; color: #8bcfff; }
+.ncaamRotationScroll { overflow-x: auto; max-width: 100%; }
+.ncaamRotation table { width: 100%; border-collapse: collapse; font-size: 11px; }
+.ncaamRotation caption { text-align: left; padding: 6px 0; color: #94a3b8; }
+.ncaamRotation th, .ncaamRotation td { padding: 6px 5px; border-bottom: 1px solid #29405b; text-align: right; white-space: nowrap; }
+.ncaamRotation th:first-child, .ncaamRotation td:first-child { text-align: left; white-space: normal; min-width: 110px; }

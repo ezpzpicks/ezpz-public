@@ -3,6 +3,7 @@ import { readTursoDatasetByDateKeys } from "../../../lib/tursoStore";
 import { readSavedFootballSignalsForDate } from "../../../lib/footballSignals";
 import { NCAAM_SIGNALS_POLICY, NCAAM_SIGNALS_TAB } from "../../../lib/ncaamTrendLeaderboard";
 import { buildSignalResearchDays, buildSignalResearchReport } from "../../../lib/signalCombinationResearch";
+import { readNcaamSavedLineups } from "../../../lib/ncaamLineups";
 
 
 export const runtime = "nodejs";
@@ -15,7 +16,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ ok: false, error: "Choose a valid NCAAM slate date." }, { status: 400 });
   }
   try {
-    const [rows, lineups] = await Promise.all([readTursoDatasetByDateKeys("NCAAM", NCAAM_SIGNALS_TAB, [date]), Promise.resolve([])]);
+    const [rows, lineups] = await Promise.all([readTursoDatasetByDateKeys("NCAAM", NCAAM_SIGNALS_TAB, [date]), readNcaamSavedLineups(date)]);
     const sides = readSavedFootballSignalsForDate(rows, date, Date.now(), NCAAM_SIGNALS_POLICY);
     const research = buildSignalResearchReport("NCAAM", NCAAM_SIGNALS_POLICY.version, buildSignalResearchDays(sides, NCAAM_SIGNALS_POLICY.version));
     return NextResponse.json({ ok: true, sport: "NCAAM", date, sides, research, lineups },
