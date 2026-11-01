@@ -160,5 +160,6 @@ test('NCAAM reuses basketball pages with research status and its own pending qua
   assert.doesNotMatch(picksHtml,/3\+ signals qualify|Backed by 3|need 3\+ signals/);
   const live=render(React.createElement(football.default,{board:{...board,sport:'NCAAM',today:'2026-11-01'}}));
   assert.match(live,/With signals/);assert.doesNotMatch(live,/EZPZ only|3\+ only/);
+  assert.doesNotMatch(live,/class="nbaLineups"/);
   assert.match(render(React.createElement(records.default,{data})),/NCAAM Records/);
 });
