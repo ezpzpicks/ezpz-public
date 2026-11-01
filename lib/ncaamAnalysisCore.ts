@@ -7,14 +7,15 @@ import type { NcaafEzpzSubtype } from "./ncaafEzpzWilson";
 import { NCAAM_ASSUMED_ODDS, NCAAM_MARKET_POLICY, ncaamDate, ncaamRowKey, ncaamTeamKey } from "./ncaamMarketCore";
 import type { FootballSosSnapshot } from "./footballSos";
 import type { TursoRow } from "./tursoStore";
-import { buildSignalResearchDays, buildSignalResearchReport, SIGNAL_RESEARCH_VERSION, type SignalResearchDay } from "./signalCombinationResearch";
+import { buildSignalResearchDays, buildSignalResearchReport, mergeSignalResearchDays, SIGNAL_RESEARCH_VERSION, type SignalResearchDay } from "./signalCombinationResearch";
 import type { NcaamModelRecordState } from "./ncaamRecords";
 import { selectSignalEzpzPicks, signalPickThreshold, signalSelectorVersion, comboPickPolicy } from "./signalPicks";
 
+import type { BasketballConsolidationState } from "./basketballConsolidation";
 type Row = Record<string, any>;
 export type NcaamSignalTest = Pick<FootballSignalSide, "id" | "date" | "game" | "gameTime" | "selection" | "market" | "odds" | "signalCount" | "combination" | "result">
   & { score?: number; selectorVersion?: string };
-export type NcaamAnalysisState = {
+export type NcaamAnalysisState = BasketballConsolidationState & {
   version: string; season: string; archiveDates: string[]; pendingDates: string[];
   leaderboard: NcaafEzpzSubtype[]; leaderboardAsOf: string;
   teamHistory: Array<[string, TeamTrendHistory extends Map<string, infer G> ? G : never]>;
@@ -174,7 +175,8 @@ export function buildNcaamSignals({ date, games, splits, forecasts, storedRows, 
   }
   const stale = unavailable.size > 0;
   const result = buildFootballSignalsState({ sport: "NCAAM", now, capture, storedRows, sos, policy: NCAAM_SIGNALS_POLICY,
-    researchDays: state.signalResearch?.days,
+    researchDays: state.signalResearch?.days, replayResearchDays: state.consolidationReplay?.days,
+    legacyResearchDays: state.legacySignalResearch?.days, reclassification: state.consolidationReplay?.status,
     leaderboard: state.leaderboard, leaderboardAsOf: Date.parse(state.leaderboardAsOf), history: new Map(state.teamHistory),
     core: { today: date, slateToday: games, teamTrendScheduleRows: games, trendPlays: [...plays, ...savedQuotes], ncaamForecasts: forecasts, stale: false, staleGameKeys: [...unavailable] } });
   result.board.archiveDates = [...new Set([...state.archiveDates, ...result.board.archiveDates])].sort();
@@ -190,10 +192,15 @@ export function buildNcaamSignals({ date, games, splits, forecasts, storedRows, 
       record: signalRecord(selected.filter(row => String(row[field]) === label)) });
   }
   const researchDays = state.signalResearch?.version === SIGNAL_RESEARCH_VERSION ? { ...state.signalResearch.days } : {};
-  const capturedDays = buildSignalResearchDays(result.board.sides, NCAAM_SIGNALS_POLICY.version, now);
+  const policyVersion = result.board.version;
+  const capturedDays = buildSignalResearchDays(result.board.sides, policyVersion, now);
   Object.assign(researchDays, capturedDays);
-  result.board.research = buildSignalResearchReport("NCAAM", NCAAM_SIGNALS_POLICY.version, researchDays);
-  return { ...result, plays, stale, tests, signalResearch: { version: SIGNAL_RESEARCH_VERSION, days: researchDays } };
+  result.board.research = { ...buildSignalResearchReport("NCAAM", policyVersion,
+    mergeSignalResearchDays(policyVersion, researchDays, state.consolidationReplay?.days)),
+    ...(state.consolidationReplay ? { reclassification: state.consolidationReplay.status } : {}) };
+  const legacyDays = { ...state.legacySignalResearch?.days, ...buildSignalResearchDays(result.board.sides, NCAAM_SIGNALS_POLICY.version, now) };
+  return { ...result, plays, stale, tests, signalResearch: { version: SIGNAL_RESEARCH_VERSION, days: researchDays },
+    legacySignalResearch: { version: SIGNAL_RESEARCH_VERSION, days: legacyDays } };
 }
 
 export function mergeNcaamTeamHistory(previous: NcaamAnalysisState["teamHistory"], records: TursoRow[], schedule: TursoRow[]) {

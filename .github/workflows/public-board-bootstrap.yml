@@ -16,14 +16,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        sport: [NFL, NCAAF, MLB]
+        sport: [NFL, NCAAF, MLB, BASKETBALL]
     steps:
       - name: Wait for the saved board endpoint
         env:
           SPORT: ${{ matrix.sport }}
         run: |
+          probe_sport="$SPORT"
+          if [ "$SPORT" = BASKETBALL ]; then probe_sport=NFL; fi
           for attempt in $(seq 1 40); do
-            status=$(curl --silent --show-error --max-time 20 --output /tmp/board-status.json --write-out '%{http_code}' "https://ezpzpicks.com/api/sport-public-data?sport=$SPORT&inspect=1")
+            status=$(curl --silent --show-error --max-time 20 --output /tmp/board-status.json --write-out '%{http_code}' "https://ezpzpicks.com/api/sport-public-data?sport=$probe_sport&inspect=1")
             if { [ "$status" = 200 ] || [ "$status" = 503 ]; } && \
               jq -e --arg revision "$GITHUB_SHA" '.deploymentRevision == $revision' /tmp/board-status.json >/dev/null; then exit 0; fi
             sleep 10
@@ -36,7 +38,9 @@ jobs:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           test -n "$CRON_SECRET" || { echo 'Missing CRON_SECRET repository secret'; exit 1; }
-          if [ "$SPORT" = MLB ]; then
+          if [ "$SPORT" = BASKETBALL ]; then
+            route='nba-market?consolidate=1'
+          elif [ "$SPORT" = MLB ]; then
             route='mlb-live-data?force=1'
           else
             route="football-public-snapshot?sport=$SPORT&force=1&compact=1"
@@ -45,6 +49,14 @@ jobs:
           # has been saved. The read below verifies publication independently.
           curl --silent --show-error --max-time 240 -H "Authorization: Bearer $CRON_SECRET" \
             "https://ezpzpicks.com/api/cron/$route" --output /tmp/producer.json
-          jq '{ok, skipped, reason, error, publicBoard}' /tmp/producer.json
-          curl --fail-with-body --silent --show-error --retry 3 --retry-delay 10 --max-time 30 \
-            "https://ezpzpicks.com/api/sport-public-data?sport=$SPORT&inspect=1"
+          jq '{ok, skipped, reason, error, publicBoard, sports}' /tmp/producer.json
+          if [ "$SPORT" = BASKETBALL ]; then
+            jq -e '.ok == true' /tmp/producer.json >/dev/null || exit 1
+            for basketball_sport in NBA NCAAM; do
+              curl --fail-with-body --silent --show-error --retry 3 --retry-delay 10 --max-time 30 \
+                "https://ezpzpicks.com/api/sport-public-data?sport=$basketball_sport" | jq '{ok, sport, consolidation}'
+            done
+          else
+            curl --fail-with-body --silent --show-error --retry 3 --retry-delay 10 --max-time 30 \
+              "https://ezpzpicks.com/api/sport-public-data?sport=$SPORT&inspect=1"
+          fi

@@ -8,6 +8,8 @@ import { visibleNbaTrendBadges } from "../lib/nbaTrendLeaderboard";
 import { classifyNcaafMovement } from "../lib/ncaafEzpzPolicy";
 import { isVerifiedNcaafTrendRecord } from "../lib/ncaafTrendRecordPolicy";
 import { buildNflPublicTrendLeaderboard, visibleNflTrendBadges } from "../lib/nflPublicTrendLeaderboard";
+import { visibleConsolidatedBadges } from "../lib/consolidatedSportTrends";
+import { isConsolidatedSport } from "../lib/catalog/consolidatedSportCatalog";
 import {
   buildNcaafPublicTrendLeaderboard,
   rankNcaafPublicTrendSubtypes,
@@ -713,6 +715,7 @@ function MovementChart({ play }: { play: TrendPlay }) {
 }
 
 function publicLabelsFor(play: TrendPlay, plays: TrendPlay[], sport: Sport, leaderboard: readonly NcaafPublicTrendSubtype[]) {
+  if (leaderboard.some(type => type.signal.startsWith("split-group:")) && isConsolidatedSport(sport)) return visibleConsolidatedBadges(sport, play, plays, leaderboard).map(type => type.signal);
   if (sport === "NCAAM") return visibleNcaamTrendBadges(play, plays, leaderboard).map(subtype => subtype.signal);
   if (sport === "NBA") return visibleNbaTrendBadges(play, plays, leaderboard).map(subtype => subtype.signal);
   return sport === "NCAAF"
@@ -725,7 +728,8 @@ function MarketRow({ play, plays, sport, leaderboard }: {
   play: TrendPlay; plays: TrendPlay[]; sport: Sport; leaderboard: readonly NcaafPublicTrendSubtype[];
 }) {
   const labels = publicLabelsFor(play, plays, sport, leaderboard);
-  const badges = sport === "NCAAF" ? visibleNcaafTrendBadges(play, plays, leaderboard)
+  const badges = leaderboard.some(type => type.signal.startsWith("split-group:")) && isConsolidatedSport(sport) ? visibleConsolidatedBadges(sport, play, plays, leaderboard)
+    : sport === "NCAAF" ? visibleNcaafTrendBadges(play, plays, leaderboard)
     : sport === "NCAAM" ? visibleNcaamTrendBadges(play, plays, leaderboard)
     : sport === "NBA" ? visibleNbaTrendBadges(play, plays, leaderboard)
     : sport === "NFL" ? visibleNflTrendBadges(play, plays, leaderboard) : [];
@@ -1169,15 +1173,15 @@ type DirectTrendRecordProps = {
 export function DirectTrendRecords({ ncaafLeaderboard, nflLeaderboard, nbaLeaderboard, ...props }: DirectTrendRecordProps) {
   if (props.sport === "MLB") return <LegacyDirectTrendRecords {...props} />;
   const saved = props.sport === "NFL" ? nflLeaderboard : ncaafLeaderboard;
-  const leaderboard = ["NBA", "NCAAM"].includes(props.sport) ? (nbaLeaderboard || []).slice(0, 20) : props.sport === "NFL" && saved ? saved.slice(0, 20) : saved ? rankNcaafPublicTrendSubtypes(saved)
+  const leaderboard = ["NBA", "NCAAM"].includes(props.sport) ? (nbaLeaderboard || []).slice(0, 20) : saved && (props.sport === "NFL" || saved.some(type => type.signal.startsWith("split-group:"))) ? saved.slice(0, 20) : saved ? rankNcaafPublicTrendSubtypes(saved)
     : props.sport === "NFL" ? buildNflPublicTrendLeaderboard(props.rows) : buildNcaafPublicTrendLeaderboard(props.rows);
   return (
     <details className="recordsDropdown directTrendRecords" open>
       <summary className="recordsSummary">
         <div>
           <div className="recordsSummaryTitle">Top 20 {props.sport} Sub Bet Types</div>
-          <small>{props.sport === "NFL" ? "96 grouped types · 8+ decided plays · Above 60% wins · ROI 10%+ · Wilson ranking. Pushes excluded from win %." : ["NBA", "NCAAM"].includes(props.sport) ? "Final snapshots only · Above 60% wins · Positive ROI · One-sided 95% Wilson ranking. Pushes excluded from win %."
-            : "Final snapshots only · Above 60% wins · All-time win %; ties favor more settled bets. Pushes excluded from win %."}</small>
+          <small>{props.sport === "NFL" ? "96 grouped types · 8+ decided plays · Above 60% wins · ROI 10%+ · Wilson ranking. Pushes excluded from win %." : ["NBA", "NCAAM"].includes(props.sport) ? "96 grouped types · 8+ decided plays · Above 60% wins · ROI 10%+ at assumed -110 · One-sided 95% Wilson ranking. Pushes excluded from win %."
+            : "96 grouped types · 8+ decided plays · Above 60% wins · ROI 10%+ · One-sided 95% Wilson ranking. Pushes excluded from win %."}</small>
         </div>
         <span className="recordsCount">{leaderboard.length} types</span>
       </summary>
@@ -1452,7 +1456,7 @@ function LegacyDirectTrendRecords({
 export function FootballTrendMarketBoard({ groups, sport, ncaafLeaderboard = [], nflLeaderboard = [], nbaLeaderboard = [] }: {
   groups: Group[]; sport: Sport; ncaafLeaderboard?: NcaafPublicTrendSubtype[]; nflLeaderboard?: NcaafPublicTrendSubtype[]; nbaLeaderboard?: NcaafPublicTrendSubtype[];
 }) {
-  const leaderboard = sport === "NCAAF" ? rankNcaafPublicTrendSubtypes(ncaafLeaderboard)
+  const leaderboard = sport === "NCAAF" ? ncaafLeaderboard.some(type => type.signal.startsWith("split-group:")) ? ncaafLeaderboard.slice(0, 20) : rankNcaafPublicTrendSubtypes(ncaafLeaderboard)
     : sport === "NFL" ? nflLeaderboard.slice(0, 20) : ["NBA", "NCAAM"].includes(sport) ? nbaLeaderboard.slice(0, 20) : [];
   const sortedGroups = [...groups].sort((a, b) => {
     const timeDifference = trendGroupSortValue(a) - trendGroupSortValue(b);

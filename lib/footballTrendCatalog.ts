@@ -5,6 +5,7 @@ import { catalog as nbaCatalog } from './catalog/nbaCatalog';
 import { catalog as ncaamCatalog } from './catalog/ncaamCatalog';
 import { nflTrendTeamKey } from './nflTrendIdentity';
 import { nflConsolidatedDefinition } from './catalog/nflConsolidatedCatalog';
+import { consolidatedDefinition } from './catalog/consolidatedSportCatalog';
 
 export type CatalogExpression = number | boolean | any[];
 export type CatalogRule = {
@@ -108,6 +109,7 @@ export function catalogSignals(evaluation: CatalogEvaluation | undefined, sport:
   });
 }
 export function catalogSignalLabel(signal: string) {
+  if (signal.startsWith('split-group:')) return consolidatedDefinition(signal)?.label || signal;
   if (signal.startsWith('nfl-group:')) return nflConsolidatedDefinition(signal)?.label || signal;
   if (!signal.startsWith('catalog:')) return signal;
   const [, version, id, direction, filterIds] = signal.split(':');

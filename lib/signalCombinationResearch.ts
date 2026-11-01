@@ -74,6 +74,17 @@ function mergeCells(cells: ResearchCell[]) {
     || a.combination.localeCompare(b.combination) || (a.sideGroup || "").localeCompare(b.sideGroup || ""));
 }
 
+/** Combine disjoint captured/replayed sources after replacing each source's daily totals. */
+export function mergeSignalResearchDays(policyVersion: string, ...sources: Array<Record<string, SignalResearchDay> | undefined>): Record<string, SignalResearchDay> {
+  const days: Record<string, SignalResearchDay> = {};
+  for (const source of sources) for (const day of Object.values(source || {})) {
+    if (day.version !== SIGNAL_RESEARCH_VERSION || day.policyVersion !== policyVersion) continue;
+    const previous = days[day.date];
+    days[day.date] = { ...day, cells: mergeCells([...(previous?.cells || []), ...day.cells]) };
+  }
+  return days;
+}
+
 /** Replays captured flags only. No current projections or leaderboards enter it. */
 export function buildSignalResearchDays(observations: ResearchObservation[], policyVersion: string, now = Date.now()): Record<string, SignalResearchDay> {
   const unique = new Map<string, { side: ResearchObservation; fingerprint: string }>(), conflicts = new Set<string>();

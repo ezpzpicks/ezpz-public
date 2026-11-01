@@ -3,12 +3,15 @@ import { saveNbaMarketRows } from "./nbaMarketStore";
 import { readNbaForecasts, readNbaForecastHistory } from "./nbaForecasts";
 import { NBA_MODEL_RECORD_POLICY, updateNbaModelRecords } from "./nbaRecords";
 import { nbaRowKey, normalizeNbaSlate, type NbaGame } from "./nbaMarketCore";
-import { buildNbaSignals, buildNbaSignalTests, emptyNbaAnalysis, mergeNbaTeamHistory, nbaSeason, settleNbaTrendRows, NBA_ANALYSIS_VERSION, type NbaAnalysisState } from "./nbaAnalysisCore";
+import { buildNbaSignals, buildNbaSignalTests, emptyNbaAnalysis, mergeNbaTeamHistory, nbaSeason, settleNbaTrendRows, nbaRowsToPlays, NBA_ANALYSIS_VERSION, type NbaAnalysisState } from "./nbaAnalysisCore";
 import { buildNbaTrendLeaderboard, NBA_ANALYSIS_TAB, NBA_SIGNALS_TAB, NBA_TREND_RECORDS_TAB, NBA_SIGNALS_POLICY } from "./nbaTrendLeaderboard";
 import { readSavedFootballSignalsForDate } from "./footballSignals";
 import { buildSignalResearchDays, SIGNAL_RESEARCH_VERSION } from "./signalCombinationResearch";
 import { signalEzpzPayload, signalPickThreshold } from "./signalPicks";
 import { persistEzpzCurrentPicks } from "./ezpzCurrentPicks";
+
+import { updateBasketballConsolidation } from "./basketballConsolidation";
+import { consolidatedVersion, CONSOLIDATED_SPORT_EFFECTIVE_AT } from "./catalog/consolidatedSportCatalog";
 
 const q = (value: string) => `'${value.replaceAll("'", "''")}'`;
 export function nbaScheduleRows(games: NbaGame[], observedAt: number): TursoRow[] {
@@ -40,9 +43,10 @@ export async function refreshNbaAnalysis(date: string, currentSchedule: TursoRow
   const dates = [...new Set([...state.pendingDates, date])].sort();
   // Seed existing frozen observations once. Ordinary ticks keep the same bounded
   // day reads and update compact daily totals in the existing analysis row.
+  const seedConsolidation = now >= Date.parse(CONSOLIDATED_SPORT_EFFECTIVE_AT) && state.consolidation?.version !== consolidatedVersion("NBA");
   const seedResearch = state.signalResearch?.version !== SIGNAL_RESEARCH_VERSION;
   const seedSelections = state.selectionThreshold !== signalPickThreshold("NBA");
-  const signalDates = seedResearch || seedSelections ? [...new Set([...state.archiveDates, ...dates])].sort() : dates;
+  const signalDates = seedConsolidation || seedResearch || seedSelections ? [...new Set([...state.archiveDates, ...dates])].sort() : dates;
   const schedule = [...currentSchedule];
   const previousDays = await Promise.all(dates.filter(day => day !== date).map(async day => {
     const response = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?dates=${day.replaceAll("-", "")}&limit=1000`,
@@ -65,9 +69,11 @@ export async function refreshNbaAnalysis(date: string, currentSchedule: TursoRow
   });
   // Full-season catalog work happens only when a result changes, never on each
   // page load or ordinary market tick. Day reads and saved rollups cover those.
-  if (changedRecords.length) {
-    await saveNbaMarketRows(NBA_TREND_RECORDS_TAB, changedRecords);
+  let consolidationRecords: TursoRow[] | null = null;
+  if (changedRecords.length) await saveNbaMarketRows(NBA_TREND_RECORDS_TAB, changedRecords);
+  if (changedRecords.length || seedConsolidation) {
     const records = await readSeasonRecords(state.season);
+    consolidationRecords = records;
     state.leaderboard = buildNbaTrendLeaderboard(records, now);
     state.leaderboardAsOf = new Date(now).toISOString();
     state.teamHistory = mergeNbaTeamHistory(state.teamHistory, records, schedule);
@@ -86,6 +92,11 @@ export async function refreshNbaAnalysis(date: string, currentSchedule: TursoRow
   state.modelRecords = updateNbaModelRecords(state.modelRecords, forecasts.flatMap(([, rows]) => rows), schedule, now, dates);
   if (seedResearch) state.signalResearch = { version: SIGNAL_RESEARCH_VERSION, days: buildSignalResearchDays(
     signalDates.flatMap(day => readSavedFootballSignalsForDate(storedSignals, day, now, NBA_SIGNALS_POLICY)), NBA_SIGNALS_POLICY.version, now) };
+  if (consolidationRecords && now >= Date.parse(CONSOLIDATED_SPORT_EFFECTIVE_AT)) {
+    const sides = signalDates.flatMap(day => readSavedFootballSignalsForDate(storedSignals, day, now, NBA_SIGNALS_POLICY));
+    Object.assign(state, updateBasketballConsolidation("NBA", state, consolidationRecords, sides,
+      nbaRowsToPlays(snapshots, now), now, NBA_SIGNALS_POLICY.version));
+  }
   let captured = 0, settled = 0;
   let currentSignals: ReturnType<typeof buildNbaSignals> | undefined;
   for (const day of dates) {
@@ -97,6 +108,7 @@ export async function refreshNbaAnalysis(date: string, currentSchedule: TursoRow
     captured += changed.filter(row => !row.Result).length; settled += changed.filter(row => Boolean(row.Result)).length;
     state.tests = result.tests;
     state.signalResearch = result.signalResearch;
+    state.legacySignalResearch = result.legacySignalResearch;
   }
   state.archiveDates = [...new Set([...state.archiveDates, ...schedule.map(row => row.Date)])].sort();
   state.pendingDates = dates.filter(day => schedule.some(row => row.Date === day && !/FINAL|CANCEL|POSTPON/i.test(row.Status)));
@@ -111,4 +123,17 @@ export async function refreshNbaAnalysis(date: string, currentSchedule: TursoRow
   console.info("[nba-analysis]", JSON.stringify({ date, gradedSides: changedRecords.length, capturedSides: captured, settledSides: settled,
     rankedTrends: state.leaderboard.length, pendingDates: state.pendingDates.length }));
   return { gradedSides: changedRecords.length, capturedSides: captured, settledSides: settled, rankedTrends: state.leaderboard.length };
+}
+
+export async function migrateNbaConsolidation(date: string, now = Date.now()) {
+  const state = await readNbaAnalysis(date);
+  const dates = [...new Set([...state.archiveDates, ...state.pendingDates, date])].sort();
+  const [records, signals, snapshots] = await Promise.all([readSeasonRecords(state.season),
+    readTursoDatasetByDateKeys("NBA", NBA_SIGNALS_TAB, dates),
+    readTursoDatasetByDateKeys("NBA", "public_split_snapshots", dates)]);
+  const sides = dates.flatMap(day => readSavedFootballSignalsForDate(signals, day, now, NBA_SIGNALS_POLICY));
+  const next = updateBasketballConsolidation("NBA", state, records, sides, nbaRowsToPlays(snapshots, now), now, NBA_SIGNALS_POLICY.version);
+  await saveNbaMarketRows(NBA_ANALYSIS_TAB, [{ Date: `season-${state.season}`, "Game Key": `nba-analysis|${state.season}`,
+    Market: "State", Selection: "NBA", "Details JSON": JSON.stringify(next) }]);
+  return { ok: true, sport: "NBA", consolidation: next.consolidation, qualifiedTypes: next.leaderboard.length, replay: next.consolidationReplay.status };
 }

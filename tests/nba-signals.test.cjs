@@ -16,7 +16,8 @@ const research = require('../lib/signalCombinationResearch.ts');
 const iso = n => new Date(n).toISOString();
 const clone = x => JSON.parse(JSON.stringify(x));
 
-function fixture(date = '2026-11-10', id = '101') {
+// Legacy capture fixtures predate consolidation; grouped policy has separate coverage.
+function fixture(date = '2026-10-30', id = '101') {
   const kickoff = Date.parse(date + 'T23:00:00Z'), lock = kickoff - 15 * 60000;
   const base = { Date: date, 'Game ID': id, 'Game Key': `${date}|nba|${id}`, 'Game Time': iso(kickoff),
     Game: 'Cleveland Cavaliers @ Philadelphia 76ers', 'Away Team': 'Cleveland Cavaliers', 'Home Team': 'Philadelphia 76ers',
@@ -75,7 +76,7 @@ test('NBA research accumulates saved days, replaces settlements, and never promo
   assert.equal(research.signalResearchView(completed.board.research, 'Total').total.settled, 2);
   assert.equal(research.signalResearchView(completed.board.research, 'Total').counts.find(row => row.label === '2').record.record, '1-0-0');
   assert.equal(completed.board.summary.settled, 0);
-  const second = fixture('2026-11-11', '102');
+  const second = fixture('2026-10-31', '102');
   second.state.signalResearch = completed.signalResearch;
   const next = build(second, { capture: true });
   const values = research.signalResearchView(next.board.research, 'Total');
@@ -223,7 +224,7 @@ test('the shared Wilson ordering favors evidence, excludes 60%/push-only/losing 
   assert.equal(wilson.rankNcaafEzpzSubtypes(Array.from({ length: 25 }, (_, i) => subtype(String(i), 8, 2))).length, 20);
 });
 test('team grades use NBA identities and refuse results not known before the decision', () => {
-  const f = fixture(), previous = fixture('2026-11-08', '99'), game = finalGame(previous), at = f.lock;
+  const f = fixture(), previous = fixture('2026-10-28', '99'), game = finalGame(previous), at = f.lock;
   const records = core.settleNbaTrendRows(previous.rows, [game], Date.parse(game['Result Updated']));
   const history = new Map(core.mergeNbaTeamHistory([], records, [game]));
   const play = core.nbaRowsToPlays(f.rows, f.lock).find(p => p.side === 'Over');

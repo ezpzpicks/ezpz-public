@@ -5,6 +5,8 @@ import { NBA_SIGNALS_POLICY, NBA_SIGNALS_TAB } from "../../../lib/nbaTrendLeader
 import { buildSignalResearchDays, buildSignalResearchReport } from "../../../lib/signalCombinationResearch";
 import { readNbaSavedLineups } from "../../../lib/nbaLineups";
 
+import { consolidatedSignalPolicy } from "../../../lib/catalog/consolidatedSportCatalog";
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -17,8 +19,12 @@ export async function GET(request: NextRequest) {
   try {
     const [rows, lineups] = await Promise.all([readTursoDatasetByDateKeys("NBA", NBA_SIGNALS_TAB, [date]), readNbaSavedLineups(date)]);
     const sides = readSavedFootballSignalsForDate(rows, date, Date.now(), NBA_SIGNALS_POLICY);
-    const research = buildSignalResearchReport("NBA", NBA_SIGNALS_POLICY.version, buildSignalResearchDays(sides, NBA_SIGNALS_POLICY.version));
-    return NextResponse.json({ ok: true, sport: "NBA", date, sides, research, lineups },
+    const groupedPolicy = consolidatedSignalPolicy("NBA");
+    const policy = sides.some(side => side.policyVersion === groupedPolicy) ? groupedPolicy : NBA_SIGNALS_POLICY.version;
+    const research = buildSignalResearchReport("NBA", policy, buildSignalResearchDays(sides, policy));
+    const legacyResearch = policy !== NBA_SIGNALS_POLICY.version ? buildSignalResearchReport("NBA", NBA_SIGNALS_POLICY.version,
+      buildSignalResearchDays(sides, NBA_SIGNALS_POLICY.version)) : undefined;
+    return NextResponse.json({ ok: true, sport: "NBA", date, sides, research, ...(legacyResearch ? { legacyResearch } : {}), lineups },
       { headers: { "Cache-Control": "no-store, max-age=0" } });
   } catch (error) {
     console.error("NBA Signals archive read failed", { date, error });

@@ -15,6 +15,8 @@ import { buildTeamTrendTestState, TEAM_TREND_TEST_HEADERS, TEAM_TREND_TEST_TAB }
 import { buildFootballSignalsState, FOOTBALL_SIGNALS_HEADERS, FOOTBALL_SIGNALS_TAB } from "./footballSignals";
 import { buildNflConsolidatedSubtypes, NFL_GROUPED_MIN_DECISIONS, NFL_GROUPED_MIN_ROI } from "./nflConsolidatedTrends";
 import { NFL_CONSOLIDATED_TYPES, NFL_CONSOLIDATED_VERSION, NFL_CONSOLIDATED_SIGNAL_POLICY, NFL_CONSOLIDATED_EFFECTIVE_AT } from "./catalog/nflConsolidatedCatalog";
+import { CONSOLIDATED_SPORT_EFFECTIVE_AT, consolidationMetadata } from "./catalog/consolidatedSportCatalog";
+import { buildConsolidatedLeaderboard, buildConsolidatedSubtypes } from "./consolidatedSportTrends";
 import { loadFootballSos } from "./footballSos";
 import { mergeNcaafResearchPatches, ncaafModelResearchPatches, ncaafResearchTrackerKey } from "./ncaafModelResearch";
 import {
@@ -1071,8 +1073,22 @@ export async function buildFootballPublicData(
   const today = isoDate(core.today) || new Date().toISOString().slice(0, 10);
   let history = await (historyRead || readHistory(sport));
   const selectionTime = Date.now();
+  const consolidatedNcaaf = sport === "NCAAF" && selectionTime >= Date.parse(CONSOLIDATED_SPORT_EFFECTIVE_AT);
+  if (consolidatedNcaaf) {
+    const metadata = consolidationMetadata("NCAAF"), types = buildConsolidatedSubtypes("NCAAF", core.trendRecordRows || []);
+    core.ncaafConsolidation = metadata;
+    core.catalogTracking = { version: metadata.version, registeredDirections: metadata.typeCount, subsetFilters: 0,
+      combinedDefinitions: 0, trackingDirections: types.length, waitingForInputs: metadata.typeCount - types.length,
+      matchedMemberships: types.reduce((n, type) => n + type.totals.totalBets, 0),
+      gradedMemberships: types.reduce((n, type) => n + type.totals.totalBets, 0),
+      marketEntries: catalogCapture.status.marketEntries, persistedEntries: catalogCapture.status.persistedEntries,
+      fullCatalogEvaluated: true, publicLimit: metadata.topLimit, publicWinPctExclusiveMinimum: 60,
+      publicMinDecisions: metadata.minDecisions, publicMinRoiPct: metadata.minRoiPct,
+      evidenceCatalog: { version: catalogCapture.status.version, registeredDirections: catalogCapture.status.registeredDirections } };
+  }
   const ncaafEzpzTrendLeaderboard = sport === "NCAAF"
-    ? buildNcaafEzpzLeaderboard(core.trendRecordRows || [], selectionTime, undefined, { buildSubtypes: options.buildSubtypes }) : [];
+    ? consolidatedNcaaf ? buildConsolidatedLeaderboard("NCAAF", core.trendRecordRows || [], selectionTime)
+      : buildNcaafEzpzLeaderboard(core.trendRecordRows || [], selectionTime, undefined, { buildSubtypes: options.buildSubtypes }) : [];
   const nflEzpzTrendLeaderboard = sport === "NFL"
     ? buildNflEzpzLeaderboard(core.trendRecordRows || [], selectionTime) : [];
 

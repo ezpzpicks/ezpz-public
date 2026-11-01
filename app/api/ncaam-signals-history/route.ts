@@ -6,6 +6,8 @@ import { buildSignalResearchDays, buildSignalResearchReport } from "../../../lib
 import { readNcaamSavedLineups } from "../../../lib/ncaamLineups";
 
 
+import { consolidatedSignalPolicy } from "../../../lib/catalog/consolidatedSportCatalog";
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -18,8 +20,12 @@ export async function GET(request: NextRequest) {
   try {
     const [rows, lineups] = await Promise.all([readTursoDatasetByDateKeys("NCAAM", NCAAM_SIGNALS_TAB, [date]), readNcaamSavedLineups(date)]);
     const sides = readSavedFootballSignalsForDate(rows, date, Date.now(), NCAAM_SIGNALS_POLICY);
-    const research = buildSignalResearchReport("NCAAM", NCAAM_SIGNALS_POLICY.version, buildSignalResearchDays(sides, NCAAM_SIGNALS_POLICY.version));
-    return NextResponse.json({ ok: true, sport: "NCAAM", date, sides, research, lineups },
+    const groupedPolicy = consolidatedSignalPolicy("NCAAM");
+    const policy = sides.some(side => side.policyVersion === groupedPolicy) ? groupedPolicy : NCAAM_SIGNALS_POLICY.version;
+    const research = buildSignalResearchReport("NCAAM", policy, buildSignalResearchDays(sides, policy));
+    const legacyResearch = policy !== NCAAM_SIGNALS_POLICY.version ? buildSignalResearchReport("NCAAM", NCAAM_SIGNALS_POLICY.version,
+      buildSignalResearchDays(sides, NCAAM_SIGNALS_POLICY.version)) : undefined;
+    return NextResponse.json({ ok: true, sport: "NCAAM", date, sides, research, ...(legacyResearch ? { legacyResearch } : {}), lineups },
       { headers: { "Cache-Control": "no-store, max-age=0" } });
   } catch (error) {
     console.error("NCAAM Signals archive read failed", { date, error });

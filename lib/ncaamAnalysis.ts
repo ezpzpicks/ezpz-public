@@ -4,12 +4,15 @@ import { saveNcaamMarketRows } from "./ncaamMarketStore";
 import { readNcaamForecasts, readNcaamForecastHistory } from "./ncaamForecasts";
 import { NCAAM_MODEL_RECORD_POLICY, updateNcaamModelRecords } from "./ncaamRecords";
 import { ncaamRowKey, normalizeNcaamSlate, type NcaamGame } from "./ncaamMarketCore";
-import { buildNcaamSignals, buildNcaamSignalTests, emptyNcaamAnalysis, mergeNcaamTeamHistory, ncaamSeason, settleNcaamTrendRows, NCAAM_ANALYSIS_VERSION, type NcaamAnalysisState } from "./ncaamAnalysisCore";
+import { buildNcaamSignals, buildNcaamSignalTests, emptyNcaamAnalysis, mergeNcaamTeamHistory, ncaamSeason, settleNcaamTrendRows, ncaamRowsToPlays, NCAAM_ANALYSIS_VERSION, type NcaamAnalysisState } from "./ncaamAnalysisCore";
 import { buildNcaamTrendLeaderboard, NCAAM_ANALYSIS_TAB, NCAAM_SIGNALS_TAB, NCAAM_TREND_RECORDS_TAB, NCAAM_SIGNALS_POLICY } from "./ncaamTrendLeaderboard";
 import { readSavedFootballSignalsForDate } from "./footballSignals";
 import { buildSignalResearchDays, SIGNAL_RESEARCH_VERSION } from "./signalCombinationResearch";
 import { signalEzpzPayload, signalPickThreshold } from "./signalPicks";
 import { persistEzpzCurrentPicks } from "./ezpzCurrentPicks";
+
+import { updateBasketballConsolidation } from "./basketballConsolidation";
+import { consolidatedVersion, CONSOLIDATED_SPORT_EFFECTIVE_AT } from "./catalog/consolidatedSportCatalog";
 
 const q = (value: string) => `'${value.replaceAll("'", "''")}'`;
 export function ncaamScheduleRows(games: NcaamGame[], observedAt: number): TursoRow[] {
@@ -43,9 +46,10 @@ export async function refreshNcaamAnalysis(date: string, currentSchedule: TursoR
   const dates = [...new Set([...state.pendingDates, date])].sort();
   // Seed existing frozen observations once. Ordinary ticks keep the same bounded
   // day reads and update compact daily totals in the existing analysis row.
+  const seedConsolidation = now >= Date.parse(CONSOLIDATED_SPORT_EFFECTIVE_AT) && state.consolidation?.version !== consolidatedVersion("NCAAM");
   const seedResearch = state.signalResearch?.version !== SIGNAL_RESEARCH_VERSION;
   const seedSelections = state.selectionThreshold !== signalPickThreshold("NCAAM");
-  const signalDates = seedResearch || seedSelections ? [...new Set([...state.archiveDates, ...dates])].sort() : dates;
+  const signalDates = seedConsolidation || seedResearch || seedSelections ? [...new Set([...state.archiveDates, ...dates])].sort() : dates;
   const schedule = [...currentSchedule];
   const previousDays = await Promise.all(dates.filter(day => day !== date).map(async day => {
     const response = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=${day.replaceAll("-", "")}&groups=50&limit=1000`,
@@ -68,9 +72,11 @@ export async function refreshNcaamAnalysis(date: string, currentSchedule: TursoR
   });
   // Full-season catalog work happens only when a result changes, never on each
   // page load or ordinary market tick. Day reads and saved rollups cover those.
-  if (changedRecords.length) {
-    await saveNcaamMarketRows(NCAAM_TREND_RECORDS_TAB, changedRecords);
+  let consolidationRecords: TursoRow[] | null = null;
+  if (changedRecords.length) await saveNcaamMarketRows(NCAAM_TREND_RECORDS_TAB, changedRecords);
+  if (changedRecords.length || seedConsolidation) {
     const records = await readSeasonRecords(state.season);
+    consolidationRecords = records;
     state.leaderboard = buildNcaamTrendLeaderboard(records, now);
     state.leaderboardAsOf = new Date(now).toISOString();
     state.teamHistory = mergeNcaamTeamHistory(state.teamHistory, records, schedule);
@@ -89,6 +95,11 @@ export async function refreshNcaamAnalysis(date: string, currentSchedule: TursoR
   state.modelRecords = updateNcaamModelRecords(state.modelRecords, forecasts.flatMap(([, rows]) => rows), schedule, now, dates);
   if (seedResearch) state.signalResearch = { version: SIGNAL_RESEARCH_VERSION, days: buildSignalResearchDays(
     signalDates.flatMap(day => readSavedFootballSignalsForDate(storedSignals, day, now, NCAAM_SIGNALS_POLICY)), NCAAM_SIGNALS_POLICY.version, now) };
+  if (consolidationRecords && now >= Date.parse(CONSOLIDATED_SPORT_EFFECTIVE_AT)) {
+    const sides = signalDates.flatMap(day => readSavedFootballSignalsForDate(storedSignals, day, now, NCAAM_SIGNALS_POLICY));
+    Object.assign(state, updateBasketballConsolidation("NCAAM", state, consolidationRecords, sides,
+      ncaamRowsToPlays(snapshots, now), now, NCAAM_SIGNALS_POLICY.version));
+  }
   let captured = 0, settled = 0;
   let currentSignals: ReturnType<typeof buildNcaamSignals> | undefined;
   for (const day of dates) {
@@ -100,6 +111,7 @@ export async function refreshNcaamAnalysis(date: string, currentSchedule: TursoR
     captured += changed.filter(row => !row.Result).length; settled += changed.filter(row => Boolean(row.Result)).length;
     state.tests = result.tests;
     state.signalResearch = result.signalResearch;
+    state.legacySignalResearch = result.legacySignalResearch;
   }
   state.archiveDates = [...new Set([...state.archiveDates, ...schedule.map(row => row.Date)])].sort();
   state.pendingDates = dates.filter(day => schedule.some(row => row.Date === day && !/FINAL|CANCEL|POSTPON/i.test(row.Status)));
@@ -114,4 +126,17 @@ export async function refreshNcaamAnalysis(date: string, currentSchedule: TursoR
   console.info("[ncaam-analysis]", JSON.stringify({ date, gradedSides: changedRecords.length, capturedSides: captured, settledSides: settled,
     rankedTrends: state.leaderboard.length, pendingDates: state.pendingDates.length }));
   return { gradedSides: changedRecords.length, capturedSides: captured, settledSides: settled, rankedTrends: state.leaderboard.length };
+}
+
+export async function migrateNcaamConsolidation(date: string, now = Date.now()) {
+  const state = await readNcaamAnalysis(date);
+  const dates = [...new Set([...state.archiveDates, ...state.pendingDates, date])].sort();
+  const [records, signals, snapshots] = await Promise.all([readSeasonRecords(state.season),
+    readTursoDatasetByDateKeys("NCAAM", NCAAM_SIGNALS_TAB, dates),
+    readTursoDatasetByDateKeys("NCAAM", "public_split_snapshots", dates)]);
+  const sides = dates.flatMap(day => readSavedFootballSignalsForDate(signals, day, now, NCAAM_SIGNALS_POLICY));
+  const next = updateBasketballConsolidation("NCAAM", state, records, sides, ncaamRowsToPlays(snapshots, now), now, NCAAM_SIGNALS_POLICY.version);
+  await saveNcaamMarketRows(NCAAM_ANALYSIS_TAB, [{ Date: `season-${state.season}`, "Game Key": `ncaam-analysis|${state.season}`,
+    Market: "State", Selection: "NCAAM", "Details JSON": JSON.stringify(next) }]);
+  return { ok: true, sport: "NCAAM", consolidation: next.consolidation, qualifiedTypes: next.leaderboard.length, replay: next.consolidationReplay.status };
 }

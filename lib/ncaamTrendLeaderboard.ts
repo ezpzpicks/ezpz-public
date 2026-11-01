@@ -3,6 +3,8 @@ import { buildNcaafTrendSubtypes, ncaafTrendCategory, type NcaafPublicTrendSubty
 import { ncaafRowsBeforeDecision, rankNcaafEzpzSubtypes, type NcaafEzpzSubtype } from "./ncaafEzpzWilson";
 import { NCAAM_MARKET_POLICY, ncaamTeamKey } from "./ncaamMarketCore";
 import { quoteImpliedProbability, regradeModelQuote } from "./modelSignalQuote";
+import { buildConsolidatedLeaderboard, visibleConsolidatedBadges } from "./consolidatedSportTrends";
+import { CONSOLIDATED_SPORT_EFFECTIVE_AT } from "./catalog/consolidatedSportCatalog";
 
 type Row = Record<string, any>;
 export const NCAAM_SIGNALS_POLICY = { version: "ncaam-signals-2026-11-01-v1", prefix: "ncaam-signals-", launchAt: "2026-11-01T00:00:00.000Z" };
@@ -22,9 +24,11 @@ export function buildNcaamTrendSubtypes(rows: Record<string, string>[]): NcaafPu
     && row["Market Policy"] === NCAAM_MARKET_POLICY), { sport: "NCAAM", signalsFor: ncaamTrendSignals, gameIdentity: ncaamTrendGameKey });
 }
 export function buildNcaamTrendLeaderboard(rows: Record<string, string>[], asOf = Date.now()): NcaafEzpzSubtype[] {
+  if (asOf >= Date.parse(CONSOLIDATED_SPORT_EFFECTIVE_AT)) return buildConsolidatedLeaderboard("NCAAM", rows, asOf);
   return rankNcaafEzpzSubtypes(buildNcaamTrendSubtypes(ncaafRowsBeforeDecision(rows, asOf, undefined, ncaamTrendGameKey)));
 }
 export function visibleNcaamTrendBadges(play: Row, siblings: Row[], leaderboard: readonly NcaafPublicTrendSubtype[]) {
+  if (leaderboard.some(type => type.signal.startsWith("split-group:"))) return visibleConsolidatedBadges("NCAAM", play, siblings, leaderboard);
   const memberships = new Set(ncaamTrendSignals(play, siblings)), category = ncaafTrendCategory(play);
   return leaderboard.slice(0, 20).filter(type => type.category === category && memberships.has(type.signal)
     && type.totals.wins * 5 > (type.totals.wins + type.totals.losses) * 3

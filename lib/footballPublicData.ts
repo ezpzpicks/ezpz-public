@@ -5,6 +5,8 @@ import { isVerifiedNcaafTrendRecord, NCAAF_TREND_RECORD_POLICY } from "./ncaafTr
 import { buildNflEzpzRecords } from "./nflEzpzRecords";
 import { buildNcaafPublicTrendLeaderboard, createNcaafSubtypeBuilder } from "./ncaafPublicTrendLeaderboard";
 import { buildNflPublicTrendLeaderboard } from "./nflPublicTrendLeaderboard";
+import { buildConsolidatedLeaderboard } from "./consolidatedSportTrends";
+import { CONSOLIDATED_SPORT_EFFECTIVE_AT } from "./catalog/consolidatedSportCatalog";
 import {
   readSportWorksheet,
   upsertSportRows,
@@ -552,7 +554,8 @@ async function buildFootballPublicDataFresh(
     return {
       ...data, ...signalEzpzPayload(data.footballSignals, sport, String(data.today)),
       trendRecordRows: verifiedTrendRows,
-      ncaafPublicTrendLeaderboard: buildNcaafPublicTrendLeaderboard(verifiedTrendRows, subtypeBuilder),
+      ncaafPublicTrendLeaderboard: Date.now() >= Date.parse(CONSOLIDATED_SPORT_EFFECTIVE_AT)
+        ? buildConsolidatedLeaderboard("NCAAF", verifiedTrendRows) : buildNcaafPublicTrendLeaderboard(verifiedTrendRows, subtypeBuilder),
       trendRecordPolicy: NCAAF_TREND_RECORD_POLICY,
     };
   }

@@ -143,7 +143,7 @@ global.fetch=async (_url,options)=>{
   await analysis.refreshNbaAnalysis(nextDate,nextSchedule,nextLock);
   assert.equal(writeRequests,afterCapture,'same observations and rollups must be idempotent');
   const seasonReads=()=>sqlStatements.filter(q=>q.includes("dataset='nba_trend_records'")&&q.includes('date_key>=')).length;
-  assert.equal(seasonReads(),0,'ordinary market ticks never read the full-season ledger');
+  assert.equal(seasonReads(),1,'initial consolidation reads the season once; ordinary repeat ticks do not rescan it');
   const beforePublic=writeRequests;
   await readNbaPublicData(nextDate);
   assert.equal(writeRequests,beforePublic,'public NBA pages are read-only');
@@ -156,14 +156,14 @@ global.fetch=async (_url,options)=>{
   const completed=await analysis.refreshNbaAnalysis(nextDay,[],afterFinal);
   assert.equal(pendingScheduleRequests,1,'day rollover checks only the saved pending slate');
   assert.equal(completed.gradedSides,8); assert.equal(completed.settledSides,8);
-  assert.equal(seasonReads(),1,'rankings rebuild once when results arrive');
+  assert.equal(seasonReads(),2,'rankings rebuild once when results arrive after the one-time consolidation read');
   const state=await analysis.readNbaAnalysis(nextDay);
   assert.equal(state.teamHistory.length,2); assert.deepEqual(state.pendingDates,[]);
   assert.deepEqual(state.archiveDates,[nextDate]);
-  assert(state.leaderboard.length>0 && state.leaderboard.length<=20);
+  assert.equal(state.leaderboard.length,0,'two games cannot satisfy the grouped eight-decision minimum');
   const finishedWrites=writeRequests;
   await analysis.refreshNbaAnalysis(nextDay,[],afterFinal);
-  assert.equal(seasonReads(),1); assert.equal(writeRequests,finishedWrites,'settled rows stop rewriting and reranking');
+  assert.equal(seasonReads(),2); assert.equal(writeRequests,finishedWrites,'settled rows stop rewriting and reranking');
   assert.equal((await db.readTursoDatasetByDateKeys('NFL','weekly_market_trends',['2026-10-22']))[0].kept,'yes');
   console.log('NBA market source, refresh, final locks, SQLite isolation/idempotence and public-read checks passed');
 })().catch(error=>{console.error(error);process.exitCode=1;}).finally(()=>fs.rmSync(dir,{recursive:true,force:true}));
