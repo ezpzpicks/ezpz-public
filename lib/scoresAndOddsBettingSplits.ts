@@ -94,8 +94,8 @@ type ConsensusRequest = { date?: string; week?: string };
 
 export function scoresAndOddsConsensusUrl(sport: ScoresAndOddsSport, request: ConsensusRequest = {}) {
   const base = `${SCORES_AND_ODDS_BASE_URL}/${SPORT_SLUG[sport]}/consensus-picks`;
-  if (sport === "NBA" && request.date) {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(request.date)) throw new Error("Invalid NBA consensus date.");
+  if ((sport === "NBA" || sport === "NCAAB") && request.date) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(request.date)) throw new Error("Invalid basketball consensus date.");
     return `${base}?date=${request.date}`;
   }
   if (sport === "NCAAF" && request.week) {
@@ -488,7 +488,7 @@ export function parseScoresAndOddsConsensus(
   const tokens = stripTagsToTokens(rawHtml);
   const sourceUrl = scoresAndOddsConsensusUrl(sport);
   const pageDate = dateFromPage(rawHtml);
-  const sourceSchedules = sport === "NCAAF" || sport === "NBA" ? ncaafSourceSchedules(rawHtml, pageDate) : null;
+  const sourceSchedules = sport === "NCAAF" || sport === "NBA" || sport === "NCAAB" ? ncaafSourceSchedules(rawHtml, pageDate) : null;
   const rows: ScoresAndOddsMarketSplit[] = [];
   const matchupOccurrenceState = new Map<
     string,

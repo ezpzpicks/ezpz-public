@@ -147,3 +147,18 @@ test('RotoWire forecasts identify source-checked availability and distinguish ex
     assert.doesNotMatch(html, /Injury availability unchecked/);
   }
 });
+
+
+test('NCAAM reuses basketball pages with research status and its own pending qualification, without NBA labels', () => {
+  const data={...forecastData,sport:'NCAAM',forecasts:[{...pregame,spread_grade:'Research',total_grade:'Research',availability_mode:'team_ratings'}]};
+  const full=renderNba('Full Slate',data);
+  assert.match(full,/NCAAM Full Slate/);assert.match(full,/Grade Research/);assert.match(full,/Player availability unchecked/);
+  assert.doesNotMatch(full,/NBA Full Slate|Lineup-aware projections/);
+  const picksHtml=render(React.createElement(ezpz.default,{data:{...data,signals:{...board,sport:'NCAAM',today:'2026-11-01',sides:[]}}}));
+  assert.match(picksHtml,/NCAAM EZPZ Picks/);assert.match(picksHtml,/In calibration/);
+  assert.match(picksHtml,/Official NCAAM EZPZ Picks are on hold/);
+  assert.doesNotMatch(picksHtml,/3\+ signals qualify|Backed by 3|need 3\+ signals/);
+  const live=render(React.createElement(football.default,{board:{...board,sport:'NCAAM',today:'2026-11-01'}}));
+  assert.match(live,/With signals/);assert.doesNotMatch(live,/EZPZ only|3\+ only/);
+  assert.match(render(React.createElement(records.default,{data})),/NCAAM Records/);
+});

@@ -15,7 +15,7 @@ vm.runInNewContext(ts.transpileModule(source + "\nexports.select = directNflTren
   require(name) {
     if (name === "./nflEzpzPolicy") return require("./load-typescript.cjs")(path.join(__dirname, "../lib/nflEzpzPolicy.ts"));
     assert.ok(["./footballPublicDataLegacy", "./ezpzPublicSplitEligibility", "./sportSheets", "./ncaafEzpzPolicy", "./ncaafTrendRecordPolicy", "./ncaafEzpzWilson", "./nflEzpzWilson", "./nflEzpzRecords", "./nflTrendIdentity",
-      "./footballTrendCatalogStore", "./footballTeamTrends", "./footballTeamSeasonHistory", "./footballTeamTrendPlays", "./footballSignals", "./footballSos"].includes(name));
+      "./footballTrendCatalogStore", "./footballTeamTrends", "./footballTeamSeasonHistory", "./footballTeamTrendPlays", "./footballSignals", "./footballSos", "./ncaafModelResearch"].includes(name));
     return {};
   },
 });

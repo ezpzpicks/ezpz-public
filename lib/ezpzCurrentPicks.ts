@@ -11,7 +11,7 @@ import { NCAAF_EZPZ_POLICY_VERSION } from "./ncaafEzpzPolicy";
 import { captureEzpzFinalPickEvents } from "./ezpzMcpEvents";
 import { isSelectedTeamTrendPick, isVerifiedFrozenFootballMcpPick } from "./ezpzMcpPicks";
 
-export type EzpzCurrentSport = Extract<TursoSport, "MLB" | "NFL" | "NCAAF" | "NBA">;
+export type EzpzCurrentSport = Extract<TursoSport, "MLB" | "NFL" | "NCAAF" | "NBA" | "NCAAM">;
 
 const DATASET = "current_ezpz_picks";
 const HEADERS = [
@@ -67,7 +67,7 @@ function parseJson(value: unknown): AnyRow | null {
 function currentPickEligible(pick: AnyRow, sport: EzpzCurrentSport) {
   if (isSignalFeedPick(pick, sport)) return true;
   // NBA enters this feed through the same official signal selector only.
-  if (sport === "NBA") return false;
+  if (sport === "NBA" || sport === "NCAAM") return false;
   // Prior-date captures retain their original format; current picks use signals.
   if (normalizedDate(pick.date || pick.Date) >= SIGNAL_EZPZ_EFFECTIVE_DATE) return false;
   if (sport === "MLB") return true;

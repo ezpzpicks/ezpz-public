@@ -4,7 +4,7 @@ function harness(file,options={}){
  let due=false,collections=0,reads=0,commits=0,publications=0;
  let now=Date.parse('2026-10-24T16:00:00Z');
  class Clock extends Date{constructor(...args){super(...(args.length?args:[now]));}static now(){return now;}}
- const refresh={scheduledMarketRefresh:async(...args)=>{reads++;return options.refresh?options.refresh.scheduledMarketRefresh(...args):{due,intervalMinutes:due?5:30,policy:'30m-until-90m-v1'};},recordScheduledMarketRefresh:async(...args)=>{commits++;if(options.refresh)await options.refresh.recordScheduledMarketRefresh(...args);}};
+ const refresh={scheduledMarketRefresh:async(...args)=>{if(args[0]==="NCAAM")return{due:false,intervalMinutes:30,policy:"30m-until-90m-v1"};reads++;return options.refresh?options.refresh.scheduledMarketRefresh(...args):{due,intervalMinutes:due?5:30,policy:'30m-until-90m-v1'};},recordScheduledMarketRefresh:async(...args)=>{commits++;if(options.refresh)await options.refresh.recordScheduledMarketRefresh(...args);}};
  const api={},source=ts.transpileModule(fs.readFileSync(path.join(root,file),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
  const imports={
   'next/server':require('next/server'),

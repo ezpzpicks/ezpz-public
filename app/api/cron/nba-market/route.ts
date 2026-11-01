@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { collectNcaamMarket } from "../../../../lib/ncaamMarket";
 import { collectNbaMarket } from "../../../../lib/nbaMarket";
 import { scheduledMarketRefresh, recordScheduledMarketRefresh } from "../../../../lib/scheduledMarketRefresh";
 import { withTursoReadCache } from "../../../../lib/tursoStore";
@@ -13,17 +14,34 @@ export async function GET(request: NextRequest) {
   const secret = process.env.CRON_SECRET;
   if (!previewDryRun && !secret) return NextResponse.json({ ok: false, error: "CRON_SECRET is not configured." }, { status: 500 });
   if (!previewDryRun && request.headers.get("authorization") !== `Bearer ${secret}`) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
-  return withTursoReadCache(async () => {
+  const collectCollege = () => withTursoReadCache(async () => {
+    try {
+      const startedAt = Date.now();
+      const refresh = dryRun ? null : await scheduledMarketRefresh("NCAAM", "market", startedAt);
+      if (refresh && !refresh.due) return { ok: true, sport: "NCAAM", skipped: true, refresh };
+      const result = await collectNcaamMarket({ persist: !dryRun, refresh: refresh || undefined });
+      if (!dryRun && result.refreshCompleted) await recordScheduledMarketRefresh("NCAAM", "market", startedAt);
+      return { ...result, refresh };
+    } catch (error) {
+      console.error("NCAAM scheduled collection failed", error);
+      return { ok: false, sport: "NCAAM", error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+  const nba = await withTursoReadCache(async () => {
     try {
       const startedAt = Date.now();
       const refresh = dryRun ? null : await scheduledMarketRefresh("NBA", "market", startedAt);
-      if (refresh && !refresh.due) return NextResponse.json({ ok: true, sport: "NBA", skipped: true, refresh });
+      if (refresh && !refresh.due) return { ok: true, sport: "NBA", skipped: true, refresh };
       const result = await collectNbaMarket({ persist: !dryRun, refresh: refresh || undefined });
       if (!dryRun && result.refreshCompleted) await recordScheduledMarketRefresh("NBA", "market", startedAt);
-      return NextResponse.json({ ...result, refresh }, { headers: { "Cache-Control": "no-store" } });
+      return { ...result, refresh };
     } catch (error) {
       console.error("NBA ScoresAndOdds collection failed", error);
-      return NextResponse.json({ ok: false, sport: "NBA", error: error instanceof Error ? error.message : String(error) }, { status: 500 });
+      return { ok: false, sport: "NBA", error: error instanceof Error ? error.message : String(error) };
     }
   });
+  // Existing NBA collection keeps priority; either failure remains isolated.
+  const ncaam = await collectCollege();
+  const ok = nba.ok && ncaam.ok;
+  return NextResponse.json({ ...nba, ok, ncaam }, { status: ok ? 200 : 500, headers: { "Cache-Control": "no-store" } });
 }

@@ -32,13 +32,13 @@ const PICK_SCHEMA = {
 export const EZPZ_MCP_TOOLS = [
   {
     name: "get_ezpz_picks", title: "Read EZPZ Picks",
-    description: "Read saved official EZPZ Picks. From Nov 1, 2026, NCAAF uses selectionMethod=combo_score with a minimum score of 65, based on exact combination history for both sides. It may qualify with zero active signals; do not apply a signal-count minimum to score picks. NFL and NBA retain 2+ signals across at least two evidence groups while their scores are calibrated separately. Defaults to finalized, unstarted games. Verify the saved selectionMethod, selectorVersion, score/scoreThreshold when present, exact line, finalization and eligibleForPosting before posting. lastSeven is null because no validated combination last-seven record is supplied. Older dates retain their original selector.",
+    description: "Read saved official EZPZ Picks. From Nov 1, 2026, NCAAF uses selectionMethod=combo_score with a minimum score of 65, based on exact combination history for both sides. It may qualify with zero active signals; do not apply a signal-count minimum to score picks. NFL and NBA retain 2+ signals across at least two evidence groups while their scores are calibrated separately. NCAAM collects separate calibration history and has no approved official threshold yet. Defaults to finalized, unstarted games. Verify the saved selectionMethod, selectorVersion, score/scoreThreshold when present, exact line, finalization and eligibleForPosting before posting. lastSeven is null because no validated combination last-seven record is supplied. Older dates retain their original selector.",
     inputSchema: { type: "object", properties: { sport: SPORT_SCHEMA, finalOnly: { type: "boolean", default: true } }, additionalProperties: false },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   },
   {
     name: "get_finalized_pick", title: "Verify a finalized EZPZ pick",
-    description: "Retrieve one final pick by the stable pickId supplied by ezpz.pick.finalized, including NBA. Verify fresh saved data, FINAL_PREGAME status, eligibleForPosting, exact line and game time before a Buffer post. A verified frozen football/NBA capture remains readable when unrelated live markets are stale. Returns unavailable if the saved pick feed is expired, unverified or the selection disappeared; does not publish anything.",
+    description: "Retrieve one final pick by the stable pickId supplied by ezpz.pick.finalized, including NBA and NCAAM once its own policy is approved. Verify fresh saved data, FINAL_PREGAME status, eligibleForPosting, exact line and game time before a Buffer post. A verified frozen football/NBA capture remains readable when unrelated live markets are stale. Returns unavailable if the saved pick feed is expired, unverified or the selection disappeared; does not publish anything.",
     inputSchema: { type: "object", properties: { pickId: { type: "string", pattern: "^ezpz_[a-f0-9]{32}$" } }, required: ["pickId"], additionalProperties: false },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   },

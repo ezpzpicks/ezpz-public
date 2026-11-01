@@ -243,6 +243,7 @@ test('the production history layer selects, persists and grades the Wilson pick 
     trendPlays: [play(), spread], trendRecordRows: [...sharpHistory(4, 1), ...momentumHistory()], aiSelectorStatus: {} };
   const api = moduleWithStubs('lib/footballPublicDataHistory.ts', {
     './ncaafEzpzPolicy': policy, './ncaafEzpzWilson': wilson, './ncaafTrendRecordPolicy': recordPolicy,
+    './ncaafModelResearch': load(path.join(root, 'lib/ncaafModelResearch.ts')),
     './nflEzpzPolicy': load(path.join(root, 'lib/nflEzpzPolicy.ts')),
     './footballTrendCatalogStore': { captureFootballCatalog: async (_s, rows, plays) => ({ rows, plays, status: {} }) },
     './footballPublicDataLegacy': { buildFootballPublicData: async () => core },

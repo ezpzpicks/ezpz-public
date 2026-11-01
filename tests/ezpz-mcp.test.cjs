@@ -155,8 +155,8 @@ test('MCP discovery lists read-only tools and the final-pick event without touch
   assert.ok(tools.result.tools.every(tool => tool.annotations.readOnlyHint));
   const events = await api.handleEzpzMcp({ jsonrpc: '2.0', id: 3, method: 'events/list' });
   assert.equal(events.result.events[0].name, 'ezpz.pick.finalized');
-  assert.deepEqual(Array.from(tools.result.tools[0].inputSchema.properties.sport.enum), ['MLB', 'NFL', 'NCAAF', 'NBA']);
-  assert.equal(events.result.events[0].inputSchema.properties.sports.maxItems, 4);
+  assert.deepEqual(Array.from(tools.result.tools[0].inputSchema.properties.sport.enum), ['MLB', 'NFL', 'NCAAF', 'NBA', 'NCAAM']);
+  assert.equal(events.result.events[0].inputSchema.properties.sports.maxItems, 5);
   assert.equal(h.database.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table'").get().n, 0);
 });
 
@@ -229,14 +229,15 @@ test('NBA previews, one-signal and correlated-market-only sides cannot notify', 
   assert.equal(h.events().length, 0);
 });
 
-test('four-sport subscriptions include NBA without changing IDs for existing sport-specific filters', async () => {
+test('five-sport subscriptions include NCAAM without changing IDs for existing sport-specific filters', async () => {
   const h = harness(), events = h.load('lib/ezpzMcpEvents.ts');
   const first = await events.subscribeFinalPicks(h.subscription());
   const repeated = await events.subscribeFinalPicks(h.subscription());
   assert.equal(first.id, repeated.id);
   await events.subscribeFinalPicks({ ...h.subscription(), arguments: { sports: ['MLB', 'NFL', 'NCAAF', 'NBA'] } });
   assert.equal(h.database.prepare('SELECT COUNT(*) AS n FROM ezpz_mcp_subscriptions WHERE active=1').get().n, 2);
-  assert.throws(() => events.subscriptionSports(['NCAAM']), /sports must contain/);
+  assert.deepEqual(Array.from(events.subscriptionSports(['NCAAM'])), ['NCAAM']);
+  assert.throws(() => events.subscriptionSports(['NHL']), /sports must contain/);
 });
 
 test('only fresh selected finalized picks are eligible; LIVE and expired feeds cannot look like no picks', async () => {

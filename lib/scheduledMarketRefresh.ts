@@ -3,7 +3,7 @@ import { parseGameStart, isoDate } from "./mlbTrendV2";
 import { nflKickoffIso } from "./footballWeeklyMarket";
 import { marketRefreshDecision } from "./marketRefreshPolicy";
 
-type Sport = Extract<TursoSport, "MLB" | "NFL" | "NCAAF" | "NBA">;
+type Sport = Extract<TursoSport, "MLB" | "NFL" | "NCAAF" | "NBA" | "NCAAM">;
 type Stage = "market" | "public";
 const dateFormatter = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" });
 const day = (now: number) => dateFormatter.format(new Date(now));
@@ -22,7 +22,7 @@ export async function scheduledMarketRefresh(sport: Sport, stage: Stage, now = D
   const games = [...schedule, ...slate].map(row => {
     const date = isoDate(row.Date || row["Game Date"]), time = String(row["Game Time"] || row["Game Time ET"] || row.Time || "");
     const kickoff = sport === "MLB" ? parseGameStart(date, time)
-      : sport === "NBA" ? Date.parse(time) : Date.parse(nflKickoffIso(date, time));
+      : ["NBA", "NCAAM"].includes(sport) ? Date.parse(time) : Date.parse(nflKickoffIso(date, time));
     const final = /final|cancel|postpon/i.test(String(row.Status || row["Game Status"] || ""))
       || /^(true|yes|1)$/i.test(String(row.Completed || ""));
     const live = /in.?progress|live|halftime|delay|suspend/i.test(String(row.Status || row["Game Status"] || ""));
@@ -35,7 +35,7 @@ export async function scheduledMarketRefresh(sport: Sport, stage: Stage, now = D
   const decision = marketRefreshDecision(games, today, now, lastAttempt, stage === "public");
   // Public pick snapshots are tied to the Eastern game date. Refresh on the
   // first tick of a new day even when yesterday's collection is still recent.
-  if ((stage === "public" || sport === "NBA") && lastAttempt != null && day(lastAttempt) !== today) {
+  if ((stage === "public" || ["NBA", "NCAAM"].includes(sport)) && lastAttempt != null && day(lastAttempt) !== today) {
     decision.due = true;
     decision.reason = "New game date";
   }

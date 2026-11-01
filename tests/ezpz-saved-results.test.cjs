@@ -111,7 +111,7 @@ test('read failures and conflicting grades fail closed', async () => {
 test('route validates dates/sports, returns explicit pending and reports unavailable reads', async () => {
   const h = harness();
   const request = query => ({ nextUrl: new URL(`https://example.test/api/ezpz-results?${query}`) });
-  assert.equal((await h.route.GET(request('sport=NCAAM&date=2026-10-15'))).status, 400);
+  assert.equal((await h.route.GET(request('sport=NHL&date=2026-10-15'))).status, 400);
   assert.equal((await h.route.GET(request('sport=NFL&date=2026-02-30'))).status, 400);
   assert.equal(h.reads.length, 0);
   h.datasets.set('NFL:ezpz_pick_history', [row(publicPick, '')]);

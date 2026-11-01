@@ -8,6 +8,8 @@ import { footballCatalog } from "./footballTrendCatalog";
 import { nflKickoffIso } from "./footballWeeklyMarket";
 import { sosForTeam, type FootballSosSnapshot } from "./footballSos";
 import type { FootballSport, SheetRow } from "./sportSheets";
+import { buildNcaamTrendLeaderboard, ncaamModelFor, ncaamTrendSignals } from "./ncaamTrendLeaderboard";
+import { ncaamSosForTeam } from "./ncaamSos";
 import { buildNbaTrendLeaderboard, nbaModelFor, nbaTrendSignals } from "./nbaTrendLeaderboard";
 import { buildSignalResearchDays, buildSignalResearchReport, type SignalResearchReport, type SignalResearchDay } from "./signalCombinationResearch";
 import { attachComboScores, comboPickPolicy, validComboFinalWindow, type ComboScore } from "./comboScore";
@@ -16,7 +18,7 @@ import { evaluateSignalMovement, type SignalMovement } from "./signalMovement";
 
 import { signalPickThreshold, selectSignalEzpzPicks } from "./signalPicks";
 
-type SignalSport = FootballSport | "NBA";
+type SignalSport = FootballSport | "NBA" | "NCAAM";
 export type SignalsPolicy = { version: string; prefix: string; launchAt: string };
 
 export const FOOTBALL_SIGNALS_VERSION = "football-signals-2026-10-18-v1";
@@ -94,6 +96,7 @@ function matchRules(subtype: NcaafEzpzSubtype, sport: SignalSport) {
     selectionDescription: rule?.selections[Number(direction)] || subtype.category };
 }
 function modelFor(play: AnyRow, sport: SignalSport, core: AnyRow, asOf: number) {
+  if (sport === "NCAAM") return ncaamModelFor(play, core.ncaamForecasts || [], asOf);
   if (sport === "NBA") return nbaModelFor(play, core.nbaForecasts || [], asOf);
   const key = footballTeamGameKey(play, sport), selected = selectionKey(play, sport);
   const found = (play.date === core.today ? core.bestPlays || [] : []).find((model: AnyRow) => {
@@ -163,7 +166,7 @@ function evaluateSide(play: AnyRow, siblings: AnyRow[], input: SignalsInput, ran
   const movement = evaluateSignalMovement({ market: play.market, side: play.side || play.selection || "",
     openingLine: play.openingLine, line,
     retainedBasis: play.lineMovementBasis, retainedValue: signalNumber(play.lineMovementValue), retainedLabel: movementLabel });
-  const memberships = new Set(line == null ? [] : (sport === "NBA" ? nbaTrendSignals : sport === "NFL" ? nflTrendSignals : ncaafTrendSignals)(play, siblings));
+  const memberships = new Set(line == null ? [] : (sport === "NCAAM" ? ncaamTrendSignals : sport === "NBA" ? nbaTrendSignals : sport === "NFL" ? nflTrendSignals : ncaafTrendSignals)(play, siblings));
   const category = ncaafTrendCategory(play);
   const publicMatches = ranking.slice(0, 20).map((subtype, i) => ({ ...subtype, rank: i + 1, ...matchRules(subtype, sport) }))
     .filter(subtype => subtype.category === category && memberships.has(subtype.signal));
@@ -177,8 +180,8 @@ function evaluateSide(play: AnyRow, siblings: AnyRow[], input: SignalsInput, ran
       line: play.market === "Spread" && game.spread ? (home ? game.spread.homeLine : -game.spread.homeLine) : null, result: result || "" }];
   }));
   const model = modelFor(play, sport, core, asOf);
-  const schedule = [play.awayTeam, play.homeTeam].map(team => sport === "NBA" ? null : sosForTeam(sos || null, team, asOf));
-  const completeSos = schedule.every(Boolean);
+  const schedule = [play.awayTeam, play.homeTeam].map(team => sport === "NCAAM" ? ncaamSosForTeam(sos || null, team, asOf) : sport === "NBA" ? null : sosForTeam(sos || null, team, asOf));
+  const completeSos = schedule.every(Boolean) && (sport !== "NCAAM" || schedule.every(team => !/^0-0(?:-0)?$/.test(team!.opponentRecord)));
   const selectedIndex = footballTeamKey(play.selectionTeam || play.selection, sport) === footballTeamKey(play.homeTeam, sport) ? 1 : 0;
   const sosGap = completeSos ? schedule[1 - selectedIndex]!.rank - schedule[selectedIndex]!.rank : null;
   const signals: FootballSignal[] = [
@@ -203,6 +206,8 @@ function evaluateSide(play: AnyRow, siblings: AnyRow[], input: SignalsInput, ran
     play.market === "Total" && completeSos ? Math.abs(schedule[0]!.rank - schedule[1]!.rank) : sosGap,
     play.market === "Total" ? "Context only" : sosGap == null ? "Unavailable" : tier(sosGap, [25, 50, 75]),
     "Warren Nolan current ELO SOS: opponent rank minus selected team rank. Qualifying +25, strong +50, very strong +75. Totals receive no vote."));
+  if (sport === "NCAAM") signals.push(signal("sos", completeSos, false, sosGap, "Context only",
+    "Warren Nolan current RPI SOS ranks and team ELO are saved separately. NCAAM SOS qualification awaits calibration; preseason 0-0 schedules have no SOS vote."));
   const active = signals.filter(s => s.active), signalCount = active.length;
   const sourceCount = [active.some(s => ["money", "move", "system"].includes(s.key)), active.some(s => s.key === "team"), active.some(s => s.key === "model")].filter(Boolean).length;
   const selection = play.market === "Total" ? `${selectionKey(play, sport)}${line == null ? "" : ` ${line}`}`
@@ -221,8 +226,8 @@ function evaluateSide(play: AnyRow, siblings: AnyRow[], input: SignalsInput, ran
       moneyChange: signalNumber(play.sharpMovementPct), movementBasis: movement.basis, movementLabel, movement,
       history: (play.movementHistory || []).map((p: AnyRow) => ({ snapshotTime: p.snapshotTime, line: p.line, odds: p.odds, betsPct: p.betsPct, moneyPct: p.moneyPct })) },
     modelContext: model.context,
-    sosContext: { sourceUrl: sos?.sourceUrl || "", capturedAt: completeSos ? sos!.fetchedAt : "", gap: sosGap,
-      teams: completeSos ? schedule.map((s, i) => ({ team: [play.awayTeam, play.homeTeam][i], rank: s!.rank, elo: s!.elo, opponentRecord: s!.opponentRecord })) : [] },
+    sosContext: { sourceUrl: sos?.sourceUrl || "", capturedAt: (sport === "NCAAM" ? schedule.every(Boolean) : completeSos) ? sos!.fetchedAt : "", gap: sosGap,
+      teams: (sport === "NCAAM" ? schedule.every(Boolean) : completeSos) ? schedule.map((s, i) => ({ team: [play.awayTeam, play.homeTeam][i], rank: s!.rank, elo: s!.elo, opponentRecord: s!.opponentRecord })) : [] },
     policyVersion: (input.policy || DEFAULT_POLICY).version,
     oddsAssumed: play.observedPriceMissing === true || play.oddsSource === "DEFAULT_110" || !play.odds ? true
       : play.observedPriceMissing === false || play.oddsSource === "SNAPSHOT" ? false : undefined,
@@ -348,6 +353,7 @@ export function buildFootballSignalsState(input: SignalsInput): { board: Footbal
     if (footballTeamPair(row) && kickoff && !scheduledTimes.has(key)) scheduledTimes.set(key, kickoff);
   }
   for (const plays of groups.values()) {
+    const gameStale = stale || (core.staleGameKeys || []).includes(footballTeamGameKey(plays[0], sport));
     const evaluated = plays.map(play => {
       const previous = updated.get(identifier(play, sport));
       if (previous) return previous;
@@ -357,6 +363,7 @@ export function buildFootballSignalsState(input: SignalsInput): { board: Footbal
       let ranking = rankings.get(at);
       if (!ranking) {
         ranking = retrospective ? [] : input.leaderboard && (at === now || (input.leaderboardAsOf != null && input.leaderboardAsOf <= at)) ? input.leaderboard
+          : sport === "NCAAM" ? buildNcaamTrendLeaderboard(core.trendRecordRows || [], at)
           : sport === "NBA" ? buildNbaTrendLeaderboard(core.trendRecordRows || [], at)
           : sport === "NFL" ? buildNflEzpzLeaderboard(core.trendRecordRows || [], at)
           : buildNcaafEzpzLeaderboard(core.trendRecordRows || [], at, undefined, input.buildSubtypes);
@@ -364,7 +371,8 @@ export function buildFootballSignalsState(input: SignalsInput): { board: Footbal
       }
       const ownResult = (core.trendRecordRows || []).some((row: AnyRow) => footballTeamGameKey(row, sport) === footballTeamGameKey(play, sport)
         && Date.parse(row["Result Updated"] || "") <= at);
-      if (ownResult) ranking = sport === "NBA" ? buildNbaTrendLeaderboard((core.trendRecordRows || []).filter((row: AnyRow) => footballTeamGameKey(row, sport) !== footballTeamGameKey(play, sport)), at)
+      if (ownResult) ranking = sport === "NCAAM" ? buildNcaamTrendLeaderboard((core.trendRecordRows || []).filter((row: AnyRow) => footballTeamGameKey(row, sport) !== footballTeamGameKey(play, sport)), at)
+        : sport === "NBA" ? buildNbaTrendLeaderboard((core.trendRecordRows || []).filter((row: AnyRow) => footballTeamGameKey(row, sport) !== footballTeamGameKey(play, sport)), at)
         : sport === "NFL" ? buildNflEzpzLeaderboard(core.trendRecordRows || [], at, play)
         : buildNcaafEzpzLeaderboard(core.trendRecordRows || [], at, play, input.buildSubtypes);
       const side = evaluateSide(play, plays, { ...input, history }, ranking);
@@ -373,7 +381,7 @@ export function buildFootballSignalsState(input: SignalsInput): { board: Footbal
         Object.assign(publicSignal, { available: false, active: false, value: null, level: "Unavailable",
           reason: "This game predates the new test. Its full pregame Wilson ranking was not captured for this Signals view." });
       }
-      if (retrospective || stale || !Number.isFinite(kickoff) || (sport === "NBA" && kickoff <= now)) side.candidate = false;
+      if (retrospective || gameStale || !Number.isFinite(kickoff) || (["NBA", "NCAAM"].includes(sport) && kickoff <= now)) side.candidate = false;
       return side;
     });
     const candidates = evaluated.filter(side => side.candidate), highest = Math.max(0, ...candidates.map(s => s.signalCount));
@@ -385,7 +393,7 @@ export function buildFootballSignalsState(input: SignalsInput): { board: Footbal
     for (let side of evaluated) {
       if (!side.recorded) {
         side = { ...side, mixed: leaders.length > 1 && candidates.includes(side), selected: leaders.length === 1 && leaders[0] === side };
-        if (input.capture && input.storedRows != null && !stale && paired && signalFinalWindow(side, now, policy.launchAt) && Date.parse(side.gameTime) > now) {
+        if (input.capture && input.storedRows != null && !gameStale && paired && signalFinalWindow(side, now, policy.launchAt) && Date.parse(side.gameTime) > now) {
           captureIds.add(side.id);
         }
       }
@@ -401,8 +409,10 @@ export function buildFootballSignalsState(input: SignalsInput): { board: Footbal
     if (!visibleIds.has(side.id) && (visibleDates.has(side.date) || (side.date >= displayStart && side.date <= displayEnd))) sides.push(side);
   }
   const scoreDays = { ...input.researchDays, ...buildSignalResearchDays([...updated.values()], policy.version, now) };
-  sides = attachComboScores(sides.map(side => scheduledTimes.has(side.gameKey)
-    ? { ...side, scheduledGameTime: scheduledTimes.get(side.gameKey) } : side), sport, scoreDays, policy.version, now, !stale);
+  const scoreInputs = sides.filter(side => side.recorded || !(core.staleGameKeys || []).includes(side.gameKey));
+  const scored = new Map(attachComboScores(scoreInputs.map(side => scheduledTimes.has(side.gameKey)
+    ? { ...side, scheduledGameTime: scheduledTimes.get(side.gameKey) } : side), sport, scoreDays, policy.version, now, !stale).map(side => [side.id, side]));
+  sides = sides.map(side => scored.get(side.id) || side);
   sides = sides.map(side => {
     if (!captureIds.has(side.id)) return side;
     if (comboPickPolicy(sport, side.date) && (!side.comboScore || !validComboFinalWindow(side, now))) return side;

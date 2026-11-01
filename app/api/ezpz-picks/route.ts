@@ -133,8 +133,8 @@ export async function GET(request: NextRequest) {
 
   const sport = requested as EzpzCurrentSport;
   // NBA decisions are produced only by its existing paced snapshot job.
-  if (sport === "NBA" && request.nextUrl.searchParams.get("prime") === "1") {
-    return NextResponse.json({ ok: false, sport, error: "NBA snapshot priming is not supported; use the scheduled saved-pick feed." },
+  if ((sport === "NBA" || sport === "NCAAM") && request.nextUrl.searchParams.get("prime") === "1") {
+    return NextResponse.json({ ok: false, sport, error: `${sport} snapshot priming is not supported; use the scheduled saved-pick feed.` },
       { status: 400, headers: { "Cache-Control": "no-store, max-age=0" } });
   }
 

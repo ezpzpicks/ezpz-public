@@ -4,7 +4,7 @@ import { parseGameStart, isoDate } from "./mlbTrendV2";
 import { TEAM_TREND_TEST_THRESHOLD, TEAM_TREND_TEST_VERSION } from "./footballTeamTrendPlays";
 import { isSavedTeamTrendCapture, TEAM_TREND_READY_POLICY } from "./teamTrendPosting";
 
-export const MCP_SPORTS = ["MLB", "NFL", "NCAAF", "NBA"] as const;
+export const MCP_SPORTS = ["MLB", "NFL", "NCAAF", "NBA", "NCAAM"] as const;
 export type McpSport = (typeof MCP_SPORTS)[number];
 type AnyPick = Record<string, any>;
 type McpTeamRecord = { label: string; record: string | null; sample: number };
@@ -82,7 +82,7 @@ function capturedTeamRecords(pick: AnyPick): McpTeamRecords[] | null {
 
 export function normalizeMcpPick(sport: McpSport, pick: AnyPick, now = Date.now()): McpPick | null {
   const teamTrend = pick.pickCategory === "team_trend", signalTest = pick.pickCategory === "signals";
-  if (sport === "NBA" && !signalTest) return null;
+  if (["NBA", "NCAAM"].includes(sport) && !signalTest) return null;
   if (signalTest && !isSignalFeedPick(pick, sport, now)) return null;
   if (teamTrend && (sport === "MLB" || !isSelectedTeamTrendPick(pick))) return null;
   if (pick.selected === false || (pick.protectionStatus && pick.protectionStatus !== "PASSED")) return null;

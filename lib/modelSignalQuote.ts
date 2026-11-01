@@ -4,7 +4,7 @@
  * A changed-line probability is an estimate anchored to the saved probability.
  */
 type Quote = {
-  sport: "NFL" | "NCAAF" | "NBA";
+  sport: "NFL" | "NCAAF" | "NBA" | "NCAAM";
   market: "Spread" | "Total";
   side: string;
   version: string;

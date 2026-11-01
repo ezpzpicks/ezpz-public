@@ -12,6 +12,7 @@ export const SIGNAL_NAMES: Record<string, string> = { money: "Money support", mo
 /** Reclassify captured evidence, never rebuild its signals, quotes or results. */
 export function signalPickQualifies(side: FootballSignalSide, sport: string) {
   const policy = comboPickPolicy(sport, side.date);
+  if (sport === "NCAAM" && !policy) return false; // Await this sport's own calibration.
   if (policy) return validComboScore(side, sport) && side.comboScore!.score + 1e-9 >= policy.threshold;
   const active = side.signals.filter(signal => signal.active && signal.available);
   const sources = [active.some(s => ["money", "move", "system"].includes(s.key)),
@@ -94,7 +95,7 @@ export function isSignalFeedPick(pick: Record<string, any>, sport: string, now =
 
 /** Lightweight replay for result readers; no model or market collectors are imported. */
 export function savedSignalPicks(rows: Record<string, string>[], sport: string, date: string) {
-  const policyPrefix = sport === "NBA" ? "nba-signals-" : "football-signals-";
+  const policyPrefix = sport === "NBA" ? "nba-signals-" : sport === "NCAAM" ? "ncaam-signals-" : "football-signals-";
   const sides = rows.flatMap(row => {
     try {
       const side = JSON.parse(row["Details JSON"]);
@@ -131,8 +132,8 @@ export function signalEzpzPayload(board: FootballSignalsBoard | undefined, sport
       winPct: summary.winPct ?? 0, roiPct: summary.roiPct ?? 0 } : totals([]),
     last7Days: totals(history.filter(row => row.date >= cutoff && row.date <= today)) },
     aiSelectorStatus: { selectedCount: picks.length,
-      message: policy ? `${sport} EZPZ Picks: combo score ${policy.threshold} or higher. Highest score per game; original pregame scoring inputs are saved.`
+      message: sport === "NCAAM" && !policy ? "NCAAM combo scores are collecting history. An official threshold has not been calibrated yet." : policy ? `${sport} EZPZ Picks: combo score ${policy.threshold} or higher. Highest score per game; original pregame scoring inputs are saved.`
         : `${sport} EZPZ Picks: ${signalPickThreshold(sport)}+ signals across at least two evidence sources. One pick per game; tied leaders wait. Final pregame quotes are saved.`,
-      selectorVersion: signalSelectorVersion(sport, today), selectionMethod: policy ? "combo_score" : "signal_count",
-      threshold: policy?.threshold ?? signalPickThreshold(sport), scoreCalibration: !policy && ["NFL", "NBA"].includes(sport) ? "In review" : undefined } };
+      selectorVersion: signalSelectorVersion(sport, today), selectionMethod: sport === "NCAAM" && !policy ? "pending_calibration" : policy ? "combo_score" : "signal_count",
+      threshold: sport === "NCAAM" && !policy ? null : policy?.threshold ?? signalPickThreshold(sport), scoreCalibration: !policy && ["NFL", "NBA", "NCAAM"].includes(sport) ? "In review" : undefined } };
 }

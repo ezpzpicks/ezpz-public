@@ -12,7 +12,7 @@ const PICK_POLICIES = [
 export function comboPickPolicy(sport: string, date: string) {
   return [...PICK_POLICIES].reverse().find(policy => policy.sport === sport && date >= policy.effectiveDate) || null;
 }
-export const comboScoreSupported = (sport: string) => ["NCAAF", "NFL", "NBA"].includes(sport);
+export const comboScoreSupported = (sport: string) => ["NCAAF", "NFL", "NBA", "NCAAM"].includes(sport);
 type ComboRecord = { combination: string; sideGroup: ResearchSideGroup; wins: number; losses: number; pushes: number };
 export type ComboScore = {
   version: string; sport: string; score: number; rawScore: number; capturedAt: string;

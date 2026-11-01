@@ -304,6 +304,7 @@ type ApiData = {
   publicBoard?: { savedAt: string; sourceDate: string; sourceStale: boolean; stale?: boolean };
   marketAvailableDates?: string[];
   nbaMarket?: NbaMarketPayload;
+  ncaamMarket?: NbaMarketPayload;
   ok: boolean;
   error?: string;
   draftKings?: DraftKingsData;
@@ -448,9 +449,9 @@ const SPORT_META: Record<Sport, SportMeta> = {
   NCAAM: {
     name: "College Basketball",
     shortName: "NCAAM",
-    status: "Preseason development",
+    status: "Research model",
     description:
-      "Tempo-adjusted efficiency, projected rotations, matchup edges, and game-total modeling.",
+      "Dated efficiency forecasts, Warren Nolan ELO and strength of schedule, saved markets and sport-specific signal records.",
   },
 };
 
@@ -6858,6 +6859,7 @@ export default function Home() {
   const [refreshing, setRefreshing] = useState(false);
   const [activeSport, setActiveSport] = useState<Sport>("MLB");
   const [sportReady, setSportReady] = useState(false);
+  const basketballMarket = activeSport === "NCAAM" ? data?.ncaamMarket : data?.nbaMarket;
   const nflEzpzRecords = useMemo(() => activeSport === "NFL" && data
     ? data.ezpzRecords || buildNflEzpzRecords(data.aiPickRecordRows || [], data.today)
     : null, [activeSport, data]);
@@ -7161,6 +7163,8 @@ export default function Home() {
       );
     }
     if (!data) return <LoadingState />;
+
+    if (activeSport === "NCAAM" && data.ncaamMarket) return <NbaBoard tab={active} data={data.ncaamMarket} />;
 
     if (activeSport === "NBA" && data.nbaMarket) {
       return <NbaBoard tab={active} data={data.nbaMarket} />;
@@ -7783,18 +7787,18 @@ export default function Home() {
                 green={bestPlays.length > 0}
               />
             </>
-          ) : activeSport === "NBA" ? (
+          ) : activeSport === "NBA" || activeSport === "NCAAM" ? (
             <>
-              <Tile label="Model Plays - Last 7 Days" value={data.nbaMarket?.modelRecords?.last7Days.record || "0-0-0"}
-                meta={data.nbaMarket?.modelRecords?.last7Days.winPct == null ? "No settled plays" : `${data.nbaMarket.modelRecords.last7Days.winPct}% • ${data.nbaMarket.modelRecords.last7Days.unitsWon}u • ROI ${data.nbaMarket.modelRecords.last7Days.roiPct}%`}
-                green={Boolean(data.nbaMarket?.modelRecords?.last7Days.totalBets)} />
-              <Tile label="Model Plays - Running Total" value={data.nbaMarket?.modelRecords?.overall.record || "0-0-0"}
-                meta={data.nbaMarket?.modelRecords?.overall.winPct == null ? "No settled plays" : `${data.nbaMarket.modelRecords.overall.winPct}% • ${data.nbaMarket.modelRecords.overall.unitsWon}u • ROI ${data.nbaMarket.modelRecords.overall.roiPct}%`}
-                green={Boolean(data.nbaMarket?.modelRecords?.overall.totalBets)} />
-              <Tile label="Today’s Model Plays" value={String(data.nbaMarket?.modelPlays?.length || 0)} meta="A/B spreads + totals" />
-              <Tile label="Public Betting Splits" value={String(new Set(data.nbaMarket?.splits.map(r => r["Game ID"]) || []).size)} meta="Games with market lines" />
-              <Tile label="Model Stage" value="LIVE" meta="Lineup-aware model" green />
-              <Tile label="Published Matchups" value={String(data.nbaMarket?.games.length || 0)} meta="NBA slate" />
+              <Tile label="Model Plays - Last 7 Days" value={basketballMarket?.modelRecords?.last7Days.record || "0-0-0"}
+                meta={basketballMarket?.modelRecords?.last7Days.winPct == null ? "No settled plays" : `${basketballMarket?.modelRecords?.last7Days.winPct}% • ${basketballMarket?.modelRecords?.last7Days.unitsWon}u • ROI ${basketballMarket?.modelRecords?.last7Days.roiPct}%`}
+                green={Boolean(basketballMarket?.modelRecords?.last7Days.totalBets)} />
+              <Tile label="Model Plays - Running Total" value={basketballMarket?.modelRecords?.overall.record || "0-0-0"}
+                meta={basketballMarket?.modelRecords?.overall.winPct == null ? "No settled plays" : `${basketballMarket?.modelRecords?.overall.winPct}% • ${basketballMarket?.modelRecords?.overall.unitsWon}u • ROI ${basketballMarket?.modelRecords?.overall.roiPct}%`}
+                green={Boolean(basketballMarket?.modelRecords?.overall.totalBets)} />
+              <Tile label="Today’s Model Plays" value={String(basketballMarket?.modelPlays?.length || 0)} meta="A/B spreads + totals" />
+              <Tile label="Public Betting Splits" value={String(new Set(basketballMarket?.splits.map(r => r["Game ID"]) || []).size)} meta="Games with market lines" />
+              <Tile label="Model Stage" value={activeSport === "NCAAM" ? "RESEARCH" : "LIVE"} meta={activeSport === "NCAAM" ? "Grades pending validation" : "Lineup-aware model"} green={activeSport === "NBA"} />
+              <Tile label="Published Matchups" value={String(basketballMarket?.games.length || 0)} meta={`${activeSport} slate`} />
             </>
           ) : activeSport === "NFL" || activeSport === "NCAAF" ? (
             <>
