@@ -1395,7 +1395,6 @@ function ncaafAuthoritativeGameTime(
   rows: SheetRow[],
 ) {
   const sourceKickoff = verifiedNcaafSourceKickoff(play.date, play.sourceKickoff);
-  if (sourceKickoff) return sourceKickoff;
   const sameDate = rows.filter((row) => canonicalScheduleDate(row) === play.date);
   const strictMatches = sameDate.filter((row) =>
     collegeCanonicalTeamMatch(row["Away Team"], play.awayTeam) &&
@@ -1408,6 +1407,12 @@ function ncaafAuthoritativeGameTime(
     collegeMarketTeamMatch(row["Away Team"], play.awayTeam) &&
     collegeMarketTeamMatch(row["Home Team"], play.homeTeam)
   );
+  // A valid ISO attribute proves the feed's date, not the accuracy of its
+  // clock. ScoresAndOdds can be an hour off while the live schedule is right.
+  const verifiedSchedule = matches.find((row) => row["Kickoff Source"] === "ESPN"
+    && Number.isFinite(ncaafKickoffEpoch(play.date, rowEventTime(row))));
+  if (verifiedSchedule) return rowEventTime(verifiedSchedule);
+  if (sourceKickoff) return sourceKickoff;
   for (const row of matches) {
     const eventTime = rowEventTime(row);
     if (Number.isFinite(ncaafKickoffEpoch(play.date, eventTime))) return eventTime;
@@ -1466,6 +1471,7 @@ async function loadNcaafLiveKickoffAuthorityRows(): Promise<SheetRow[]> {
       rows.push({
         Date: eventDate,
         "Game Time": rawKickoff,
+        "Kickoff Source": "ESPN",
         Game: `${awayTeam} @ ${homeTeam}`,
         "Away Team": awayTeam,
         "Home Team": homeTeam,

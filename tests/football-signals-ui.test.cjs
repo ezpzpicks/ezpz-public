@@ -34,6 +34,17 @@ const board = { sport: 'NFL', today: '2026-10-18', captureAvailable: true, sides
   summary: { record: '0-0-0', settled: 0, pending: 0, winPct: null, roiPct: null, netUnits: 0 }, breakdowns: [], history: [] };
 const render = node => renderToStaticMarkup(node);
 
+test('Signals and EZPZ cards display the corrected schedule clock in Eastern', () => {
+  const corrected = { ...side, recorded: true, status: 'FINAL_PREGAME', snapshotAt: '2026-10-19T00:05:00Z',
+    scheduledGameTime: '2026-10-19T01:20:00.000Z' };
+  const current = { ...board, sides: [corrected, { ...opposite, scheduledGameTime: corrected.scheduledGameTime }] };
+  for (const picksOnly of [false, true]) {
+    const html = render(React.createElement(exportsObject.default, { board: current, picksOnly }));
+    assert.match(html, /<time dateTime="2026-10-19T01:20:00.000Z">9:20 PM ET<\/time>/);
+    assert.doesNotMatch(html, /8:20 PM ET/);
+  }
+});
+
 test('signal tiles place exact combination and no-signal records between odds and count', () => {
   const stats = (wins, losses, pushes, pending = 0) => ({ wins, losses, pushes, pending, netUnits: 0, assumedPrices: 0, unknownPrices: 0 });
   const { SIGNAL_RESEARCH_VERSION } = require('./load-typescript.cjs')(path.join(root, 'lib/signalCombinationResearch.ts'));

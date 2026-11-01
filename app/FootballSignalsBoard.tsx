@@ -153,7 +153,7 @@ function EzpzPickTile({ side, sport, expandedKey, onSignalClick, children, lineu
   return <article className={`ep-pick${preview ? " ep-preview" : ""}`} aria-label={`${side.selection} EZPZ Pick`}>
     <div className="ep-pick-top"><span className="ep-brand"><span className="ep-brand-icon"><Zap size={15} aria-hidden="true" /></span>EZPZ PICK</span>
       <span className={`ep-status ep-status-${side.result || (preview ? "live" : "saved")}`}><StateIcon size={12} aria-hidden="true" />{status}</span></div>
-    <div className="ep-matchup"><span>{side.game}</span><time dateTime={side.gameTime}>{time(side.gameTime)}</time></div>
+    <div className="ep-matchup"><span>{side.game}</span><time dateTime={side.scheduledGameTime || side.gameTime}>{time(side.scheduledGameTime || side.gameTime)}</time></div>
     <div className="ep-play"><div className="ep-play-main"><span className="ep-market">{side.market === "Total" ? "Game total" : "Point spread"}</span>
       <h3>{side.market === "Spread" ? <TeamLogoName sport={sport} team={side.selection.replace(/\s+[+−-]?\d+(?:\.\d+)?$/, "")} className="ep-team" /> : <span>{side.selection.replace(/\s+[+−-]?\d+(?:\.\d+)?$/, "")}</span>}
         <span className="ep-line">{side.line == null ? "Line pending" : format(side.line, side.market === "Spread")}</span></h3></div>
@@ -265,7 +265,7 @@ export default function FootballSignals({ board, picksOnly = false, sport: fallb
     }));
     return [...byGame.values()].filter(rows => !onlyCandidates || rows.some(row => row.selected))
       .sort((a, b) => {
-        if (sort === "time" || value(a) === value(b)) return a[0].gameTime.localeCompare(b[0].gameTime);
+        if (sort === "time" || value(a) === value(b)) return (a[0].scheduledGameTime || a[0].gameTime).localeCompare(b[0].scheduledGameTime || b[0].gameTime);
         if (value(a) === -Infinity) return 1;
         if (value(b) === -Infinity) return -1;
         return (value(a) - value(b)) * direction;
@@ -292,7 +292,7 @@ export default function FootballSignals({ board, picksOnly = false, sport: fallb
       lineup={liveNba ? <NbaGameLineups game={rows[0].game} date={selectedDate} lineups={needsArchive ? archive?.lineups || [] : undefined} /> : undefined}>
       {open?.id === rows[0].id ? <SignalDetail side={rows[0]} signal={rows[0].signals.find(signal => signal.key === open.key)!} onClose={close} liveNba={liveNba} /> : null}
     </EzpzPickTile> : <article className="fs-game" key={rows[0].gameKey}>
-      <header className="fs-game-header"><span>{rows[0].game}</span><time dateTime={rows[0].gameTime}>{time(rows[0].gameTime)}</time></header>
+      <header className="fs-game-header"><span>{rows[0].game}</span><time dateTime={rows[0].scheduledGameTime || rows[0].gameTime}>{time(rows[0].scheduledGameTime || rows[0].gameTime)}</time></header>
       {liveNba ? <NbaGameLineups game={rows[0].game} date={selectedDate} lineups={needsArchive ? archive?.lineups || [] : undefined} /> : null}
       {rows.slice().sort((a, b) => a.market.localeCompare(b.market) || (a.market === "Total" ? (a.side === "Over" ? -1 : 1) : 0)).map(side => <div className="fs-side" key={side.id}>
         <div className="fs-side-heading"><div className="fs-selection">{side.market === "Spread" ? <TeamLogoName sport={board.sport} team={side.selection.replace(/\s+[+−-]?\d+(?:\.\d+)?$/, "")} className="fs-team-name" /> : <strong>{side.side}</strong>}<strong>{side.line == null ? "Line pending" : format(side.line, side.market === "Spread")}</strong><small>{side.odds}</small></div><CombinationRecord side={side} report={board.research?.sport === board.sport ? board.research : undefined} /><span className={side.selected ? "fs-count fs-qualified" : "fs-count"}>{side.signalCount} {side.signalCount === 1 ? "signal" : "signals"}{side.mixed ? " · Mixed" : side.selected ? " · EZPZ" : ""}</span></div>

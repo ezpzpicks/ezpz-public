@@ -7,7 +7,7 @@ const ts = require('typescript');
 
 // Exercise production parsing, recovery, read and scheduled-write paths with
 // an in-memory store and clock. No test contacts a feed or production database.
-function harness(now = '2026-09-26T01:09:00Z', useSource = false) {
+function harness(now = '2026-09-26T01:09:00Z', useSource = false, officialGames) {
   let currentTime = Date.parse(now);
   const tables = {};
   const writes = [];
@@ -45,6 +45,8 @@ function harness(now = '2026-09-26T01:09:00Z', useSource = false) {
   }}).outputText;
   const exports = {};
   vm.runInNewContext(code, { exports, Date: Clock, Error, Intl, console, process,
+    ...(officialGames ? { URL, AbortSignal, fetch: async () => ({ ok: true,
+      json: async () => ({ events: officialGames }) }) } : {}),
     testFeed: () => feed,
     testWarnings: () => [...warnings],
     require: id => id === './sportSheets' ? storage : {
@@ -528,4 +530,38 @@ test('source date guard preserves canonical fallback and verified midnight diffe
   h.tables.weekly_market_trends = [h.timing.weeklyRow({ ...p, sourceKickoff: '2026-10-02T17:00:00.000Z' })];
   const read = await h.readWeeklyFootballMarket('NCAAF', { hydrateHistory: false });
   assert.equal(read.trendPlays[0].gameTime, '');
+});
+
+test('verified schedule overrides a one-hour source error in mapping, reads and final locks', async () => {
+  const kickoff = '2026-11-01T02:00:00.000Z';
+  const h = harness('2026-11-01T00:44:00Z', true, [{ date: kickoff, competitions: [{ date: kickoff,
+    competitors: [{ homeAway: 'away', team: { shortDisplayName: 'Army' } },
+      { homeAway: 'home', team: { shortDisplayName: 'Temple' } }] }] }]);
+  const p = { ...play(kickoff), date: '2026-10-31', gameKey: '2026-10-31|army|temple',
+    gameTime: '2026-11-01T01:00:00.000Z', sourceKickoff: '2026-11-01T01:00:00.000Z',
+    snapshotStatus: 'LIVE', frozenAt: undefined, updatedAt: '10/31/2026, 8:40:00 PM EDT' };
+  seed(h, p, []);
+  h.setFeed([{ ...p, eventTime: '21:00' }]);
+  await h.syncPostedFootballMarkets('NCAAF');
+  let stored = JSON.parse(h.tables.weekly_market_trends[0]['Details JSON']);
+  assert.equal(stored.gameTime, kickoff);
+  const display = await h.readWeeklyFootballMarket('NCAAF', { hydrateHistory: false });
+  assert.equal(display.trendPlays[0].gameTime, kickoff);
+  h.setTime('2026-11-01T00:51:00Z');
+  await h.syncPostedFootballMarkets('NCAAF');
+  stored = JSON.parse(h.tables.weekly_market_trends[0]['Details JSON']);
+  assert.equal(stored.snapshotStatus, 'LIVE', 'the erroneous source clock must not finalize an hour early');
+  h.setTime('2026-11-01T01:44:00Z');
+  await h.syncPostedFootballMarkets('NCAAF');
+  h.setTime('2026-11-01T01:51:00Z');
+  await h.syncPostedFootballMarkets('NCAAF');
+  stored = JSON.parse(h.tables.weekly_market_trends[0]['Details JSON']);
+  assert.equal(stored.snapshotStatus, 'FINAL_PREGAME');
+  assert.equal(stored.frozenAt, '10/31/2026, 9:44:00 PM EDT');
+});
+
+test('Eastern kickoff conversion follows the game date across the fall clock change', () => {
+  const h = harness();
+  assert.equal(h.nflKickoffIso('2026-10-31', '7:30 PM ET'), '2026-10-31T23:30:00.000Z');
+  assert.equal(h.nflKickoffIso('2026-11-01', '1:00 PM ET'), '2026-11-01T18:00:00.000Z');
 });
