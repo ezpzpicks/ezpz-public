@@ -7,7 +7,7 @@ export type NbaLineupTeam = {
   team: string; confirmed: boolean; complete?: boolean; starters: NbaLineupPlayer[]; injuries: NbaLineupPlayer[];
 };
 export type CollegeRotationPlayer = { id: string; ratingId: string; name: string; referenceMinutes: number; minutes: number;
-  status: string; assumption: string; offensiveImpact: number; defensiveImpact: number; offenseChangePer100: number; defenseImprovementPer100: number };
+  status: string; assumption: string; offensiveImpact: number | null; defensiveImpact: number | null; offenseChangePer100: number; defenseImprovementPer100: number };
 export type CollegeTeamImpact = { applied: boolean; offense_change_per_100: number; defense_improvement_per_100: number;
   players: CollegeRotationPlayer[]; flags: string[]; complete?: boolean };
 export type CollegeModelImpact = { as_of: string; ratingsSource: string; ratingsSourceUrl: string; away: CollegeTeamImpact; home: CollegeTeamImpact };

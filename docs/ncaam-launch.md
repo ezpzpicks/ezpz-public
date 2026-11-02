@@ -51,15 +51,23 @@ No predicted/remaining schedule is substituted for current SOS.
 
 ## Model and qualification status
 
-The old manual foundation was not complete. Its defensive eFG sign is corrected
-in the admin repository. The new automated v0.2 baseline uses dated Torvik
-adjusted offense, defense and tempo, with verified neutral-site handling. It
-excludes overlapping raw four-factor/SOS additions and has no claimed calibrated
+The automatic v0.4 model uses dated Torvik adjusted offense, defense and tempo,
+including Torvik's own preseason weighting. It does not blend last season's
+team ratings into those source ratings again. Completed-season ratings remain
+context. Verified D1 game counts come from completed game logs through the
+previous Eastern day; all-opponent W-L never sets confidence. It excludes
+overlapping raw four-factor/SOS additions and has no claimed calibrated
 probabilities. Forecasts are immutable by version and early/pregame phase.
 
 **The automatic model is Research, not a validated A/B selection policy.**
 Full Slate shows its projections, exact market source/line and results. A/B
-records exclude Research forecasts. Player availability is explicitly unchecked.
+records exclude Research forecasts. Current and completed-season player exports
+load independently, so sparse early-season stats do not disable the historical
+fallback. Player availability effects require fresh RotoWire reports, verified
+current ESPN rosters and evidenced player minutes/ratings. Departed players are
+excluded and uniquely matched transfers can carry prior profiles. Unknown
+replacement ratings remain unavailable and retain the team baseline. The model
+details distinguish current source season weighting from legacy saved forecasts.
 
 NCAAM captures every eligible final signal side and its own exact combination,
 market and side-category history. Cold-start scores are 50. No NCAAF/NBA history
