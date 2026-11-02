@@ -85,3 +85,18 @@ test('model details expose completed-season weight, opposing efficiencies and co
   assert.match(markup,/If Logan Duncomb is out/);
   assert.match(markup,/research estimates/);
 });
+
+test('current source ratings and missing player metrics display without invented percentages or zeros', () => {
+  const details = load(path.join(root,'app/NcaamModelDetails.tsx'));
+  const rating = { team:'Notre Dame',offense:115,defense:108,tempo:66,source_preseason_prior:true,
+    prior_season:2026,prior_weight:0,d1_games_played:2 };
+  const player = {id:'one',ratingId:'one',name:'New Player',status:'UNKNOWN',referenceMinutes:20,minutes:20,
+    offensiveImpact:null,defensiveImpact:null};
+  const impact = {applied:true,offense_change_per_100:0,defense_improvement_per_100:0,players:[player],flags:[]};
+  const markup = render(React.createElement(details.default,{forecast:{away_rating:rating,home_rating:{...rating,team:'Villanova'},
+    lineup_adjustment:{away:impact,home:impact,as_of:at,ratingsSourceUrl:'https://barttorvik.com'}}}));
+  assert.match(markup,/Torvik season weighting/);
+  assert.match(markup,/2 D1 games through yesterday/);
+  assert.match(markup,/Unavailable/);
+  assert.doesNotMatch(markup,/2025–26 prior: 0%|ten-game prior/);
+});

@@ -107,7 +107,7 @@ export async function readNcaamPublicData(date = ncaamDate()) {
     bestPlays: modelPlays, slateToday: games, betTrackerRows: [], trendPlays: analysis.plays, recordSummary: [], last7RecordSummary: [],
     ncaamMarket: { consolidation: state.consolidation, sport: "NCAAM" as const, source: "ScoresAndOdds", date, availableDates: [...new Set([date, ...state.archiveDates])].sort(), games, splits,
       forecasts,
-      modelRecords, modelPlays, ezpzSelections, ezpzRecords, lineups, warrenNolan: sos, modelStatus: "Research: completed-season priors, opponent-adjusted efficiencies and college player rotations; grades await validation",
+      modelRecords, modelPlays, ezpzSelections, ezpzRecords, lineups, warrenNolan: sos, modelStatus: "Research: Torvik preseason adjustments, verified current rosters and completed-season player fallback; grades await validation",
       trendPlays: analysis.plays, leaderboard: state.leaderboard, signals: analysis.board, stale: analysis.stale,
       refreshPolicy: "30 minutes until 90 minutes before tipoff, then 5 minutes", finalWindow: "10–20 minutes before tipoff" } };
 }
