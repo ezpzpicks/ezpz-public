@@ -1,5 +1,6 @@
 import type { ScoresAndOddsMarketSplit } from "./scoresAndOddsBettingSplits";
 import type { TursoRow } from "./tursoStore";
+import { ncaamDivisionOneMatchup } from "./ncaamDivisionOne";
 
 export const NCAAM_MARKET_POLICY = "ncaam-scoresandodds-2026-11-01-v1";
 export const NCAAM_MARKET_SOURCE = "ScoresAndOdds";
@@ -33,6 +34,7 @@ export function normalizeNcaamSlate(payload: any, date: string): NcaamGame[] {
       || ncaamDate(start) !== date || !/^\d+$/.test(String(event.id)) || String(away.team.id) === String(home.team.id)) {
       throw new Error("NCAAM schedule identity or Eastern date is invalid.");
     }
+    if (!ncaamDivisionOneMatchup(String(away.team.id), String(home.team.id), Number(event.season.year))) continue;
     const status = competition.status?.type || event.status?.type;
     if (!status?.name || !["pre", "in", "post"].includes(status.state)) throw new Error("NCAAM game status is missing.");
     const aliases = (team: any) => [team.displayName, team.shortDisplayName, team.location, team.abbreviation,
