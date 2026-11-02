@@ -37,6 +37,28 @@ test('wrong time, duplicates and conflicting injury labels cannot bind a lineup'
   assert.equal(source.validNcaamLineupSource('https://other.test/daily/ncaab/lineups.php'), false);
 });
 
+test('neutral-site reversed listings retain the correct team players and strict game identity', () => {
+  const reversed = { ...game, neutralSite: true, away: game.home, home: game.away,
+    aliases: { away: game.aliases.home, home: game.aliases.away } };
+  const result = source.parseNcaamLineupsHtml(html, [reversed], at);
+  assert.equal(result.rejected.length, 0);
+  assert.equal(result.lineups.length, 1);
+  const lineup = result.lineups[0];
+  assert.equal(lineup.away.team, 'Villanova Wildcats');
+  assert.equal(lineup.away.starters[0].name, 'Elijah Crawford');
+  assert.equal(lineup.away.starters.length, 4);
+  assert.equal(lineup.away.injuries.length, 2);
+  assert.equal(lineup.home.team, 'Notre Dame Fighting Irish');
+  assert.equal(lineup.home.starters[0].name, 'Braeden Smith');
+  assert.equal(lineup.home.starters.at(-1).status, 'QUESTIONABLE');
+  assert.equal(core.findNbaLineup([lineup], { game: `${reversed.away} @ ${reversed.home}`, date: game.date }), lineup);
+  for (const neutralSite of [false, null, undefined]) {
+    assert.equal(source.parseNcaamLineupsHtml(html, [{ ...reversed, neutralSite }], at).lineups.length, 0);
+  }
+  assert.equal(source.parseNcaamLineupsHtml(html.replace('9:30 AM ET', '9:31 AM ET'), [reversed], at).lineups.length, 0);
+  assert.equal(source.parseNcaamLineupsHtml(html, [game, reversed], at).lineups.length, 0);
+});
+
 test('only advertised slates for the requested day are followed', () => {
   const links = parse(html+'<a href="/daily/ncaab/lineups.php?slateID=3608">ND vs NOVA Nov 1 9:30 AM</a><a href="/daily/ncaab/lineups.php?slateID=3609">Nov 11 Classic</a>').links;
   assert.equal(links.length, 1);

@@ -19,10 +19,15 @@ export function parseNcaamLineupsHtml(html: string, games: NcaamGame[], observed
   for (const box of boxes) {
     try {
       const sides = [["away", "is-visit"], ["home", "is-home"]] as const;
-      const matches = games.filter(game => sides.every(([side, css]) => game.aliases[side].some(alias => ncaamTeamKey(alias) === ncaamTeamKey(text(box.querySelector(`.lineup__mteam.${css}`))))));
+      // Neutral-site providers can list the same verified matchup in either
+      // order. Bind the player lists back to ESPN's team orientation.
+      const matches = games.flatMap(game => (game.neutralSite === true ? [false, true] : [false]).flatMap(reversed =>
+        sides.every(([side, css]) => game.aliases[side].some(alias => ncaamTeamKey(alias) === ncaamTeamKey(text(box.querySelector(
+          `.lineup__mteam.${reversed ? css === "is-visit" ? "is-home" : "is-visit" : css}`,
+        ))))) ? [{ game, reversed }] : []));
       if (!matches.length) continue;
       if (matches.length !== 1) throw new Error("Ambiguous college matchup.");
-      const game = matches[0], stamp = new Date(game.tipoff);
+      const { game, reversed } = matches[0], stamp = new Date(game.tipoff);
       const parts = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", month: "2-digit", day: "2-digit", weekday: "short", hour: "numeric", minute: "2-digit", hour12: true }).formatToParts(stamp);
       const part = (type: string) => parts.find(p => p.type === type)?.value || "";
       const clockNode = box.parentElement?.querySelector(".lineup__time");
@@ -35,7 +40,7 @@ export function parseNcaamLineupsHtml(html: string, games: NcaamGame[], observed
         basis: "Depth chart projections", away: { team: game.away, confirmed: false, starters: [], injuries: [] }, home: { team: game.home, confirmed: false, starters: [], injuries: [] } };
       const used = new Set<string>();
       for (const [side, css] of sides) {
-        const listing = box.querySelector(`.lineup__list.${css}`);
+        const listing = box.querySelector(`.lineup__list.${reversed ? css === "is-visit" ? "is-home" : "is-visit" : css}`);
         if (!listing) throw new Error("Missing college team list.");
         let injurySection = false;
         const players = new Map<string, NbaLineupPlayer>(), starters: string[] = [], injuries: string[] = [];
