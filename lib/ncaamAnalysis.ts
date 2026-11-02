@@ -13,6 +13,7 @@ import { persistEzpzCurrentPicks } from "./ezpzCurrentPicks";
 
 import { updateBasketballConsolidation } from "./basketballConsolidation";
 import { consolidatedVersion, CONSOLIDATED_SPORT_EFFECTIVE_AT } from "./catalog/consolidatedSportCatalog";
+import { ncaamDivisionOneSchedule } from "./ncaamDivisionOne";
 
 const q = (value: string) => `'${value.replaceAll("'", "''")}'`;
 export function ncaamScheduleRows(games: NcaamGame[], observedAt: number): TursoRow[] {
@@ -50,7 +51,7 @@ export async function refreshNcaamAnalysis(date: string, currentSchedule: TursoR
   const seedResearch = state.signalResearch?.version !== SIGNAL_RESEARCH_VERSION;
   const seedSelections = state.selectionThreshold !== signalPickThreshold("NCAAM");
   const signalDates = seedConsolidation || seedResearch || seedSelections ? [...new Set([...state.archiveDates, ...dates])].sort() : dates;
-  const schedule = [...currentSchedule];
+  const schedule = ncaamDivisionOneSchedule(currentSchedule);
   const previousDays = await Promise.all(dates.filter(day => day !== date).map(async day => {
     const response = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=${day.replaceAll("-", "")}&groups=50&limit=1000`,
       { cache: "no-store", signal: AbortSignal.timeout(12_000), headers: { Accept: "application/json" } });

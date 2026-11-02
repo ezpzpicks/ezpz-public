@@ -2,6 +2,7 @@ import { readTursoDataset, readTursoDatasetByDateKeys, replaceTursoDataset, type
 import { parseGameStart, isoDate } from "./mlbTrendV2";
 import { nflKickoffIso } from "./footballWeeklyMarket";
 import { marketRefreshDecision } from "./marketRefreshPolicy";
+import { ncaamDivisionOneSchedule } from "./ncaamDivisionOne";
 
 type Sport = Extract<TursoSport, "MLB" | "NFL" | "NCAAF" | "NBA" | "NCAAM">;
 type Stage = "market" | "public";
@@ -19,7 +20,8 @@ export async function scheduledMarketRefresh(sport: Sport, stage: Stage, now = D
     readTursoDatasetByDateKeys(sport, sport === "MLB" ? "daily_slate" : "schedule", dates),
     sport === "MLB" ? Promise.resolve([]) : readTursoDatasetByDateKeys(sport, "posted_games", dates),
   ]);
-  const games = [...schedule, ...slate].map(row => {
+  const scheduledRows = [...schedule, ...slate];
+  const games = (sport === "NCAAM" ? ncaamDivisionOneSchedule(scheduledRows) : scheduledRows).map(row => {
     const date = isoDate(row.Date || row["Game Date"]), time = String(row["Game Time"] || row["Game Time ET"] || row.Time || "");
     const kickoff = sport === "MLB" ? parseGameStart(date, time)
       : ["NBA", "NCAAM"].includes(sport) ? Date.parse(time) : Date.parse(nflKickoffIso(date, time));

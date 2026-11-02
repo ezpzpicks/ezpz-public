@@ -12,6 +12,17 @@ is no new cron or page-triggered collection. The existing 30-minute cadence,
 five-minute countdown within 90 minutes, and 10–20 minute final window apply.
 An uncovered college game cannot prevent a different complete game from locking.
 
+Only matchups between two verified Division I members enter the NCAAM schedule.
+The season-specific membership snapshot matches all 365 Warren Nolan 2026–27
+teams to ESPN IDs, including Lindenwood, Queens and Southern Indiana. Hartford
+and other nonmembers are excluded even if ESPN lists a game or betting market.
+The public collector, pending-result refresh, saved schedule reads, refresh
+countdown and Python builder use this same membership rule. Saved market and
+signal rows cannot reintroduce an excluded schedule game. No provider calls are
+added to page reads or ordinary collection ticks. Before the next season, add
+its verified membership snapshot in both repositories; never reuse last year's
+group for an unverified season.
+
 ESPN men's college basketball supplies event IDs, absolute tipoffs, regular and
 postseason fixtures, results and neutral venues. Use groups=50 and limit=1000.
 Exhibitions and unverified start times cannot acquire final locks. Source team
@@ -62,7 +73,7 @@ trigger set; do not reconstruct an opaque trigger from a prompt.
 
 ## Saved datasets and reads
 
-- `schedule`, `posted_games`: complete official schedule, including unmodeled games.
+- `schedule`, `posted_games`: Division I vs Division I schedule, including games without model forecasts.
 - `weekly_market_trends`, `odds_snapshot`, `public_split_snapshots`: observed market evidence.
 - `ncaam_model_forecasts`, `ncaam_rating_inputs`: Python forecasts and dated model inputs.
 - `ncaam_warrennolan_snapshots`: six-hour ELO/RPI SOS cache.

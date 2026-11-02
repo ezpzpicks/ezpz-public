@@ -13,6 +13,7 @@ import { loadNcaamSos } from "./ncaamSos";
 import { signalEzpzPayload } from "./signalPicks";
 import { readNcaamSavedLineups, refreshNcaamLineups } from "./ncaamLineups";
 import { mergeNbaLineups } from "./nbaLineupsCore";
+import { ncaamDivisionOneSchedule } from "./ncaamDivisionOne";
 
 export async function collectNcaamMarket({ persist = true, now = Date.now(), refresh }: {
   persist?: boolean; now?: number; refresh?: { policy: string; intervalMinutes: number };
@@ -61,15 +62,19 @@ export async function collectNcaamMarket({ persist = true, now = Date.now(), ref
 export async function readNcaamPublicData(date = ncaamDate()) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(`${date}T12:00:00Z`))
     || new Date(`${date}T12:00:00Z`).toISOString().slice(0,10) !== date) throw new Error("Choose a valid NCAAM slate date.");
-  const [games, splits, rawForecasts, state, storedRows, sos, savedLineups] = await Promise.all([
+  const [savedGames, savedSplits, rawForecasts, state, storedRows, sos, savedLineups] = await Promise.all([
     readTursoDatasetByDateKeys("NCAAM", "schedule", [date]),
     readTursoDatasetByDateKeys("NCAAM", "weekly_market_trends", [date]),
     readNcaamForecasts(date), readNcaamAnalysis(date), readTursoDatasetByDateKeys("NCAAM", NCAAM_SIGNALS_TAB, [date]),
     loadNcaamSos(Number(date.slice(0,4)) + (Number(date.slice(5,7)) >= 7 ? 1 : 0)),
     readNcaamSavedLineups(date),
   ]);
+  const games = ncaamDivisionOneSchedule(savedGames);
+  const gameKeys = new Set(games.map(game => game["Game Key"]));
+  const gameIds = new Set(games.map(game => game["Game ID"]));
+  const splits = savedSplits.filter(row => gameKeys.has(row["Game Key"]));
   const now = Date.now();
-  const forecasts = rawForecasts.map(forecast => {
+  const forecasts = rawForecasts.filter(forecast => gameIds.has(forecast.gameId)).map(forecast => {
     const game = games.find(game => game["Game ID"] === forecast.gameId && Date.parse(game["Game Time"]) === Date.parse(forecast.tipoff)
       && game["Away Team"] === forecast.away_team && game["Home Team"] === forecast.home_team);
     const observed = Date.parse(game?.["Result Updated"] || "");
@@ -80,7 +85,8 @@ export async function readNcaamPublicData(date = ncaamDate()) {
     return { ...forecast, ...result };
   });
   const analysis = buildNcaamSignals({ date, games, splits, forecasts, storedRows, state, sos });
-  const lineups = mergeNbaLineups(forecasts.flatMap(f => f.lineup?.sport === "NCAAM" ? [f.lineup] : []), savedLineups);
+  const lineups = mergeNbaLineups(forecasts.flatMap(f => f.lineup?.sport === "NCAAM" ? [f.lineup] : []), savedLineups)
+    .filter(lineup => gameIds.has(lineup.gameId));
   const lastObservation = splits.map(r => r["Updated At"]).filter(Boolean).sort().at(-1) || "";
   const lastUpdated = Number.isFinite(Date.parse(lastObservation)) ? new Intl.DateTimeFormat("en-US", {
     timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit", hour: "numeric", minute: "2-digit", second: "2-digit", timeZoneName: "short",

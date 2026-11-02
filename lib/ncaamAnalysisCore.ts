@@ -159,6 +159,13 @@ export function buildNcaamSignals({ date, games, splits, forecasts, storedRows, 
   date: string; games: TursoRow[]; splits: TursoRow[]; forecasts: Row[]; storedRows: TursoRow[] | null;
   state: NcaamAnalysisState; now?: number; capture?: boolean; sos?: FootballSosSnapshot | null;
 }) {
+  // Saved market/signal rows cannot reintroduce a matchup excluded by the schedule.
+  const gameKeys = new Set(games.map(game => footballTeamGameKey(game, "NCAAM")));
+  splits = splits.filter(row => gameKeys.has(footballTeamGameKey(row, "NCAAM")));
+  storedRows = storedRows?.filter(row => {
+    try { return gameKeys.has(footballTeamGameKey(JSON.parse(row["Details JSON"]), "NCAAM")); }
+    catch { return false; }
+  }) ?? null;
   const plays = ncaamRowsToPlays(splits, now);
   const coveredMarkets = new Set(plays.map(play => `${footballTeamGameKey(play, "NCAAM")}|${play.market}`));
   const savedQuotes = savedNcaamQuotePlays(date, games, forecasts, now)

@@ -20,6 +20,9 @@ function cron(options = {}) {
     '../../../../lib/tursoStore': { withTursoReadCache: fn => fn() },
     '../../../../lib/nbaMarket': { collectNbaMarket: collect('NBA') },
     '../../../../lib/ncaamMarket': { collectNcaamMarket: collect('NCAAM') },
+    '../../../../lib/nbaAnalysis': { migrateNbaConsolidation: async () => ({ ok: true }) },
+    '../../../../lib/ncaamAnalysis': { migrateNcaamConsolidation: async () => ({ ok: true }) },
+    '../../../../lib/nbaMarketCore': { nbaDate: () => '2026-11-02' },
     '../../../../lib/scheduledMarketRefresh': {
       scheduledMarketRefresh: async sport => ({ due: options.skip !== sport, intervalMinutes: 30, policy: '30m-until-90m-v1' }),
       recordScheduledMarketRefresh: async sport => saved.push(sport),
