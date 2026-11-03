@@ -1,0 +1,33 @@
+/* Shared mobile navigation and compact site header. */
+.ez-sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
+.shell.ez-mobile-shell{padding-top:12px;padding-bottom:110px;min-width:0}
+.ez-header{display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:64px;padding:4px 0 12px;border-bottom:1px solid rgba(129,159,197,.2)}
+.ez-brand{display:flex;align-items:center;gap:11px;min-width:0}
+.ez-brand img{width:44px;height:44px;object-fit:contain;border-radius:50%;flex:none}
+.ez-brand h1{margin:0;font-size:23px;font-weight:750;letter-spacing:-.035em;line-height:1.2}
+.ez-refresh{display:grid;place-items:center;flex:none;width:44px;height:44px;border:1px solid #33516e;border-radius:12px;background:#0b182a;color:#e7f2ff;cursor:pointer}
+.ez-refresh:disabled{opacity:.55;cursor:wait}
+.ez-refreshing{animation:ez-spin 1s linear infinite}
+.ez-context{display:flex;gap:10px;max-width:850px;margin:16px auto 8px}
+.ez-context label{position:relative;display:flex;align-items:center;flex:1;min-width:0}
+.ez-context label:last-child{flex:1.35}
+.ez-context select{width:100%;min-width:0;min-height:44px;border:1px solid #33516e;border-radius:11px;appearance:none;background:#0b182a;color:#f0f5ff;padding:10px 32px 10px 13px;font:inherit;font-size:15px;cursor:pointer}
+.ez-context label>svg{position:absolute;right:12px;pointer-events:none}
+.ez-nav{position:relative;z-index:12;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px;max-width:650px;margin:14px auto 22px;padding:5px;border:1px solid #24405a;border-radius:15px;background:rgba(5,16,30,.97)}
+.ez-nav>button,.ez-more>button{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;min-width:0;min-height:46px;padding:7px 9px;border:1px solid transparent;border-radius:10px;background:none;color:#dfeaf8;font:inherit;font-size:14px;cursor:pointer}
+.ez-nav .ez-nav-active{background:linear-gradient(125deg,#087afa,#08aee8);border-color:#40c5ff;color:#fff}
+.ez-more{position:relative;min-width:0}
+.ez-more-menu{position:absolute;right:0;top:calc(100% + 12px);width:245px;padding:6px;border:1px solid #496986;border-radius:13px;background:#101f33;box-shadow:0 12px 36px #0008;z-index:20}
+.ez-more-menu button{display:block;width:100%;min-height:46px;text-align:left;padding:10px 12px;border:0;border-radius:8px;background:none;color:#eef6ff;font:inherit;font-size:14px;cursor:pointer}
+.ez-more-menu button:hover,.ez-more-menu button[aria-current=page]{background:#203c59}
+.ez-header button:focus-visible,.ez-nav button:focus-visible,.ez-context select:focus-visible{outline:2px solid #83c9ff;outline-offset:3px}
+@keyframes ez-spin{to{transform:rotate(360deg)}}
+@media(max-width:760px){
+  .shell.ez-mobile-shell{padding:8px 12px calc(100px + env(safe-area-inset-bottom,0px))}
+  .ez-nav{position:fixed;left:50%;bottom:0;transform:translateX(-50%);width:100%;max-width:680px;margin:0;border-bottom:0;border-radius:20px 20px 0 0;gap:4px;padding:7px 9px calc(7px + env(safe-area-inset-bottom,0px));box-shadow:0 -8px 28px #0005;backdrop-filter:blur(18px)}
+  .ez-nav>button,.ez-more>button{flex-direction:column;gap:5px;min-height:57px;padding:7px 3px;font-size:12px;line-height:1.2;white-space:nowrap}
+  .ez-more-menu{top:auto;bottom:calc(100% + 14px);right:0}
+  .ez-brand h1{font-size:21px}
+  .ez-context{margin-top:12px;margin-bottom:14px}
+}
+@media(prefers-reduced-motion:reduce){.ez-refreshing{animation:none}}

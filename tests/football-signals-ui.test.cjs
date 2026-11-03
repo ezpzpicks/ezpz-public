@@ -5,7 +5,7 @@ const ts = require('typescript'), React = require('react');
 const { renderToStaticMarkup } = require('react-dom/server');
 const root = path.resolve(__dirname, '..');
 const exportsObject = {};
-const source = fs.readFileSync(path.join(root, 'app/FootballSignalsBoard.tsx'), 'utf8') + '\nexport const detailTest = SignalDetail; export const researchTest = CombinationResearch; export const comboTest = CombinationRecord; export const pickTileTest = EzpzPickTile;';
+const source = fs.readFileSync(path.join(root, 'app/FootballSignalsBoard.tsx'), 'utf8') + '\nexport const detailTest = SignalDetail; export const researchTest = CombinationResearch; export const comboTest = CombinationRecord; export const pickTileTest = MatchupCard;';
 vm.runInNewContext(ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } }).outputText,
   { exports: exportsObject, Date, Intl, console, require: name => name === './TeamLogoName' ? { TeamLogoName: p => p.team }
     : name === './NbaGameLineups' ? { __esModule: true, default: () => null }
@@ -34,16 +34,17 @@ const board = { sport: 'NFL', today: '2026-10-18', captureAvailable: true, sides
   summary: { record: '0-0-0', settled: 0, pending: 0, winPct: null, roiPct: null, netUnits: 0 }, breakdowns: [], history: [] };
 const render = node => renderToStaticMarkup(node);
 
-test('a combo-score card explains both frozen records and a zero-active-signal qualifier', () => {
+test('official score cards retain frozen combination history while calibration scores stay out of the overview', () => {
   const noSignals = side.signals.map(s => ({ ...s, active: false }));
   const value = { ...side, date: '2026-11-01', signals: noSignals, signalCount: 0, recorded: true, status: 'FINAL_PREGAME',
     comboScore: { score: 70, own: { sideGroup: 'Favorite', combination: '', wins: 14, losses: 6, pushes: 0 },
       opponent: { sideGroup: 'Underdog', combination: 'move', wins: 4, losses: 6, pushes: 0 } } };
-  const html = render(React.createElement(exportsObject.pickTileTest, { side: value, sport: 'NCAAF', onSignalClick() {} }));
-  for (const text of ['Minimum 65', 'Own combo', 'Opposing combo', '14–6–0', '4–6–0', 'No active signals', '0 signals triggered']) assert(html.includes(text), text);
-  assert.doesNotMatch(html, /Tap to explore|3\+ signals|Model grade/);
-  const preview = render(React.createElement(exportsObject.pickTileTest, { side: value, sport: 'NBA', onSignalClick() {} }));
-  assert.match(preview, /Score preview/); assert.match(preview, /Calibration in progress/);
+  const props = { rows: [value], board: { ...board, sport: 'NCAAF' }, picksOnly: true, date: value.date };
+  const html = render(React.createElement(exportsObject.pickTileTest, props));
+  for (const text of ['Score 70', 'Combined Signal Record', '14–6–0', '0 signals', 'Final snapshot']) assert(html.includes(text), text);
+  assert.doesNotMatch(html, /fs-signal-chip|fs-breakdown|Model grade/);
+  const preview = render(React.createElement(exportsObject.pickTileTest, { ...props, board: { ...board, sport: 'NBA' } }));
+  assert.doesNotMatch(preview, /Score 70|Calibration in progress/);
 });
 
 test('Signals and EZPZ cards display the corrected schedule clock in Eastern', () => {
@@ -57,7 +58,7 @@ test('Signals and EZPZ cards display the corrected schedule clock in Eastern', (
   }
 });
 
-test('signal tiles place exact combination and no-signal records between odds and count', () => {
+test('compact cards label exact side-specific and no-signal combination records', () => {
   const stats = (wins, losses, pushes, pending = 0) => ({ wins, losses, pushes, pending, netUnits: 0, assumedPrices: 0, unknownPrices: 0 });
   const { SIGNAL_RESEARCH_VERSION } = require('./load-typescript.cjs')(path.join(root, 'lib/signalCombinationResearch.ts'));
   const research = { version: SIGNAL_RESEARCH_VERSION, sport: 'NFL', dates: [], forwardFrom: '2026-10-23T22:27:21Z', cells: [
@@ -68,13 +69,14 @@ test('signal tiles place exact combination and no-signal records between odds an
     { market: 'Spread', phase: 'forward', sideGroup: 'Favorite', combination: '', stats: stats(0, 30, 0) },
   ] };
   const html = render(React.createElement(exportsObject.default, { board: { ...board, research } }));
-  assert.match(html, /-110<\/small><\/div><small class="fs-combination-record"[^>]*>Combo 10-4-1<\/small><span class="fs-count/);
-  assert.match(html, /Combo 5-9-0<\/small><span class="fs-count">0 signals/);
+  assert.match(html, /Combined Signal Record<\/span><strong>10-4-1<\/strong>/);
+  assert.match(html, /Combined Signal Record<\/span><strong>5-9-0<\/strong>/);
   assert.match(html, /No active signals · Underdog · Spreads · Cumulative saved history/);
   assert.match(html, /Money support \+ Line movement \+ Public trend \+ Team trend · Favorite · Spreads/);
   assert.match(html, /10-4-1 \(wins-losses-pushes\) · 1 pending/);
   const missing = render(React.createElement(exportsObject.default, { board }));
-  assert.match(missing, /No settled history[^>]*>Combo —/);
+  assert.match(missing, /No settled history/);
+  assert.match(missing, /Combined Signal Record<\/span><strong>—<\/strong>/);
 });
 
 test('total combo labels use the selected direction and exclude the opposite direction', () => {
@@ -86,8 +88,8 @@ test('total combo labels use the selected direction and exclude the opposite dir
     result: i ? 'L' : 'W', resultUpdated: '2026-10-19T04:00:00Z' }));
   const report = research.buildSignalResearchReport('NFL', policy, research.buildSignalResearchDays(observations, policy, now));
   const recordFor = value => render(React.createElement(exportsObject.comboTest, { side: value, report }));
-  assert.match(recordFor(observations[0]), /Over · Totals.*>Combo 1-0-0<\/small>/);
-  assert.match(recordFor(observations[1]), /Under · Totals.*>Combo 0-1-0<\/small>/);
+  assert.match(recordFor(observations[0]), /Over · Totals.*<strong>1-0-0<\/strong>/);
+  assert.match(recordFor(observations[1]), /Under · Totals.*<strong>0-1-0<\/strong>/);
 });
 
 test('EZPZ shows only qualifying saved signal tests, with NFL two and NCAAF three', () => {
@@ -96,14 +98,14 @@ test('EZPZ shows only qualifying saved signal tests, with NFL two and NCAAF thre
     signals: keys.map(key => ({ key, active: ['move', 'model'].includes(key), available: true, value: 2, level: 'Qualifying' })) };
   const data = { ...board, sides: [frozen, opposite] };
   const html = render(React.createElement(exportsObject.default, { board: data, picksOnly: true }));
-  for (const text of ['NFL EZPZ Picks', '2+ signals', 'All plays', '2 signals', 'Saved pregame', 'historical', '2+ signal test results'])
+  for (const text of ['NFL EZPZ Picks', '2+ signals', 'All plays', '2 signals', 'Final snapshot', 'Historical tests'])
     assert(html.toLowerCase().includes(text.toLowerCase()), text);
   assert.match(html, /DAL/); assert.doesNotMatch(html, /GB \+1\.5/);
-  assert.equal((html.match(/aria-expanded="false"/g) || []).length, 2);
+  assert.equal((html.match(/class="fs-details-toggle"/g) || []).length, 1);
   assert.match(html, /aria-label="DAL -1.5 EZPZ Pick"/);
-  assert.match(html, /Line movement. Qualifying. \+2 points/);
-  assert.match(html, /Model edge. Qualifying. \+2 points/);
-  assert.doesNotMatch(html, /Sort games by signal|Inactive or unavailable|class="fs-signals"|class="fs-game"|Money support. Qualifying/);
+  assert.match(html, /fs-signal-chip">Line/);
+  assert.match(html, /fs-signal-chip">Model/);
+  assert.doesNotMatch(html, /Sort games by signal|Inactive or unavailable|class="fs-signals"|Money support. Qualifying/);
   const cfb = render(React.createElement(exportsObject.default, { board: { ...data, sport: 'NCAAF' }, picksOnly: true }));
   assert.match(cfb, /3\+ signals/); assert.match(cfb, /No qualifying NCAAF EZPZ Picks/);
   const missing = render(React.createElement(exportsObject.default, { picksOnly: true, sport: 'NCAAM' }));
@@ -111,18 +113,18 @@ test('EZPZ shows only qualifying saved signal tests, with NFL two and NCAAF thre
   assert.doesNotMatch(missing, /3\+ signals/);
 });
 
-test('pick tiles distinguish frozen results from live quotes and label triggered signal values', () => {
-  const total = { ...side, market: 'Total', side: 'over', selection: 'Over 43.5', line: 43.5, recorded: true,
+test('compact picks distinguish frozen results from live previews without opening signal details', () => {
+  const total = { ...side, market: 'Total', side: 'Over', selection: 'Over 43.5', line: 43.5, recorded: true,
     status: 'FINAL_PREGAME', snapshotAt: '2026-10-19T00:05:00Z', result: 'W', signalCount: 2,
     signals: keys.map(key => ({ key, active: ['money', 'team'].includes(key), available: true, value: key === 'money' ? 27 : 80, level: 'Qualifying' })) };
   const frozen = render(React.createElement(exportsObject.default, { board: { ...board, sides: [total] }, picksOnly: true }));
-  for (const text of ['Over 43.5 EZPZ Pick', 'Game total', 'Saved odds', '-110', 'Won', 'Graded at saved line', 'Money support', '+27', 'Team trends', '80 / 100']) assert(frozen.includes(text), text);
-  assert.doesNotMatch(frozen.match(/<article[\s\S]*?<\/article>/)[0], /Live preview|Current odds|Inactive or unavailable/);
+  for (const text of ['Over 43.5 EZPZ Pick', '-110', 'Won', 'Final snapshot', 'Combined Signal Record']) assert(frozen.includes(text), text);
+  assert.doesNotMatch(frozen, /fs-breakdown|fs-detail-inline/);
   const now = Date.now(), tip = new Date(now + 3_600_000).toISOString(), date = tip.slice(0, 10);
   const live = { ...total, date, recorded: false, status: 'LIVE', gameTime: tip, snapshotAt: new Date(now).toISOString(), result: '' };
   const preview = render(React.createElement(exportsObject.default, { board: { ...board, today: date, sides: [live] }, picksOnly: true }));
-  for (const text of ['Live preview', 'Current odds', 'Updates until lock']) assert(preview.includes(text), text);
-  assert.doesNotMatch(preview, /Saved odds|Graded at saved line|Pregame line locked/);
+  assert.match(preview, /Live preview/);
+  assert.doesNotMatch(preview, /Final snapshot|Won/);
 });
 
 test('model details distinguish the regraded current quote from the original Strong play', () => {
@@ -176,12 +178,13 @@ test('combination research shows exact pairs, counts, overlapping baselines and 
   assert.match(empty, /No observations/); assert.match(empty, /No saved two-signal/); assert.doesNotMatch(empty, /90\.9%/);
 });
 
-test('the slate starts collapsed; active money shows +27 while the opposite side stays neutral', () => {
+test('matchup evidence starts collapsed and only active signal badges appear in the overview', () => {
   const html = render(React.createElement(exportsObject.default, { board }));
-  assert.equal((html.match(/aria-expanded="false"/g) || []).length, 10);
-  assert.equal((html.match(/class="fs-signal fs-on"/g) || []).length, 4);
-  assert.match(html, /fs-signal-value">\+27/);
-  assert.doesNotMatch(html, /fs-signal-value">-27|class="fs-detail"/);
+  assert.equal((html.match(/class="fs-details-toggle" aria-expanded="false"/g) || []).length, 1);
+  assert.equal((html.match(/class="fs-signal-chip"/g) || []).length, 4);
+  assert.doesNotMatch(html, /fs-breakdown|fs-detail-inline|fs-sorters|fs-search-row/);
+  assert.match(html, /aria-label="Sort games"/);
+  assert.match(html, /Filters/);
 });
 
 test('saved Covers model lines are identified separately from public betting and final snapshots', () => {

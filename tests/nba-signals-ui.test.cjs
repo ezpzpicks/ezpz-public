@@ -38,14 +38,15 @@ const plays = ['Cleveland Cavaliers', 'Philadelphia 76ers'].map((name, i) => ({ 
   selectionTeam: name, side: '', line: i ? -3.5 : 3.5, odds: '-110', betsPct: 50, moneyPct: 50, updatedAt: date + 'T20:00:00Z',
   snapshotStatus: 'LIVE', movementHistory: [] }));
 
-test('live NBA signals retain the shared five-column controls and collapsed details', () => {
+test('NBA and NFL share compact cards while test results live in Signal Research', () => {
   const html = render(React.createElement(football.default, { board }));
-  const nfl = render(React.createElement(football.default, { board: { ...board, sport: 'NFL' } }));
-  assert.equal((html.match(/aria-expanded="false"/g) || []).length, 10);
-  for (const text of ['NBA Signals', '2+ signal test results', '2+ only', 'Sort by Public bet trends', 'Sort by Team trends', 'Sort by Model edge']) assert(html.includes(text), text);
+  assert.equal((html.match(/class="fs-details-toggle" aria-expanded="false"/g) || []).length, 1);
+  for (const text of ['NBA Signals', 'Combined Signal Record', 'Filters', 'Sort games']) assert(html.includes(text), text);
+  assert.doesNotMatch(html, /signal test results|fs-sorters|fs-detail-inline|Strength of schedule/);
+  const research = render(React.createElement(football.SignalResearch, { board }));
+  const nfl = render(React.createElement(football.SignalResearch, { board: { ...board, sport: 'NFL' } }));
+  assert.match(research, /2\+ signal test results/);
   assert.match(nfl, /2\+ signal test results/);
-  assert.doesNotMatch(html, /3\+ signal test results|3\+ only|Saved test play|Prospective testing/);
-  assert.doesNotMatch(html, /class="fs-signal fs-on"|class="fs-detail"|Strength of schedule/);
 });
 test('NBA public market cards retain shared markets and add NBA-only collapsed lineups', () => {
   const groups = [{ game: plays[0].game, plays }];
@@ -159,7 +160,7 @@ test('NCAAM reuses basketball pages with research status and its own pending qua
   assert.match(picksHtml,/Official NCAAM EZPZ Picks are on hold/);
   assert.doesNotMatch(picksHtml,/3\+ signals qualify|Backed by 3|need 3\+ signals/);
   const live=render(React.createElement(football.default,{board:{...board,sport:'NCAAM',today:date}}));
-  assert.match(live,/With signals/);assert.doesNotMatch(live,/EZPZ only|3\+ only/);
-  assert.match(live,/class="nbaLineups"/);
+  assert.match(live,/Filters/);assert.doesNotMatch(live,/EZPZ only|3\+ only/);
+  assert.doesNotMatch(live,/class="nbaLineups"|fs-detail-inline/);
   assert.match(render(React.createElement(records.default,{data})),/NCAAM Records/);
 });

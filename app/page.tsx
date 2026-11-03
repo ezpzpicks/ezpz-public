@@ -1,8 +1,11 @@
 "use client";
 
 import FootballBoard from "./FootballBoard";
+import SiteNavigation, { SiteHeader } from "./SiteNavigation";
+import type { FootballSignalsBoard } from "../lib/footballSignals";
 import FullSlateHistory from "./FullSlateHistory";
 import dynamic from "next/dynamic";
+const SignalResearch = dynamic(() => import("./FootballSignalsBoard").then(module => module.SignalResearch));
 const SignalEzpzPicks = dynamic(() => import("./FootballSignalsBoard"), { loading: () => <div className="empty">Loading EZPZ Picks…</div> });
 import NbaBoard, { type NbaMarketPayload } from "./NbaBoard";
 import { buildNflEzpzRecords } from "../lib/nflEzpzRecords";
@@ -301,6 +304,7 @@ type Play = {
 type SheetRow = Record<string, string>;
 
 type ApiData = {
+  footballSignals?: FootballSignalsBoard;
   publicBoard?: { savedAt: string; sourceDate: string; sourceStale: boolean; stale?: boolean };
   marketAvailableDates?: string[];
   nbaMarket?: NbaMarketPayload;
@@ -6845,25 +6849,24 @@ export default function Home() {
   const [draftKingsError, setDraftKingsError] = useState("");
   const [error, setError] = useState("");
   const [refreshing, setRefreshing] = useState(false);
-  const [activeSport, setActiveSport] = useState<Sport>("MLB");
+  const [activeSport, setActiveSport] = useState<Sport>("NBA");
   const [sportReady, setSportReady] = useState(false);
   const basketballMarket = activeSport === "NCAAM" ? data?.ncaamMarket : data?.nbaMarket;
   const nflEzpzRecords = useMemo(() => activeSport === "NFL" && data
     ? data.ezpzRecords || buildNflEzpzRecords(data.aiPickRecordRows || [], data.today)
     : null, [activeSport, data]);
-  const [active, setActive] = useState<Tab>("Today’s Model Plays");
+  const [active, setActive] = useState<Tab>("EZPZ Picks");
+  const [selectedSignalDate, setSelectedSignalDate] = useState("");
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const sport = params.get("sport");
-    if (sport === "MLB" || sport === "NFL" || sport === "NCAAF" || sport === "NBA" || sport === "NCAAM") {
-      setActiveSport(sport);
-      const requestedTab = params.get("tab") as Tab;
-      if (TABS.includes(requestedTab)) setActive(requestedTab);
-      if (sport === "NBA") {
-        const requested = params.get("tab") as Tab;
-        setActive(TABS.includes(requested) ? requested : "Today’s Model Plays");
-      }
-    }
+    let rememberedSport = "";
+    try { rememberedSport = localStorage.getItem("ezpz:sport") || ""; } catch { /* Optional device preference. */ }
+    const sport = params.get("sport") || rememberedSport;
+    if (SPORTS.includes(sport as Sport)) setActiveSport(sport as Sport);
+    const tab = params.get("tab") as Tab;
+    if (TABS.includes(tab)) setActive(tab);
+    const date = params.get("date") || "";
+    if (/^\d{4}-\d{2}-\d{2}$/.test(date)) setSelectedSignalDate(date);
     setSportReady(true);
   }, []);
   const [selectedEzpzDate, setSelectedEzpzDate] = useState("");
@@ -7137,6 +7140,36 @@ export default function Home() {
     [visibleOverallRecordSummary],
   );
   const activeSportMeta = SPORT_META[activeSport];
+  const signalBoard = activeSport === "NBA" ? data?.nbaMarket?.signals : activeSport === "NCAAM" ? data?.ncaamMarket?.signals : data?.footballSignals;
+  const signalDates = [...new Set([signalBoard?.today || "", ...(signalBoard?.archiveDates || []), ...(signalBoard?.sides || []).map(side => side.date)])].filter(Boolean).sort();
+  const signalDate = signalDates.includes(selectedSignalDate) ? selectedSignalDate : signalBoard?.today || "";
+  const signalPage = active === "Signals" || active === "EZPZ Picks";
+  useEffect(() => {
+    if (!sportReady) return;
+    try { localStorage.setItem("ezpz:sport", activeSport); } catch { /* Navigation remains available without storage. */ }
+    const url = new URL(window.location.href);
+    url.searchParams.set("sport", activeSport);
+    url.searchParams.set("tab", active);
+    if (signalPage && signalDate) url.searchParams.set("date", signalDate);
+    window.history.replaceState(null, "", url);
+  }, [activeSport, active, signalPage, signalDate, sportReady]);
+  const changeTab = (tab: Tab) => {
+    setActive(tab);
+    window.scrollTo({ top: 0, behavior: "instant" });
+  };
+  const changeSport = (sport: Sport) => {
+    if (sport === activeSport) return;
+    activeLoadControllerRef.current?.abort();
+    activeLoadRef.current = null;
+    setData(null);
+    setDraftKings(null);
+    setDraftKingsError("");
+    setError("");
+    setRefreshing(false);
+    setActiveSport(sport);
+    window.scrollTo({ top: 0, behavior: "instant" });
+  };
+
 
   const content = useMemo(() => {
     if (error && !data) {
@@ -7152,6 +7185,10 @@ export default function Home() {
     }
     if (!data) return <LoadingState />;
 
+    if (active === "Signals" || active === "EZPZ Picks") {
+      return <SignalEzpzPicks key={`${activeSport}-${active}`} board={signalBoard} picksOnly={active === "EZPZ Picks"} sport={activeSport} selectedDate={signalDate} onDateChange={setSelectedSignalDate} lineups={activeSport === "NBA" ? data.nbaMarket?.lineups : activeSport === "NCAAM" ? data.ncaamMarket?.lineups : undefined} />;
+    }
+
     if (activeSport === "NCAAM" && data.ncaamMarket) return <NbaBoard tab={active} data={data.ncaamMarket} />;
 
     if (activeSport === "NBA" && data.nbaMarket) {
@@ -7166,10 +7203,6 @@ export default function Home() {
           data={data as any}
         />
       );
-    }
-
-    if (active === "EZPZ Picks") {
-      return <SignalEzpzPicks board={(data as any).footballSignals} picksOnly sport={activeSport} />;
     }
 
     if (activeSport !== "MLB") {
@@ -7620,6 +7653,8 @@ export default function Home() {
   }, [
     activeSport,
     active,
+    signalBoard,
+    signalDate,
     selectedEzpzDate,
     selectedMlbTrendDate,
     mlbDailyMarket,
@@ -7647,34 +7682,9 @@ export default function Home() {
   ]);
 
   return (
-    <main className="shell">
-      <section className="hero">
-        <div className="heroAccent" aria-hidden="true" />
-        <div className="heroBrand">
-          <div className="logoWrap">
-            <div className="logoFallback">EZ</div>
-            <img className="logo" src="/ezpz_logo.png" alt="EZPZ Picks logo" />
-          </div>
-          <div className="heroCopy">
-            <h1>EZPZ Betting Board</h1>
-          </div>
-        </div>
-
-        <div className="heroStatusRow">
-          {data?.lastUpdated ? (
-            <span>Updated {data.lastUpdated}</span>
-          ) : null}
-          <button
-            type="button"
-            className="refreshBtn"
-            onClick={() => void loadData(false, true)}
-            disabled={refreshing}
-            aria-label={`Refresh ${activeSportMeta.shortName} public board`}
-          >
-            {refreshing ? "Refreshing…" : "Refresh board"}
-          </button>
-        </div>
-      </section>
+    <main className="shell ez-mobile-shell">
+      <SiteHeader sport={activeSport} onSportChange={changeSport} dates={signalPage ? signalDates : []} date={signalDate} onDateChange={setSelectedSignalDate} refreshing={refreshing} onRefresh={() => void loadData(false, true)} />
+      <SiteNavigation active={active} onChange={changeTab} />
 
       {error && data ? (
         <div className="staleBanner">
@@ -7688,34 +7698,7 @@ export default function Home() {
         </div>
       ) : null}
 
-      <nav className="sportTabs">
-        {SPORTS.map((sport) => (
-          <button
-            key={sport}
-            className={`sportTabBtn ${activeSport === sport ? "active" : ""}`}
-            onClick={() => {
-              // Clear the prior sport payload before loading the newly selected sport.
-              // This prevents an MLB stale response from being rendered under NFL/NCAAF
-              // when a sport-specific request is delayed or rate-limited.
-              if (sport !== activeSport) {
-                activeLoadControllerRef.current?.abort();
-                activeLoadRef.current = null;
-                setData(null);
-                setDraftKings(null);
-                setDraftKingsError("");
-                setError("");
-                setRefreshing(false);
-              }
-              setActiveSport(sport);
-              setActive("Today’s Model Plays");
-            }}
-          >
-            {sport}
-          </button>
-        ))}
-      </nav>
-
-      {data && active !== "Signals" ? (
+      {data && active !== "Signals" && active !== "EZPZ Picks" ? (
         <section className="tileGrid">
           {activeSport === "MLB" ? (
             <>
@@ -7807,19 +7790,8 @@ export default function Home() {
         </section>
       ) : null}
 
-      <nav className="tabs">
-        {TABS.filter(tab => tab !== "Signals" || activeSport === "NFL" || activeSport === "NCAAF" || activeSport === "NBA" || activeSport === "NCAAM").map((tab) => (
-          <button
-            key={tab}
-            className={`tabBtn ${active === tab ? "active" : ""}`}
-            onClick={() => setActive(tab)}
-          >
-            {tab}
-          </button>
-        ))}
-      </nav>
-
       {content}
+      {active === "Records" ? <SignalResearch key={activeSport} board={signalBoard} /> : null}
 
       <footer className="siteFooter">
         <div>
