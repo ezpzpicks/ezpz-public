@@ -492,7 +492,13 @@ async function loadFootballWeekSchedule(sport: FootballSport, start: string, end
       const competitors = Array.isArray(competition?.competitors) ? competition.competitors : [];
       const home = competitors.find((entry: any) => String(entry?.homeAway || "").toLowerCase() === "home") || competitors[0];
       const away = competitors.find((entry: any) => String(entry?.homeAway || "").toLowerCase() === "away") || competitors[1];
-      const teamName = (entry: any) => String(entry?.team?.displayName || entry?.team?.shortDisplayName || entry?.team?.name || "").trim();
+      // College schedule matching uses school identities. ESPN displayName
+      // includes mascots ("Miami (OH) RedHawks"), which cannot match the saved
+      // "Miami (OH)" row and would leave its old kickoff in the Signals board.
+      const teamName = (entry: any) => String(
+        (sport === "NCAAF" ? entry?.team?.shortDisplayName : entry?.team?.displayName)
+        || entry?.team?.displayName || entry?.team?.shortDisplayName || entry?.team?.name || "",
+      ).trim();
       const awayTeam = teamName(away);
       const homeTeam = teamName(home);
       if (!awayTeam || !homeTeam) continue;
