@@ -74,6 +74,15 @@ c.commit();print(json.dumps(out))`;
     const college = await store.readSelectionTrial('NCAAM', '2026-11-04');
     assert.equal(college.capturedGames, 0); assert.equal(college.available, false);
     assert.equal(sql(["SELECT COUNT(*) n FROM dataset_rows WHERE dataset='current_ezpz_picks'"])[0][0].n, 0);
+    // Football postseason in January must retain the preceding fall's original observations.
+    sql(history().map((source, i) => {
+      const side = { ...source, policyVersion: 'football-signals-nfl-grouped-test-v1' };
+      return `INSERT INTO dataset_rows(sport,dataset,row_index,payload_json,date_key) VALUES ('NFL','football_signal_observations',${i + 1},${quote(JSON.stringify(row(side)))},${quote(side.date)})`;
+    }), true);
+    clock = api.trialDayStart('2027-01-03') + 17.75 * 3600000;
+    await store.captureSelectionTrial('NFL', [], [], clock);
+    const postseason = await store.readSelectionTrial('NFL', '2027-01-03');
+    assert.equal(postseason.model.models[0].games, 144);
   } finally { fs.rmSync(temp, { recursive: true, force: true }); }
 });
 

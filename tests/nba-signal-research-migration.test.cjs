@@ -26,7 +26,7 @@ function savedRow(day, direction, result) {
 
 test('NBA collector rebuilds side-specific history once from frozen rows, then resumes bounded day reads', async () => {
   const rows = [savedRow(earlier, 'Over', 'W'), savedRow(earlier, 'Under', 'L'), savedRow(date, 'Over', 'W')];
-  const originalRows = JSON.stringify(rows), reads = [], writes = [];
+  const originalRows = JSON.stringify(rows), reads = [], writes = [], trials = [];
   let state = { ...core.emptyNbaAnalysis(date), archiveDates: [earlier, date],
     modelRecords: { version: NBA_MODEL_RECORD_POLICY },
     signalResearch: { version: 'signal-combinations-2026-10-23-v1', days: {} } };
@@ -43,6 +43,7 @@ test('NBA collector rebuilds side-specific history once from frozen rows, then r
     './nbaForecasts': { readNbaForecasts: async () => [], readNbaForecastHistory: async () => { throw new Error('Unexpected model-history scan'); } },
     './nbaRecords': { NBA_MODEL_RECORD_POLICY, updateNbaModelRecords: previous => previous },
     './ezpzCurrentPicks': { persistEzpzCurrentPicks: async () => {} },
+    './selectionTrialStore': { captureSelectionTrial: async (...args) => { trials.push(args); } },
   };
   const api = {};
   vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(root, 'lib/nbaAnalysis.ts'), 'utf8'), {
@@ -65,4 +66,6 @@ test('NBA collector rebuilds side-specific history once from frozen rows, then r
   assert.equal(research.signalCombinationRecord(repeated, over).record, '2-0-0', 'repeated refresh does not double count');
   assert.equal(JSON.stringify(rows), originalRows, 'frozen observations stay unchanged');
   assert.equal(writes.filter(tab => tab === trend.NBA_ANALYSIS_TAB).length, 2);
+  assert.equal(trials.length, 2, 'the separate trial boundary receives each successful saved board');
+  assert(trials.every(call => call[0] === 'NBA'));
 });

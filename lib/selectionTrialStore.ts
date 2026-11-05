@@ -27,8 +27,9 @@ export function trialSidesFromRows(sport: TrialSport, rows: TursoRow[]): TrialSi
 async function sourceRows(sport: TrialSport, date: string, dates?: string[]) {
   if (dates) return readTursoDatasetByDateKeys(sport, sourceTab(sport), dates);
   // One bounded source read per sport/date, only when the collector first creates its frozen daily model.
-  const season = ["NBA", "NCAAM"].includes(sport) && Number(date.slice(5, 7)) < 7 ? Number(date.slice(0, 4)) - 1 : Number(date.slice(0, 4));
-  const start = `${season}-${["NBA", "NCAAM"].includes(sport) ? "07-01" : "01-01"}`;
+  const crossYear = sport !== "MLB";
+  const season = crossYear && Number(date.slice(5, 7)) < 7 ? Number(date.slice(0, 4)) - 1 : Number(date.slice(0, 4));
+  const start = `${season}-${crossYear ? "07-01" : "01-01"}`;
   // Discard large chart/context arrays in SQL; only original flags, strengths, quote and labels enter the fit.
   const detail = `json_extract(payload_json,'$."Details JSON"')`;
   const compact = `CASE WHEN json_valid(${detail}) THEN json_remove(${detail},'$.marketContext','$.teamGames','$.publicMatches','$.teamTrend','$.sosContext','$.modelContext','$.comboScore') ELSE '{}' END`;
