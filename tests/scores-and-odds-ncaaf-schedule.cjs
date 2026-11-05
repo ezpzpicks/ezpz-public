@@ -21,6 +21,17 @@ function loadModule(file, imports = {}, extra = "") {
 }
 
 const parser = loadModule("lib/scoresAndOddsBettingSplits.ts");
+
+test('NCAAF coverage identifies a missing spread even when both total sides are published', () => {
+  const expected = new Map([['toledo-sacramento', 'Toledo @ Sacramento State']]);
+  const total = [{ game: 'toledo-sacramento', market: 'Total', side: 'Over' },
+    { game: 'toledo-sacramento', market: 'Total', side: 'Under' }];
+  const args = [expected, total, r => r.game, r => r.market, r => r.side];
+  const college = parser.assessScoresAndOddsMarketCoverage(...args, ['Spread', 'Total']);
+  assert.equal(college.ok, false);
+  assert.deepEqual(Array.from(college.incompleteGames), ['Toledo @ Sacramento State (0/2 spread sides, 2/2 total sides)']);
+  assert.equal(parser.assessScoresAndOddsMarketCoverage(...args).ok, true, 'Existing published-market-only callers retain their policy');
+});
 const title = "<title>NCAAF Consensus Picks - September 29th, 2026</title>";
 
 function card(away, home, clock, market = "Spread") {
@@ -43,6 +54,15 @@ function card(away, home, clock, market = "Spread") {
 function parse(html, sport = "NCAAF") {
   return parser.parseScoresAndOddsConsensus(title + html, sport);
 }
+
+test('a listed Toledo spread with missing handle percentages cannot become invented split evidence', () => {
+  const clock = '<span data-role="localtime" data-value="2026-11-05T00:00:00Z"></span>';
+  const partial = card('Toledo', 'Sacramento State', clock)
+    .replace('<span>62%</span><span>38%</span><span>54%</span><span>46%</span>', '<span>48%</span><span> </span>');
+  const rows = parse(partial + card('Toledo', 'Sacramento State', clock, 'Total'));
+  assert.equal(rows.length, 2); assert(rows.every(r => r.market === 'Total'));
+  assert(rows.every(r => r.game === 'Toledo @ Sacramento State'));
+});
 
 test("weekly NCAAF games use their ISO kickoff, including UTC date rollover", () => {
   const html = ["Spread", "Total"].map((market) => card(

@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const ts = require('typescript');
+const coverageApi = require('./load-typescript.cjs')(path.resolve(__dirname, '../lib/scoresAndOddsBettingSplits.ts'));
 
 // Exercise production parsing, recovery, read and scheduled-write paths with
 // an in-memory store and clock. No test contacts a feed or production database.
@@ -37,7 +38,7 @@ function harness(now = '2026-09-26T01:09:00Z', useSource = false, officialGames)
     },
   };
   const source = fs.readFileSync(path.join(__dirname, '../lib/footballWeeklyMarket.ts'), 'utf8') + `
-    export const timing = { ncaafKickoffEpoch, ncaafMinutesUntilEvent, resolveNcaafSnapshot, ncaafHistoryForPlay, weeklyRow, loadPostedSplits };
+    export const timing = { ncaafKickoffEpoch, ncaafMinutesUntilEvent, resolveNcaafSnapshot, ncaafHistoryForPlay, weeklyRow, loadPostedSplits, normalizeNcaafHistoryForPlay };
     ${useSource ? '' : 'loadPostedSplits = async () => ({ splits: testFeed(), errors: testWarnings() } as any);'}
   `;
   const code = ts.transpileModule(source, { compilerOptions: {
@@ -52,7 +53,8 @@ function harness(now = '2026-09-26T01:09:00Z', useSource = false, officialGames)
     require: id => id === './sportSheets' ? storage : {
       SCORES_AND_ODDS_SOURCE: 'ScoresAndOdds',
       loadScoresAndOddsConsensus: async () => ({ splits: feed }),
-      assessScoresAndOddsMarketCoverage: () => ({ ok: true, receivedGames: 1, expectedGames: 1, missingGames: [], incompleteGames: [] }),
+      assessScoresAndOddsMarketCoverage: useSource ? coverageApi.assessScoresAndOddsMarketCoverage
+        : () => ({ ok: true, receivedGames: 1, expectedGames: 1, missingGames: [], incompleteGames: [] }),
     },
   });
   return { ...exports, tables, writes, setFeed: rows => { feed = rows; }, setWarnings: rows => { warnings = rows; }, failAppend: error => { appendError = error; }, setTime: time => { currentTime = Date.parse(time); } };
@@ -90,6 +92,98 @@ function persistedHistory(rows) {
   return rows.map(row => ({ snapshotTime: row['Snapshot Time ET'], line: Number(row.Line),
     odds: row.Odds, betsPct: Number(row['Bets %']), moneyPct: Number(row['Handle %']) }));
 }
+
+test('CMU and EMU stay separate through abbreviated schedule names, a favorite change and the final freeze', async () => {
+  const kickoff = '2026-11-05T00:30:00.000Z';
+  const official = [{ date: kickoff, competitions: [{ date: kickoff, competitors: [
+    { homeAway: 'away', team: { location: 'Central Michigan', shortDisplayName: 'C Michigan' } },
+    { homeAway: 'home', team: { location: 'Eastern Michigan', shortDisplayName: 'E Michigan' } },
+  ] }] }];
+  const h = harness('2026-11-04T23:40:00Z', true, official);
+  h.tables.schedule = [{ Date: '2026-11-04', 'Away Team': 'Central Michigan',
+    'Home Team': 'Eastern Michigan', 'Game Time': kickoff }];
+  const source = { date: '2026-11-04', eventTime: '19:30', game: 'Central Michigan @ Eastern Michigan',
+    awayTeam: 'Central Michigan', homeTeam: 'Eastern Michigan', market: 'Spread', side: '' };
+  const quotes = awayLine => [
+    { ...source, selectionTeam: source.awayTeam, selection: `${source.awayTeam} ${awayLine}`,
+      line: awayLine, odds: '-110', betsPct: 44, moneyPct: 53 },
+    { ...source, selectionTeam: source.homeTeam, selection: `${source.homeTeam} ${-awayLine}`,
+      line: -awayLine, odds: '-115', betsPct: 56, moneyPct: 47 },
+  ];
+  h.setFeed(quotes(1.5));
+  await h.syncPostedFootballMarkets('NCAAF');
+  assert.equal(h.tables.weekly_market_trends.length, 2, 'Both spread sides must survive the canonical storage key');
+  h.setTime('2026-11-05T00:14:00Z');
+  h.setFeed(quotes(-3));
+  await h.syncPostedFootballMarkets('NCAAF');
+  h.setTime('2026-11-05T00:21:00Z');
+  h.setFeed(quotes(-4.5)); // A later quote cannot change the locked line or put it in the team label.
+  await h.syncPostedFootballMarkets('NCAAF');
+  const stored = h.tables.weekly_market_trends.map(r => JSON.parse(r['Details JSON']));
+  assert.equal(stored.length, 2);
+  for (const [team, line, bets, money, first] of [
+    ['Central Michigan', -3, 44, 53, 1.5], ['Eastern Michigan', 3, 56, 47, -1.5],
+  ]) {
+    const p = stored.find(p => p.selectionTeam === team);
+    assert(p, team); assert.equal(p.line, line); assert.equal(p.betsPct, bets); assert.equal(p.moneyPct, money);
+    assert.equal(p.snapshotStatus, 'FINAL_PREGAME');
+    assert.equal(p.frozenAt, '11/04/2026, 7:14:00 PM EST');
+    assert.equal(p.movementHistory[0].line, first);
+    assert(p.movementHistory.every(point => point.betsPct === bets && point.moneyPct === money));
+    assert.equal(p.selection, team, 'The display label cannot retain a different source line after freezing');
+  }
+  const read = await h.readWeeklyFootballMarket('NCAAF', { dateKeys: ['2026-11-04'], hydrateHistory: false });
+  assert.equal(read.trendPlays.length, 2, 'Read-time alias deduplication must retain both teams');
+});
+
+test('legacy short schedule names cannot collapse CMU/EMU and exact Michigan State identity wins over token overlap', async () => {
+  for (const [away, home, scheduleAway, scheduleHome] of [
+    ['Central Michigan', 'Eastern Michigan', 'C Michigan', 'E Michigan'],
+    ['Michigan', 'Michigan State', 'Michigan', 'Michigan State'],
+  ]) {
+    const h = harness('2026-11-04T23:40:00Z', true), kickoff = '2026-11-05T00:30:00.000Z';
+    const p = { ...play(kickoff), date: '2026-11-04', game: `${away} @ ${home}`,
+      gameKey: '2026-11-04|legacy', awayTeam: away, homeTeam: home, market: 'Spread', side: '',
+      selection: away, selectionTeam: away, line: -3, movementHistory: [],
+      updatedAt: '11/04/2026, 7:14:00 PM EST', frozenAt: '11/04/2026, 7:14:00 PM EST' };
+    h.tables.schedule = [{ Date: p.date, 'Away Team': scheduleAway, 'Home Team': scheduleHome, 'Game Time': kickoff }];
+    h.tables.weekly_market_trends = [h.timing.weeklyRow(p), h.timing.weeklyRow({ ...p, selection: home, selectionTeam: home, line: 3 })];
+    const read = await h.readWeeklyFootballMarket('NCAAF', { hydrateHistory: false });
+    assert.equal(read.trendPlays.length, 2, `${away} / ${home}`);
+    assert.equal(new Set(read.trendPlays.map(p => p.selectionTeam)).size, 2);
+  }
+});
+
+test('ambiguous school labels are rejected and a history normalizer cannot relabel the opponent as its own side', async () => {
+  const h = harness('2026-11-04T23:40:00Z', true), kickoff = '2026-11-05T00:30:00.000Z';
+  const p = { ...play(kickoff), date: '2026-11-04', game: 'Central Michigan @ Eastern Michigan',
+    gameKey: '2026-11-04|central michigan|eastern michigan', awayTeam: 'Central Michigan', homeTeam: 'Eastern Michigan',
+    market: 'Spread', side: '', selection: 'Central Michigan', selectionTeam: 'Central Michigan', line: -3 };
+  h.tables.schedule = [{ Date: p.date, 'Away Team': p.awayTeam, 'Home Team': p.homeTeam, 'Game Time': kickoff }];
+  h.setFeed([{ ...p, selectionTeam: 'Michigan', eventTime: '19:30' }]);
+  await assert.rejects(h.timing.loadPostedSplits('NCAAF', h.tables.schedule), /no NCAAF market sides/);
+  const away = observation(p, '11/04/2026, 7:14:00 PM EST');
+  const home = { ...away, Selection: 'E Michigan', Line: '3', 'Bets %': '56' };
+  const foreign = { ...away, 'Home Team': 'Toledo', Line: '-10' };
+  const normalized = h.timing.normalizeNcaafHistoryForPlay(p, [away, home, foreign]);
+  assert.equal(normalized.length, 1); assert.equal(normalized[0].Line, '-3');
+  assert.equal(normalized[0].Selection, 'Central Michigan');
+});
+
+test('NCAAF collection retains a usable total and reports the unpublished spread without repeating a successful save', async () => {
+  const h = harness('2026-11-04T22:00:00Z', true), kickoff = '2026-11-05T00:00:00.000Z';
+  h.tables.schedule = [{ Date: '2026-11-04', 'Away Team': 'Toledo', 'Home Team': 'Sacramento State', 'Game Time': kickoff }];
+  h.setFeed(['Over', 'Under'].map((side, i) => ({ date: '2026-11-04', eventTime: '19:00',
+    game: 'Toledo @ Sacramento State', awayTeam: 'Toledo', homeTeam: 'Sacramento State',
+    market: 'Total', side, selection: side, selectionTeam: '', line: 52.5, odds: '-110',
+    betsPct: i ? 85 : 15, moneyPct: i ? 34 : 66 })));
+  const result = await h.syncPostedFootballMarkets('NCAAF');
+  assert.equal(result.refreshCompleted, true);
+  assert.equal(result.coverage.ok, false);
+  assert(result.errors.some(error => error.includes('0/2 spread sides, 2/2 total sides')));
+  assert.equal(h.tables.weekly_market_trends.length, 2);
+  assert(h.tables.weekly_market_trends.every(row => row.Market === 'Total'));
+});
 
 for (const sport of ['NFL', 'NCAAF']) test(`${sport} refresh success distinguishes feed warnings from a failed archive save`, async () => {
   const h = harness('2026-09-25T18:00:00Z');
