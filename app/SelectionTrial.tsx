@@ -29,6 +29,14 @@ export default function SelectionTrial({ sport, date, initiallyOpen = false }: {
     return () => controller.abort();
   }, [open, key, sport, date]);
   const data = result?.key === key && result.status === "ready" ? result.data : undefined;
+  const rawTrial = sport === "NCAAM" ? data?.paperTrial : undefined;
+  const rawPlays = rawTrial && data ? data.today.flatMap(game => {
+    const paper = game.paperComparison;
+    if (!paper?.rawPickId || paper.version !== rawTrial.policy.version) return [];
+    const pick = game.estimates.find(estimate => estimate.id === paper.rawPickId);
+    const rawEstimate = paper.rawEstimates.find(estimate => estimate.id === paper.rawPickId);
+    return pick && rawEstimate ? [{ game, pick, rawEstimate }] : [];
+  }) : [];
   return <details className="fs-results fs-trial" open={open} onToggle={event => setOpen(event.currentTarget.open)}>
     <summary>Selection trial <span>Expected value · Research only</span></summary>
     {open ? <div aria-live="polite">
@@ -38,6 +46,18 @@ export default function SelectionTrial({ sport, date, initiallyOpen = false }: {
           ? "No prospective trial was recorded for this date." : "The trial is awaiting its first scheduled refresh for this date."} It uses this sport’s original pregame observations.</p>
         : <>
           <p>Tests estimated return after price, overlapping signals and uncertainty. Trial selections have their own record and do not publish as official EZPZ Picks.</p>
+          {rawTrial ? <section aria-label="NCAAM raw test plays">
+            <h3>NCAAM raw test plays</h3>
+            <p>Paper record through {date} · <strong>{rawTrial.raw.record}</strong> · {rawTrial.raw.pending} pending · {rawTrial.raw.netUnits.toFixed(2)}u · ROI {pct(rawTrial.raw.roiPct)}</p>
+            <p>Up to one spread or total per game at the final pregame snapshot. A play needs {roi(rawTrial.policy.minRawRoi)} raw estimated ROI or higher before calibration and uncertainty.</p>
+            {rawPlays.length ? <table className="fs-table"><thead><tr><th scope="col">Saved game</th><th scope="col">Test play</th><th scope="col">Raw estimated ROI</th></tr></thead><tbody>
+              {rawPlays.map(({ game, pick, rawEstimate }) => <tr key={game.gameKey}>
+                <th scope="row">{game.game}</th>
+                <td data-label="Test play">{pick.selection}<small>{pick.odds} · {game.outcomes[pick.id]?.result || "Pending"}</small></td>
+                <td data-label="Raw estimated ROI">{roi(rawEstimate.expectedRoi)}<small>{pick.priceBasis}</small></td>
+              </tr>)}
+            </tbody></table> : <p>No raw test plays were saved for this date.</p>}
+          </section> : null}
           <table className="fs-table"><thead><tr><th scope="col">Selection method</th><th scope="col">Record</th><th scope="col">ROI / units</th></tr></thead><tbody>
             {([["Expected-value trial", data.trial], ["Current rule on matched games", data.comparison]] as const).map(([label, record]) => <tr key={label}>
               <th scope="row">{label}</th><td data-label="Record">{record.record}<small>{record.pending} pending</small></td>
