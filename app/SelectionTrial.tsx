@@ -2,13 +2,15 @@
 
 import { useEffect, useState } from "react";
 import type { TrialModel, TrialDecision, TrialSport } from "../lib/selectionTrial";
+import FadeTrialPanel, { type FadeTrialReport } from "./FadeTrialPanel";
 
 type RecordSummary = { record: string; settled: number; pending: number; netUnits: number; roiPct: number | null;
   assumedPrices: number; unverifiedPrices: number };
 type Payload = { ok: boolean; available: boolean; error?: string; model: TrialModel | null; capturedGames: number;
   passedGames: number; trial: RecordSummary; comparison: RecordSummary; today: TrialDecision[];
   paperTrial?: { policy: { version: string; minRawRoi: number }; capturedGames: number; reversalGames: number;
-    startedAt: string | null; raw: RecordSummary; matchedRaw: RecordSummary; opposite: RecordSummary } };
+    startedAt: string | null; raw: RecordSummary; matchedRaw: RecordSummary; opposite: RecordSummary };
+  fadeTrial?: FadeTrialReport };
 const pct = (value: number | null) => value == null ? "—" : `${value.toFixed(1)}%`;
 const roi = (value: number) => `${value > 0 ? "+" : ""}${(100 * value).toFixed(1)}%`;
 
@@ -48,6 +50,7 @@ export default function SelectionTrial({ sport, date, initiallyOpen = false }: {
               <td data-label="Earlier training games">{model.games}<small>{model.dates} dates</small></td>
               <td data-label="Later calibration games">{model.calibrationGames}<small>{model.calibrationDates} dates</small></td></tr>)}
           </tbody></table>
+          <FadeTrialPanel sport={sport} date={date} data={data.fadeTrial} decisions={data.today} />
           {data.today.length ? <table className="fs-table"><thead><tr><th scope="col">Saved game</th><th scope="col">Trial decision</th><th scope="col">Estimated return</th></tr></thead><tbody>
             {data.today.map(game => { const pick = game.estimates.find(e => e.id === game.pickId);
               const leader = pick || game.estimates.slice().sort((a, b) => b.conservativeRoi - a.conservativeRoi)[0];
@@ -56,7 +59,7 @@ export default function SelectionTrial({ sport, date, initiallyOpen = false }: {
                 <td data-label="Estimated return">{leader ? roi(leader.conservativeRoi) : "—"}<small>{leader ? `After uncertainty · ${leader.priceBasis}` : ""}</small></td></tr>; })}
           </tbody></table> : <p>No complete game cards were captured for this date yet. Decisions require both markets in the final 10–20 minutes.</p>}
           {data.paperTrial ? <>
-            <h3>Opposite-side paper test</h3>
+            <h3>Mechanical opposite-side test</h3>
             <p>Tests the other side when a raw candidate reaches +2% estimated ROI, enough earlier validation exists,
               calibration retains zero learned adjustment, and raw probability error is worse than the market baseline.
               Both sides freeze before the game. A rejection caused only by uncertainty or missing validation does not trigger a reversal.</p>

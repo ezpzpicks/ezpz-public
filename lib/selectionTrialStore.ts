@@ -1,10 +1,13 @@
 import { readTursoDatasetByDateKeys, runTursoAtomicSql, runTursoSql, type TursoRow } from "./tursoStore";
 import { buildTrialModel, buildTrialDecisions, settleTrialDecision, trialDate, trialDayStart, trialRecord,
-  SELECTION_TRIAL_VERSION, OPPOSITE_TRIAL_POLICY, TRIAL_POLICY, TRIAL_FEATURES, type TrialSport, type TrialSide, type TrialModel, type TrialDecision } from "./selectionTrial";
+  SELECTION_TRIAL_VERSION, FADE_TRIAL_VERSION, OPPOSITE_TRIAL_POLICY, TRIAL_POLICY, TRIAL_FEATURES,
+  type TrialSport, type TrialSide, type TrialModel, type TrialDecision, type TrialMarket, type TrialCalibrationObservation } from "./selectionTrial";
+import { buildFadeTrialModel, buildFadeTrialFromBase, buildFadeDecision, FADE_POLICY, type FadeModel } from "./selectionFade";
 
 export const TRIAL_MODELS_TAB = "selection_trial_models";
 export const TRIAL_DECISIONS_TAB = "selection_trial_decisions";
 export const TRIAL_MLB_INPUTS_TAB = "selection_trial_mlb_inputs";
+export const FADE_MODELS_TAB = "selection_fade_models";
 const q = (value: unknown) => `'${String(value ?? "").replaceAll("'", "''")}'`;
 const sourceTab = (sport: TrialSport) => sport === "MLB" ? TRIAL_MLB_INPUTS_TAB
   : sport === "NBA" ? "nba_signal_observations" : sport === "NCAAM" ? "ncaam_signal_observations" : "football_signal_observations";
@@ -32,7 +35,9 @@ async function sourceRows(sport: TrialSport, date: string, dates?: string[]) {
   const start = `${season}-${crossYear ? "07-01" : "01-01"}`;
   // Discard large chart/context arrays in SQL; only original flags, strengths, quote and labels enter the fit.
   const detail = `json_extract(payload_json,'$."Details JSON"')`;
-  const compact = `CASE WHEN json_valid(${detail}) THEN json_remove(${detail},'$.marketContext','$.teamGames','$.publicMatches','$.teamTrend','$.sosContext','$.modelContext','$.comboScore') ELSE '{}' END`;
+  const signalId = `CASE WHEN type='object' THEN json_extract(value,'$.signal') ELSE NULL END`;
+  const typeIds = `CASE WHEN json_type(${detail},'$.publicTypeIds')='array' THEN json_extract(${detail},'$.publicTypeIds') ELSE COALESCE((SELECT json_group_array(${signalId}) FROM json_each(${detail},'$.publicMatches') WHERE ${signalId} IS NOT NULL),'[]') END`;
+  const compact = `CASE WHEN json_valid(${detail}) THEN json_set(json_remove(${detail},'$.marketContext','$.teamGames','$.publicMatches','$.teamTrend','$.sosContext','$.modelContext','$.comboScore'),'$.publicTypeIds',json(${typeIds})) ELSE '{}' END`;
   const result = await runTursoSql([`SELECT json_set(payload_json,'$."Details JSON"',printf('%s',${compact})) AS payload_json FROM dataset_rows INDEXED BY idx_dataset_rows_date WHERE sport=${q(sport)} AND dataset=${q(sourceTab(sport))} AND date_key>=${q(start)} AND date_key<${q(date)} ORDER BY date_key,row_index`]);
   return result[0].map(row => JSON.parse(row.payload_json) as TursoRow);
 }
@@ -47,6 +52,22 @@ function parseModels(rows: TursoRow[], sport: TrialSport, date: string): TrialMo
       || m.covariance.length !== TRIAL_FEATURES.length || m.covariance.some(r => r.length !== TRIAL_FEATURES.length || r.some(v => !Number.isFinite(v))))) {
     throw new Error("Saved trial model is invalid; refusing to overwrite its decisions");
   }
+  return model;
+}
+function parseFadeModel(rows: TursoRow[], sport: TrialSport, date: string): FadeModel | null {
+  const row = rows.find(r => r.Date === date && r.Selection === FADE_TRIAL_VERSION);
+  if (!row) return null;
+  const model = JSON.parse(row["Details JSON"]) as FadeModel;
+  const cutoff = trialDayStart(date);
+  if (model.version !== FADE_TRIAL_VERSION || model.sport !== sport || model.date !== date
+    || model.trainingCutoff !== new Date(cutoff).toISOString() || model.baseModel.version !== SELECTION_TRIAL_VERSION
+    || model.baseModel.sport !== sport || model.baseModel.date !== date || model.baseModel.trainingCutoff !== model.trainingCutoff
+    || model.models.length !== 2 || model.baseModel.models.length !== 2
+    || model.baseModel.models.some(m => m.beta.length !== TRIAL_FEATURES.length || m.beta.some(v => !Number.isFinite(v))
+      || m.covariance.length !== TRIAL_FEATURES.length || m.covariance.some(r => r.length !== TRIAL_FEATURES.length || r.some(v => !Number.isFinite(v))))
+    || model.models.some(m => !Number.isFinite(m.weight) || Math.abs(m.weight) > 1 || m.samples.some(s => s.date >= date
+      || !Number.isFinite(s.knownAt) || s.knownAt >= cutoff || !Number.isFinite(s.margin) || !Number.isFinite(s.offset)
+      || ![0, 1].includes(s.y) || !Array.isArray(s.publicTypeIds)))) throw new Error("Saved fade model is invalid");
   return model;
 }
 function decisionRows(rows: TursoRow[]): TrialDecision[] {
@@ -77,10 +98,15 @@ async function insertImmutable(sport: TrialSport, tab: string, rows: TursoRow[])
 /** Called by existing scheduled producers only. No provider calls, publishing, or official record writes. */
 export async function captureSelectionTrial(sport: TrialSport, sides: TrialSide[], incumbentIds: string[], now = Date.now(), stale = false) {
   const date = trialDate(now);
+  let training: TrialSide[] | null = null;
+  let fadeCandidate: FadeModel | null = null;
   let model = parseModels(await readTursoDatasetByDateKeys(sport, TRIAL_MODELS_TAB, [date]), sport, date);
   if (!model) {
-    const training = trialSidesFromRows(sport, await sourceRows(sport, date));
-    const candidate = buildTrialModel(sport, date, training, now);
+    training = trialSidesFromRows(sport, await sourceRows(sport, date));
+    const observations = new Map<TrialMarket, TrialCalibrationObservation[]>();
+    const candidate = buildTrialModel(sport, date, training, now, (market, rows) => observations.set(market, rows));
+    try { fadeCandidate = buildFadeTrialFromBase(candidate, observations, now); }
+    catch (error) { console.error("[selection-fade] Initial calibration unavailable", { sport, date, error }); }
     const pending = await runTursoSql([`SELECT DISTINCT date_key FROM dataset_rows INDEXED BY idx_dataset_rows_date WHERE sport=${q(sport)} AND dataset=${q(TRIAL_DECISIONS_TAB)} AND date_key<${q(date)} AND selection=${q(SELECTION_TRIAL_VERSION)} AND result='PENDING'`]);
     candidate.pendingDates = pending[0].map(row => row.date_key);
     await insertImmutable(sport, TRIAL_MODELS_TAB, [modelRow(candidate)]);
@@ -88,6 +114,17 @@ export async function captureSelectionTrial(sport: TrialSport, sides: TrialSide[
     model = parseModels(await readTursoDatasetByDateKeys(sport, TRIAL_MODELS_TAB, [date]), sport, date);
     if (!model) throw new Error("Trial daily model was not saved");
   }
+  let fadeModel: FadeModel | null = null;
+  try {
+    fadeModel = parseFadeModel(await readTursoDatasetByDateKeys(sport, FADE_MODELS_TAB, [date]), sport, date);
+    if (!fadeModel) {
+      training ||= trialSidesFromRows(sport, await sourceRows(sport, date));
+      const candidate = fadeCandidate || buildFadeTrialModel(sport, date, training, now);
+      await insertImmutable(sport, FADE_MODELS_TAB, [{ Date: date, "Game Key": `model|${FADE_TRIAL_VERSION}`,
+        Market: "Model", Selection: FADE_TRIAL_VERSION, "Details JSON": JSON.stringify(candidate) }]);
+      fadeModel = parseFadeModel(await readTursoDatasetByDateKeys(sport, FADE_MODELS_TAB, [date]), sport, date);
+    }
+  } catch (error) { console.error("[selection-fade] Daily model unavailable", { sport, date, error }); }
   const dates = [...new Set([...Array.from({ length: 8 }, (_, i) => new Date(Date.parse(`${date}T12:00:00Z`) - i * 86400000).toISOString().slice(0, 10)),
     ...(model.pendingDates || []),
     ...sides.filter(s => s.recorded).map(s => s.date)])];
@@ -95,7 +132,11 @@ export async function captureSelectionTrial(sport: TrialSport, sides: TrialSide[
   const existingKeys = new Set(saved.map(d => `${d.date}|${d.gameKey}`));
   const decisionAt = Math.max(now, Date.now());
   const fresh = stale ? [] : buildTrialDecisions(model, sides, incumbentIds, decisionAt)
-    .filter(d => !existingKeys.has(`${d.date}|${d.gameKey}`));
+    .filter(d => !existingKeys.has(`${d.date}|${d.gameKey}`)).map(d => {
+      if (!fadeModel) return d;
+      try { const fadeComparison = buildFadeDecision(fadeModel, d, sides); return fadeComparison ? { ...d, fadeComparison } : d; }
+      catch (error) { console.error("[selection-fade] Card unavailable", { sport, date, error }); return d; }
+    });
   await insertImmutable(sport, TRIAL_DECISIONS_TAB, fresh.map(decisionRow));
   const pending = saved.filter(d => d.estimates.some(e => !d.outcomes[e.id]));
   const suppliedDates = new Set(sides.filter(s => s.recorded).map(s => s.date));
@@ -113,17 +154,26 @@ export async function captureSelectionTrial(sport: TrialSport, sides: TrialSide[
     return `UPDATE dataset_rows SET payload_json=json_set(payload_json,'$."Details JSON"',printf('%s',json_set(${details},'$.outcomes',${labels})),'$.Result',${status}),result=${status},imported_at=${q(new Date(decisionAt).toISOString())} WHERE ${keyWhere(sport, TRIAL_DECISIONS_TAB, decisionRow(d))}`;
   }));
   const status = { version: SELECTION_TRIAL_VERSION, modelId: model.id, captured: fresh.length, settledCards: changed.length,
+    fadeModelId: fadeModel?.id || null, fadeCards: fresh.filter(d => d.fadeComparison).length,
     statuses: model.models.map(m => ({ market: m.market, status: m.status, trainingGames: m.games, calibrationGames: m.calibrationGames })) };
   console.info("[selection-trial]", JSON.stringify({ sport, date, ...status }));
   return status;
 }
 
 export async function readSelectionTrial(sport: TrialSport, date: string) {
-  const [models, result] = await Promise.all([readTursoDatasetByDateKeys(sport, TRIAL_MODELS_TAB, [date]),
-    runTursoSql([`SELECT payload_json FROM dataset_rows INDEXED BY idx_dataset_rows_date WHERE sport=${q(sport)} AND dataset=${q(TRIAL_DECISIONS_TAB)} AND date_key<=${q(date)} AND selection=${q(SELECTION_TRIAL_VERSION)} ORDER BY date_key DESC,row_index DESC`])]);
+  const [models, result, fadeModels] = await Promise.all([readTursoDatasetByDateKeys(sport, TRIAL_MODELS_TAB, [date]),
+    runTursoSql([`SELECT payload_json FROM dataset_rows INDEXED BY idx_dataset_rows_date WHERE sport=${q(sport)} AND dataset=${q(TRIAL_DECISIONS_TAB)} AND date_key<=${q(date)} AND selection=${q(SELECTION_TRIAL_VERSION)} ORDER BY date_key DESC,row_index DESC`]),
+    readTursoDatasetByDateKeys(sport, FADE_MODELS_TAB, [date])]);
   const all = decisionRows(result[0].map(r => JSON.parse(r.payload_json))), model = parseModels(models, sport, date);
+  let fadeModel: FadeModel | null = null;
+  try { fadeModel = parseFadeModel(fadeModels, sport, date); }
+  catch (error) { console.error("[selection-fade] Saved report model unavailable", { sport, date, error }); }
   const paper = all.filter(d => d.paperComparison?.version === OPPOSITE_TRIAL_POLICY.version);
   const reversal = paper.filter(d => d.paperComparison!.oppositePickId);
+  const fades = all.filter(d => d.fadeComparison?.version === FADE_TRIAL_VERSION);
+  const selectedFades = fades.filter(d => d.fadeComparison!.pickId);
+  const fadeOriginals = selectedFades.map(d => ({ ...d,
+    pickId: d.fadeComparison!.estimates.find(e => e.id === d.fadeComparison!.pickId)!.sourceId }));
   return { ok: true, sport, date, version: SELECTION_TRIAL_VERSION, mode: "RESEARCH_ONLY", available: Boolean(model),
     policy: TRIAL_POLICY, model, trial: trialRecord(all, "trial"), comparison: trialRecord(all, "incumbent"),
     comparisonScope: "Incumbent selections on the same complete captured game cards and saved quotes; not its full official record.",
@@ -132,6 +182,13 @@ export async function readSelectionTrial(sport: TrialSport, date: string) {
       startedAt: paper.length ? paper.map(d => d.capturedAt).sort()[0] : null,
       raw: trialRecord(paper, "raw"), matchedRaw: trialRecord(reversal, "raw"), opposite: trialRecord(reversal, "opposite"),
       comparisonScope: "Prospective versioned paper cards only. Matched raw and opposite records use the same reversal games and each side's saved price. Historical reversed records are excluded." },
+    fadeTrial: { policy: FADE_POLICY, available: Boolean(fadeModel), capturedGames: fades.length,
+      record: trialRecord(fades, "fade"), matchedOriginal: trialRecord(fadeOriginals, "trial"),
+      model: fadeModel ? { id: fadeModel.id, createdAt: fadeModel.createdAt, trainingCutoff: fadeModel.trainingCutoff,
+        models: fadeModel.models.map(({ samples, ...summary }) => ({ ...summary,
+          trainingGames: fadeModel!.baseModel.models.find(m => m.market === summary.market)!.games,
+          trainingDates: fadeModel!.baseModel.models.find(m => m.market === summary.market)!.dates })) } : null,
+      note: "Separately calibrated fade probabilities and conservative ROI. New pregame cards only; historical replays are excluded. Uncertainty is approximate, not a validated confidence interval." },
     note: "Prospective trial only. Estimated returns are model estimates. No automatic promotion or publishing. Assumed and unverified prices are identified." };
 }
 

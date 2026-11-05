@@ -1,5 +1,8 @@
+import type { FadeDecision } from "./selectionFade";
+
 /** Pure, versioned expected-value challenger. Never used by the official selector. */
 export const SELECTION_TRIAL_VERSION = "selection-trial-2026-11-04-v1";
+export const FADE_TRIAL_VERSION = "selection-fade-2026-11-04-v1";
 export const TRIAL_POLICY = {
   ridge: 16, interceptRidge: 32, minTrainingGames: 40, minTrainingDates: 4,
   minCalibrationGames: 20, minCalibrationDates: 3, conservativeRoi: .02,
@@ -17,6 +20,7 @@ export type TrialSide = {
   market: TrialMarket; side: string; selection: string; line: number | null; odds: string;
   status: string; recorded: boolean; snapshotAt: string; policyVersion?: string; researchOrigin?: string;
   oddsAssumed?: boolean; lineSource?: unknown;
+  publicTypeIds?: string[]; publicMatches?: { signal?: string }[];
   signals: { key: string; active: boolean; available: boolean; value?: number | null }[];
   result: TrialResult; resultUpdated: string;
 };
@@ -24,6 +28,9 @@ export const TRIAL_FEATURES = ["baseline", "money", "movement", "publicLegacy", 
   "moneyStrength", "movementStrength", "teamStrength", "modelStrength", "sosStrength", "marketWithModel", "marketWithTeam"];
 type Pair = { key: string; date: string; gameKey: string; market: TrialMarket; a: TrialSide; b: TrialSide;
   x: number[]; offset: number; y: number | null; push: boolean; knownAt: number; };
+export type TrialPairedMarket = Pair;
+export type TrialCalibrationObservation = { date: string; gameKey: string; market: TrialMarket;
+  knownAt: number; offset: number; margin: number; y: number; a: TrialSide; b: TrialSide; pushProbability: number };
 type Fit = { beta: number[]; covariance: number[][]; games: number; dates: number; converged: boolean; };
 export type TrialMarketModel = Fit & {
   market: TrialMarket; calibrationGames: number; calibrationDates: number; calibrationShrink: number;
@@ -55,6 +62,7 @@ export type TrialDecision = {
   estimates: TrialEstimate[]; pickId: string | null; incumbentId: string | null;
   outcomes: Record<string, TrialOutcome>;
   paperComparison?: TrialPaperComparison;
+  fadeComparison?: FadeDecision;
 };
 
 const keys = ["money", "move", "system", "team", "model", "sos"];
@@ -161,6 +169,9 @@ function pairs(sides: TrialSide[], sport: TrialSport, now: number): { values: Pa
   }
   return { values, rejected };
 }
+export function trialPairedMarkets(sides: TrialSide[], sport: TrialSport, now: number) {
+  return pairs(sides, sport, now);
+}
 function inverse(matrix: number[][]) {
   const n = matrix.length, a = matrix.map((row, i) => [...row, ...Array.from({ length: n }, (_, j) => Number(i === j))]);
   for (let col = 0; col < n; col++) {
@@ -205,20 +216,28 @@ function fit(rows: Pair[]): Fit {
 function enough(rows: Pair[]) { return rows.length >= TRIAL_POLICY.minTrainingGames && new Set(rows.map(r => r.date)).size >= TRIAL_POLICY.minTrainingDates; }
 
 /** Earlier dates only; each fold also checks when each result became known. */
-export function buildTrialModel(sport: TrialSport, date: string, sides: TrialSide[], createdAt: number): TrialModel {
+export function buildTrialModel(sport: TrialSport, date: string, sides: TrialSide[], createdAt: number,
+  observeCalibration?: (market: TrialMarket, rows: TrialCalibrationObservation[]) => void): TrialModel {
   const cutoff = trialDayStart(date), raw = pairs(sides, sport, cutoff);
   const eligible = raw.values.filter(p => p.date < date && p.knownAt < cutoff).sort((a, b) => a.key.localeCompare(b.key));
   const markets: TrialMarket[] = sport === "MLB" ? ["Moneyline", "Total"] : ["Spread", "Total"];
   const models = markets.map(market => {
     const pool = eligible.filter(p => p.market === market), rows = pool.filter(p => p.y != null);
-    const fitted = fit(rows), calibration: { date: string; offset: number; margin: number; y: number }[] = [];
+    const fitted = fit(rows), calibration: TrialCalibrationObservation[] = [];
     for (const day of [...new Set(rows.map(p => p.date))].sort()) {
-      const previous = rows.filter(p => p.date < day && p.knownAt < trialDayStart(day));
+      const dayCutoff = trialDayStart(day);
+      const previous = rows.filter(p => p.date < day && p.knownAt < dayCutoff);
       if (!enough(previous)) continue;
       const f = fit(previous);
       if (!f.converged) continue;
-      for (const row of rows.filter(p => p.date === day)) calibration.push({ date: day, offset: row.offset, margin: dot(f.beta, row.x), y: row.y! });
+      const earlierIntegers = pool.filter(p => p.date < day && p.knownAt < dayCutoff
+        && p.a.market !== "Moneyline" && Number.isInteger(p.a.line));
+      const pushRate = (earlierIntegers.filter(p => p.push).length + 1) / (earlierIntegers.length + 50);
+      for (const row of rows.filter(p => p.date === day)) calibration.push({ date: day, gameKey: row.gameKey, market,
+        knownAt: row.knownAt, offset: row.offset, margin: dot(f.beta, row.x), y: row.y!, a: row.a, b: row.b,
+        pushProbability: row.a.market !== "Moneyline" && Number.isInteger(row.a.line) ? pushRate : 0 });
     }
+    observeCalibration?.(market, calibration);
     // Fit only a shrink factor on prior chronological predictions. It cannot amplify an edge.
     let alpha = 0, best = Infinity;
     for (let step = 0; step <= 20; step++) {
@@ -366,12 +385,13 @@ export function settleTrialDecision(decision: TrialDecision, sides: TrialSide[],
   }
   return JSON.stringify(outcomes) === JSON.stringify(decision.outcomes) ? decision : { ...decision, outcomes };
 }
-export function trialRecord(decisions: TrialDecision[], type: "trial" | "incumbent" | "raw" | "opposite") {
+export function trialRecord(decisions: TrialDecision[], type: "trial" | "incumbent" | "raw" | "opposite" | "fade") {
   let wins = 0, losses = 0, pushes = 0, pending = 0, units = 0, assumedPrices = 0, unverifiedPrices = 0;
   for (const d of decisions) {
     const paper = d.paperComparison?.version === OPPOSITE_TRIAL_POLICY.version ? d.paperComparison : null;
     const id = type === "trial" ? d.pickId : type === "incumbent" ? d.incumbentId
-      : type === "raw" ? paper?.rawPickId : paper?.oppositePickId;
+      : type === "raw" ? paper?.rawPickId : type === "opposite" ? paper?.oppositePickId
+      : d.fadeComparison?.version === FADE_TRIAL_VERSION ? d.fadeComparison.pickId : null;
     const estimate = d.estimates.find(e => e.id === id);
     if (!estimate) continue;
     if (estimate.priceBasis === "Assumed -110") assumedPrices++;
