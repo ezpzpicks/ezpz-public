@@ -23,5 +23,5 @@ jobs:
       - run: node tests/nba-market.cjs
       - run: node --test tests/market-refresh-policy.test.cjs tests/scheduled-refresh-routes.test.cjs tests/market-source-rollover.test.cjs tests/nba-collection-recovery.test.cjs
       - run: node --test tests/nba-signals.test.cjs tests/nba-signals-ui.test.cjs tests/signal-combinations.test.cjs tests/nba-signal-research-migration.test.cjs tests/football-signals.test.cjs tests/football-signals-ui.test.cjs tests/football-signals-history.test.cjs tests/football-team-trends.test.cjs tests/football-trend-catalog.test.cjs tests/nfl-ezpz-wilson.test.cjs tests/ncaaf-public-trend-leaderboard.test.cjs tests/nfl-last-seven.test.cjs
-      - run: node --test tests/selection-trial.test.cjs tests/selection-trial-store.test.cjs tests/selection-trial-mlb.test.cjs tests/nba-ezpz-handoff.test.cjs
+      - run: node --test tests/selection-trial.test.cjs tests/selection-trial-opposite.test.cjs tests/selection-trial-store.test.cjs tests/selection-trial-mlb.test.cjs tests/nba-ezpz-handoff.test.cjs
       - run: npx tsc --noEmit
