@@ -464,6 +464,9 @@ const NCAAF_MARKET_TEAM_ALIASES: Record<string, string> = {
   "miami ohio": "miami ohio",
   "miami fl": "miami",
   "la tech": "louisiana tech",
+  "c michigan": "central michigan",
+  "e michigan": "eastern michigan",
+  "w michigan": "western michigan",
 };
 
 function normalizeCollegeMarketTeam(value: unknown) {
@@ -506,6 +509,16 @@ function collegeMarketTeamMatch(leftValue: unknown, rightValue: unknown) {
   return overlap >= Math.min(2, Math.max(1, Math.min(l.size, r.size)));
 }
 
+/** Resolve against both opponents before accepting a loose historical alias. */
+function collegeMarketSide(selection: unknown, away: unknown, home: unknown): "away" | "home" | null {
+  const selected = String(selection || "").replace(/\s+[+−–—-]?\d+(?:\.\d+)?\s*$/, "").trim();
+  const exactAway = collegeCanonicalTeamMatch(selected, away), exactHome = collegeCanonicalTeamMatch(selected, home);
+  if (exactAway !== exactHome) return exactAway ? "away" : "home";
+  if (exactAway) return null;
+  const relaxedAway = collegeMarketTeamMatch(selected, away), relaxedHome = collegeMarketTeamMatch(selected, home);
+  return relaxedAway !== relaxedHome ? relaxedAway ? "away" : "home" : null;
+}
+
 function canonicalGameRow(split: Pick<Split, "date" | "awayTeam" | "homeTeam">, sport: FootballSport, rows: SheetRow[]) {
   return rows.find((row) => {
     if (canonicalScheduleDate(row) !== split.date) return false;
@@ -538,7 +551,7 @@ function validFootballMarketSplit(split: Split, sport: FootballSport, rows: Shee
       const selectionCode = nflMarketTeamCode(split.selectionTeam);
       return !!selectionCode && [nflMarketTeamCode(split.awayTeam), nflMarketTeamCode(split.homeTeam)].includes(selectionCode);
     }
-    return collegeMarketTeamMatch(split.selectionTeam, split.awayTeam) || collegeMarketTeamMatch(split.selectionTeam, split.homeTeam);
+    return collegeMarketSide(split.selectionTeam, split.awayTeam, split.homeTeam) !== null;
   }
 
   if (split.side !== "Over" && split.side !== "Under") return false;
@@ -655,6 +668,7 @@ function assessScoresAndOddsCoverage(
     (split) => split.market === "Spread"
       ? sport === "NFL" ? nflMarketTeamCode(split.selectionTeam) : textKey(split.selectionTeam)
       : split.side,
+    sport === "NCAAF" ? ["Spread", "Total"] : [],
   );
 }
 
@@ -805,6 +819,9 @@ async function loadPostedSplits(
   for (const split of validated) deduped.set(splitTrendKey(split), split);
   const splits = [...deduped.values()];
   const coverage = assessScoresAndOddsCoverage(sport, splits, expectedRows);
+  if (sport === "NCAAF" && coverage.incompleteGames.length) {
+    errors.push(`ScoresAndOdds NCAAF market coverage incomplete: ${coverage.incompleteGames.join("; ")}. Available markets are retained; missing sides are unavailable.`);
+  }
   const coverageAccepted = sport === "NFL" ? coverage.ok : splits.length > 0;
   if (!coverageAccepted) {
     const coverageFailure = sport === "NFL"
@@ -1459,10 +1476,10 @@ async function loadNcaafLiveKickoffAuthorityRows(): Promise<SheetRow[]> {
       const away = competitors.find((entry: any) => String(entry?.homeAway || "").toLowerCase() === "away");
       const home = competitors.find((entry: any) => String(entry?.homeAway || "").toLowerCase() === "home");
       const teamName = (entry: any) => String(
-        // shortDisplayName is the school identity (for example "Virginia" or
-        // "West Virginia"). displayName often includes a mascot and previously
-        // forced the matcher to rely on unsafe token overlap.
-        entry?.team?.shortDisplayName || entry?.team?.name || entry?.team?.displayName || "",
+        // location is the school name. shortDisplayName can abbreviate the
+        // distinguishing word ("C Michigan" / "E Michigan"); mascots alone
+        // cannot identify a school.
+        entry?.team?.location || entry?.team?.shortDisplayName || entry?.team?.displayName || entry?.team?.name || "",
       ).trim();
       const awayTeam = teamName(away);
       const homeTeam = teamName(home);
@@ -2521,7 +2538,9 @@ export async function syncPostedFootballMarkets(sport: FootballSport) {
             game: split.game,
             awayTeam: split.awayTeam,
             homeTeam: split.homeTeam,
-            selection: split.selection,
+            // Keep the team identity separate from the line. A later source
+            // quote must not relabel an already-frozen numeric spread.
+            selection: split.market === "Total" ? split.side : split.selectionTeam,
             selectionTeam: split.selectionTeam,
             side: split.side,
           }
@@ -2684,11 +2703,7 @@ function ncaafCanonicalMarketSideIdentity(
 
   const selected = play.market === "Total"
     ? textKey(play.side || play.selection)
-    : collegeMarketTeamMatch(play.selectionTeam || play.selection, awayTeam)
-      ? "away"
-      : collegeMarketTeamMatch(play.selectionTeam || play.selection, homeTeam)
-        ? "home"
-        : textKey(play.selectionTeam || play.selection);
+    : collegeMarketSide(play.selectionTeam || play.selection, awayTeam, homeTeam);
   if (!selected) return "";
 
   return [
@@ -2723,11 +2738,7 @@ function ncaafCanonicalMarketHistoryIdentity(
   const homeTeam = String(matched?.["Home Team"] || rowHome).trim();
   const selected = market === "Total"
     ? textKey(row.Side || row.Selection)
-    : collegeMarketTeamMatch(row.Selection, awayTeam)
-      ? "away"
-      : collegeMarketTeamMatch(row.Selection, homeTeam)
-        ? "home"
-        : textKey(row.Selection);
+    : collegeMarketSide(row.Selection, awayTeam, homeTeam);
   if (!selected) return "";
 
   return [
@@ -2785,6 +2796,19 @@ function normalizeNcaafHistoryForPlay(
   const seen = new Set<string>();
   const normalized: SheetRow[] = [];
   for (const row of rows) {
+    const rowDate = canonicalScheduleDate(row) || String(row.Date || "").trim();
+    if (rowDate && rowDate !== play.date) continue;
+    if (row.Market && row.Market !== play.market) continue;
+    if (row["Away Team"] && row["Home Team"] && (
+      collegeMarketSide(row["Away Team"], play.awayTeam, play.homeTeam) !== "away"
+      || collegeMarketSide(row["Home Team"], play.awayTeam, play.homeTeam) !== "home"
+    )) continue;
+    if (play.market === "Spread") {
+      const expected = collegeMarketSide(play.selectionTeam || play.selection, play.awayTeam, play.homeTeam);
+      if (!expected || collegeMarketSide(row.Selection, play.awayTeam, play.homeTeam) !== expected) continue;
+    } else if (textKey(row.Side || row.Selection).replace(/\s+[ou]?\s*\d+(?:\.\d+)?$/, "") !== textKey(play.side)) {
+      continue;
+    }
     const item: SheetRow = {
       ...row,
       "Game Key": play.gameKey,
