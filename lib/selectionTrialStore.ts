@@ -1,6 +1,6 @@
 import { readTursoDatasetByDateKeys, runTursoAtomicSql, runTursoSql, type TursoRow } from "./tursoStore";
 import { buildTrialModel, buildTrialDecisions, settleTrialDecision, trialDate, trialDayStart, trialRecord,
-  SELECTION_TRIAL_VERSION, TRIAL_POLICY, TRIAL_FEATURES, type TrialSport, type TrialSide, type TrialModel, type TrialDecision } from "./selectionTrial";
+  SELECTION_TRIAL_VERSION, OPPOSITE_TRIAL_POLICY, TRIAL_POLICY, TRIAL_FEATURES, type TrialSport, type TrialSide, type TrialModel, type TrialDecision } from "./selectionTrial";
 
 export const TRIAL_MODELS_TAB = "selection_trial_models";
 export const TRIAL_DECISIONS_TAB = "selection_trial_decisions";
@@ -122,10 +122,16 @@ export async function readSelectionTrial(sport: TrialSport, date: string) {
   const [models, result] = await Promise.all([readTursoDatasetByDateKeys(sport, TRIAL_MODELS_TAB, [date]),
     runTursoSql([`SELECT payload_json FROM dataset_rows INDEXED BY idx_dataset_rows_date WHERE sport=${q(sport)} AND dataset=${q(TRIAL_DECISIONS_TAB)} AND date_key<=${q(date)} AND selection=${q(SELECTION_TRIAL_VERSION)} ORDER BY date_key DESC,row_index DESC`])]);
   const all = decisionRows(result[0].map(r => JSON.parse(r.payload_json))), model = parseModels(models, sport, date);
+  const paper = all.filter(d => d.paperComparison?.version === OPPOSITE_TRIAL_POLICY.version);
+  const reversal = paper.filter(d => d.paperComparison!.oppositePickId);
   return { ok: true, sport, date, version: SELECTION_TRIAL_VERSION, mode: "RESEARCH_ONLY", available: Boolean(model),
     policy: TRIAL_POLICY, model, trial: trialRecord(all, "trial"), comparison: trialRecord(all, "incumbent"),
     comparisonScope: "Incumbent selections on the same complete captured game cards and saved quotes; not its full official record.",
     capturedGames: all.length, passedGames: all.filter(d => !d.pickId).length, today: all.filter(d => d.date === date),
+    paperTrial: { policy: OPPOSITE_TRIAL_POLICY, capturedGames: paper.length, reversalGames: reversal.length,
+      startedAt: paper.length ? paper.map(d => d.capturedAt).sort()[0] : null,
+      raw: trialRecord(paper, "raw"), matchedRaw: trialRecord(reversal, "raw"), opposite: trialRecord(reversal, "opposite"),
+      comparisonScope: "Prospective versioned paper cards only. Matched raw and opposite records use the same reversal games and each side's saved price. Historical reversed records are excluded." },
     note: "Prospective trial only. Estimated returns are model estimates. No automatic promotion or publishing. Assumed and unverified prices are identified." };
 }
 

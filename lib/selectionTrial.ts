@@ -5,6 +5,10 @@ export const TRIAL_POLICY = {
   minCalibrationGames: 20, minCalibrationDates: 3, conservativeRoi: .02,
   uncertaintyZ: 1.281551565545, worstOdds: -150,
 } as const;
+/** Separate paper strategy. Never reinterpret an older frozen card as a new bet. */
+export const OPPOSITE_TRIAL_POLICY = {
+  version: "selection-opposite-test-2026-11-04-v1", minRawRoi: .02,
+} as const;
 export type TrialSport = "MLB" | "NFL" | "NCAAF" | "NBA" | "NCAAM";
 export type TrialMarket = "Moneyline" | "Spread" | "Total";
 export type TrialResult = "W" | "L" | "P" | "";
@@ -38,11 +42,19 @@ export type TrialEstimate = {
   contributions: { feature: string; value: number }[];
 };
 export type TrialOutcome = { result: Exclude<TrialResult, "">; knownAt: string };
+export type TrialPaperComparison = {
+  version: string; candidateId: string | null; rawPickId: string | null; oppositePickId: string | null;
+  rawEstimates: { id: string; probability: number; expectedRoi: number }[];
+  reason: string;
+  validation: { market: TrialMarket; games: number; dates: number; retainedWeight: number;
+    rawBrier: number | null; marketBrier: number | null } | null;
+};
 export type TrialDecision = {
   version: string; modelId: string; sport: TrialSport; date: string; gameKey: string; game: string;
   gameTime: string; capturedAt: string; sourceSnapshotAt: string; trainingCutoff: string;
   estimates: TrialEstimate[]; pickId: string | null; incumbentId: string | null;
   outcomes: Record<string, TrialOutcome>;
+  paperComparison?: TrialPaperComparison;
 };
 
 const keys = ["money", "move", "system", "team", "model", "sos"];
@@ -259,6 +271,50 @@ function estimate(pair: Pair, side: TrialSide, model: TrialMarketModel): TrialEs
     eligible: reasons.length === 0, reasons, contributions };
 }
 
+/** A mechanical reversal hypothesis, not an inferred profitable probability for the other side. */
+function paperComparison(model: TrialModel, estimates: TrialEstimate[], raw: TrialEstimate[]): TrialPaperComparison {
+  const candidate = raw.filter(e => e.expectedRoi >= OPPOSITE_TRIAL_POLICY.minRawRoi
+    && trialOdds(e.odds)!.odds >= TRIAL_POLICY.worstOdds)
+    .sort((a, b) => b.expectedRoi - a.expectedRoi || a.id.localeCompare(b.id))[0];
+  const result: TrialPaperComparison = { version: OPPOSITE_TRIAL_POLICY.version,
+    candidateId: candidate?.id || null, rawPickId: null, oppositePickId: null,
+    rawEstimates: raw.map(({ id, probability, expectedRoi }) => ({ id, probability, expectedRoi })),
+    reason: "No raw candidate reaches +2% estimated ROI at an eligible price.", validation: null };
+  if (!candidate) return result;
+  const fitted = model.models.find(m => m.market === candidate.market)!;
+  result.validation = { market: fitted.market, games: fitted.calibrationGames, dates: fitted.calibrationDates,
+    retainedWeight: fitted.calibrationShrink, rawBrier: fitted.outOfTimeBrier, marketBrier: fitted.marketBrier };
+  if (!fitted.converged || fitted.games < TRIAL_POLICY.minTrainingGames || fitted.dates < TRIAL_POLICY.minTrainingDates) {
+    result.reason = "The raw candidate needs a stable fit and enough earlier training games and dates.";
+    return result;
+  }
+  result.rawPickId = candidate.id;
+  if (estimates.find(e => e.id === candidate.id)!.eligible) {
+    result.reason = "The strict trial accepts the raw candidate; no reversal is triggered.";
+    return result;
+  }
+  if (fitted.calibrationGames < TRIAL_POLICY.minCalibrationGames || fitted.calibrationDates < TRIAL_POLICY.minCalibrationDates) {
+    result.reason = "Not enough later-date validation history to test a reversal.";
+    return result;
+  }
+  if (fitted.status !== "No supported edge yet" || fitted.calibrationShrink !== 0) {
+    result.reason = "Calibration retains the learned direction. An uncertainty-only rejection does not trigger a reversal.";
+    return result;
+  }
+  if (fitted.outOfTimeBrier == null || fitted.marketBrier == null || fitted.outOfTimeBrier <= fitted.marketBrier + 1e-12) {
+    result.reason = "The raw probability error is not worse than the market baseline; no reversal is triggered.";
+    return result;
+  }
+  const opposite = estimates.find(e => e.market === candidate.market && e.id !== candidate.id)!;
+  if (trialOdds(opposite.odds)!.odds < TRIAL_POLICY.worstOdds) {
+    result.reason = "The opposite side is below the -150 price limit.";
+    return result;
+  }
+  result.oppositePickId = opposite.id;
+  result.reason = "Paper reversal: calibration retains zero learned adjustment and earlier raw probability error exceeds the market baseline. This does not establish a profitable opposite-side probability.";
+  return result;
+}
+
 /** Freeze only complete, contemporaneous game cards while still in the final window. */
 export function buildTrialDecisions(model: TrialModel, sides: TrialSide[], incumbentIds: string[], now: number): TrialDecision[] {
   if (model.version !== SELECTION_TRIAL_VERSION || trialDate(now) !== model.date || Date.parse(model.createdAt) > now) return [];
@@ -278,13 +334,18 @@ export function buildTrialDecisions(model: TrialModel, sides: TrialSide[], incum
       return marketModel ? [estimate(pair, pair.a, marketModel), estimate(pair, pair.b, marketModel)] : [];
     });
     if (estimates.length !== 4) continue;
+    const raw = group.flatMap(pair => {
+      const marketModel = { ...model.models.find(m => m.market === pair.market)!, calibrationShrink: 1 };
+      return [estimate(pair, pair.a, marketModel), estimate(pair, pair.b, marketModel)];
+    });
     const candidates = estimates.filter(e => e.eligible).sort((a, b) => b.conservativeRoi - a.conservativeRoi
       || b.expectedRoi - a.expectedRoi || a.id.localeCompare(b.id));
     const incumbent = estimates.filter(e => incumbentIds.includes(e.id));
     decisions.push({ version: SELECTION_TRIAL_VERSION, modelId: model.id, sport: model.sport, date: model.date,
       gameKey, game: quotes[0].game, gameTime: new Date(times[0]).toISOString(), capturedAt: new Date(now).toISOString(),
       sourceSnapshotAt: new Date(Math.max(...snapshots)).toISOString(), trainingCutoff: model.trainingCutoff,
-      estimates, pickId: candidates[0]?.id || null, incumbentId: incumbent.length === 1 ? incumbent[0].id : null, outcomes: {} });
+      estimates, pickId: candidates[0]?.id || null, incumbentId: incumbent.length === 1 ? incumbent[0].id : null, outcomes: {},
+      paperComparison: paperComparison(model, estimates, raw) });
   }
   return decisions;
 }
@@ -305,10 +366,13 @@ export function settleTrialDecision(decision: TrialDecision, sides: TrialSide[],
   }
   return JSON.stringify(outcomes) === JSON.stringify(decision.outcomes) ? decision : { ...decision, outcomes };
 }
-export function trialRecord(decisions: TrialDecision[], type: "trial" | "incumbent") {
+export function trialRecord(decisions: TrialDecision[], type: "trial" | "incumbent" | "raw" | "opposite") {
   let wins = 0, losses = 0, pushes = 0, pending = 0, units = 0, assumedPrices = 0, unverifiedPrices = 0;
   for (const d of decisions) {
-    const id = type === "trial" ? d.pickId : d.incumbentId, estimate = d.estimates.find(e => e.id === id);
+    const paper = d.paperComparison?.version === OPPOSITE_TRIAL_POLICY.version ? d.paperComparison : null;
+    const id = type === "trial" ? d.pickId : type === "incumbent" ? d.incumbentId
+      : type === "raw" ? paper?.rawPickId : paper?.oppositePickId;
+    const estimate = d.estimates.find(e => e.id === id);
     if (!estimate) continue;
     if (estimate.priceBasis === "Assumed -110") assumedPrices++;
     if (estimate.priceBasis === "Unverified provenance") unverifiedPrices++;

@@ -104,6 +104,50 @@ comparison includes only the same complete captured games and quotes, not its
 entire published record. Pass counts and coverage accompany returns so sparse
 selection or incomplete data cannot masquerade as broad success.
 
+## Opposite-side paper test
+
+The separate `selection-opposite-test-2026-11-04-v1` strategy extends **new**
+complete pregame cards with a frozen raw candidate and, when triggered, its exact
+opposing side at that side's saved price. Existing cards remain unchanged. It
+does not change the strict trial model, its calibration, official selectors,
+publishing, or earlier records. Existing scheduled collectors capture it;
+there is no additional cron or source request.
+
+The raw control chooses the highest raw estimated ROI of at least +2% per game,
+before the added calibration shrink and uncertainty reduction, with -150 or
+better odds. It still needs a converged fit and 40 earlier training games across
+four dates. Raw estimates and candidate identity freeze with the card.
+
+The opposite test uses that same candidate and requires all of:
+
+- The strict trial rejects the original candidate.
+- At least 20 chronological validation games across three dates.
+- Calibration retained exactly zero learned adjustment, with model status
+  `No supported edge yet`.
+- Raw out-of-time Brier error exceeds the market baseline's Brier error.
+- The exact opposing side in the same market has saved odds of -150 or better.
+
+Insufficient history, a failed fit, or an uncertainty-only rejection cannot
+trigger a reversal. The opponent never becomes an independent training sample.
+The mechanical opposite selection is a **hypothesis**, not an estimate that
+its win probability or conservative ROI is positive. The uncertainty adjustment
+is not inverted into confidence in the other side.
+
+The report shows all qualifying raw candidates, plus original candidates and
+opposite selections on the **same reversal games**. Each uses its own original
+price; settlement shares the existing outcome-only contract. Pending bets are
+excluded from ROI, and pushes return zero. Older cards without this versioned
+extension are not backfilled or included in either paper record. Historical
+30-21 and 5-0 reversals from the initial NBA diagnostic remain exploratory;
+they are not prospective test wins or Dallas-specific pattern records. The
+five positive-ROI spread forecasts were below +2%, so that 5-0 does not directly
+validate this test's +2% entry rule.
+
+Validation includes reversal gating, one selection per game, paired controls,
+missing-history/uncertainty rejection, exact opposing prices, legacy-card
+exclusion, and immutable settlement. Run the existing trial tests plus
+`node --test tests/selection-trial-opposite.test.cjs`.
+
 ## Review
 
 The lazy **Selection trial** panel appears in Signals and Signal Research, with
