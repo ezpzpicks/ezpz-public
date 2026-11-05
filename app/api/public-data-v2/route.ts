@@ -12,6 +12,7 @@ import {
 import { appendV2Rows, readV2Tab, replaceV2DailyRows } from "../../../lib/mlbTrendV2Store";
 import { applyMlbTrendV2Adaptive } from "../../../lib/mlbTrendV2Lifecycle";
 import { persistEzpzCurrentPicks } from "../../../lib/ezpzCurrentPicks";
+import { captureMlbSelectionTrial } from "../../../lib/selectionTrialStore";
 import { repairHistoricalEzpzGrades } from "../../../lib/ezpzHistoricalGrading";
 import { MARKET_REFRESH_POLICY } from "../../../lib/marketRefreshPolicy";
 import { persistPublicBoardSnapshot } from "../../../lib/publicBoardSnapshot";
@@ -440,6 +441,8 @@ export async function GET(request:NextRequest){
       payload.currentPicksPersistenceError = true;
       console.error("MLB current EZPZ picks snapshot failed",error);
     }
+    try { await captureMlbSelectionTrial(payload); }
+    catch (error) { console.error("MLB selection trial deferred; official picks preserved", error); }
     try {
       await persistPublicBoardSnapshot("MLB", payload, startedAt);
     } catch (error) {

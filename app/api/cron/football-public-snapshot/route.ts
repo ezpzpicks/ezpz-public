@@ -5,6 +5,7 @@ import { evaluateFootballTrendV2 } from "../../../../lib/footballTrendV2Lifecycl
 import type { FootballSport } from "../../../../lib/sportSheets";
 import { withTursoReadCache } from "../../../../lib/tursoStore";
 import { persistEzpzCurrentPicks } from "../../../../lib/ezpzCurrentPicks";
+import { captureSelectionTrial } from "../../../../lib/selectionTrialStore";
 import { repairNcaafFinalScores } from "../../../../lib/ncaafFinalScoreRepair";
 import { scheduledMarketRefresh, recordScheduledMarketRefresh } from "../../../../lib/scheduledMarketRefresh";
 import { persistPublicBoardSnapshot } from "../../../../lib/publicBoardSnapshot";
@@ -95,6 +96,12 @@ async function runCron(request: NextRequest) {
     } catch (error) {
       console.error(`${sport} current EZPZ picks snapshot failed`, error);
     }
+    try {
+      const board = payload.footballSignals;
+      if (board) await captureSelectionTrial(sport, board.sides,
+        board.sides.filter((s: { recorded: boolean; selected: boolean }) => s.recorded && s.selected).map((s: { id: string }) => s.id),
+        Date.now(), !board.captureAvailable);
+    } catch (error) { console.error(`${sport} selection trial deferred; official picks preserved`, error); }
 
     // Prepare the complete weekly display in the producer. Opening Model Plays,
     // Full Slate or Public Betting Splits must not replay this work per visitor.

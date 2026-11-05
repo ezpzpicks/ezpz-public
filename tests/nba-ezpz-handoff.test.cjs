@@ -11,6 +11,7 @@ function side(overrides = {}) {
     signals: ['move', 'model'].map(key => ({ key, active: true, available: true })), result: '', ...overrides };
 }
 function loader(stubs) {
+  stubs = { './selectionTrialStore': { captureSelectionTrial: async () => {} }, ...stubs };
   const cache = new Map();
   class Clock extends Date { constructor(...args) { super(...(args.length ? args : [now])); } static now() { return now; } }
   function load(file) {
@@ -20,7 +21,7 @@ function loader(stubs) {
     const source = ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
       compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
     }).outputText;
-    vm.runInNewContext(source, { exports, Date: Clock, Intl, URL, console: { info() {}, warn() {} },
+    vm.runInNewContext(source, { exports, Date: Clock, Intl, URL, console: { info() {}, warn() {}, error() {} },
       require: name => stubs[name] || (name.startsWith('.')
         ? load(path.relative(root, path.resolve(path.dirname(filename), name + '.ts'))) : require(name)) }, { filename });
     return exports;

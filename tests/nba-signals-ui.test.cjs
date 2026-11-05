@@ -16,7 +16,8 @@ function component(file, overrides = {}, append = '') {
   return exports;
 }
 const lineupComponents = component('app/NbaGameLineups.tsx');
-const football = component('app/FootballSignalsBoard.tsx', {}, '\nexport const testTeamDetail = TeamDetail;');
+const trial = component('app/SelectionTrial.tsx');
+const football = component('app/FootballSignalsBoard.tsx', { './SelectionTrial': trial }, '\nexport const testTeamDetail = TeamDetail;');
 const markets = component('app/FootballTrendMarketBoard.tsx');
 const nba = component('app/NbaPublicSplits.tsx', { './FootballTrendMarketBoard': markets });
 const records = component('app/NbaRecords.tsx', { './FootballTrendMarketBoard': markets });
