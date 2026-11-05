@@ -5,10 +5,15 @@ const ts = require('typescript'), React = require('react');
 const { renderToStaticMarkup } = require('react-dom/server');
 const root = path.resolve(__dirname, '..');
 const exportsObject = {};
+const fadePanel = {};
+vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(root, 'app/FadeTrialPanel.tsx'), 'utf8'), {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
+}).outputText, { exports: fadePanel, require: name => name === './data/selection-fade-replay-2026-11-04.json'
+  ? { default: require('../app/data/selection-fade-replay-2026-11-04.json') } : require(name) });
 const trial = {};
 vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(root, 'app/SelectionTrial.tsx'), 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
-}).outputText, { exports: trial, require });
+}).outputText, { exports: trial, require: name => name === './FadeTrialPanel' ? fadePanel : require(name) });
 const source = fs.readFileSync(path.join(root, 'app/FootballSignalsBoard.tsx'), 'utf8') + '\nexport const detailTest = SignalDetail; export const researchTest = CombinationResearch; export const comboTest = CombinationRecord; export const pickTileTest = MatchupCard;';
 vm.runInNewContext(ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } }).outputText,
   { exports: exportsObject, Date, Intl, console, require: name => name === './TeamLogoName' ? { TeamLogoName: p => p.team }
@@ -38,6 +43,16 @@ const opposite = { ...side, id: 'game|Spread|gb', selection: 'GB +1.5', line: 1.
 const board = { sport: 'NFL', today: '2026-10-18', captureAvailable: true, sides: [side, opposite],
   summary: { record: '0-0-0', settled: 0, pending: 0, winPct: null, roiPct: null, netUnits: 0 }, breakdowns: [], history: [] };
 const render = node => renderToStaticMarkup(node);
+
+test('fade replays render their own sport, prices and conservative ROI without becoming historical picks', () => {
+  const props = { date: '2026-11-04', decisions: [] };
+  const nba = render(React.createElement(fadePanel.default, { ...props, sport: 'NBA' }));
+  for (const text of ['Oklahoma City Thunder -3.5', 'San Antonio Spurs -12.5', '-4.18%', '-13.17%', '-4.21%', '-13.21%', 'excluded from prospective records']) assert(nba.includes(text), text);
+  assert.doesNotMatch(nba, /Ball State/);
+  const college = render(React.createElement(fadePanel.default, { ...props, sport: 'NCAAF' }));
+  for (const text of ['Ball State +2.5', '-102', '0.10%', '-13.67%', 'Unverified provenance']) assert(college.includes(text), text);
+  assert.equal(render(React.createElement(fadePanel.default, { ...props, date: '2026-11-03', sport: 'NBA' })), '');
+});
 
 test('official score cards retain frozen combination history while calibration scores stay out of the overview', () => {
   const noSignals = side.signals.map(s => ({ ...s, active: false }));

@@ -62,10 +62,10 @@ export default function FadeTrialPanel({ sport, date, data, decisions }: {
       <details><summary>Why the replay selections passed or failed</summary>
         {examples.map(row => <p key={row.selection}><strong>{row.selection}</strong>: {row.reasons.join(" · ")}.
           {" "}{row.support.calibrationGames} calibration games; {row.support.validationGames} later checks.
-          {" "}{row.support.combinationGames} original signal-pattern matches and {row.support.publicTypeGames} public-type matches.
+          {" "}Original signal-pattern matches: {row.support.combinationGames}; public-type matches: {row.support.publicTypeGames}.
           {" "}Uses the {row.supportLevel.toLowerCase()} estimate.</p>)}
-        <p>The NBA replays had no earlier raw forecasts reaching the +2% entry level.
-          Ball State uses its saved -102 quote; NBA quotes assume -110. Quote provenance and limited matching history remain material limitations.</p>
+        <p>{sport === "NBA" ? "The NBA replays had no earlier raw forecasts reaching the +2% entry level. NBA quotes assume -110."
+          : "Ball State uses its saved -102 quote."} Quote provenance and limited matching history remain material limitations.</p>
       </details>
     </> : null}
     <p>Conservative ROI is an approximate uncertainty adjustment, not a validated confidence bound.
