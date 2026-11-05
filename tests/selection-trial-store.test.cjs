@@ -85,12 +85,39 @@ c.commit();print(json.dumps(out))`;
     assert.deepEqual(saved.fadeComparison, original.fadeComparison, 'SQL settlement cannot rewrite signed probabilities or ROI');
     assert.equal(report.fadeTrial.available, true);
     assert.equal(report.fadeTrial.capturedGames, 1);
+    assert.equal(report.fadeTrial.policy.usesEstimatedFadeRoi, false);
+    assert.equal(report.fadeTrial.policy.version, api.OPPOSITE_TRIAL_POLICY.version);
     assert.equal(report.fadeTrial.record.settled, 0, 'A strong follow signal cannot be relabeled as a fade');
     assert(!JSON.stringify(report.fadeTrial.model).includes('samples'), 'Public API keeps full calibration rows out of routine responses');
     assert.equal(calls.filter(c => c[0] === 'write').length, writes, 'Public report is read only');
     const college = await store.readSelectionTrial('NCAAM', '2026-11-04');
     assert.equal(college.capturedGames, 0); assert.equal(college.available, false);
     assert.equal(sql(["SELECT COUNT(*) n FROM dataset_rows WHERE dataset='current_ezpz_picks'"])[0][0].n, 0);
+    // A real pregame rule selection remains selected with negative signed ROI, or no signed estimate at all.
+    const ruleSides = game('2026-11-04', 1), ruleAt = Date.parse(ruleSides[0].snapshotAt);
+    const rejected = api.buildTrialModel('NBA', '2026-11-04', [], ruleAt);
+    rejected.models.forEach(f => Object.assign(f, {
+      beta: f.beta.map((_, i) => i === 0 && f.market === 'Spread' ? .3 : 0),
+      converged: true, games: 92, dates: 12, calibrationGames: 51, calibrationDates: 6,
+      calibrationShrink: 0, outOfTimeBrier: .253, marketBrier: .25, status: 'No supported edge yet',
+    }));
+    const ruleCard = api.buildTrialDecisions(rejected, ruleSides, [], ruleAt)[0];
+    assert.equal(ruleCard.paperComparison.oppositePickId, ruleSides[1].id);
+    ruleCard.fadeComparison = { version: api.FADE_TRIAL_VERSION, modelId: 'diagnostic', pickId: null,
+      estimates: ruleCard.estimates.map(e => ({ ...e, expectedRoi: -.04, conservativeRoi: -.13, eligible: false })) };
+    const updateCard = card => sql([`INSERT OR REPLACE INTO dataset_rows(sport,dataset,row_index,payload_json,date_key,selection) VALUES ('NBA','selection_trial_decisions',999,${quote(JSON.stringify({ Date: card.date,
+      'Game Key': card.gameKey, Selection: api.SELECTION_TRIAL_VERSION,
+      'Details JSON': JSON.stringify(card) }))},${quote(card.date)},${quote(api.SELECTION_TRIAL_VERSION)})`]);
+    updateCard(ruleCard);
+    const negative = await store.readSelectionTrial('NBA', '2026-11-04');
+    assert.equal(negative.fadeTrial.selectedGames, 1);
+    assert.equal(negative.fadeTrial.record.pending, 1);
+    assert.equal(negative.fadeTrial.calibratedComparison.record.pending, 0);
+    delete ruleCard.fadeComparison;
+    updateCard(ruleCard);
+    const noEstimate = await store.readSelectionTrial('NBA', '2026-11-04');
+    assert.deepEqual(plain(noEstimate.fadeTrial.record), plain(negative.fadeTrial.record));
+    assert.deepEqual(plain(noEstimate.fadeTrial.matchedOriginal), plain(negative.fadeTrial.matchedOriginal));
     // Football postseason in January must retain the preceding fall's original observations.
     sql(history().map((source, i) => {
       const side = { ...source, policyVersion: 'football-signals-nfl-grouped-test-v1' };

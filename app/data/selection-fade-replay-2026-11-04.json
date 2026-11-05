@@ -18,7 +18,7 @@
   "mode": "RETROSPECTIVE_REPLAY",
   "date": "2026-11-04",
   "trainingCutoff": "2026-11-04T05:00:00.000Z",
-  "constructedAt": "2026-11-05T04:10:36.743Z",
+  "constructedAt": "2026-11-05T12:22:18.077Z",
   "note": "Algorithm created after these games. Uses earlier-date, time-eligible results and original saved pregame quotes. Target-day outcomes are unused. These are not live selections or independent evidence that the strategy works.",
   "results": [
     {
@@ -54,6 +54,20 @@
         "publicTypeGames": 1,
         "publicTypeDates": 1,
         "rawTwoPercentGames": 0
+      },
+      "ruleQualifier": {
+        "version": "selection-opposite-test-2026-11-04-v1",
+        "qualifies": true,
+        "sourceSelection": "Cleveland Cavaliers +3.5",
+        "reason": "Paper reversal: calibration retains zero learned adjustment and earlier raw probability error exceeds the market baseline. This does not establish a profitable opposite-side probability.",
+        "validation": {
+          "market": "Spread",
+          "games": 51,
+          "dates": 6,
+          "retainedWeight": 0,
+          "rawBrier": 0.2529839722032282,
+          "marketBrier": 0.25
+        }
       },
       "roiAtMinus110Pct": -4.1792224036467545,
       "conservativeRoiAtMinus110Pct": -13.173885515605566
@@ -93,6 +107,20 @@
         "publicTypeDates": 0,
         "rawTwoPercentGames": 15
       },
+      "ruleQualifier": {
+        "version": "selection-opposite-test-2026-11-04-v1",
+        "qualifies": true,
+        "sourceSelection": "UMass -2.5",
+        "reason": "Paper reversal: calibration retains zero learned adjustment and earlier raw probability error exceeds the market baseline. This does not establish a profitable opposite-side probability.",
+        "validation": {
+          "market": "Spread",
+          "games": 49,
+          "dates": 4,
+          "retainedWeight": 0,
+          "rawBrier": 0.25127128247547426,
+          "marketBrier": 0.24926702922703883
+        }
+      },
       "roiAtMinus110Pct": -3.500166808093513,
       "conservativeRoiAtMinus110Pct": -16.779753663981094
     },
@@ -129,6 +157,20 @@
         "publicTypeGames": 1,
         "publicTypeDates": 1,
         "rawTwoPercentGames": 0
+      },
+      "ruleQualifier": {
+        "version": "selection-opposite-test-2026-11-04-v1",
+        "qualifies": true,
+        "sourceSelection": "Dallas Mavericks +12.5",
+        "reason": "Paper reversal: calibration retains zero learned adjustment and earlier raw probability error exceeds the market baseline. This does not establish a profitable opposite-side probability.",
+        "validation": {
+          "market": "Spread",
+          "games": 51,
+          "dates": 6,
+          "retainedWeight": 0,
+          "rawBrier": 0.2529839722032282,
+          "marketBrier": 0.25
+        }
       },
       "roiAtMinus110Pct": -4.213250930032242,
       "conservativeRoiAtMinus110Pct": -13.207635361051684

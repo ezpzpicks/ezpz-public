@@ -148,7 +148,33 @@ missing-history/uncertainty rejection, exact opposing prices, legacy-card
 exclusion, and immutable settlement. Run the existing trial tests plus
 `node --test tests/selection-trial-opposite.test.cjs`.
 
-## Calibrated fade probabilities
+## Active fade qualifier (November 5)
+
+The fade test now uses the saved **mechanical reversal rule** as its qualifier.
+The `fadeTrial` API report and the main Fade test table use the versioned
+`paperComparison.oppositePickId`; estimated fade ROI and signed-calibration
+uncertainty do not veto or rank that selection. This is the same mechanical
+rule already captured prospectively, so its original cards and records can be
+used without reclassifying games after their results. The raw candidate still
+needs +2% raw estimated ROI; the opposite side has no estimated ROI minimum.
+
+The rule requires the stable 40-game/four-date raw fit, 20 chronological
+calibration checks across three dates, zero retained original adjustment,
+`No supported edge yet`, raw prediction error worse than the market baseline,
+and each side's own odds of -150 or better. The highest raw candidate is the
+only one considered per game. Missing history, failed fits and uncertainty-only
+rejections cannot trigger a reversal. Evidence is usually pooled by sport and
+market; this is not a matchup-specific reversed win rate or a two-signal rule.
+
+The signed probability model below remains informational. Its old ROI-filtered
+record remains separately available under `fadeTrial.calibratedComparison`;
+`fadeTrial.estimatePolicy` identifies that model's version, while
+`fadeTrial.policy` identifies the active mechanical rule and explicitly marks
+`usesEstimatedFadeRoi: false`. A missing estimate cannot suppress a rule-qualified
+fade. No collector writes, frozen decisions, official selectors or publishing
+rules change in this update.
+
+## Experimental calibrated fade probabilities
 
 `selection-fade-2026-11-04-v1` is a separate research model. It preserves the
 strict trial and the mechanical opposite-side test. It estimates each side's
@@ -175,7 +201,7 @@ calibration, feature list, and existing model IDs remain unchanged.
 A second chronological layer checks the signed calibration: for each later
 date, fit calibration only on earlier raw predictions whose labels were known
 before that date's Eastern midnight. At least 20 such later checks across
-three dates are required for a qualified fade, in addition to the existing
+three dates were required by the original ROI-filtered comparison, in addition to the existing
 40-game/four-date training and 20-game/three-date calibration minimums.
 Matching raw +2% cohort counts are reported separately; they are not added to
 the general validation count or represented as an independent winning record.
@@ -189,11 +215,11 @@ uncertainty multiplier reduces the selected side's probability. These are
 provisional modeling choices, not a validated confidence interval.
 
 Expected and conservative ROI each use that side's original odds and push
-adjustment. A fade must be opposite the qualifying raw direction, have a
-negative calibrated weight, meet the earlier/later history requirements,
-have both source and fade prices of -150 or better, and clear +2% conservative
-ROI. One highest conservative-ROI fade may be selected per complete pregame
-game card. Other sides retain estimates and explicit rejection reasons.
+adjustment. The original ROI-filtered comparison required the opposite of
+the qualifying raw direction, a negative calibrated weight, the earlier/later
+history minimums, both source and fade prices of -150 or better, and +2% conservative
+ROI. That comparison's selections and rejection reasons remain frozen for
+research. The active fade qualifier above does not use these extra gates.
 
 Existing collectors freeze signed models in `selection_fade_models` and attach
 a separately versioned `fadeComparison` only to newly captured cards. The raw
@@ -209,8 +235,10 @@ The requested OKC -3.5, Ball State +2.5, and Spurs -12.5 replays use only
 earlier-date results known before November 4 Eastern midnight and the exact
 original final pregame quotes. The model was developed after those games;
 these are retrospective research estimates, not actual pregame selections or
-independent proof of profitability. None currently clears the conservative
-+2% rule under this version's fixed settings.
+independent proof of profitability. All three meet the mechanical fade rule.
+None cleared the original conservative +2% filter under its fixed settings;
+these percentages are now informational. The replay reports both checks
+explicitly and remains excluded from all prospective records.
 
 The reproducible compressed fixture preserves 368 NBA and 422 NCAAF historical
 sides plus the twelve requested game-quote sides. Target outcomes are removed.

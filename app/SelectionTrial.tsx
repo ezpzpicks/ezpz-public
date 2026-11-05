@@ -58,41 +58,6 @@ export default function SelectionTrial({ sport, date, initiallyOpen = false }: {
                 <td data-label="Trial decision">{pick ? pick.selection : "Pass"}<small>{pick ? game.outcomes[pick.id]?.result || "Pending" : leader?.reasons.join(" · ")}</small></td>
                 <td data-label="Estimated return">{leader ? roi(leader.conservativeRoi) : "—"}<small>{leader ? `After uncertainty · ${leader.priceBasis}` : ""}</small></td></tr>; })}
           </tbody></table> : <p>No complete game cards were captured for this date yet. Decisions require both markets in the final 10–20 minutes.</p>}
-          {data.paperTrial ? <>
-            <h3>Mechanical opposite-side test</h3>
-            <p>Tests the other side when a raw candidate reaches +2% estimated ROI, enough earlier validation exists,
-              calibration retains zero learned adjustment, and raw probability error is worse than the market baseline.
-              Both sides freeze before the game. A rejection caused only by uncertainty or missing validation does not trigger a reversal.</p>
-            <table className="fs-table"><thead><tr><th scope="col">Paper strategy</th><th scope="col">Record</th><th scope="col">ROI / units</th></tr></thead><tbody>
-              {([["Raw candidates · all qualifying games", data.paperTrial.raw],
-                ["Original candidates · reversal games only", data.paperTrial.matchedRaw],
-                ["Opposite sides · same reversal games", data.paperTrial.opposite]] as const).map(([label, record]) => <tr key={label}>
-                <th scope="row">{label}</th><td data-label="Record">{record.record}<small>{record.pending} pending</small></td>
-                <td data-label="ROI / units">{pct(record.roiPct)}<small>{record.netUnits > 0 ? "+" : ""}{record.netUnits.toFixed(2)}u</small></td>
-              </tr>)}
-            </tbody></table>
-            <p>{data.paperTrial.capturedGames} prospective paper cards · {data.paperTrial.reversalGames} reversal selections.
-              {data.paperTrial.startedAt ? ` First card: ${new Date(data.paperTrial.startedAt).toLocaleString("en-US", {
-                timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })} Eastern.`
-                : " Awaiting the first complete pregame card after this test was added."}
-              {" "}Historical reversed records are exploratory and are excluded from these results.</p>
-            {data.today.some(game => game.paperComparison?.version === data.paperTrial!.policy.version)
-              ? <table className="fs-table"><thead><tr><th scope="col">Saved game</th><th scope="col">Raw candidate</th><th scope="col">Opposite-side test</th></tr></thead><tbody>
-                {data.today.filter(game => game.paperComparison?.version === data.paperTrial!.policy.version).map(game => {
-                  const paper = game.paperComparison!, candidate = game.estimates.find(e => e.id === paper.candidateId);
-                  const raw = paper.rawEstimates.find(e => e.id === paper.candidateId), opposite = game.estimates.find(e => e.id === paper.oppositePickId);
-                  return <tr key={game.gameKey}><th scope="row">{game.game}<small>{game.date}</small></th>
-                    <td data-label="Raw candidate">{candidate?.selection || "Pass"}<small>{candidate && raw
-                      ? `${candidate.odds} · ${roi(raw.expectedRoi)} estimated · ${candidate.priceBasis}` : "No raw candidate reaches +2%."}</small>
-                      {candidate ? <small>{paper.rawPickId ? game.outcomes[candidate.id]?.result || "Pending" : "Training requirements not met; no raw paper selection."}</small> : null}</td>
-                    <td data-label="Opposite-side test">{opposite?.selection || "Pass"}<small>{opposite
-                      ? `${opposite.odds} · ${game.outcomes[opposite.id]?.result || "Pending"} · ${opposite.priceBasis}` : paper.reason}</small>
-                      {opposite ? <small>Calibration rejected the learned direction; earlier raw error exceeded the market baseline.</small> : null}</td></tr>;
-                })}
-              </tbody></table> : null}
-            <p>The opposite side is a paper hypothesis, without an established profitable win probability. Its price determines actual test returns.
-              Official EZPZ selections and publishing use their existing rules.</p>
-          </> : null}
           <p>Training uses results known before this date’s Eastern midnight. Return estimates are experimental. Basketball prices may assume −110; other unverified prices are identified.</p>
         </>}
       <p><a href="/selection-trial">Review all sports</a></p>
