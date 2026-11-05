@@ -56,6 +56,10 @@ for (const target of targets) {
   if (pairs.length !== 2) throw new Error('Saved quotes fail original pair/timing validation');
   const pair = pairs.find(p => p.market === side.market);
   const estimate = fade.estimateFadeTrial(model, pair, side);
+  const decision = base.buildTrialDecisions(model.baseModel, gameSides, [], replayAt)
+    .find(card => card.gameKey === side.gameKey);
+  if (!decision?.paperComparison) throw new Error('Saved quotes cannot reconstruct the mechanical fade qualifier');
+  const rule = decision.paperComparison;
   const report = { sport: target.sport, modelId: model.id, game: side.game, selection: side.selection, line: side.line,
     odds: side.odds, priceBasis: estimate.priceBasis, snapshotAt: side.snapshotAt, gameTime: side.gameTime,
     sourceSelection: estimate.sourceSelection, sourceRawRoiPct: 100 * estimate.sourceRawRoi,
@@ -63,6 +67,9 @@ for (const target of targets) {
     coverProbabilityPct: 100 * estimate.probability, conservativeCoverProbabilityPct: 100 * estimate.conservativeProbability,
     expectedRoiPct: 100 * estimate.expectedRoi, conservativeRoiPct: 100 * estimate.conservativeRoi,
     qualifies: estimate.eligible, reasons: estimate.reasons, support: estimate.support,
+    ruleQualifier: { version: rule.version, qualifies: rule.oppositePickId === side.id,
+      sourceSelection: gameSides.find(s => s.id === rule.rawPickId)?.selection || null,
+      reason: rule.reason, validation: rule.validation },
     roiAtMinus110Pct: 100 * (estimate.probability * (100 / 110) - (1 - estimate.probability)),
     conservativeRoiAtMinus110Pct: 100 * (estimate.conservativeProbability * (100 / 110) - (1 - estimate.conservativeProbability)) };
   output.results.push(report);

@@ -47,10 +47,12 @@ const render = node => renderToStaticMarkup(node);
 test('fade replays render their own sport, prices and conservative ROI without becoming historical picks', () => {
   const props = { date: '2026-11-04', decisions: [] };
   const nba = render(React.createElement(fadePanel.default, { ...props, sport: 'NBA' }));
-  for (const text of ['Oklahoma City Thunder -3.5', 'San Antonio Spurs -12.5', '-4.18%', '-13.17%', '-4.21%', '-13.21%', 'excluded from prospective records']) assert(nba.includes(text), text);
+  for (const text of ['Oklahoma City Thunder -3.5', 'San Antonio Spurs -12.5', '-4.18%', '-13.17%', '-4.21%', '-13.21%', 'excluded from prospective records', 'Meets fade rule', 'Informational']) assert(nba.includes(text), text);
+  assert.equal((nba.match(/<td data-label="Fade rule">Meets fade rule<\/td>/g) || []).length, 2);
   assert.doesNotMatch(nba, /Ball State/);
   const college = render(React.createElement(fadePanel.default, { ...props, sport: 'NCAAF' }));
   for (const text of ['Ball State +2.5', '-102', '0.10%', '-13.67%', 'Unverified provenance']) assert(college.includes(text), text);
+  assert.match(college, /<td data-label="Fade rule">Meets fade rule<\/td>/);
   assert.equal(render(React.createElement(fadePanel.default, { ...props, date: '2026-11-03', sport: 'NBA' })), '');
 });
 

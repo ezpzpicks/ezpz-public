@@ -128,6 +128,12 @@ test('the three published replays reproduce from frozen inputs and ignore target
     const withTargets = fade.buildFadeTrialModel(sport, date, [...fixture.history[sport], ...altered], api.trialDayStart(date));
     assert.equal(withTargets.id, model.id);
     for (const expected of report.results.filter(r => r.sport === sport)) {
+      const originalInput = fixture.quotes[sport].filter(s => s.game === expected.game);
+      const originalAt = Math.max(...originalInput.map(s => Date.parse(s.snapshotAt)));
+      const originalCard = api.buildTrialDecisions(model.baseModel, originalInput, [], originalAt)[0];
+      assert.equal(expected.ruleQualifier.version, api.OPPOSITE_TRIAL_POLICY.version);
+      assert.equal(expected.ruleQualifier.qualifies, true);
+      assert.equal(originalCard.estimates.find(e => e.id === originalCard.paperComparison.oppositePickId).selection, expected.selection);
       const input = altered.filter(s => s.game === expected.game), at = Math.max(...input.map(s => Date.parse(s.snapshotAt)));
       const pair = api.trialPairedMarkets(input, sport, at).values.find(p => p.market === 'Spread');
       const e = fade.estimateFadeTrial(model, pair, input.find(s => s.selection === expected.selection));

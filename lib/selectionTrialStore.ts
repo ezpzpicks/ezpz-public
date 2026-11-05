@@ -182,13 +182,17 @@ export async function readSelectionTrial(sport: TrialSport, date: string) {
       startedAt: paper.length ? paper.map(d => d.capturedAt).sort()[0] : null,
       raw: trialRecord(paper, "raw"), matchedRaw: trialRecord(reversal, "raw"), opposite: trialRecord(reversal, "opposite"),
       comparisonScope: "Prospective versioned paper cards only. Matched raw and opposite records use the same reversal games and each side's saved price. Historical reversed records are excluded." },
-    fadeTrial: { policy: FADE_POLICY, available: Boolean(fadeModel), capturedGames: fades.length,
-      record: trialRecord(fades, "fade"), matchedOriginal: trialRecord(fadeOriginals, "trial"),
+    fadeTrial: { policy: { ...OPPOSITE_TRIAL_POLICY, qualification: "RULE_ONLY", usesEstimatedFadeRoi: false },
+      available: Boolean(model), capturedGames: paper.length, selectedGames: reversal.length,
+      record: trialRecord(paper, "opposite"), matchedOriginal: trialRecord(reversal, "raw"),
+      estimatePolicy: FADE_POLICY, estimateAvailable: Boolean(fadeModel),
+      calibratedComparison: { version: FADE_TRIAL_VERSION, capturedGames: fades.length,
+        record: trialRecord(fades, "fade"), matchedOriginal: trialRecord(fadeOriginals, "trial") },
       model: fadeModel ? { id: fadeModel.id, createdAt: fadeModel.createdAt, trainingCutoff: fadeModel.trainingCutoff,
         models: fadeModel.models.map(({ samples, ...summary }) => ({ ...summary,
           trainingGames: fadeModel!.baseModel.models.find(m => m.market === summary.market)!.games,
           trainingDates: fadeModel!.baseModel.models.find(m => m.market === summary.market)!.dates })) } : null,
-      note: "Separately calibrated fade probabilities and conservative ROI. New pregame cards only; historical replays are excluded. Uncertainty is approximate, not a validated confidence interval." },
+      note: "The saved mechanical reversal qualifies the fade test. Estimated fade ROI and uncertainty do not veto or rank selections. Records use the original versioned pregame reversal cards and each side's own price; historical replays are excluded. The earlier ROI-filtered comparison remains separate." },
     note: "Prospective trial only. Estimated returns are model estimates. No automatic promotion or publishing. Assumed and unverified prices are identified." };
 }
 
