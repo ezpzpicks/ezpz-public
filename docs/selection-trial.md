@@ -148,6 +148,85 @@ missing-history/uncertainty rejection, exact opposing prices, legacy-card
 exclusion, and immutable settlement. Run the existing trial tests plus
 `node --test tests/selection-trial-opposite.test.cjs`.
 
+## Calibrated fade probabilities
+
+`selection-fade-2026-11-04-v1` is a separate research model. It preserves the
+strict trial and the mechanical opposite-side test. It estimates each side's
+probability; it never turns a rejected lower bound into confidence in the
+opponent, reverses an ROI percentage, or treats 30-21 as a matchup probability.
+
+The unchanged raw sport/market model generates chronological predictions.
+Signed calibration fits a logit adjustment weight on a fixed -1 to +1 grid in
+0.05 steps: negative = fade, zero = market baseline, positive = follow. The
+global penalty remains 2, centered at zero. With at least ten games across
+three dates, the original source signal combination receives a partially
+pooled adjustment (penalty 4, centered on the global weight); matching original
+public-type identities may then receive an adjustment (penalty 8, centered on
+the combination weight). Role, opposing signals, and legacy/grouped policy
+families distinguish combinations. Sparse contexts use the broader estimate.
+Overlapping public types select unique market/game observations once.
+
+Only the original captured public-type IDs enter these contexts. Later
+leaderboard ranks, system win-loss records, and retrospectively reclassified
+flags are not features. The storage query preserves IDs while discarding the
+large public-system context arrays. The raw model's coefficients, original
+calibration, feature list, and existing model IDs remain unchanged.
+
+A second chronological layer checks the signed calibration: for each later
+date, fit calibration only on earlier raw predictions whose labels were known
+before that date's Eastern midnight. At least 20 such later checks across
+three dates are required for a qualified fade, in addition to the existing
+40-game/four-date training and 20-game/three-date calibration minimums.
+Matching raw +2% cohort counts are reported separately; they are not added to
+the general validation count or represented as an independent winning record.
+
+The per-side probability is `sigmoid(sideSign * (marketLogit + signedWeight * rawAdjustment))`.
+Approximate logit variance includes `signedWeight² * rawParameterVariance`
+plus `rawAdjustment² * signedWeightVariance`. Nested local fits do not add
+overlapping support as independent precision. A floor of
+`1 / (laterValidationGames + 20)` remains; the existing 1.281551565545
+uncertainty multiplier reduces the selected side's probability. These are
+provisional modeling choices, not a validated confidence interval.
+
+Expected and conservative ROI each use that side's original odds and push
+adjustment. A fade must be opposite the qualifying raw direction, have a
+negative calibrated weight, meet the earlier/later history requirements,
+have both source and fade prices of -150 or better, and clear +2% conservative
+ROI. One highest conservative-ROI fade may be selected per complete pregame
+game card. Other sides retain estimates and explicit rejection reasons.
+
+Existing collectors freeze signed models in `selection_fade_models` and attach
+a separately versioned `fadeComparison` only to newly captured cards. The raw
+fit is reused on new dates; adding the model to an already-frozen date needs
+one bounded history read/build. Outcomes alone may update afterward. Old
+cards cannot acquire retrospective fade selections. Model/estimation failures
+are isolated from strict trial capture and official picks. Public API reads
+do not build models and omit the full signed-calibration samples.
+
+### November 4 replay
+
+The requested OKC -3.5, Ball State +2.5, and Spurs -12.5 replays use only
+earlier-date results known before November 4 Eastern midnight and the exact
+original final pregame quotes. The model was developed after those games;
+these are retrospective research estimates, not actual pregame selections or
+independent proof of profitability. None currently clears the conservative
++2% rule under this version's fixed settings.
+
+The reproducible compressed fixture preserves 368 NBA and 422 NCAAF historical
+sides plus the twelve requested game-quote sides. Target outcomes are removed.
+Run:
+
+```sh
+node scripts/replay-selection-fade.cjs --fixture tests/fixtures/selection-fade-replay-2026-11-04.json.gz
+node --test tests/selection-fade.test.cjs tests/selection-trial-store.test.cjs
+```
+
+The committed report is `app/data/selection-fade-replay-2026-11-04.json`; the
+Selection trial page shows each sport's examples with cover probability,
+expected ROI, conservative ROI, support, and rejection reasons. Tests reproduce
+the published numbers and verify that changing the target outcomes cannot
+change the models or estimates.
+
 ## Review
 
 The lazy **Selection trial** panel appears in Signals and Signal Research, with

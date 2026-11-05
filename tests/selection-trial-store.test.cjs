@@ -7,6 +7,7 @@ const vm = require('node:vm');
 const ts = require('typescript');
 const { spawnSync } = require('node:child_process');
 const { api, game, history, plain } = require('./selection-trial-fixtures.cjs');
+const fadeApi = require('./load-typescript.cjs')(path.resolve(__dirname, '../lib/selectionFade.ts'));
 
 test('actual SQL freezes once, merges outcomes only, isolates sports, and serves a read-only comparison', async () => {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'ezpz-trial-')), db = path.join(temp, 'trial.sqlite');
@@ -32,13 +33,14 @@ c.commit();print(json.dumps(out))`;
     const quote = value => `'${String(value).replaceAll("'", "''")}'`;
     function row(side) { return { Date: side.date, 'Pick Key': side.id, 'Policy Version': side.policyVersion, Result: side.result,
       'Result Updated': side.resultUpdated, 'Details JSON': JSON.stringify(side) }; }
-    sql(history().map((s, i) => `INSERT INTO dataset_rows(sport,dataset,row_index,payload_json,date_key) VALUES ('NBA','nba_signal_observations',${i + 1},${quote(JSON.stringify(row(s)))},${quote(s.date)})`), true);
+    sql(history().map((s, i) => `INSERT INTO dataset_rows(sport,dataset,row_index,payload_json,date_key) VALUES ('NBA','nba_signal_observations',${i + 1},${quote(JSON.stringify(row({ ...s,
+      publicMatches: [null, 'invalid-context', 42, { signal: 'original-public-type', totals: { wins: 999, losses: 0 } }] })))},${quote(s.date)})`), true);
     const calls = [];
     const store = {};
     vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.resolve(__dirname, '../lib/selectionTrialStore.ts'), 'utf8'), {
       compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
     }).outputText, { exports: store, Date: Clock,
-      require: name => name === './selectionTrial' ? api : name === './tursoStore' ? {
+      require: name => name === './selectionTrial' ? api : name === './selectionFade' ? fadeApi : name === './tursoStore' ? {
         readTursoDatasetByDateKeys: async (sport, tab, dates) => {
           calls.push(['read', sport, tab]);
           return sql([`SELECT payload_json FROM dataset_rows WHERE sport=${quote(sport)} AND dataset=${quote(tab)} AND date_key IN (${dates.map(quote).join(',') || "''"})`])[0].map(r => JSON.parse(r.payload_json));
@@ -54,6 +56,10 @@ c.commit();print(json.dumps(out))`;
     const initialSourceReads = sourceReads();
     const all = () => sql(["SELECT payload_json FROM dataset_rows WHERE dataset='selection_trial_decisions'"])[0].map(r => JSON.parse(r.payload_json));
     const original = JSON.parse(all()[0]['Details JSON']);
+    assert.equal(original.fadeComparison.estimates.length, 4);
+    const signedModel = JSON.parse(JSON.parse(sql(["SELECT payload_json FROM dataset_rows WHERE dataset='selection_fade_models'"])[0][0].payload_json)['Details JSON']);
+    assert(signedModel.models.some(m => m.samples.some(s => s.publicTypeIds.includes('original-public-type'))), 'Compact SQL retains original public identities');
+    assert(signedModel.models.every(m => m.samples.every(s => !s.publicMatches && !s.totals)), 'Later public-system records are not calibration inputs');
     const changed = sides.map(s => s.market === 'Total' ? { ...s, line: 221.5, selection: s.selection.replace('220.5', '221.5') } : s);
     const repeat = await store.captureSelectionTrial('NBA', changed, [sides[1].id], clock + 1000);
     assert.equal(repeat.captured, 0); assert.equal(all().length, 1);
@@ -76,6 +82,11 @@ c.commit();print(json.dumps(out))`;
     assert.equal(report.paperTrial.matchedRaw.settled, 0);
     assert.equal(report.paperTrial.opposite.settled, 0);
     assert.deepEqual(saved.paperComparison, original.paperComparison, 'SQL settlement cannot rewrite paper selections');
+    assert.deepEqual(saved.fadeComparison, original.fadeComparison, 'SQL settlement cannot rewrite signed probabilities or ROI');
+    assert.equal(report.fadeTrial.available, true);
+    assert.equal(report.fadeTrial.capturedGames, 1);
+    assert.equal(report.fadeTrial.record.settled, 0, 'A strong follow signal cannot be relabeled as a fade');
+    assert(!JSON.stringify(report.fadeTrial.model).includes('samples'), 'Public API keeps full calibration rows out of routine responses');
     assert.equal(calls.filter(c => c[0] === 'write').length, writes, 'Public report is read only');
     const college = await store.readSelectionTrial('NCAAM', '2026-11-04');
     assert.equal(college.capturedGames, 0); assert.equal(college.available, false);

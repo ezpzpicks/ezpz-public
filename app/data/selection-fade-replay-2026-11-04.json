@@ -1,0 +1,199 @@
+{
+  "version": "selection-fade-2026-11-04-v1",
+  "policy": {
+    "version": "selection-fade-2026-11-04-v1",
+    "globalPenalty": 2,
+    "combinationPenalty": 4,
+    "publicTypePenalty": 8,
+    "minLocalGames": 10,
+    "minLocalDates": 3,
+    "minValidationGames": 20,
+    "minValidationDates": 3,
+    "minRawRoi": 0.02,
+    "conservativeRoi": 0.02,
+    "uncertaintyZ": 1.281551565545,
+    "worstOdds": -150,
+    "samplingPriorGames": 20
+  },
+  "mode": "RETROSPECTIVE_REPLAY",
+  "date": "2026-11-04",
+  "trainingCutoff": "2026-11-04T05:00:00.000Z",
+  "constructedAt": "2026-11-05T04:10:36.743Z",
+  "note": "Algorithm created after these games. Uses earlier-date, time-eligible results and original saved pregame quotes. Target-day outcomes are unused. These are not live selections or independent evidence that the strategy works.",
+  "results": [
+    {
+      "sport": "NBA",
+      "modelId": "selection-fade-2026-11-04-v1|NBA|2026-11-04|ae1b7f31",
+      "game": "Cleveland Cavaliers @ Oklahoma City Thunder",
+      "selection": "Oklahoma City Thunder -3.5",
+      "line": -3.5,
+      "odds": "-110",
+      "priceBasis": "Assumed -110",
+      "snapshotAt": "2026-11-05T00:40:06.441Z",
+      "gameTime": "2026-11-05T01:00:00.000Z",
+      "sourceSelection": "Cleveland Cavaliers +3.5",
+      "sourceRawRoiPct": 2.764881574635314,
+      "calibrationWeight": -0.05,
+      "direction": "Fade",
+      "supportLevel": "Sport and market",
+      "coverProbabilityPct": 50.19183588380408,
+      "conservativeCoverProbabilityPct": 45.480345682301845,
+      "expectedRoiPct": -4.1792224036467545,
+      "conservativeRoiPct": -13.173885515605566,
+      "qualifies": false,
+      "reasons": [
+        "Fade ROI below +2% after uncertainty and price"
+      ],
+      "support": {
+        "calibrationGames": 51,
+        "calibrationDates": 6,
+        "validationGames": 26,
+        "validationDates": 3,
+        "combinationGames": 1,
+        "combinationDates": 1,
+        "publicTypeGames": 1,
+        "publicTypeDates": 1,
+        "rawTwoPercentGames": 0
+      },
+      "roiAtMinus110Pct": -4.1792224036467545,
+      "conservativeRoiAtMinus110Pct": -13.173885515605566
+    },
+    {
+      "sport": "NCAAF",
+      "modelId": "selection-fade-2026-11-04-v1|NCAAF|2026-11-04|04560ac6",
+      "game": "Ball State @ UMass",
+      "selection": "Ball State +2.5",
+      "line": 2.5,
+      "odds": "-102",
+      "priceBasis": "Unverified provenance",
+      "snapshotAt": "2026-11-04T23:43:56.000Z",
+      "gameTime": "2026-11-05T00:00:00.000Z",
+      "sourceSelection": "UMass -2.5",
+      "sourceRawRoiPct": 11.506048070783903,
+      "calibrationWeight": -0.05,
+      "direction": "Fade",
+      "supportLevel": "Sport and market",
+      "coverProbabilityPct": 50.54753167195102,
+      "conservativeCoverProbabilityPct": 43.59155760458133,
+      "expectedRoiPct": 0.10393527190299401,
+      "conservativeRoiPct": -13.67162121445658,
+      "qualifies": false,
+      "reasons": [
+        "Insufficient later validation of the signed calibration",
+        "Fade ROI below +2% after uncertainty and price"
+      ],
+      "support": {
+        "calibrationGames": 49,
+        "calibrationDates": 4,
+        "validationGames": 1,
+        "validationDates": 1,
+        "combinationGames": 0,
+        "combinationDates": 0,
+        "publicTypeGames": 0,
+        "publicTypeDates": 0,
+        "rawTwoPercentGames": 15
+      },
+      "roiAtMinus110Pct": -3.500166808093513,
+      "conservativeRoiAtMinus110Pct": -16.779753663981094
+    },
+    {
+      "sport": "NBA",
+      "modelId": "selection-fade-2026-11-04-v1|NBA|2026-11-04|ae1b7f31",
+      "game": "Dallas Mavericks @ San Antonio Spurs",
+      "selection": "San Antonio Spurs -12.5",
+      "line": -12.5,
+      "odds": "-110",
+      "priceBasis": "Assumed -110",
+      "snapshotAt": "2026-11-05T02:10:06.588Z",
+      "gameTime": "2026-11-05T02:30:00.000Z",
+      "sourceSelection": "Dallas Mavericks +12.5",
+      "sourceRawRoiPct": 2.087935486156245,
+      "calibrationWeight": -0.05,
+      "direction": "Fade",
+      "supportLevel": "Sport and market",
+      "coverProbabilityPct": 50.17401141760216,
+      "conservativeCoverProbabilityPct": 45.46266719183007,
+      "expectedRoiPct": -4.213250930032242,
+      "conservativeRoiPct": -13.207635361051684,
+      "qualifies": false,
+      "reasons": [
+        "Fade ROI below +2% after uncertainty and price"
+      ],
+      "support": {
+        "calibrationGames": 51,
+        "calibrationDates": 6,
+        "validationGames": 26,
+        "validationDates": 3,
+        "combinationGames": 1,
+        "combinationDates": 1,
+        "publicTypeGames": 1,
+        "publicTypeDates": 1,
+        "rawTwoPercentGames": 0
+      },
+      "roiAtMinus110Pct": -4.213250930032242,
+      "conservativeRoiAtMinus110Pct": -13.207635361051684
+    }
+  ],
+  "models": [
+    {
+      "sport": "NBA",
+      "id": "selection-fade-2026-11-04-v1|NBA|2026-11-04|ae1b7f31",
+      "models": [
+        {
+          "market": "Spread",
+          "weight": -0.05,
+          "calibrationGames": 51,
+          "calibrationDates": 6,
+          "validationGames": 26,
+          "validationDates": 3,
+          "validationBrier": 0.24988299666519967,
+          "validationMarketBrier": 0.25,
+          "rawPositiveGames": 5,
+          "rawTwoPercentGames": 0
+        },
+        {
+          "market": "Total",
+          "weight": -0.05,
+          "calibrationGames": 51,
+          "calibrationDates": 6,
+          "validationGames": 26,
+          "validationDates": 3,
+          "validationBrier": 0.2500431435817083,
+          "validationMarketBrier": 0.25,
+          "rawPositiveGames": 6,
+          "rawTwoPercentGames": 2
+        }
+      ]
+    },
+    {
+      "sport": "NCAAF",
+      "id": "selection-fade-2026-11-04-v1|NCAAF|2026-11-04|04560ac6",
+      "models": [
+        {
+          "market": "Spread",
+          "weight": -0.05,
+          "calibrationGames": 49,
+          "calibrationDates": 4,
+          "validationGames": 1,
+          "validationDates": 1,
+          "validationBrier": 0.25,
+          "validationMarketBrier": 0.25,
+          "rawPositiveGames": 24,
+          "rawTwoPercentGames": 15
+        },
+        {
+          "market": "Total",
+          "weight": 0,
+          "calibrationGames": 53,
+          "calibrationDates": 4,
+          "validationGames": 1,
+          "validationDates": 1,
+          "validationBrier": 0.2442333406020774,
+          "validationMarketBrier": 0.2432708337923488,
+          "rawPositiveGames": 12,
+          "rawTwoPercentGames": 2
+        }
+      ]
+    }
+  ]
+}
