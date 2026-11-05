@@ -9,6 +9,8 @@ import { readSavedFootballSignalsForDate } from "./footballSignals";
 import { buildSignalResearchDays, SIGNAL_RESEARCH_VERSION } from "./signalCombinationResearch";
 import { signalEzpzPayload, signalPickThreshold } from "./signalPicks";
 import { persistEzpzCurrentPicks } from "./ezpzCurrentPicks";
+import { captureSelectionTrial } from "./selectionTrialStore";
+import type { TrialSide } from "./selectionTrial";
 
 import { updateBasketballConsolidation } from "./basketballConsolidation";
 import { consolidatedVersion, CONSOLIDATED_SPORT_EFFECTIVE_AT } from "./catalog/consolidatedSportCatalog";
@@ -98,6 +100,7 @@ export async function refreshNbaAnalysis(date: string, currentSchedule: TursoRow
       nbaRowsToPlays(snapshots, now), now, NBA_SIGNALS_POLICY.version));
   }
   let captured = 0, settled = 0;
+  const trialSides: TrialSide[] = [];
   let currentSignals: ReturnType<typeof buildNbaSignals> | undefined;
   for (const day of dates) {
     const result = buildNbaSignals({ date: day, games: schedule.filter(row => row.Date === day), splits: splits.filter(row => row.Date === day),
@@ -105,6 +108,7 @@ export async function refreshNbaAnalysis(date: string, currentSchedule: TursoRow
     const changed: TursoRow[] = result.changedRows.map(row => ({ ...row, "Game Key": JSON.parse(row["Details JSON"]).gameKey }));
     await saveNbaMarketRows(NBA_SIGNALS_TAB, changed);
     if (day === date) currentSignals = result;
+    trialSides.push(...result.board.sides);
     captured += changed.filter(row => !row.Result).length; settled += changed.filter(row => Boolean(row.Result)).length;
     state.tests = result.tests;
     state.signalResearch = result.signalResearch;
@@ -120,6 +124,10 @@ export async function refreshNbaAnalysis(date: string, currentSchedule: TursoRow
   await persistEzpzCurrentPicks("NBA", { today: date, lastUpdated: new Date(now).toISOString(),
     stale: currentSignals.stale, refreshPolicy: refresh.policy || "", refreshIntervalMinutes: refresh.intervalMinutes || 5,
     ...signalEzpzPayload(currentSignals.board, "NBA", date) }, now);
+  try {
+    await captureSelectionTrial("NBA", trialSides, currentSignals.board.sides.filter(s => s.recorded && s.selected).map(s => s.id),
+      Date.now(), !currentSignals.board.captureAvailable);
+  } catch (error) { console.error("NBA selection trial deferred; official picks preserved", error); }
   console.info("[nba-analysis]", JSON.stringify({ date, gradedSides: changedRecords.length, capturedSides: captured, settledSides: settled,
     rankedTrends: state.leaderboard.length, pendingDates: state.pendingDates.length }));
   return { gradedSides: changedRecords.length, capturedSides: captured, settledSides: settled, rankedTrends: state.leaderboard.length };
