@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { usesSituationRules } from "../../../lib/situationRules";
+import { applySituationPicks, readSituationPicks } from "../../../lib/situationStore";
 import { readTursoDatasetByDateKeys } from "../../../lib/tursoStore";
 import { readSavedFootballSignalsForDate } from "../../../lib/footballSignals";
 import { NBA_SIGNALS_POLICY, NBA_SIGNALS_TAB } from "../../../lib/nbaTrendLeaderboard";
@@ -18,7 +20,8 @@ export async function GET(request: NextRequest) {
   }
   try {
     const [rows, lineups] = await Promise.all([readTursoDatasetByDateKeys("NBA", NBA_SIGNALS_TAB, [date]), readNbaSavedLineups(date)]);
-    const sides = readSavedFootballSignalsForDate(rows, date, Date.now(), NBA_SIGNALS_POLICY);
+    const captured = readSavedFootballSignalsForDate(rows, date, Date.now(), NBA_SIGNALS_POLICY);
+    const sides = usesSituationRules("NBA", date) ? applySituationPicks(captured, await readSituationPicks("NBA", date)) : captured;
     const groupedPolicy = consolidatedSignalPolicy("NBA");
     const policy = sides.some(side => side.policyVersion === groupedPolicy) ? groupedPolicy : NBA_SIGNALS_POLICY.version;
     const research = buildSignalResearchReport("NBA", policy, buildSignalResearchDays(sides, policy));

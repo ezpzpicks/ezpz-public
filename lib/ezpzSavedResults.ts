@@ -2,6 +2,8 @@ import { readTursoDatasetByDateKeys } from "./tursoStore";
 import { normalizeMcpPick, MCP_SPORTS, type McpSport } from "./ezpzMcpPicks";
 import { savedSignalPicks, signalPickForFeed, SIGNAL_EZPZ_EFFECTIVE_DATE } from "./signalPicks";
 import { TEAM_TREND_TEST_TAB } from "./footballTeamTrendPlays";
+import { usesSituationRules } from "./situationRules";
+import { readSituationPicks } from "./situationStore";
 
 export const EZPZ_RESULT_SPORTS = MCP_SPORTS;
 type Row = Record<string, any>;
@@ -74,8 +76,9 @@ export function savedResultFromRow(sport: McpSport, row: Row, category: Category
 export async function readSavedEzpzResults(sport: McpSport, date: string) {
   if (date >= SIGNAL_EZPZ_EFFECTIVE_DATE) {
     if (sport === "MLB") return [];
-    const rows = await readTursoDatasetByDateKeys(sport, sport === "NCAAM" ? "ncaam_signal_observations" : sport === "NBA" ? "nba_signal_observations" : "football_signal_observations", [date]);
-    const sides = savedSignalPicks(rows, sport, date);
+    const dataset = sport === "NCAAM" ? "ncaam_signal_observations" : sport === "NBA" ? "nba_signal_observations" : "football_signal_observations";
+    const sides = usesSituationRules(sport, date) ? await readSituationPicks(sport, date)
+      : savedSignalPicks(await readTursoDatasetByDateKeys(sport, dataset, [date]), sport, date);
     return sides.map(side => {
       const raw = signalPickForFeed(side, sport), pick = normalizeMcpPick(sport, raw)!;
       return { pickId: pick.pickId, sport, date, gameTime: pick.gameTime, game: pick.game, market: pick.market,
@@ -83,6 +86,7 @@ export async function readSavedEzpzResults(sport: McpSport, date: string) {
         result: resultCode(side.result), settlementStatus: side.result ? "SETTLED" as const : "PENDING" as const,
         resultUpdated: side.resultUpdated, finalizedAt: pick.finalizedAt,
         selectionMethod: pick.selectionMethod, selectorVersion: pick.selectorVersion,
+        ...(pick.ruleId ? { ruleId: pick.ruleId } : {}),
         ...(pick.score != null ? { score: pick.score, scoreThreshold: pick.scoreThreshold, scoreVersion: pick.scoreVersion } : {}) };
     });
   }

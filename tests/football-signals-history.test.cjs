@@ -16,6 +16,8 @@ function route(readRows) {
     { exports: api, console: { error() {} }, require: name => name.endsWith('/sportSheets') ? { readSportWorksheetByDateKeys: readRows }
       : name.endsWith('/footballSignals') ? { ...signals, readSavedFootballSignalsForDate: (rows, day) => signals.readSavedFootballSignalsForDate(rows, day, kickoff + 86400000) }
       : name.endsWith('/signalCombinationResearch') ? research
+      : name.endsWith('/situationRules') ? load(path.join(root, 'lib/situationRules.ts'))
+      : name.endsWith('/situationStore') ? { readSituationPicks: async () => { throw new Error('Unexpected situation ledger read'); } }
       : name.endsWith('/catalog/nflConsolidatedCatalog') ? load(path.join(root, 'lib/catalog/nflConsolidatedCatalog.ts'))
       : name.endsWith('/catalog/consolidatedSportCatalog') ? load(path.join(root, 'lib/catalog/consolidatedSportCatalog.ts'))
       : require(name) });

@@ -9,6 +9,7 @@ import { buildNcaamTrendLeaderboard, NCAAM_ANALYSIS_TAB, NCAAM_SIGNALS_TAB, NCAA
 import { readSavedFootballSignalsForDate } from "./footballSignals";
 import { buildSignalResearchDays, SIGNAL_RESEARCH_VERSION } from "./signalCombinationResearch";
 import { signalEzpzPayload, signalPickThreshold } from "./signalPicks";
+import { attachSituationBoard } from "./situationStore";
 import { persistEzpzCurrentPicks } from "./ezpzCurrentPicks";
 import { captureSelectionTrial } from "./selectionTrialStore";
 import type { TrialSide } from "./selectionTrial";
@@ -125,6 +126,7 @@ export async function refreshNcaamAnalysis(date: string, currentSchedule: TursoR
   // Reuse the just-saved signal board; no extra collection, model run, history
   // scan or page read. A durable pick snapshot owns the existing final event.
   if (!currentSignals) throw new Error("NCAAM current signal board was not prepared.");
+  currentSignals.board = await attachSituationBoard(currentSignals.board, "NCAAM", true);
   await persistEzpzCurrentPicks("NCAAM", { today: date, lastUpdated: new Date(now).toISOString(),
     stale: currentSignals.stale, refreshPolicy: refresh.policy || "", refreshIntervalMinutes: refresh.intervalMinutes || 5,
     ...signalEzpzPayload(currentSignals.board, "NCAAM", date) }, now);

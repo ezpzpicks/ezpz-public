@@ -1,16 +1,18 @@
 import type { FootballSignalSide, FootballSignalsBoard } from "./footballSignals";
 import { comboPickPolicy, validComboScore, validComboFinalWindow } from "./comboScore";
+import { savedSituationRule, SITUATION_VERSION, usesSituationRules } from "./situationRules";
 export { comboPickPolicy } from "./comboScore";
 
 export const SIGNAL_EZPZ_EFFECTIVE_DATE = "2026-10-25";
 export const SIGNAL_EZPZ_VERSION = "signal-ezpz-2026-10-25-v1";
 export const signalPickThreshold = (sport?: string) => sport === "NFL" || sport === "NBA" ? 2 : 3;
-export const signalSelectorVersion = (sport: string, date: string) => comboPickPolicy(sport, date)?.version || SIGNAL_EZPZ_VERSION;
+export const signalSelectorVersion = (sport: string, date: string) => usesSituationRules(sport, date) ? SITUATION_VERSION : comboPickPolicy(sport, date)?.version || SIGNAL_EZPZ_VERSION;
 export const SIGNAL_NAMES: Record<string, string> = { money: "Money support", move: "Line movement", system: "Public bet trends",
   team: "Team trends", model: "Model edge", sos: "Strength of schedule" };
 
 /** Reclassify captured evidence, never rebuild its signals, quotes or results. */
 export function signalPickQualifies(side: FootballSignalSide, sport: string) {
+  if (usesSituationRules(sport, side.date)) return Boolean(savedSituationRule(side, sport, Date.now()));
   const policy = comboPickPolicy(sport, side.date);
   if (sport === "NCAAM" && !policy) return false; // Await this sport's own calibration.
   if (policy) return validComboScore(side, sport) && side.comboScore!.score + 1e-9 >= policy.threshold;
@@ -28,6 +30,10 @@ export function signalPickQualifies(side: FootballSignalSide, sport: string) {
 export function selectSignalEzpzPicks(sides: FootballSignalSide[], sport: string, now = Date.now()) {
   const unique = new Map<string, FootballSignalSide>();
   for (const side of sides) {
+    if (usesSituationRules(sport, side.date)) {
+      if (savedSituationRule(side, sport, now)) unique.set(side.id, side);
+      continue;
+    }
     const policy = comboPickPolicy(sport, side.date);
     if (policy ? !validComboScore(side, sport) : !signalPickQualifies(side, sport)) continue;
     const captured = Date.parse(side.snapshotAt), kickoff = Date.parse(side.gameTime), lead = kickoff - captured;
@@ -45,6 +51,7 @@ export function selectSignalEzpzPicks(sides: FootballSignalSide[], sport: string
     games.set(key, [...(games.get(key) || []), side]);
   }
   return [...games.values()].flatMap(group => {
+    if (usesSituationRules(sport, group[0].date)) return group.length === 1 ? group : [];
     const policy = comboPickPolicy(sport, group[0].date);
     if (policy) {
       // Wait for both markets: a later-arriving total must not replace a spread
@@ -67,6 +74,13 @@ export function selectSignalEzpzPicks(sides: FootballSignalSide[], sport: string
 
 export function signalPickForFeed(side: FootballSignalSide, sport: string) {
   const { marketContext, teamGames, publicMatches, ...evidence } = side;
+  if (usesSituationRules(sport, side.date)) {
+    const rule = savedSituationRule(side, sport, Date.parse(side.snapshotAt));
+    return { ...evidence, sport, source: "Situation Rule", pickCategory: "signals", selectorVersion: SITUATION_VERSION,
+      selectionMethod: "situation_rule", ruleId: rule?.id, selected: true, protectionStatus: "PASSED",
+      snapshotStatus: "FINAL_PREGAME", lockedAt: side.snapshotAt, frozenAt: side.snapshotAt,
+      tier: rule?.label, qualification: rule?.label };
+  }
   const policy = comboPickPolicy(sport, side.date);
   return { ...evidence, ...(policy ? { gameTime: side.scheduledGameTime || side.gameTime } : {}), sport,
     source: policy ? "Combo Score" : "Signal Test", pickCategory: "signals", selectorVersion: signalSelectorVersion(sport, side.date),
@@ -80,6 +94,13 @@ export function signalPickForFeed(side: FootballSignalSide, sport: string) {
 }
 
 export function isSignalFeedPick(pick: Record<string, any>, sport: string, now = Date.now()): boolean {
+  if (usesSituationRules(sport, String(pick.date || ""))) {
+    const rule = savedSituationRule(pick as FootballSignalSide, sport, now);
+    return Boolean(rule && pick.pickCategory === "signals" && pick.selectorVersion === SITUATION_VERSION
+      && pick.selectionMethod === "situation_rule" && pick.ruleId === rule.id && pick.selected === true
+      && pick.protectionStatus === "PASSED" && Array.isArray(pick.signals)
+      && pick.snapshotStatus === "FINAL_PREGAME" && pick.snapshotAt === pick.lockedAt && pick.snapshotAt === pick.frozenAt);
+  }
   const policy = comboPickPolicy(sport, String(pick.date || ""));
   if (pick.pickCategory !== "signals" || pick.selectorVersion !== signalSelectorVersion(sport, String(pick.date || "")) || pick.selected !== true
     || pick.threshold !== (policy?.threshold ?? signalPickThreshold(sport)) || !Array.isArray(pick.signals)) return false;
@@ -110,8 +131,9 @@ export function savedSignalPicks(rows: Record<string, string>[], sport: string, 
 export function signalEzpzPayload(board: FootballSignalsBoard | undefined, sport: string, today: string) {
   const picks = board ? selectSignalEzpzPicks(board.sides, sport).filter(side => side.date === today).map(side => signalPickForFeed(side, sport)) : [];
   const policy = comboPickPolicy(sport, today);
-  const history = (board?.history || []).filter(row => !policy || signalSelectorVersion(sport, row.date) === policy.version)
-    .map(row => ({ ...row, source: comboPickPolicy(sport, row.date) ? "Combo Score" : "Signal Test", selectorVersion: signalSelectorVersion(sport, row.date),
+  const situation = usesSituationRules(sport, today);
+  const history = (board?.history || []).filter(row => situation ? usesSituationRules(sport, row.date) : !policy || signalSelectorVersion(sport, row.date) === policy.version)
+    .map(row => ({ ...row, source: situation ? "Situation Rule" : comboPickPolicy(sport, row.date) ? "Combo Score" : "Signal Test", selectorVersion: signalSelectorVersion(sport, row.date),
     selected: true, snapshotStatus: "FINAL_PREGAME" }));
   const totals = (rows: typeof history) => {
     let wins = 0, losses = 0, pushes = 0, units = 0;
@@ -120,7 +142,7 @@ export function signalEzpzPayload(board: FootballSignalsBoard | undefined, sport
       else if (row.result === "L") { losses++; units--; } else if (row.result === "P") pushes++;
     }
     const totalBets = wins + losses + pushes;
-    return { record: `${wins}-${losses}-${pushes}`, wins, losses, pushes, totalBets,
+    return { record: `${wins}-${losses}-${pushes}`, wins, losses, pushes, totalBets, pending: rows.length - totalBets,
       winPct: wins + losses ? Math.round(wins / (wins + losses) * 10000) / 100 : 0,
       unitsWon: Math.round(units * 100) / 100, roiPct: totalBets ? Math.round(units / totalBets * 10000) / 100 : 0 };
   };
@@ -132,8 +154,10 @@ export function signalEzpzPayload(board: FootballSignalsBoard | undefined, sport
       winPct: summary.winPct ?? 0, roiPct: summary.roiPct ?? 0 } : totals([]),
     last7Days: totals(history.filter(row => row.date >= cutoff && row.date <= today)) },
     aiSelectorStatus: { selectedCount: picks.length,
-      message: sport === "NCAAM" && !policy ? "NCAAM combo scores are collecting history. An official threshold has not been calibrated yet." : policy ? `${sport} EZPZ Picks: combo score ${policy.threshold} or higher. Highest score per game; original pregame scoring inputs are saved.`
+      message: situation ? `${sport} EZPZ Picks use sport-specific play types. The daily review sets the active types, with one pick per game at the final pregame snapshot.`
+        : sport === "NCAAM" && !policy ? "NCAAM combo scores are collecting history. An official threshold has not been calibrated yet." : policy ? `${sport} EZPZ Picks: combo score ${policy.threshold} or higher. Highest score per game; original pregame scoring inputs are saved.`
         : `${sport} EZPZ Picks: ${signalPickThreshold(sport)}+ signals across at least two evidence sources. One pick per game; tied leaders wait. Final pregame quotes are saved.`,
-      selectorVersion: signalSelectorVersion(sport, today), selectionMethod: sport === "NCAAM" && !policy ? "pending_calibration" : policy ? "combo_score" : "signal_count",
-      threshold: sport === "NCAAM" && !policy ? null : policy?.threshold ?? signalPickThreshold(sport), scoreCalibration: !policy && ["NFL", "NBA", "NCAAM"].includes(sport) ? "In review" : undefined } };
+      selectorVersion: signalSelectorVersion(sport, today), selectionMethod: situation ? "situation_rule" : sport === "NCAAM" && !policy ? "pending_calibration" : policy ? "combo_score" : "signal_count",
+      threshold: situation || (sport === "NCAAM" && !policy) ? null : policy?.threshold ?? signalPickThreshold(sport),
+      ...(situation ? { situationPolicy: board?.situationPolicy ?? null } : { scoreCalibration: !policy && ["NFL", "NBA", "NCAAM"].includes(sport) ? "In review" : undefined }) } };
 }

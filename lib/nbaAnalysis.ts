@@ -8,6 +8,7 @@ import { buildNbaTrendLeaderboard, NBA_ANALYSIS_TAB, NBA_SIGNALS_TAB, NBA_TREND_
 import { readSavedFootballSignalsForDate } from "./footballSignals";
 import { buildSignalResearchDays, SIGNAL_RESEARCH_VERSION } from "./signalCombinationResearch";
 import { signalEzpzPayload, signalPickThreshold } from "./signalPicks";
+import { attachSituationBoard } from "./situationStore";
 import { persistEzpzCurrentPicks } from "./ezpzCurrentPicks";
 import { captureSelectionTrial } from "./selectionTrialStore";
 import type { TrialSide } from "./selectionTrial";
@@ -121,6 +122,7 @@ export async function refreshNbaAnalysis(date: string, currentSchedule: TursoRow
   // Reuse the just-saved signal board; no extra collection, model run, history
   // scan or page read. A durable pick snapshot owns the existing final event.
   if (!currentSignals) throw new Error("NBA current signal board was not prepared.");
+  currentSignals.board = await attachSituationBoard(currentSignals.board, "NBA", true);
   await persistEzpzCurrentPicks("NBA", { today: date, lastUpdated: new Date(now).toISOString(),
     stale: currentSignals.stale, refreshPolicy: refresh.policy || "", refreshIntervalMinutes: refresh.intervalMinutes || 5,
     ...signalEzpzPayload(currentSignals.board, "NBA", date) }, now);

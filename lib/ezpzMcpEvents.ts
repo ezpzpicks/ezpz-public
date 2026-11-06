@@ -98,7 +98,7 @@ export function finalPickEvent(pick: McpPick, detectedAt: number) {
   // that wire contract; the read tool resolves category and score from pickId.
   const { pickCategory: _category, pickLabel: _label, teamTrendScore: _score,
     teamTrendRecords: _records, selectionMethod: _selectionMethod, score: _comboScore,
-    scoreThreshold: _scoreThreshold, scoreVersion: _scoreVersion, selectorVersion: _selectorVersion, ...wirePick } = pick;
+    scoreThreshold: _scoreThreshold, scoreVersion: _scoreVersion, selectorVersion: _selectorVersion, ruleId: _ruleId, ...wirePick } = pick;
   return { eventId: `evt_${pick.pickId}`, name: FINAL_PICK_EVENT,
     timestamp: pick.finalizedAt || new Date(detectedAt).toISOString(), data: { pick: wirePick }, cursor: null };
 }
