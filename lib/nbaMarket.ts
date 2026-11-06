@@ -11,6 +11,8 @@ import { readNbaModelRecordSeed } from "./nbaModelRecordStore";
 import { readNbaSavedLineups, refreshNbaLineups } from "./nbaLineups";
 import { mergeNbaLineups, type NbaGameLineup } from "./nbaLineupsCore";
 import { signalEzpzPayload } from "./signalPicks";
+import { usesSituationRules } from "./situationRules";
+import { attachSituationBoard } from "./situationStore";
 
 export async function collectNbaMarket({ persist = true, now = Date.now(), refresh }: {
   persist?: boolean; now?: number; refresh?: { policy: string; intervalMinutes: number };
@@ -76,14 +78,18 @@ export async function readNbaPublicData(date = nbaDate()) {
   const savedModels = state.modelRecords?.version === NBA_MODEL_RECORD_POLICY ? state.modelRecords : await readNbaModelRecordSeed(date);
   const modelRecords = summarizeNbaModelRecords(updateNbaModelRecords(savedModels, forecasts, games, Date.now(), [date]), date);
   const modelPlays = nbaModelPlays(forecasts, games);
-  const ezpzHistory = nbaEzpzSelections(Object.values(analysis.tests));
+  analysis.board = await attachSituationBoard(analysis.board, "NBA");
+  const official = signalEzpzPayload(analysis.board, "NBA", date);
+  const situation = usesSituationRules("NBA", date);
+  const ezpzHistory = situation ? official.aiPickRecordRows.map(row => ({ ...row, id: row.id || `${row.date}|${row.game}|${row.selection}`, gameTime: row.gameTime || row.date }))
+    : nbaEzpzSelections(Object.values(analysis.tests));
   const ezpzSelections = nbaEzpzSelections(analysis.board.sides.filter(side => side.selected));
   const last7Start = new Date(Date.parse(`${date}T12:00:00Z`) - 6 * 86400000).toISOString().slice(0, 10);
-  const ezpzRecords = { overall: nbaRecordTotals(ezpzHistory.filter(row => row.date <= date)),
-    last7Days: nbaRecordTotals(ezpzHistory.filter(row => row.date >= last7Start && row.date <= date)),
+  const ezpzRecords = { overall: situation ? official.ezpzRecords.overall : nbaRecordTotals(ezpzHistory.filter(row => row.date <= date)),
+    last7Days: situation ? official.ezpzRecords.last7Days : nbaRecordTotals(ezpzHistory.filter(row => row.date >= last7Start && row.date <= date)),
     history: ezpzHistory.filter(row => row.date <= date).sort((a, b) => b.gameTime.localeCompare(a.gameTime)) };
   return { ok: true, sport: "NBA", today: date, lastUpdated,
-    consolidation: state.consolidation, ...signalEzpzPayload(analysis.board, "NBA", date),
+    consolidation: state.consolidation, ...official,
     tiles: { last7Days: { ...modelRecords.last7Days, label: "NBA model" }, overallGreen: { ...modelRecords.overall, label: "NBA model" },
       pendingGreen: modelPlays.filter(row => !row.result).length, bestPlaysToday: modelPlays.length },
     bestPlays: modelPlays, slateToday: games, betTrackerRows: [], trendPlays: analysis.plays, recordSummary: [], last7RecordSummary: [],

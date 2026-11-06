@@ -16,7 +16,8 @@ export type McpPick = {
   pickId: string; sport: McpSport; date: string; game: string; market: string;
   selection: string; line: string | number | null; odds: string | null; gameTime: string;
   pickCategory: "public_bet_trend" | "team_trend" | "signals"; signalCount?: number; threshold?: number; signalNames?: string[]; pickLabel: string; teamTrendScore: number | null;
-  selectionMethod?: "combo_score" | "signal_count"; score?: number; scoreThreshold?: number; scoreVersion?: string; selectorVersion?: string;
+  selectionMethod?: "combo_score" | "signal_count" | "situation_rule"; ruleId?: string;
+  score?: number; scoreThreshold?: number; scoreVersion?: string; selectorVersion?: string;
   teamTrendRecords: McpTeamRecords[] | null;
   pickType: string; lastSeven: { record: string; wins: number; losses: number; pushes: number; totalBets: number } | null;
   snapshotStatus: "LIVE" | "FINAL_PREGAME"; finalizedAt: string | null;
@@ -104,6 +105,7 @@ export function normalizeMcpPick(sport: McpSport, pick: AnyPick, now = Date.now(
     pickCategory: signalTest ? "signals" : teamTrend ? "team_trend" : "public_bet_trend",
     ...(signalTest ? { signalCount: pick.signalCount, threshold: pick.threshold, selectionMethod: pick.selectionMethod || "signal_count",
       selectorVersion: pick.selectorVersion,
+      ...(pick.selectionMethod === "situation_rule" ? { ruleId: pick.ruleId } : {}),
       ...(pick.selectionMethod === "combo_score" ? { score: pick.score, scoreThreshold: pick.scoreThreshold, scoreVersion: pick.scoreVersion } : {}),
       signalNames: pick.signals.filter((s: AnyPick) => s.active && s.available).map((s: AnyPick) => SIGNAL_NAMES[s.key]) } : {}),
     // Retain the integration label/category and stable IDs. selectionMethod
@@ -112,7 +114,7 @@ export function normalizeMcpPick(sport: McpSport, pick: AnyPick, now = Date.now(
     teamTrendScore: teamTrend ? pick.teamTrendScore.score : null,
     teamTrendRecords: teamTrend ? capturedTeamRecords(pick) : null,
     pickType: signalTest ? pick.selectionMethod === "combo_score" ? `Combo score ${Number(pick.score).toFixed(1)}/100 (minimum ${pick.scoreThreshold})`
-      : `${pick.signalCount} signals: ${pick.qualification}` : teamTrend ? `Team Trend (score >= ${pick.threshold}/100)`
+      : pick.selectionMethod === "situation_rule" ? String(pick.qualification) : `${pick.signalCount} signals: ${pick.qualification}` : teamTrend ? `Team Trend (score >= ${pick.threshold}/100)`
       : String(pick.tier || pick.trendTier || pick.bestPlayType || pick.source || "").trim(),
     // Team records used by the score are not the strategy's last seven bets.
     lastSeven: teamTrend || signalTest ? null : lastSeven(pick), snapshotStatus: status,

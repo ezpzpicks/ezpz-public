@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { usesSituationRules } from "../../../lib/situationRules";
+import { applySituationPicks, readSituationPicks } from "../../../lib/situationStore";
 import { FOOTBALL_SIGNALS_HEADERS, FOOTBALL_SIGNALS_TAB, FOOTBALL_SIGNALS_VERSION, readSavedFootballSignalsForDate } from "../../../lib/footballSignals";
 import { readSportWorksheetByDateKeys, type FootballSport } from "../../../lib/sportSheets";
 import { buildSignalResearchDays, buildSignalResearchReport } from "../../../lib/signalCombinationResearch";
@@ -18,7 +20,8 @@ export async function GET(request: NextRequest) {
   }
   try {
     const rows = await readSportWorksheetByDateKeys(sport as FootballSport, FOOTBALL_SIGNALS_TAB, [date], FOOTBALL_SIGNALS_HEADERS);
-    const sides = readSavedFootballSignalsForDate(rows, date);
+    const captured = readSavedFootballSignalsForDate(rows, date);
+    const sides = usesSituationRules(sport, date) ? applySituationPicks(captured, await readSituationPicks(sport, date)) : captured;
     const groupedPolicy = sport === "NFL" ? NFL_CONSOLIDATED_SIGNAL_POLICY : consolidatedSignalPolicy("NCAAF");
     const policy = sides.some(side => side.policyVersion === groupedPolicy) ? groupedPolicy : FOOTBALL_SIGNALS_VERSION;
     const research = buildSignalResearchReport(sport, policy, buildSignalResearchDays(sides, policy));

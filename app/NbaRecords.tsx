@@ -40,7 +40,7 @@ export default function NbaRecords({ data }: { data: NbaMarketPayload }) {
       </div>)}</div> : <p>No qualifying A/B model plays have been saved for this period.</p>}</article>
     <article className="nbaCard"><h3>EZPZ Picks history</h3>
       {picks.length ? <div className="nbaPlayHistory">{picks.map(row => <div className="nbaHistoryRow" key={row.id}>
-        <div><span className="nbaSmall">{row.date} · {row.market} · {row.signalCount} signals</span><strong><SelectionWithTeamLogo sport={sport} selection={row.selection} game={row.game} /></strong>
+        <div><span className="nbaSmall">{row.date} · {row.market} · {row.ruleLabel || `${row.signalCount} signals`}</span><strong><SelectionWithTeamLogo sport={sport} selection={row.selection} game={row.game} /></strong>
           <small><MatchupWithLogos sport={sport} game={row.game} compact /></small></div><span className="nbaResult" data-result={row.result}>{row.result || "Pending"}</span>
       </div>)}</div> : <p>No qualifying EZPZ Picks have been saved for this period.</p>}</article>
     <div className="directTrendRecordWrap"><DirectTrendRecords rows={[]} sport={sport} nbaLeaderboard={data.leaderboard || []} /></div>

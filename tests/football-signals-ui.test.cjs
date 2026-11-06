@@ -19,7 +19,7 @@ vm.runInNewContext(ts.transpileModule(source, { compilerOptions: { module: ts.Mo
   { exports: exportsObject, Date, Intl, console, require: name => name === './TeamLogoName' ? { TeamLogoName: p => p.team }
     : name === './NbaGameLineups' ? { __esModule: true, default: () => null }
     : name === './SelectionTrial' ? trial
-    : ['../lib/signalCombinationResearch', '../lib/signalPicks', '../lib/signalMovement'].includes(name) ? require('./load-typescript.cjs')(path.join(root, name.replace('../', '') + '.ts')) : require(name) });
+    : ['../lib/signalCombinationResearch', '../lib/signalPicks', '../lib/signalMovement', '../lib/situationRules'].includes(name) ? require('./load-typescript.cjs')(path.join(root, name.replace('../', '') + '.ts')) : require(name) });
 const keys = ['money', 'move', 'system', 'team', 'model'];
 const team = name => ({ team: name, venue: 'Away', role: 'Favorite', opposing: name === 'GB', score: 80, trackedGames: 5, seasonGames: 5, missingGames: 0,
   records: Object.fromEntries([['betType', 'Favorite ATS', 50], ['venue', 'Away ATS', 30], ['recent', 'Last 5 ATS', 20]].map(([k, label, weight]) => [k,
@@ -135,17 +135,18 @@ test('EZPZ shows only qualifying saved signal tests, with NFL two and NCAAF thre
   assert.doesNotMatch(missing, /3\+ signals/);
 });
 
-test('compact picks distinguish frozen results from live previews without opening signal details', () => {
+test('compact picks show frozen results and the new policy waits for the final snapshot', () => {
   const total = { ...side, market: 'Total', side: 'Over', selection: 'Over 43.5', line: 43.5, recorded: true,
     status: 'FINAL_PREGAME', snapshotAt: '2026-10-19T00:05:00Z', result: 'W', signalCount: 2,
     signals: keys.map(key => ({ key, active: ['money', 'team'].includes(key), available: true, value: key === 'money' ? 27 : 80, level: 'Qualifying' })) };
   const frozen = render(React.createElement(exportsObject.default, { board: { ...board, sides: [total] }, picksOnly: true }));
   for (const text of ['Over 43.5 EZPZ Pick', '-110', 'Won', 'Final snapshot', 'Combined Signal Record']) assert(frozen.includes(text), text);
   assert.doesNotMatch(frozen, /fs-breakdown|fs-detail-inline/);
-  const now = Date.now(), tip = new Date(now + 3_600_000).toISOString(), date = tip.slice(0, 10);
+  const now = Date.now(), tip = new Date(now + 3_600_000).toISOString(), date = '2026-11-06';
   const live = { ...total, date, recorded: false, status: 'LIVE', gameTime: tip, snapshotAt: new Date(now).toISOString(), result: '' };
   const preview = render(React.createElement(exportsObject.default, { board: { ...board, today: date, sides: [live] }, picksOnly: true }));
-  assert.match(preview, /Live preview/);
+  assert.match(preview, /No NFL play type qualified at the final snapshot/);
+  assert.doesNotMatch(preview, /Live preview/);
   assert.doesNotMatch(preview, /Final snapshot|Won/);
 });
 

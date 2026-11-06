@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { usesSituationRules } from "../../../lib/situationRules";
+import { applySituationPicks, readSituationPicks } from "../../../lib/situationStore";
 import { readTursoDatasetByDateKeys } from "../../../lib/tursoStore";
 import { readSavedFootballSignalsForDate } from "../../../lib/footballSignals";
 import { NCAAM_SIGNALS_POLICY, NCAAM_SIGNALS_TAB } from "../../../lib/ncaamTrendLeaderboard";
@@ -19,7 +21,8 @@ export async function GET(request: NextRequest) {
   }
   try {
     const [rows, lineups] = await Promise.all([readTursoDatasetByDateKeys("NCAAM", NCAAM_SIGNALS_TAB, [date]), readNcaamSavedLineups(date)]);
-    const sides = readSavedFootballSignalsForDate(rows, date, Date.now(), NCAAM_SIGNALS_POLICY);
+    const captured = readSavedFootballSignalsForDate(rows, date, Date.now(), NCAAM_SIGNALS_POLICY);
+    const sides = usesSituationRules("NCAAM", date) ? applySituationPicks(captured, await readSituationPicks("NCAAM", date)) : captured;
     const groupedPolicy = consolidatedSignalPolicy("NCAAM");
     const policy = sides.some(side => side.policyVersion === groupedPolicy) ? groupedPolicy : NCAAM_SIGNALS_POLICY.version;
     const research = buildSignalResearchReport("NCAAM", policy, buildSignalResearchDays(sides, policy));

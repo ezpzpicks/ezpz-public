@@ -13,6 +13,7 @@ import { ncaamSosForTeam } from "./ncaamSos";
 import { buildNbaTrendLeaderboard, nbaModelFor, nbaTrendSignals } from "./nbaTrendLeaderboard";
 import { buildSignalResearchDays, buildSignalResearchReport, mergeSignalResearchDays, type SignalResearchReport, type SignalResearchDay } from "./signalCombinationResearch";
 import { attachComboScores, comboPickPolicy, validComboFinalWindow, type ComboScore } from "./comboScore";
+import { situationMarketQuotes, usesSituationRules, type SituationPolicy, type SituationQuote } from "./situationRules";
 import { quoteImpliedProbability, regradeModelQuote } from "./modelSignalQuote";
 import { evaluateSignalMovement, type SignalMovement } from "./signalMovement";
 import { nflConsolidatedSignals, nflGroupCategoryMatches } from "./nflConsolidatedTrends";
@@ -47,7 +48,7 @@ export type FootballSignalSide = {
   combination: string; teamTrend: FootballTeamTrendScore | null; publicMatches: PublicSignalMatch[];
   teamGames: { team: string; date: string; opponent: string; venue: string; line: number | null; result: string }[];
   marketContext: { bets: number | null; money: number | null; openingBets: number | null; openingMoney: number | null;
-    openingLine: number | null; openingOdds: string; publicChange: number | null; moneyChange: number | null;
+    openingLine: number | null; openingOdds: string; openingAt?: string; publicChange: number | null; moneyChange: number | null;
     movementBasis: string; movementLabel: string; history: AnyRow[]; movement?: SignalMovement };
   modelContext: { play: string; grade: string; version: string; projection: number | null; probability: number | null; line: number | null; reason: string;
     regraded?: boolean; originalPlay?: string; originalGrade?: string; probabilityEstimated?: boolean };
@@ -55,13 +56,17 @@ export type FootballSignalSide = {
   result: "W" | "L" | "P" | ""; resultUpdated: string;
   policyVersion?: string; oddsAssumed?: boolean;
   comboScore?: ComboScore;
+  situationQuote?: SituationQuote;
+  situationRuleId?: string;
   researchOrigin?: "replay";
 };
 export type FootballSignalsBoard = {
   version: string; sport: SignalSport; today: string; asOf: string; captureAvailable: boolean;
   sides: FootballSignalSide[]; archiveDates: string[]; summary: ReturnType<typeof signalRecord>;
   breakdowns: { dimension: string; label: string; record: ReturnType<typeof signalRecord> }[];
-  history: { date: string; game: string; selection: string; market: string; odds: string; signalCount: number; combination: string; result: string; score?: number; selectorVersion?: string }[];
+  history: { date: string; game: string; selection: string; market: string; odds: string; signalCount: number; combination: string; result: string;
+    id?: string; gameTime?: string; score?: number; selectorVersion?: string; ruleLabel?: string }[];
+  situationPolicy?: SituationPolicy;
   research?: SignalResearchReport;
   legacyResearch?: SignalResearchReport;
 };
@@ -237,6 +242,7 @@ function evaluateSide(play: AnyRow, siblings: AnyRow[], input: SignalsInput, ran
     signals, signalCount, sourceCount, candidate: !play.lineSource && signalCount >= signalPickThreshold(sport) && sourceCount >= 2 && quoteValid,
     selected: false, mixed: false, combination: active.map(s => s.key).join(" + "), teamTrend, teamGames, publicMatches,
     marketContext: { bets, money, openingBets: signalNumber(play.openingBetsPct), openingMoney: signalNumber(play.openingMoneyPct),
+      openingAt: String(play.openingSnapshotTime || play.firstTrackedAt || ""),
       openingLine: signalNumber(play.openingLine), openingOdds: String(play.openingOdds || ""), publicChange: signalNumber(play.publicMovementPct),
       moneyChange: signalNumber(play.sharpMovementPct), movementBasis: movement.basis, movementLabel, movement,
       history: (play.movementHistory || []).map((p: AnyRow) => ({ snapshotTime: p.snapshotTime, line: p.line, odds: p.odds, betsPct: p.betsPct, moneyPct: p.moneyPct })) },
@@ -442,10 +448,23 @@ export function buildFootballSignalsState(input: SignalsInput): { board: Footbal
   const scored = new Map(attachComboScores(scoreInputs.map(side => scheduledTimes.has(side.gameKey)
     ? { ...side, scheduledGameTime: scheduledTimes.get(side.gameKey) } : side), sport, scoreDays, policy.version, now, !stale).map(side => [side.id, side]));
   sides = sides.map(side => scored.get(side.id) || side);
+  const situationPairs = new Map<string, FootballSignalSide[]>();
+  for (const side of sides) {
+    if (!captureIds.has(side.id) || !usesSituationRules(sport, side.date)) continue;
+    const key = `${side.gameKey}|${side.market}`, pair = situationPairs.get(key) || [];
+    pair.push(side);
+    situationPairs.set(key, pair);
+  }
+  const quotes = new Map<string, SituationQuote>();
+  for (const pair of situationPairs.values()) {
+    if (!usesSituationRules(sport, pair[0].date)) continue;
+    situationMarketQuotes(pair, sport, now).forEach((quote, i) => quotes.set(pair[i].id, quote));
+  }
   sides = sides.map(side => {
     if (!captureIds.has(side.id)) return side;
-    if (comboPickPolicy(sport, side.date) && (!side.comboScore || !validComboFinalWindow(side, now))) return side;
-    const captured = { ...side, recorded: true };
+    if (!usesSituationRules(sport, side.date) && comboPickPolicy(sport, side.date) && (!side.comboScore || !validComboFinalWindow(side, now))) return side;
+    const quote = quotes.get(side.id);
+    const captured = { ...side, recorded: true, ...(quote ? { situationQuote: quote } : {}) };
     changedRows.push(storageRow(captured, policy)); updated.set(captured.id, captured);
     return captured;
   });

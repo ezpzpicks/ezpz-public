@@ -11,6 +11,8 @@ import { NCAAM_MODEL_RECORD_POLICY, ncaamEzpzSelections, ncaamModelPlays, ncaamR
 import { loadNcaamSos } from "./ncaamSos";
 
 import { signalEzpzPayload } from "./signalPicks";
+import { usesSituationRules } from "./situationRules";
+import { attachSituationBoard } from "./situationStore";
 import { readNcaamSavedLineups, refreshNcaamLineups } from "./ncaamLineups";
 import { mergeNbaLineups } from "./nbaLineupsCore";
 import { ncaamDivisionOneSchedule } from "./ncaamDivisionOne";
@@ -94,14 +96,18 @@ export async function readNcaamPublicData(date = ncaamDate()) {
   const savedModels = state.modelRecords?.version === NCAAM_MODEL_RECORD_POLICY ? state.modelRecords : undefined;
   const modelRecords = summarizeNcaamModelRecords(updateNcaamModelRecords(savedModels, forecasts, games, Date.now(), [date]), date);
   const modelPlays = ncaamModelPlays(forecasts, games);
-  const ezpzHistory = ncaamEzpzSelections(Object.values(analysis.tests));
+  analysis.board = await attachSituationBoard(analysis.board, "NCAAM");
+  const official = signalEzpzPayload(analysis.board, "NCAAM", date);
+  const situation = usesSituationRules("NCAAM", date);
+  const ezpzHistory = situation ? official.aiPickRecordRows.map(row => ({ ...row, id: row.id || `${row.date}|${row.game}|${row.selection}`, gameTime: row.gameTime || row.date }))
+    : ncaamEzpzSelections(Object.values(analysis.tests));
   const ezpzSelections = ncaamEzpzSelections(analysis.board.sides.filter(side => side.selected));
   const last7Start = new Date(Date.parse(`${date}T12:00:00Z`) - 6 * 86400000).toISOString().slice(0, 10);
-  const ezpzRecords = { overall: ncaamRecordTotals(ezpzHistory.filter(row => row.date <= date)),
-    last7Days: ncaamRecordTotals(ezpzHistory.filter(row => row.date >= last7Start && row.date <= date)),
+  const ezpzRecords = { overall: situation ? official.ezpzRecords.overall : ncaamRecordTotals(ezpzHistory.filter(row => row.date <= date)),
+    last7Days: situation ? official.ezpzRecords.last7Days : ncaamRecordTotals(ezpzHistory.filter(row => row.date >= last7Start && row.date <= date)),
     history: ezpzHistory.filter(row => row.date <= date).sort((a, b) => b.gameTime.localeCompare(a.gameTime)) };
   return { ok: true, sport: "NCAAM", today: date, lastUpdated,
-    consolidation: state.consolidation, ...signalEzpzPayload(analysis.board, "NCAAM", date),
+    consolidation: state.consolidation, ...official,
     tiles: { last7Days: { ...modelRecords.last7Days, label: "NCAAM model" }, overallGreen: { ...modelRecords.overall, label: "NCAAM model" },
       pendingGreen: modelPlays.filter(row => !row.result).length, bestPlaysToday: modelPlays.length },
     bestPlays: modelPlays, slateToday: games, betTrackerRows: [], trendPlays: analysis.plays, recordSummary: [], last7RecordSummary: [],

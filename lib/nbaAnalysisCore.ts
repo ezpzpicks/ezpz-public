@@ -13,7 +13,7 @@ import { selectSignalEzpzPicks, signalPickThreshold, signalSelectorVersion, comb
 import type { BasketballConsolidationState } from "./basketballConsolidation";
 type Row = Record<string, any>;
 export type NbaSignalTest = Pick<FootballSignalSide, "id" | "date" | "game" | "gameTime" | "selection" | "market" | "odds" | "signalCount" | "combination" | "result">
-  & { score?: number; selectorVersion?: string };
+  & { score?: number; selectorVersion?: string; ruleLabel?: string };
 export type NbaAnalysisState = BasketballConsolidationState & {
   version: string; season: string; archiveDates: string[]; pendingDates: string[];
   leaderboard: NcaafEzpzSubtype[]; leaderboardAsOf: string;
