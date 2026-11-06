@@ -458,7 +458,8 @@ export function buildFootballSignalsState(input: SignalsInput): { board: Footbal
   const quotes = new Map<string, SituationQuote>();
   for (const pair of situationPairs.values()) {
     if (!usesSituationRules(sport, pair[0].date)) continue;
-    situationMarketQuotes(pair, sport, now).forEach((quote, i) => quotes.set(pair[i].id, quote));
+    const homeSide = sport === "NCAAF" ? footballTeamKey(pair[0].homeTeam, sport) : undefined;
+    situationMarketQuotes(pair, sport, now, homeSide).forEach((quote, i) => quotes.set(pair[i].id, quote));
   }
   sides = sides.map(side => {
     if (!captureIds.has(side.id)) return side;

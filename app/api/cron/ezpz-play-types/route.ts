@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { nbaDate } from "../../../../lib/nbaMarketCore";
+import { SITUATION_SPORTS } from "../../../../lib/situationRules";
 import { reviewSituations } from "../../../../lib/situationStore";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
-const sports = ["NFL", "NBA", "NCAAM"] as const;
 
 export async function GET(request: NextRequest) {
   const secret = process.env.CRON_SECRET;
@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
   // Sequential initialization lets the first sport create the tables before
   // the other sports attempt to read their own rule history.
   const reviews = [];
-  for (const sport of sports) {
+  for (const sport of SITUATION_SPORTS) {
     try {
       const policy = await reviewSituations(sport, date, now);
       reviews.push({ sport, ok: true, active: policy?.rules.filter(rule => rule.active).map(rule => rule.id) || [] });

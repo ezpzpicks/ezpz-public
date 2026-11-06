@@ -2,10 +2,11 @@ import type { FootballSignalSide } from "./footballSignals";
 
 export const SITUATION_START_DATE = "2026-11-06";
 export const SITUATION_VERSION = "situation-ezpz-2026-11-06-v1";
-export type SituationSport = "NFL" | "NBA" | "NCAAM";
+export const SITUATION_SPORTS = ["NFL", "NCAAF", "NBA", "NCAAM"] as const;
+export type SituationSport = typeof SITUATION_SPORTS[number];
 type Market = FootballSignalSide["market"];
 type Side = FootballSignalSide;
-type Rule = { id: string; label: string; market: Market; seed: boolean; matches: (side: Side, other: Side) => boolean };
+type Rule = { id: string; label: string; market: Market; seed: boolean; matches: (side: Side, other: Side, homeSide?: string) => boolean };
 export type SituationQuote = { odds: string; assumed: boolean; ruleIds: string[] };
 export type SituationRuleState = { id: string; label: string; market: Market; active: boolean; since: string;
   change: "seeded" | "watch" | "promoted" | "paused"; decided?: number; netUnits?: number };
@@ -21,6 +22,7 @@ const growth = (side: Side, kind: "bets" | "money") => {
 };
 const lineChange = (side: Side) => opener(side) && side.marketContext.openingLine != null
   ? side.line! - side.marketContext.openingLine : NaN;
+const moneyGap = (side: Side) => side.marketContext.money! - side.marketContext.bets!;
 
 // Priority follows the one-pick-per-game backtest. Each rule also gets its own results.
 const RULES: Record<SituationSport, Rule[]> = {
@@ -33,6 +35,18 @@ const RULES: Record<SituationSport, Rule[]> = {
       matches: side => side.line! > 0 && lineChange(side) <= -0.5 },
     { id: "nfl-over-balanced-tickets", label: "Over with 45–55% tickets", market: "Total", seed: false,
       matches: side => side.side === "Over" && side.marketContext.bets! >= 45 && side.marketContext.bets! <= 55 },
+  ],
+  NCAAF: [
+    { id: "ncaaf-home-unchanged-spread", label: "Home spread matches its opener", market: "Spread", seed: true,
+      matches: (side, _, homeSide) => side.side === homeSide && lineChange(side) === 0
+        && percent(side.marketContext.openingBets) && percent(side.marketContext.openingMoney)
+        && time(side.snapshotAt) - time(side.marketContext.openingAt) >= 12 * 60 * 60_000 },
+    { id: "ncaaf-total-money-gap-15", label: "Total money exceeds tickets by 15+ points", market: "Total", seed: true,
+      matches: side => moneyGap(side) >= 15 },
+    { id: "ncaaf-underdog-fade-70", label: "Underdog against 70%+ spread tickets", market: "Spread", seed: false,
+      matches: side => side.line! > 0 && side.marketContext.bets! <= 30 },
+    { id: "ncaaf-under-money-gap-10-to-15", label: "Under money exceeds tickets by 10 to under 15 points", market: "Total", seed: false,
+      matches: side => side.side === "Under" && moneyGap(side) >= 10 && moneyGap(side) < 15 },
   ],
   NBA: [
     { id: "nba-spread-60-60", label: "Spread with 60%+ tickets and money", market: "Spread", seed: true,
@@ -48,7 +62,7 @@ const RULES: Record<SituationSport, Rule[]> = {
     { id: "ncaam-under-balanced-tickets", label: "Under with 45–55% tickets", market: "Total", seed: true,
       matches: side => side.side === "Under" && side.marketContext.bets! >= 45 && side.marketContext.bets! <= 55 },
     { id: "ncaam-underdog-money-gap", label: "Underdog money exceeds tickets by 10+ points", market: "Spread", seed: false,
-      matches: side => side.line! > 0 && side.marketContext.money! - side.marketContext.bets! >= 10 },
+      matches: side => side.line! > 0 && moneyGap(side) >= 10 },
   ],
 };
 
@@ -72,13 +86,13 @@ function price(side: Side, sport: SituationSport) {
   if (raw.some(point => number(point.line) !== side.line || number(point.betsPct) !== bets || number(point.moneyPct) !== money)) return null;
   const seen = new Set(raw.map(point => number(point.odds)).filter(odds => Number.isFinite(odds) && Math.abs(odds) >= 100));
   if (seen.size > 1) return null;
-  const observed = sport === "NFL" ? [...seen][0] : side.oddsAssumed === false ? number(side.odds) : undefined;
+  const observed = sport === "NFL" || sport === "NCAAF" ? [...seen][0] : side.oddsAssumed === false ? number(side.odds) : undefined;
   if (observed != null && (!Number.isFinite(observed) || Math.abs(observed) < 100 || observed !== number(side.odds))) return null;
   return { odds: String(observed ?? -110), assumed: observed == null };
 }
 
 /** Classify the two sides of a newly captured market with its original quotes. */
-export function situationMarketQuotes(pair: Side[], sport: SituationSport, now: number): SituationQuote[] {
+export function situationMarketQuotes(pair: Side[], sport: SituationSport, now: number, homeSide?: string): SituationQuote[] {
   if (pair.length !== 2) return [];
   const [a, b] = pair;
   if (a.id === b.id || a.gameKey !== b.gameKey || a.date !== b.date || a.side === b.side || !a.side || !b.side || a.market !== b.market
@@ -91,7 +105,7 @@ export function situationMarketQuotes(pair: Side[], sport: SituationSport, now: 
   const prices = pair.map(side => price(side, sport));
   if (prices.some(quote => !quote)) return [];
   return pair.map((side, i) => ({ ...prices[i]!, ruleIds: Number(prices[i]!.odds) < -150 ? []
-    : RULES[sport].filter(rule => rule.market === side.market && rule.matches(side, pair[1 - i])).map(rule => rule.id) }));
+    : RULES[sport].filter(rule => rule.market === side.market && rule.matches(side, pair[1 - i], homeSide)).map(rule => rule.id) }));
 }
 
 export function savedSituationRule(side: Side, sport: SituationSport, now: number) {
