@@ -1,10 +1,10 @@
 import { runTursoAtomicSql, runTursoSql, type TursoRow } from "./tursoStore";
-import { signalRecord, type FootballSignalSide, type FootballSignalsBoard } from "./footballSignals";
+import { FOOTBALL_SIGNALS_TAB, signalRecord, type FootballSignalSide, type FootballSignalsBoard } from "./footballSignals";
 import { reviewSituationRules, savedSituationRule, situationFinalWindow, situationWinners, SITUATION_START_DATE, SITUATION_VERSION, usesSituationRules,
   type SituationPolicy, type SituationResult, type SituationSport } from "./situationRules";
 
 const q = (value: unknown) => `'${String(value ?? "").replaceAll("'", "''")}'`;
-const source = (sport: SituationSport) => `${sport === "NFL" ? "football" : sport.toLowerCase()}_signal_observations`;
+const source = (sport: SituationSport) => sport === "NFL" || sport === "NCAAF" ? FOOTBALL_SIGNALS_TAB : `${sport.toLowerCase()}_signal_observations`;
 const clock = (value: string) => Date.parse((value || "").replace(/ EDT$/, " -0400").replace(/ EST$/, " -0500"));
 const missingTable = (error: unknown) => /no such table: (ezpz_situation_policy|ezpz_situation_picks)\b/i.test(String(error));
 

@@ -32,7 +32,7 @@ const PICK_SCHEMA = {
 export const EZPZ_MCP_TOOLS = [
   {
     name: "get_ezpz_picks", title: "Read EZPZ Picks",
-    description: "Read saved official EZPZ Picks. From Nov 1, 2026, NCAAF uses selectionMethod=combo_score with a minimum score of 65, based on exact combination history for both sides. It may qualify with zero active signals; do not apply a signal-count minimum to score picks. From Nov 6, NFL, NBA and NCAAM use selectionMethod=situation_rule with sport-specific play types. Verify ruleId for those picks. Defaults to finalized, unstarted games. Verify the saved selectionMethod, selectorVersion, score/scoreThreshold when present, exact line, finalization and eligibleForPosting before posting. lastSeven is null because no validated combination last-seven record is supplied. Older dates retain their original selector.",
+    description: "Read saved official EZPZ Picks. For Nov 1–5, 2026, NCAAF used selectionMethod=combo_score with a minimum score of 65, based on exact combination history for both sides. It may qualify with zero active signals; do not apply a signal-count minimum to score picks. From Nov 6, NFL, NCAAF, NBA and NCAAM use selectionMethod=situation_rule with sport-specific play types. Verify ruleId for those picks. Defaults to finalized, unstarted games. Verify the saved selectionMethod, selectorVersion, score/scoreThreshold when present, exact line, finalization and eligibleForPosting before posting. lastSeven is null because no validated combination last-seven record is supplied. Older dates retain their original selector.",
     inputSchema: { type: "object", properties: { sport: SPORT_SCHEMA, finalOnly: { type: "boolean", default: true } }, additionalProperties: false },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   },
@@ -46,7 +46,7 @@ export const EZPZ_MCP_TOOLS = [
 
 export const EZPZ_MCP_EVENTS = [{
   name: FINAL_PICK_EVENT,
-    description: "An official EZPZ selection has been saved as FINAL_PREGAME at the 10–20 minute final snapshot. NCAAF uses its dated combo-score policy (65 minimum from Nov 1, 2026); NFL, NBA and NCAAM use sport-specific situation rules from Nov 6, 2026. Verify selectionMethod, score/scoreThreshold when present, selectorVersion, exact frozen line and eligibleForPosting with get_finalized_pick. Score picks do not require a minimum number of active signals. Existing jobs, stable pick IDs, durable deduplication and bounded retries deliver the event. Newly created subscriptions watch future finalizations.",
+    description: "An official EZPZ selection has been saved as FINAL_PREGAME at the 10–20 minute final snapshot. NCAAF used its 65-point combo-score policy for Nov 1–5, 2026. NFL, NCAAF, NBA and NCAAM use sport-specific situation rules from Nov 6, 2026. Verify selectionMethod, score/scoreThreshold when present, selectorVersion, exact frozen line and eligibleForPosting with get_finalized_pick. Score picks do not require a minimum number of active signals. Existing jobs, stable pick IDs, durable deduplication and bounded retries deliver the event. Newly created subscriptions watch future finalizations.",
   delivery: ["webhook"],
   inputSchema: { type: "object", properties: { sports: { type: "array", items: SPORT_SCHEMA, minItems: 1, maxItems: MCP_SPORTS.length, uniqueItems: true } }, additionalProperties: false },
   payloadSchema: { type: "object", properties: { pick: PICK_SCHEMA }, required: ["pick"], additionalProperties: false },
