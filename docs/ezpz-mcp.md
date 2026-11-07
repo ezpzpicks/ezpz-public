@@ -10,6 +10,8 @@ Only a saved official `FINAL_PREGAME` decision from the existing 10–20-minute 
 
 Historical football captures before the signal migration retain their original `public_bet_trend`/`team_trend` categories, saved lines, team evidence and separate ledgers. They are not newly selected official signal picks and must not be relabeled or reposted during this migration. Team Trend's 75/100 threshold and raw 50/30/20 weights are unchanged.
 
+Spread evaluations from November 7, 2026 at 22:10 UTC use `team-trends-spread-2026-11-07-v3` across NFL, NCAAF, NBA and NCAAM. Each team's weighted support is measured against neutral 50, then combined as `clamp(selectedSupport + opponentSupport - 50, 0, 100)`. Opponent support counts ATS failures. A 90 selected-team score against neutral 50 therefore scores 90, rather than the former 70 average. Totals still average the two teams. Earlier evaluation times and saved signal observations retain their original formula and qualification; this change does not backfill historical picks.
+
 ## Install in ChatGPT Work
 
 1. Open ChatGPT on the web, then Plugins → + → Add custom MCP server.

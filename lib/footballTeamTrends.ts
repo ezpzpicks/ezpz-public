@@ -4,6 +4,7 @@ import { COLLEGE_FOOTBALL_TEAMS } from "./collegeFootballTeamAliases";
 import { ncaamTeamKey } from "./ncaamMarketCore";
 import { nbaTeamKey } from "./nbaMarketCore";
 import { normalizeTexasAmAlias } from "./texasAmAlias";
+import { SPREAD_TEAM_TREND_VERSION, SPREAD_TEAM_TREND_EFFECTIVE_AT } from "./teamTrendScorePolicy";
 
 type Row = Record<string, any>;
 type Sport = "NFL" | "NCAAF" | "NBA" | "NCAAM";
@@ -52,7 +53,13 @@ export type FootballTeamTrendScore = {
   mode: "preview" | "locked" | "replay";
   scope: "Tracked current-season games" | "Current-season games";
   method: "Raw hit rates";
+  aggregation?: "Mean team support" | "Neutral-relative spread";
 };
+
+function trendVersion(sport: Sport, relativeSpread: boolean) {
+  return relativeSpread ? SPREAD_TEAM_TREND_VERSION : ["NBA", "NCAAM"].includes(sport)
+    ? `team-trends-${sport.toLowerCase()}-2026-10-22-v1` : FOOTBALL_TEAM_TREND_VERSION;
+}
 
 type Game = {
   key: string;
@@ -288,6 +295,7 @@ export function scoreFootballTeamTrends(
   const pair = teams(pick), date = dateKey(pick.date);
   if (!pair || !date) return null;
   const spread = text(pick.market) === "spread";
+  const relativeSpread = spread && now >= Date.parse(SPREAD_TEAM_TREND_EFFECTIVE_AT);
   const direction = text(pick.side || pick.selection).startsWith("under") ? "Under" : "Over";
   const selected = teamKey(String(pick.selectionTeam || pick.selection || "").replace(/\s+[+-]?\d+(?:\.\d+)?\s*$/, ""), sport);
   const selectedLine = number(pick.line) ?? lineFromSelection(pick.selection);
@@ -330,21 +338,24 @@ export function scoreFootballTeamTrends(
   const start = Date.parse(String(pick.gameTime || ""));
   const final = text(pick.snapshotStatus) === "final pregame";
   const mode = !final ? "preview" : Number.isFinite(start) && now < start ? "locked" : "replay";
-  return { version: ["NBA", "NCAAM"].includes(sport) ? `team-trends-${sport.toLowerCase()}-2026-10-22-v1` : FOOTBALL_TEAM_TREND_VERSION, weights: { ...FOOTBALL_TEAM_TREND_WEIGHTS },
+  const supportSum = scoredTeams.reduce((sum, t) => sum + t.score, 0);
+  return { version: trendVersion(sport, relativeSpread), weights: { ...FOOTBALL_TEAM_TREND_WEIGHTS },
     // Signals may show season records before a spread is available. A role-free
     // record is context only and must never supply a qualifying grade.
     score: (!spread || selectedLine != null) && scoredTeams.every(t => t.hasData && !t.missingGames)
-      ? scoredTeams.reduce((sum, t) => sum + t.score, 0) / 2 : null,
+      ? relativeSpread ? Math.max(0, Math.min(100, supportSum - 50)) : supportSum / 2 : null,
     teams: scoredTeams, capturedAt: new Date(now).toISOString(), asOfDate: date, mode,
-    scope: ["NBA", "NCAAM"].includes(sport) ? "Tracked current-season games" : "Current-season games", method: "Raw hit rates" };
+    scope: ["NBA", "NCAAM"].includes(sport) ? "Tracked current-season games" : "Current-season games", method: "Raw hit rates",
+    aggregation: relativeSpread ? "Neutral-relative spread" : "Mean team support" };
 }
 
 export function withFootballTeamTrends(pick: Row, sport: Sport, history: TeamTrendHistory, saved?: Row, now = Date.now()) {
   // Retain captured evidence and its weight version through settlement and later tuning.
   const captured = saved?.teamTrendScore ?? pick.teamTrendScore;
   const start = Date.parse(String(pick.gameTime || ""));
+  const version = trendVersion(sport, text(pick.market) === "spread" && now >= Date.parse(SPREAD_TEAM_TREND_EFFECTIVE_AT));
   if (isSavedTeamTrendScore(captured)
-    && (!Number.isFinite(start) || now >= start || (captured.version === FOOTBALL_TEAM_TREND_VERSION
+    && (!Number.isFinite(start) || now >= start || (captured.version === version
       && captured.score != null && captured.teams.every(t => !t.missingGames)))) return { ...pick, teamTrendScore: captured };
   const score = scoreFootballTeamTrends(pick, sport, history, now);
   return score ? { ...pick, teamTrendScore: score } : pick;

@@ -24,6 +24,7 @@ import { consolidatedTrendSignals, consolidatedCategoryMatches, buildConsolidate
 import { replayConsolidatedSignals } from "./consolidatedSportResearch";
 
 import { signalPickThreshold, selectSignalEzpzPicks } from "./signalPicks";
+import { teamTrendAggregationExplanation } from "./teamTrendScorePolicy";
 
 type SignalSport = FootballSport | "NBA" | "NCAAM";
 export type SignalsPolicy = { version: string; prefix: string; launchAt: string };
@@ -221,7 +222,7 @@ function evaluateSide(play: AnyRow, siblings: AnyRow[], input: SignalsInput, ran
         ? "The spread is unavailable. Season ATS records are shown for context; favorite/underdog records and the grade await the line."
         : teamTrend?.teams.some(team => team.missingGames > 0)
           ? "Available team records are shown, but the grade awaits missing historical market results."
-          : "Existing raw team grade: 50% bet type, 30% venue, 20% last five; average both teams. Qualifies at 75 or higher."),
+          : `Raw team grade: 50% bet type, 30% venue, 20% last five. ${teamTrendAggregationExplanation(teamTrend)} Qualifies at 75 or higher.`),
     signal("model", model.available, model.active, model.edge, model.active ? model.context.grade : "Inactive", model.context.reason),
   ];
   if (sport === "NCAAF") signals.push(signal("sos", completeSos, play.market === "Spread" && sosGap != null && sosGap >= 25,
