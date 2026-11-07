@@ -71,6 +71,52 @@ test('NCAAF needs a valid opener for its home spread and falls through to its mo
   assert.equal(feed.signalSelectorVersion('NCAAF', '2026-11-05'), 'combo-ezpz-ncaaf-2026-11-01-v1');
 });
 
+test('live play-type previews use the daily priority, update or drop, and cannot post or lock early', () => {
+  for (const sport of ['NFL', 'NCAAF', 'NBA', 'NCAAM']) {
+    const policy = rules.reviewSituationRules(sport, date, now, undefined, []);
+    const live = state(sport, Object.fromEntries([0, 1, 2, 3].map(i => [i, {
+      snapshotStatus: 'LIVE', frozenAt: '', gameTime: iso(now + 3_600_000),
+    }]))).board.sides;
+    const previews = rules.situationPreviews(live, policy, now);
+    assert.equal(previews.length, 1, sport);
+    const [preview] = previews;
+    assert.equal(preview.situationPending, true);
+    assert.equal(preview.recorded, false);
+    assert.equal(preview.status, 'LIVE');
+    assert.equal(preview.situationRuleId, policy.rules.find(rule => rule.active).id);
+    assert.equal(rules.savedSituationRule(preview, sport, now), undefined);
+    assert.equal(rules.situationWinners(previews, policy, now).length, 0);
+    assert.equal(feed.selectSignalEzpzPicks(previews, sport, now).length, 1);
+    const payload = feed.signalPickForFeed(preview, sport);
+    assert.equal(payload.snapshotStatus, 'LIVE');
+    assert.equal(payload.lockedAt, '');
+    assert.equal(payload.frozenAt, '');
+    assert(feed.isSignalFeedPick(payload, sport, now));
+    const normalized = mcp.normalizeMcpPick(sport, payload, now);
+    assert.equal(normalized.eligibleForPosting, false);
+    assert.equal(normalized.finalizedAt, null);
+    assert.equal(mcp.isVerifiedFrozenFootballMcpPick(sport, payload, now), false);
+    assert.equal(rules.situationPreviews(live, { ...policy, rules: policy.rules.map(rule => ({ ...rule, active: false })) }, now).length, 0);
+    assert.equal(rules.situationPreviews(live.map(side => ({ ...side, marketStale: true })), policy, now).length, 0);
+    assert.equal(rules.situationPreviews(live, policy, now + 3_100_000).length, 0, 'a missed final window cannot stay pending');
+    assert.equal(rules.situationPreviews(live.map(side => ({ ...side, scheduledGameTime: iso(now + 7_200_000) })), policy, now).length, 0);
+  }
+  const policy = rules.reviewSituationRules('NCAAF', date, now, undefined, []);
+  const live = state('NCAAF', Object.fromEntries([0, 1, 2, 3].map(i => [i, {
+    snapshotStatus: 'LIVE', frozenAt: '', gameTime: iso(now + 3_600_000),
+  }]))).board.sides;
+  const moved = live.map(side => side.market === 'Spread' ? { ...side, marketContext: { ...side.marketContext,
+    openingLine: side.marketContext.openingLine - 0.5 } } : side);
+  assert.equal(rules.situationPreviews(moved, policy, now)[0].situationRuleId, 'ncaaf-total-money-gap-15');
+  const invalid = moved.map(side => side.market === 'Total' ? { ...side,
+    marketContext: { ...side.marketContext, money: side.marketContext.bets } } : side);
+  assert.equal(rules.situationPreviews(invalid, policy, now).length, 0);
+  assert.equal(rules.situationPreviews(live.filter(side => side.market === 'Total'), policy, now).length, 0, 'wait for the higher-priority market');
+  const [locked] = rules.situationWinners(state('NCAAF').board.sides, policy, now);
+  assert.equal(rules.situationPreviews([...live, locked], policy, now).length, 0);
+  assert.deepEqual(plain(feed.selectSignalEzpzPicks([locked, ...rules.situationPreviews(live, policy, now)], 'NCAAF', now)), [plain(locked)]);
+});
+
 test('final pricing respects verified NFL odds and conflicts in the paired capture', () => {
   const raw = odds => ({ snapshotTime: iso(now), line: 2.5, betsPct: 25, moneyPct: 25, odds });
   const policy = rules.reviewSituationRules('NFL', date, now, undefined, []);
@@ -123,10 +169,26 @@ test('SQLite owns each NCAAF game decision, requires saved evidence and settles 
   assert.equal((await store.attachSituationBoard(board, 'NCAAF')).summary.pending, 0);
   assert.equal(writes, 0);
   assert.equal((await store.attachSituationBoard(board, 'NCAAF', true)).summary.pending, 0, 'only durable observations can qualify');
+  const liveBoard = { ...board, sides: state('NCAAF', Object.fromEntries([0, 1, 2, 3].map(i => [i, {
+    snapshotStatus: 'LIVE', frozenAt: '', gameTime: iso(now + 3_600_000),
+  }]))).board.sides };
+  const beforePreview = writes;
+  const previewBoard = await store.attachSituationBoard(liveBoard, 'NCAAF');
+  assert.equal(feed.selectSignalEzpzPicks(previewBoard.sides, 'NCAAF', now).length, 1);
+  assert.equal(previewBoard.summary.pending, 0, 'previews never enter official records');
+  assert.equal(previewBoard.history.length, 0);
+  assert.equal(writes, beforePreview, 'displaying previews makes no database writes');
+  assert.equal((await store.readSituationPicks('NCAAF', date)).length, 0);
+  const droppedBoard = await store.attachSituationBoard({ ...previewBoard, sides: previewBoard.sides.map(side => ({ ...side, marketStale: true })) }, 'NCAAF');
+  assert.equal(feed.selectSignalEzpzPicks(droppedBoard.sides, 'NCAAF', now).length, 0, 'an old preview is removed when conditions stop qualifying');
   changedRows.forEach((row, i) => insert.run(row.Date, i, '', JSON.stringify(row)));
   const locked = await store.attachSituationBoard(board, 'NCAAF', true);
   const first = (await store.readSituationPicks('NCAAF', date))[0];
   assert.equal(locked.summary.pending, 1); assert.equal(first.line, -2.5);
+  const lockedBoard = await store.attachSituationBoard(liveBoard, 'NCAAF');
+  const [visible] = feed.selectSignalEzpzPicks(lockedBoard.sides, 'NCAAF', now);
+  assert.equal(visible.recorded, true);
+  assert.equal(visible.situationPending, undefined);
   const totalOnly = { ...board, sides: board.sides.map(s => s.market === 'Spread' ? { ...s, situationQuote: { ...s.situationQuote, ruleIds: [] } } : s) };
   await store.attachSituationBoard(totalOnly, 'NCAAF', true);
   assert.deepEqual(plain(await store.readSituationPicks('NCAAF', date)), [plain(first)]);

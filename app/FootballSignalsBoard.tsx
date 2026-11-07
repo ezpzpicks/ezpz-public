@@ -7,7 +7,7 @@ import NbaGameLineups from "./NbaGameLineups";
 import type { NbaGameLineup } from "../lib/nbaLineupsCore";
 import type { FootballSignalKey, FootballSignalSide, FootballSignalsBoard, FootballSignal } from "../lib/footballSignals";
 import { selectSignalEzpzPicks, signalPickThreshold, comboPickPolicy } from "../lib/signalPicks";
-import { savedSituationRule, usesSituationRules } from "../lib/situationRules";
+import { pendingSituationRule, savedSituationRule, situationPreviews, usesSituationRules } from "../lib/situationRules";
 import { signalResearchView, signalCombinationLabel, signalCombinationRecord, signalResearchSideGroup, type ResearchPhase, type SignalResearchReport } from "../lib/signalCombinationResearch";
 import { evaluateSignalMovement } from "../lib/signalMovement";
 import SelectionTrial from "./SelectionTrial";
@@ -164,10 +164,11 @@ function MatchupCard({ rows, board, picksOnly, report, date, lineups }: {
   const sideLabel = (value: FootballSignalSide) => value.market === "Total" ? value.side : value.selection.replace(/\s+[+−-]?\d+(?:\.\d+)?$/, "");
   return <article className={`fs-game${picksOnly ? " fs-official-pick" : ""}`} aria-label={picksOnly ? `${rows[0].selection} EZPZ Pick` : `${rows[0].game} signals`}>
     <header className="fs-game-header"><strong>{rows[0].game}</strong><time dateTime={rows[0].scheduledGameTime || rows[0].gameTime}>{time(rows[0].scheduledGameTime || rows[0].gameTime)}</time></header>
-    <div className="fs-game-status"><span title={`Captured ${time(rows[0].snapshotAt)}`}>{recorded ? "Final snapshot" : rows.some(value => value.lineSource) ? "Saved market line" : rows.every(value => value.status === "MISSED_LOCK") ? "Missed final snapshot" : "Live preview"}</span>{picksOnly ? <span className="fs-pick-label">EZPZ PICK</span> : null}</div>
+    <div className="fs-game-status"><span title={`Captured ${time(rows[0].snapshotAt)}`}>{recorded ? "Final snapshot" : picksOnly && rows.some(value => value.situationPending) ? "Pending · awaiting final snapshot" : rows.some(value => value.lineSource) ? "Saved market line" : rows.every(value => value.status === "MISSED_LOCK") ? "Missed final snapshot" : "Live preview"}</span>{picksOnly ? <span className="fs-pick-label">EZPZ PICK</span> : null}</div>
     {rows.map(value => {
       const signals = value.signals.filter(signal => signal.active && signal.available);
-      const rule = usesSituationRules(board.sport, value.date) ? savedSituationRule(value, board.sport, Date.now()) : undefined;
+      const rule = usesSituationRules(board.sport, value.date) ? savedSituationRule(value, board.sport, Date.now())
+        || pendingSituationRule(value, board.sport, Date.now()) : undefined;
       return <div className="fs-side" key={value.id}>
         <div className="fs-side-heading"><div className="fs-selection">{value.market === "Spread" ? <TeamLogoName sport={board.sport} team={sideLabel(value)} className="fs-team-name" /> : <strong>{value.side}</strong>}<strong>{value.line == null ? "Line pending" : format(value.line, value.market === "Spread")}</strong></div><span className="fs-odds">{value.odds}</span></div>
         <div className="fs-summary-signals">{picksOnly && rule ? <><span className="fs-signal-chip">{rule.label}</span>{value.oddsAssumed ? <span className="fs-count">−110 assumed</span> : null}</> : <>{signals.map(signal => <span className="fs-signal-chip" key={signal.key}>{META[signal.key].label}</span>)}<span className="fs-count">{value.signalCount} {value.signalCount === 1 ? "signal" : "signals"}{value.mixed ? " · Mixed" : !picksOnly && value.selected ? " · EZPZ" : ""}</span></>}
@@ -256,9 +257,19 @@ export default function FootballSignals({ board, picksOnly = false, sport: fallb
   const archiveError = archive?.key === archiveKey && archive.status === "error";
   const rawSides = needsArchive ? archiveReady ? archive!.sides : [] : board?.sides || [];
   const viewSides = useMemo(() => {
-    const selected = new Set(selectSignalEzpzPicks(rawSides, sport || "").map(side => side.id));
-    return rawSides.map(side => ({ ...side, selected: selected.has(side.id) }));
-  }, [rawSides, sport]);
+    const now = Date.now();
+    const sides = rawSides.map(side => {
+      if (!side.situationPending) return side;
+      const { situationPending, situationRuleId, situationQuote, ...live } = side;
+      return { ...live, selected: false };
+    });
+    const policy = board?.situationPolicy;
+    const previews = board?.captureAvailable && policy?.date === selectedDate ? situationPreviews(sides, policy, now) : [];
+    const pending = new Map(previews.map(side => [side.id, side]));
+    const visible = sides.map(side => pending.get(side.id) || side);
+    const selected = new Set(selectSignalEzpzPicks(visible, sport || "", now).map(side => side.id));
+    return visible.map(side => ({ ...side, selected: selected.has(side.id) }));
+  }, [rawSides, sport, board?.situationPolicy, board?.captureAvailable, selectedDate]);
   useEffect(() => {
     if (!needsArchive || !sport) return;
     const controller = new AbortController();
@@ -317,9 +328,9 @@ export default function FootballSignals({ board, picksOnly = false, sport: fallb
       <label className="fs-sort-select"><span className="ez-sr-only">Sort games</span><select aria-label="Sort games" value={sort === "time" ? "time" : `${sort}:${direction}`} onChange={event => { const [key, order] = event.target.value.split(":"); setSort(key as typeof sort); setDirection(Number(order) || -1); }}><option value="time">Sort: Time</option>{(!picksOnly || !situation) && viewSides.some(side => side.comboScore) ? <option value="score:-1">Score: Highest</option> : null}{keys.flatMap(key => [-1, 1].map(order => <option key={`${key}:${order}`} value={`${key}:${order}`}>{META[key].label}: {order < 0 ? "Highest" : "Lowest"}</option>))}</select><ChevronDown size={14} aria-hidden="true" /></label>
     </div>
     <div className="fs-games">{needsArchive && !archiveReady ? <div className="fs-empty" role="status">{archiveError ? <><p>The saved slate could not be loaded.</p><button type="button" className="fs-filter" onClick={() => setArchiveRetry(value => value + 1)}>Try again</button></> : "Loading saved pregame signals…"}</div> : groups.length ? groups.map(rows => <MatchupCard key={`${rows[0].gameKey}-${market}-${selectedDate}`} rows={rows.slice().sort((a, b) => a.market.localeCompare(b.market) || (a.market === "Total" ? (a.side === "Over" ? -1 : 1) : 0))} board={board} picksOnly={picksOnly} report={board.research?.sport === board.sport ? board.research : undefined} date={selectedDate} lineups={needsArchive ? archive?.lineups || [] : lineups} />)
-      : <div className="fs-empty">{picksOnly ? situation ? `No ${board.sport} play type qualified at the final snapshot for this view.` : calibrationPending ? "Official NCAAM EZPZ Picks are on hold while signal and combination records accumulate." : scorePolicy ? `No qualifying ${board.sport} EZPZ Picks for this view. The highest score must reach ${threshold}, with both markets saved before kickoff.` : `No qualifying ${board.sport} EZPZ Picks for this view. Plays need ${threshold}+ signals and a clear qualifying leader.` : "No games match this view."}</div>}
+      : <div className="fs-empty">{picksOnly ? situation ? selectedDate === board.today ? `No ${board.sport} play type currently qualifies for this view. Pending picks appear as live conditions qualify.` : `No ${board.sport} play type qualified at the final snapshot for this view.` : calibrationPending ? "Official NCAAM EZPZ Picks are on hold while signal and combination records accumulate." : scorePolicy ? `No qualifying ${board.sport} EZPZ Picks for this view. The highest score must reach ${threshold}, with both markets saved before kickoff.` : `No qualifying ${board.sport} EZPZ Picks for this view. Plays need ${threshold}+ signals and a clear qualifying leader.` : "No games match this view."}</div>}
     </div>
-    {picksOnly ? <details className="ep-method"><summary>How plays qualify &amp; how they’re saved</summary>{situation ? <><p>The daily review sets the active play types. The highest-priority match gets the game’s pick at the 10–20 minute final snapshot. Missing spread or total prices use −110.</p>{activeRules ? activeRules.length ? <ol>{activeRules.map(rule => <li key={rule.id}>{rule.label}</li>)}</ol> : <p>No play types are active on this slate.</p> : null}</> : calibrationPending ? <p>Signal collection and records tracking are active. Official NCAAM selections remain on hold until this sport has its own qualifying threshold.</p> : scorePolicy ? <><p>The highest combo score per game must reach {threshold}, with odds of −150 or better. The score combines the selected side’s exact combination record and the opposing combination’s weakness, keeping favorites, underdogs, overs and unders separate. Small samples are adjusted toward neutral.</p><p>Both markets must be captured before the final decision. The original score inputs, signals and line are saved. Score ties prefer the spread, then a fixed selection order. Scores are historical rankings, not win probabilities. Official score records begin Nov 1.</p></> : <><p>Qualifying signal tests need {threshold}+ signals across at least two evidence sources, odds of −150 or better, and one clear leader per game. Tied leaders wait.</p><p>Live previews update before the final snapshot. Saved tests keep their pregame lines, signals and results. Historical tests are evaluated under the current threshold; they were not necessarily published EZPZ picks.</p></>}</details>
+    {picksOnly ? <details className="ep-method"><summary>How plays qualify &amp; how they’re saved</summary>{situation ? <><p>The daily review sets the active play types. The highest-priority match appears as Pending and can change or drop as live conditions update. One pick per game locks at the 10–20 minute final snapshot. Only locked picks enter official records or posts. Missing spread or total prices use −110.</p>{activeRules ? activeRules.length ? <ol>{activeRules.map(rule => <li key={rule.id}>{rule.label}</li>)}</ol> : <p>No play types are active on this slate.</p> : null}</> : calibrationPending ? <p>Signal collection and records tracking are active. Official NCAAM selections remain on hold until this sport has its own qualifying threshold.</p> : scorePolicy ? <><p>The highest combo score per game must reach {threshold}, with odds of −150 or better. The score combines the selected side’s exact combination record and the opposing combination’s weakness, keeping favorites, underdogs, overs and unders separate. Small samples are adjusted toward neutral.</p><p>Both markets must be captured before the final decision. The original score inputs, signals and line are saved. Score ties prefer the spread, then a fixed selection order. Scores are historical rankings, not win probabilities. Official score records begin Nov 1.</p></> : <><p>Qualifying signal tests need {threshold}+ signals across at least two evidence sources, odds of −150 or better, and one clear leader per game. Tied leaders wait.</p><p>Live previews update before the final snapshot. Saved tests keep their pregame lines, signals and results. Historical tests are evaluated under the current threshold; they were not necessarily published EZPZ picks.</p></>}</details>
       : null}
   </section>;
 }

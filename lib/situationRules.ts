@@ -1,4 +1,5 @@
 import type { FootballSignalSide } from "./footballSignals";
+import { footballTeamKey } from "./footballTeamTrends";
 
 export const SITUATION_START_DATE = "2026-11-06";
 export const SITUATION_VERSION = "situation-ezpz-2026-11-06-v1";
@@ -91,13 +92,19 @@ function price(side: Side, sport: SituationSport) {
   return { odds: String(observed ?? -110), assumed: observed == null };
 }
 
-/** Classify the two sides of a newly captured market with its original quotes. */
-export function situationMarketQuotes(pair: Side[], sport: SituationSport, now: number, homeSide?: string): SituationQuote[] {
+function previewWindow(side: Side, now: number) {
+  const captured = time(side.snapshotAt), kickoff = time(side.gameTime);
+  return side.status === "LIVE" && !side.recorded && !side.result && !side.marketStale
+    && captured <= now && captured < kickoff && kickoff - now >= 600_000
+    && (!side.scheduledGameTime || time(side.scheduledGameTime) === kickoff);
+}
+
+function marketQuotes(pair: Side[], sport: SituationSport, now: number, homeSide?: string, preview = false): SituationQuote[] {
   if (pair.length !== 2) return [];
   const [a, b] = pair;
   if (a.id === b.id || a.gameKey !== b.gameKey || a.date !== b.date || a.side === b.side || !a.side || !b.side || a.market !== b.market
     || a.gameTime !== b.gameTime || Math.abs(time(a.snapshotAt) - time(b.snapshotAt)) > 30_000
-    || pair.some(side => !situationFinalWindow(side, now) || time(side.gameTime) <= now || !Number.isFinite(side.line)
+    || pair.some(side => !(preview ? previewWindow(side, now) : situationFinalWindow(side, now)) || time(side.gameTime) <= now || !Number.isFinite(side.line)
       || !percent(side.marketContext.bets) || !percent(side.marketContext.money))) return [];
   if (a.market === "Spread" ? Math.abs(a.line! + b.line!) > 0.001
     : a.line! <= 0 || Math.abs(a.line! - b.line!) > 0.001 || ![a.side, b.side].includes("Over") || ![a.side, b.side].includes("Under")) return [];
@@ -108,18 +115,31 @@ export function situationMarketQuotes(pair: Side[], sport: SituationSport, now: 
     : RULES[sport].filter(rule => rule.market === side.market && rule.matches(side, pair[1 - i], homeSide)).map(rule => rule.id) }));
 }
 
-export function savedSituationRule(side: Side, sport: SituationSport, now: number) {
-  const rule = RULES[sport].find(rule => rule.id === side.situationRuleId && rule.market === side.market);
-  const odds = number(side.odds), quote = side.situationQuote;
-  return rule && side.recorded === true && quote && Array.isArray(quote.ruleIds) && quote.ruleIds.includes(rule.id) && quote.odds === side.odds
-    && typeof quote.assumed === "boolean" && quote.assumed === side.oddsAssumed && (!quote.assumed || odds === -110) && Math.abs(odds) >= 100 && odds >= -150
-    && Number.isFinite(side.line) && (side.market !== "Total" || side.line! > 0) && situationFinalWindow(side, now) ? rule : undefined;
+/** Classify the two sides of a newly captured market with its original quotes. */
+export function situationMarketQuotes(pair: Side[], sport: SituationSport, now: number, homeSide?: string) {
+  return marketQuotes(pair, sport, now, homeSide);
 }
 
-export function situationWinners(sides: Side[], policy: SituationPolicy, now: number): Side[] {
+function quotedRule(side: Side, sport: SituationSport) {
+  const rule = RULES[sport].find(rule => rule.id === side.situationRuleId && rule.market === side.market);
+  const odds = number(side.odds), quote = side.situationQuote;
+  return rule && quote && Array.isArray(quote.ruleIds) && quote.ruleIds.includes(rule.id) && quote.odds === side.odds
+    && typeof quote.assumed === "boolean" && quote.assumed === side.oddsAssumed && (!quote.assumed || odds === -110) && Math.abs(odds) >= 100 && odds >= -150
+    && Number.isFinite(side.line) && (side.market !== "Total" || side.line! > 0) ? rule : undefined;
+}
+
+export function savedSituationRule(side: Side, sport: SituationSport, now: number) {
+  return side.recorded === true && !side.situationPending && situationFinalWindow(side, now) ? quotedRule(side, sport) : undefined;
+}
+
+export function pendingSituationRule(side: Side, sport: SituationSport, now: number) {
+  return side.situationPending === true && side.selected === true && previewWindow(side, now) ? quotedRule(side, sport) : undefined;
+}
+
+function chooseWinners(sides: Side[], policy: SituationPolicy): Side[] {
   const games = new Map<string, Side[]>();
   for (const side of sides) {
-    if (side.date !== policy.date || !side.recorded || !side.situationQuote || !situationFinalWindow(side, now) || time(side.gameTime) <= now) continue;
+    if (side.date !== policy.date || !side.situationQuote) continue;
     const group = games.get(side.gameKey) || [];
     group.push(side);
     games.set(side.gameKey, group);
@@ -140,6 +160,29 @@ export function situationWinners(sides: Side[], policy: SituationPolicy, now: nu
     }
   }
   return picks;
+}
+
+export function situationWinners(sides: Side[], policy: SituationPolicy, now: number): Side[] {
+  return chooseWinners(sides.filter(side => side.recorded && !side.situationPending
+    && situationFinalWindow(side, now) && time(side.gameTime) > now), policy);
+}
+
+/** Recompute previews from live quotes; these never become durable decisions. */
+export function situationPreviews(sides: Side[], policy: SituationPolicy, now: number): Side[] {
+  const locked = new Set(sides.filter(side => savedSituationRule(side, policy.sport, now)).map(side => side.gameKey));
+  const pairs = new Map<string, Side[]>();
+  for (const side of sides) {
+    if (side.date !== policy.date || locked.has(side.gameKey) || !previewWindow(side, now)) continue;
+    const key = `${side.gameKey}|${side.market}`, pair = pairs.get(key) || [];
+    pair.push(side);
+    pairs.set(key, pair);
+  }
+  const quoted = [...pairs.values()].flatMap(pair => {
+    const homeSide = policy.sport === "NCAAF" ? footballTeamKey(pair[0].homeTeam, policy.sport) : undefined;
+    const quotes = marketQuotes(pair, policy.sport, now, homeSide, true);
+    return quotes.map((quote, i) => ({ ...pair[i], situationQuote: quote }));
+  });
+  return chooseWinners(quoted, policy).map(side => ({ ...side, situationPending: true }));
 }
 
 const units = (row: SituationResult) => row.result === "L" ? -1
