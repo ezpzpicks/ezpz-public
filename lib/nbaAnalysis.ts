@@ -7,10 +7,11 @@ import { buildNbaSignals, buildNbaSignalTests, emptyNbaAnalysis, mergeNbaTeamHis
 import { buildNbaTrendLeaderboard, NBA_ANALYSIS_TAB, NBA_SIGNALS_TAB, NBA_TREND_RECORDS_TAB, NBA_SIGNALS_POLICY } from "./nbaTrendLeaderboard";
 import { readSavedFootballSignalsForDate } from "./footballSignals";
 import { buildSignalResearchDays, SIGNAL_RESEARCH_VERSION } from "./signalCombinationResearch";
-import { signalEzpzPayload, signalPickThreshold } from "./signalPicks";
+import { signalEzpzPayload, signalPickThreshold, selectSignalEzpzPicks } from "./signalPicks";
 import { attachSituationBoard } from "./situationStore";
 import { persistEzpzCurrentPicks } from "./ezpzCurrentPicks";
 import { captureSelectionTrial } from "./selectionTrialStore";
+import { captureMatchupContext } from "./matchupContextStore";
 import type { TrialSide } from "./selectionTrial";
 
 import { updateBasketballConsolidation } from "./basketballConsolidation";
@@ -130,6 +131,10 @@ export async function refreshNbaAnalysis(date: string, currentSchedule: TursoRow
     await captureSelectionTrial("NBA", trialSides, currentSignals.board.sides.filter(s => s.recorded && s.selected).map(s => s.id),
       Date.now(), !currentSignals.board.captureAvailable);
   } catch (error) { console.error("NBA selection trial deferred; official picks preserved", error); }
+  try {
+    await captureMatchupContext("NBA", trialSides, selectSignalEzpzPicks(currentSignals.board.sides, "NBA", Date.now()).map(side => side.id),
+      Date.now(), !currentSignals.board.captureAvailable);
+  } catch (error) { console.error("NBA matchup context capture deferred", error); }
   console.info("[nba-analysis]", JSON.stringify({ date, gradedSides: changedRecords.length, capturedSides: captured, settledSides: settled,
     rankedTrends: state.leaderboard.length, pendingDates: state.pendingDates.length }));
   return { gradedSides: changedRecords.length, capturedSides: captured, settledSides: settled, rankedTrends: state.leaderboard.length };

@@ -11,7 +11,8 @@ function side(overrides = {}) {
     signals: ['move', 'model'].map(key => ({ key, active: true, available: true })), result: '', ...overrides };
 }
 function loader(stubs) {
-  stubs = { './selectionTrialStore': { captureSelectionTrial: async () => {} }, ...stubs };
+  stubs = { './selectionTrialStore': { captureSelectionTrial: async () => {} },
+    './matchupContextStore': { captureMatchupContext: async () => {} }, ...stubs };
   const cache = new Map();
   class Clock extends Date { constructor(...args) { super(...(args.length ? args : [now])); } static now() { return now; } }
   function load(file) {

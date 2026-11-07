@@ -6,6 +6,8 @@ import type { FootballSport } from "../../../../lib/sportSheets";
 import { withTursoReadCache } from "../../../../lib/tursoStore";
 import { persistEzpzCurrentPicks } from "../../../../lib/ezpzCurrentPicks";
 import { captureSelectionTrial } from "../../../../lib/selectionTrialStore";
+import { captureMatchupContext } from "../../../../lib/matchupContextStore";
+import { selectSignalEzpzPicks } from "../../../../lib/signalPicks";
 import { repairNcaafFinalScores } from "../../../../lib/ncaafFinalScoreRepair";
 import { scheduledMarketRefresh, recordScheduledMarketRefresh } from "../../../../lib/scheduledMarketRefresh";
 import { persistPublicBoardSnapshot } from "../../../../lib/publicBoardSnapshot";
@@ -102,6 +104,11 @@ async function runCron(request: NextRequest) {
         board.sides.filter((s: { recorded: boolean; selected: boolean }) => s.recorded && s.selected).map((s: { id: string }) => s.id),
         Date.now(), !board.captureAvailable);
     } catch (error) { console.error(`${sport} selection trial deferred; official picks preserved`, error); }
+    try {
+      const board = payload.footballSignals;
+      if (board) await captureMatchupContext(sport, board.sides,
+        selectSignalEzpzPicks(board.sides, sport, Date.now()).map(side => side.id), Date.now(), !board.captureAvailable);
+    } catch (error) { console.error(`${sport} matchup context capture deferred`, error); }
 
     // Prepare the complete weekly display in the producer. Opening Model Plays,
     // Full Slate or Public Betting Splits must not replay this work per visitor.

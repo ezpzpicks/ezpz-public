@@ -8,10 +8,11 @@ import { buildNcaamSignals, buildNcaamSignalTests, emptyNcaamAnalysis, mergeNcaa
 import { buildNcaamTrendLeaderboard, NCAAM_ANALYSIS_TAB, NCAAM_SIGNALS_TAB, NCAAM_TREND_RECORDS_TAB, NCAAM_SIGNALS_POLICY } from "./ncaamTrendLeaderboard";
 import { readSavedFootballSignalsForDate } from "./footballSignals";
 import { buildSignalResearchDays, SIGNAL_RESEARCH_VERSION } from "./signalCombinationResearch";
-import { signalEzpzPayload, signalPickThreshold } from "./signalPicks";
+import { signalEzpzPayload, signalPickThreshold, selectSignalEzpzPicks } from "./signalPicks";
 import { attachSituationBoard } from "./situationStore";
 import { persistEzpzCurrentPicks } from "./ezpzCurrentPicks";
 import { captureSelectionTrial } from "./selectionTrialStore";
+import { captureMatchupContext } from "./matchupContextStore";
 import type { TrialSide } from "./selectionTrial";
 
 import { updateBasketballConsolidation } from "./basketballConsolidation";
@@ -134,6 +135,10 @@ export async function refreshNcaamAnalysis(date: string, currentSchedule: TursoR
     await captureSelectionTrial("NCAAM", trialSides, currentSignals.board.sides.filter(s => s.recorded && s.selected).map(s => s.id),
       Date.now(), !currentSignals.board.captureAvailable);
   } catch (error) { console.error("NCAAM selection trial deferred; official picks preserved", error); }
+  try {
+    await captureMatchupContext("NCAAM", trialSides, selectSignalEzpzPicks(currentSignals.board.sides, "NCAAM", Date.now()).map(side => side.id),
+      Date.now(), !currentSignals.board.captureAvailable);
+  } catch (error) { console.error("NCAAM matchup context capture deferred", error); }
   console.info("[ncaam-analysis]", JSON.stringify({ date, gradedSides: changedRecords.length, capturedSides: captured, settledSides: settled,
     rankedTrends: state.leaderboard.length, pendingDates: state.pendingDates.length }));
   return { gradedSides: changedRecords.length, capturedSides: captured, settledSides: settled, rankedTrends: state.leaderboard.length };

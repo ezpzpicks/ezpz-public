@@ -243,6 +243,24 @@ test('official-build timing and price remain model-vote requirements after curre
   assert.match(board.sides.find(s => s.side === 'Over').modelContext.reason, /official pregame model build is pending/);
 });
 
+test('CFB model context respects the scheduled builder capture time before a model fade can use it', () => {
+  const names = ['Virginia Tech', 'SMU'], version = 'cfb-v2.8.1-five-game-residual-totals-test';
+  const x = input({ sport: 'NCAAF', leaderboard: [], history: new Map() });
+  x.core.trendPlays = markets('NCAAF', names).map(play => ({ ...play, snapshotStatus: 'FINAL_PREGAME', frozenAt: iso(lock) }));
+  x.core.bestPlays = [{ game: names.join(' @ '), awayTeam: names[0], homeTeam: names[1], role: 'Total',
+    play: 'Over 44.5', playType: 'B Total', selectedProbability: '0.60', oddsLine: '-110', modelVersion: version }];
+  x.core.slateToday = [{ Date: date, 'Away Team': names[0], 'Home Team': names[1], 'Game Time': iso(kickoff),
+    'Projected Away': '24', 'Projected Home': '24.5', 'Projected Total': '48.5', 'Total Grade': 'B Total',
+    'Total Probability': '0.60', 'Total Edge': '4', 'Model Version': version, 'Build Captured At': iso(lock + 1) }];
+  const late = api.buildFootballSignalsState(x).board;
+  assert.equal(find(late, 'model').active, false);
+  assert.match(late.sides.find(side => side.side === 'Over').modelContext.reason, /not available before/);
+  x.core.slateToday[0]['Build At'] = iso(lock - 60000);
+  assert.equal(find(api.buildFootballSignalsState(x).board, 'model').active, false);
+  x.core.slateToday[0]['Build Captured At'] = iso(lock - 60000);
+  assert.equal(find(api.buildFootballSignalsState(x).board, 'model').active, true);
+});
+
 test('a previously saved inactive model vote is never backfilled when quote handling is corrected', () => {
   const x = nflModelInput();
   x.capture = true;

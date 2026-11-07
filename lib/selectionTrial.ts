@@ -26,6 +26,11 @@ export type TrialSide = {
 };
 export const TRIAL_FEATURES = ["baseline", "money", "movement", "publicLegacy", "publicGrouped", "team", "model", "sos",
   "moneyStrength", "movementStrength", "teamStrength", "modelStrength", "sosStrength", "marketWithModel", "marketWithTeam"];
+export type TrialFeatureSet = {
+  version: string; names: string[];
+  values: (side: TrialSide, sport: TrialSport) => number[];
+  identity?: (side: TrialSide) => unknown;
+};
 type Pair = { key: string; date: string; gameKey: string; market: TrialMarket; a: TrialSide; b: TrialSide;
   x: number[]; offset: number; y: number | null; push: boolean; knownAt: number; };
 export type TrialPairedMarket = Pair;
@@ -125,18 +130,19 @@ function sideFeatures(side: TrialSide, sport: TrialSport) {
     strength("team", 100), strength("model", sport === "MLB" ? 3 : 15), strength("sos", 100),
     market * active("model"), market * active("team")];
 }
+const DEFAULT_FEATURE_SET: TrialFeatureSet = { version: SELECTION_TRIAL_VERSION, names: TRIAL_FEATURES, values: sideFeatures };
 function outcome(s: TrialSide, cutoff: number) {
   const at = /(?:Z|[+-]\d{2}:?\d{2}|EDT|EST)$/i.test(s.resultUpdated) ? Date.parse(s.resultUpdated) : NaN;
   return /^[WLP]$/.test(s.result) && Number.isFinite(at) && at > kickoff(s) && at < cutoff ? s.result : "";
 }
-function pairs(sides: TrialSide[], sport: TrialSport, now: number): { values: Pair[]; rejected: number } {
+function pairs(sides: TrialSide[], sport: TrialSport, now: number, features = DEFAULT_FEATURE_SET): { values: Pair[]; rejected: number } {
   const byId = new Map<string, TrialSide>(), conflicts = new Set<string>();
   let rejected = 0;
   for (const side of sides) {
     if (!validSide(side, now)) { rejected++; continue; }
     const previous = byId.get(side.id);
     const identity = (s: TrialSide) => JSON.stringify([s.date, s.gameKey, s.market, s.side, s.selection, s.line, s.odds,
-      s.snapshotAt, s.gameTime, s.scheduledGameTime, s.policyVersion, s.signals]);
+      s.snapshotAt, s.gameTime, s.scheduledGameTime, s.policyVersion, s.signals, features.identity?.(s)]);
     if (previous && identity(previous) !== identity(side)) conflicts.add(side.id);
     else if (!previous || (Date.parse(side.resultUpdated) || -Infinity) > (Date.parse(previous.resultUpdated) || -Infinity)) byId.set(side.id, side);
   }
@@ -158,7 +164,10 @@ function pairs(sides: TrialSide[], sport: TrialSport, now: number): { values: Pa
       || Math.abs(Date.parse(a.snapshotAt) - Date.parse(b.snapshotAt)) > 60000
       || (a.market === "Total" && (!/^Over$/i.test(a.side) || !/^Under$/i.test(b.side) || a.line !== b.line))
       || (a.market === "Spread" && Math.abs(a.line! + b.line!) > .00001)) { rejected += 2; continue; }
-    const qa = trialOdds(a.odds)!, qb = trialOdds(b.odds)!, fa = sideFeatures(a, sport), fb = sideFeatures(b, sport);
+    const qa = trialOdds(a.odds)!, qb = trialOdds(b.odds)!, fa = features.values(a, sport), fb = features.values(b, sport);
+    if ([fa, fb].some(values => values.length !== features.names.length || values.some(value => !Number.isFinite(value)))) {
+      rejected += 2; continue;
+    }
     const ra = outcome(a, now), rb = outcome(b, now);
     const coherent = (ra === "W" && rb === "L") || (ra === "L" && rb === "W") || (ra === "P" && rb === "P");
     if (ra && rb && !coherent) { rejected += 2; continue; }
@@ -169,8 +178,8 @@ function pairs(sides: TrialSide[], sport: TrialSport, now: number): { values: Pa
   }
   return { values, rejected };
 }
-export function trialPairedMarkets(sides: TrialSide[], sport: TrialSport, now: number) {
-  return pairs(sides, sport, now);
+export function trialPairedMarkets(sides: TrialSide[], sport: TrialSport, now: number, features = DEFAULT_FEATURE_SET) {
+  return pairs(sides, sport, now, features);
 }
 function inverse(matrix: number[][]) {
   const n = matrix.length, a = matrix.map((row, i) => [...row, ...Array.from({ length: n }, (_, j) => Number(i === j))]);
@@ -186,8 +195,8 @@ function inverse(matrix: number[][]) {
   }
   return a.map(row => row.slice(n));
 }
-function fit(rows: Pair[]): Fit {
-  const n = TRIAL_FEATURES.length, beta = Array(n).fill(0), diagonal = (i: number) => i ? TRIAL_POLICY.ridge : TRIAL_POLICY.interceptRidge;
+function fit(rows: Pair[], n = TRIAL_FEATURES.length): Fit {
+  const beta = Array(n).fill(0), diagonal = (i: number) => i ? TRIAL_POLICY.ridge : TRIAL_POLICY.interceptRidge;
   let covariance: number[][] = [], converged = false;
   const loss = (values: number[]) => values.reduce((sum, v, i) => sum + diagonal(i) * v * v / 2, 0)
     + rows.reduce((sum, row) => { const eta = row.offset + dot(values, row.x);
@@ -217,18 +226,19 @@ function enough(rows: Pair[]) { return rows.length >= TRIAL_POLICY.minTrainingGa
 
 /** Earlier dates only; each fold also checks when each result became known. */
 export function buildTrialModel(sport: TrialSport, date: string, sides: TrialSide[], createdAt: number,
-  observeCalibration?: (market: TrialMarket, rows: TrialCalibrationObservation[]) => void): TrialModel {
-  const cutoff = trialDayStart(date), raw = pairs(sides, sport, cutoff);
+  observeCalibration?: (market: TrialMarket, rows: TrialCalibrationObservation[]) => void,
+  features = DEFAULT_FEATURE_SET): TrialModel {
+  const cutoff = trialDayStart(date), raw = pairs(sides, sport, cutoff, features);
   const eligible = raw.values.filter(p => p.date < date && p.knownAt < cutoff).sort((a, b) => a.key.localeCompare(b.key));
   const markets: TrialMarket[] = sport === "MLB" ? ["Moneyline", "Total"] : ["Spread", "Total"];
   const models = markets.map(market => {
     const pool = eligible.filter(p => p.market === market), rows = pool.filter(p => p.y != null);
-    const fitted = fit(rows), calibration: TrialCalibrationObservation[] = [];
+    const fitted = fit(rows, features.names.length), calibration: TrialCalibrationObservation[] = [];
     for (const day of [...new Set(rows.map(p => p.date))].sort()) {
       const dayCutoff = trialDayStart(day);
       const previous = rows.filter(p => p.date < day && p.knownAt < dayCutoff);
       if (!enough(previous)) continue;
-      const f = fit(previous);
+      const f = fit(previous, features.names.length);
       if (!f.converged) continue;
       const earlierIntegers = pool.filter(p => p.date < day && p.knownAt < dayCutoff
         && p.a.market !== "Moneyline" && Number.isInteger(p.a.line));
@@ -260,12 +270,12 @@ export function buildTrialModel(sport: TrialSport, date: string, sides: TrialSid
       status: !fitted.converged ? "Model fit unavailable" : !enough(rows) ? "Collecting training history" : !ready ? "Collecting calibration history" : !alpha ? "No supported edge yet" : "Trial estimates available",
     } as TrialMarketModel;
   });
-  const identity = [SELECTION_TRIAL_VERSION, sport, date, models];
-  return { version: SELECTION_TRIAL_VERSION, id: `${SELECTION_TRIAL_VERSION}|${sport}|${date}|${trialDigest(identity)}`,
+  const identity = [features.version, sport, date, models];
+  return { version: features.version, id: `${features.version}|${sport}|${date}|${trialDigest(identity)}`,
     sport, date, createdAt: new Date(createdAt).toISOString(), trainingCutoff: new Date(cutoff).toISOString(),
-    featureNames: TRIAL_FEATURES, models, sourceSides: sides.length, acceptedPairs: eligible.length, rejectedSides: raw.rejected };
+    featureNames: features.names, models, sourceSides: sides.length, acceptedPairs: eligible.length, rejectedSides: raw.rejected };
 }
-function estimate(pair: Pair, side: TrialSide, model: TrialMarketModel): TrialEstimate {
+function estimate(pair: Pair, side: TrialSide, model: TrialMarketModel, featureNames = TRIAL_FEATURES): TrialEstimate {
   const sign = side.id === pair.a.id ? 1 : -1, alpha = model.calibrationShrink;
   const margin = dot(model.beta, pair.x), eta = pair.offset + alpha * margin;
   const probability = sigmoid(sign * eta);
@@ -282,7 +292,7 @@ function estimate(pair: Pair, side: TrialSide, model: TrialMarketModel): TrialEs
   if (model.status !== "Trial estimates available") reasons.push(model.status);
   if (quote.odds < TRIAL_POLICY.worstOdds) reasons.push("Price below -150 limit");
   if (conservativeRoi < TRIAL_POLICY.conservativeRoi) reasons.push("Insufficient edge after uncertainty and price");
-  const contributions = TRIAL_FEATURES.map((feature, i) => ({ feature, value: sign * alpha * model.beta[i] * pair.x[i] }))
+  const contributions = featureNames.map((feature, i) => ({ feature, value: sign * alpha * model.beta[i] * pair.x[i] }))
     .filter(r => Math.abs(r.value) > .0001).sort((a, b) => Math.abs(b.value) - Math.abs(a.value)).slice(0, 5);
   return { id: side.id, game: side.game, market: side.market, selection: side.selection, line: side.line, odds: side.odds,
     quoteAt: side.snapshotAt, priceBasis: side.oddsAssumed === true ? "Assumed -110" : side.oddsAssumed === false ? "Observed" : "Unverified provenance",
@@ -335,9 +345,11 @@ function paperComparison(model: TrialModel, estimates: TrialEstimate[], raw: Tri
 }
 
 /** Freeze only complete, contemporaneous game cards while still in the final window. */
-export function buildTrialDecisions(model: TrialModel, sides: TrialSide[], incumbentIds: string[], now: number): TrialDecision[] {
-  if (model.version !== SELECTION_TRIAL_VERSION || trialDate(now) !== model.date || Date.parse(model.createdAt) > now) return [];
-  const values = pairs(sides.filter(s => s.date === model.date), model.sport, now).values;
+export function buildTrialDecisions(model: TrialModel, sides: TrialSide[], incumbentIds: string[], now: number,
+  features = DEFAULT_FEATURE_SET): TrialDecision[] {
+  if (model.version !== features.version || trialDate(now) !== model.date || Date.parse(model.createdAt) > now
+    || JSON.stringify(model.featureNames) !== JSON.stringify(features.names)) return [];
+  const values = pairs(sides.filter(s => s.date === model.date), model.sport, now, features).values;
   const groups = new Map<string, Pair[]>();
   for (const pair of values) groups.set(pair.gameKey, [...(groups.get(pair.gameKey) || []), pair]);
   const decisions: TrialDecision[] = [];
@@ -350,21 +362,21 @@ export function buildTrialDecisions(model: TrialModel, sides: TrialSide[], incum
       || Math.max(...snapshots) - Math.min(...snapshots) > 60000) continue;
     const estimates = group.flatMap(pair => {
       const marketModel = model.models.find(m => m.market === pair.market);
-      return marketModel ? [estimate(pair, pair.a, marketModel), estimate(pair, pair.b, marketModel)] : [];
+      return marketModel ? [estimate(pair, pair.a, marketModel, features.names), estimate(pair, pair.b, marketModel, features.names)] : [];
     });
     if (estimates.length !== 4) continue;
-    const raw = group.flatMap(pair => {
+    const raw = features.version === SELECTION_TRIAL_VERSION ? group.flatMap(pair => {
       const marketModel = { ...model.models.find(m => m.market === pair.market)!, calibrationShrink: 1 };
       return [estimate(pair, pair.a, marketModel), estimate(pair, pair.b, marketModel)];
-    });
+    }) : [];
     const candidates = estimates.filter(e => e.eligible).sort((a, b) => b.conservativeRoi - a.conservativeRoi
       || b.expectedRoi - a.expectedRoi || a.id.localeCompare(b.id));
     const incumbent = estimates.filter(e => incumbentIds.includes(e.id));
-    decisions.push({ version: SELECTION_TRIAL_VERSION, modelId: model.id, sport: model.sport, date: model.date,
+    decisions.push({ version: features.version, modelId: model.id, sport: model.sport, date: model.date,
       gameKey, game: quotes[0].game, gameTime: new Date(times[0]).toISOString(), capturedAt: new Date(now).toISOString(),
       sourceSnapshotAt: new Date(Math.max(...snapshots)).toISOString(), trainingCutoff: model.trainingCutoff,
       estimates, pickId: candidates[0]?.id || null, incumbentId: incumbent.length === 1 ? incumbent[0].id : null, outcomes: {},
-      paperComparison: paperComparison(model, estimates, raw) });
+      ...(features.version === SELECTION_TRIAL_VERSION ? { paperComparison: paperComparison(model, estimates, raw) } : {}) });
   }
   return decisions;
 }

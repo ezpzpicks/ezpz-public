@@ -19,7 +19,8 @@ const lineupComponents = component('app/NbaGameLineups.tsx');
 const fadePanel = component('app/FadeTrialPanel.tsx', { './data/selection-fade-replay-2026-11-04.json': {
   default: require('../app/data/selection-fade-replay-2026-11-04.json') } });
 const trial = component('app/SelectionTrial.tsx', { './FadeTrialPanel': fadePanel });
-const football = component('app/FootballSignalsBoard.tsx', { './SelectionTrial': trial }, '\nexport const testTeamDetail = TeamDetail;');
+const contextPanel = component('app/MatchupContextPanel.tsx');
+const football = component('app/FootballSignalsBoard.tsx', { './SelectionTrial': trial, './MatchupContextPanel': contextPanel }, '\nexport const testTeamDetail = TeamDetail;');
 const markets = component('app/FootballTrendMarketBoard.tsx');
 const nba = component('app/NbaPublicSplits.tsx', { './FootballTrendMarketBoard': markets });
 const records = component('app/NbaRecords.tsx', { './FootballTrendMarketBoard': markets });
