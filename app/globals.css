@@ -2375,6 +2375,19 @@ body::after {
 @media(max-width:480px){.fs-table{font-size:.75rem}.fs-table small{font-size:.7rem}}
 @media(max-width:359px){.fs-accordion-trigger{gap:6px}.fs-accordion-trigger>span{font-size:.8rem}.fs-accordion-trigger>small{font-size:.65rem}.fs-game-header{gap:8px}.fs-combination-record{font-size:.74rem}}
 
+/* Matchup reviews keep bet choices visually nested beneath their game. */
+.mc-review .mc-game>summary{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start;gap:7px 12px}
+.mc-review .mc-game>summary .mc-game-title{min-width:0;font-size:.94rem;font-weight:600;line-height:1.5}
+.mc-review .mc-game-time{grid-column:2;grid-row:1;justify-self:end;white-space:nowrap;color:var(--fs-dim);font-size:.72rem;line-height:1.9;font-variant-numeric:tabular-nums}
+.mc-review .mc-game-status{grid-column:1/-1}
+.mc-review .mc-game-choices{margin:12px 0 0 6px;padding-left:14px;border-left:2px solid var(--fs-border)}
+.mc-review .mc-choice{margin:0;padding:11px 0}
+.mc-review .mc-choice:first-child{border-top:0}
+.mc-review .mc-choice>summary{display:block;min-height:44px;font-size:.8rem}
+.mc-review .mc-choice>summary .mc-choice-title{display:block;color:#e4edf9;font-size:.8rem;font-weight:500;line-height:1.6}
+.mc-review .mc-choice>summary .mc-choice-status{display:block;margin-top:4px;font-size:.72rem;line-height:1.6}
+.mc-review .mc-choice-body{padding:0 0 5px 5px;font-size:.79rem;line-height:1.7}
+
 /* Expanded signal cards: color shows direction; the badge shows qualification. */
 .fs-detail{--fs-accent:#9eafc6;border-left:3px solid var(--fs-accent)}
 .fs-tone-positive{--fs-accent:#53e7a4}
