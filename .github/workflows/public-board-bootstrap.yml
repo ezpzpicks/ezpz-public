@@ -2,7 +2,7 @@ name: Warm saved public boards after deployment
 on:
   push:
     branches: [main]
-    paths: ['lib/publicBoardSnapshot.ts', 'lib/signalCombinationResearch.ts', 'lib/matchupContextStore.ts', 'app/api/sport-public-data/route.ts', '.github/workflows/public-board-bootstrap.yml']
+    paths: ['lib/publicBoardSnapshot.ts', 'lib/signalCombinationResearch.ts', 'lib/matchupContextStore.ts', 'app/api/cron/matchup-context/**', 'app/api/sport-public-data/route.ts', '.github/workflows/public-board-bootstrap.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -38,6 +38,20 @@ jobs:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           test -n "$CRON_SECRET" || { echo 'Missing CRON_SECRET repository secret'; exit 1; }
+          # Pending comparisons can use the current saved inputs immediately;
+          # a slow provider collection must not delay their first publication.
+          if [ "$SPORT" = BASKETBALL ]; then
+            review_sports='NBA NCAAM'
+          elif [ "$SPORT" = MLB ]; then
+            review_sports=''
+          else
+            review_sports="$SPORT"
+          fi
+          for review_sport in $review_sports; do
+            curl --fail-with-body --silent --show-error --retry 3 --retry-all-errors --retry-delay 5 --max-time 65 \
+              -H "Authorization: Bearer $CRON_SECRET" \
+              "https://ezpzpicks.com/api/cron/matchup-context?sport=$review_sport" | jq '{ok, sport, skipped, reason, review}'
+          done
           if [ "$SPORT" = BASKETBALL ]; then
             route='nba-market?consolidate=1'
           elif [ "$SPORT" = MLB ]; then
