@@ -144,3 +144,47 @@ test('pending comparisons support all four sports before lock without weakening 
     assert.equal(final.reviewStatus, undefined);
   }
 });
+
+test('pending reviews use refreshed team records at review time while keeping the original odds quote and frozen cutoff', () => {
+  const early = now - 6 * 3600000, reviewedAt = early + 5 * 60000;
+  const model = context.buildContextModel('NBA', date, [], early);
+  model.models.forEach(fit => Object.assign(fit, { status: 'Trial estimates available', calibrationShrink: 1,
+    beta: fit.beta.map((_, i) => context.CONTEXT_FEATURE_NAMES[i] === 'Combined team trends' ? 1 : 0),
+    covariance: fit.covariance.map(row => row.map(() => 0)) }));
+  const sides = enrich(game(date, 0, { recorded: false, status: 'LIVE', snapshotAt: new Date(early).toISOString() }));
+  sides.forEach(side => { side.teamTrend.capturedAt = new Date(early + 2 * 60000).toISOString(); });
+  const original = plain(sides);
+  const [review] = context.buildContextPreviews(model, sides, [], reviewedAt);
+  assert(review.cases.every(item => item.evidence.filter(e => e.sample != null).length >= 6));
+  assert(review.cases.every(item => !item.missing.some(reason => /Team records unavailable/.test(reason))));
+  assert(review.estimates.some(estimate => estimate.contributions.some(factor => factor.feature === 'Combined team trends' && factor.value !== 0)),
+    'The records affect the estimate as well as its explanation');
+  assert.equal(review.sourceSnapshotAt, sides[0].snapshotAt);
+  assert(review.estimates.every(estimate => estimate.quoteAt === sides[0].snapshotAt));
+  assert.deepEqual(plain(sides), original);
+  const future = plain(sides);
+  future.forEach(side => { side.teamTrend.capturedAt = new Date(reviewedAt + 1).toISOString(); });
+  const [withoutFutureRecords] = context.buildContextPreviews(model, future, [], reviewedAt);
+  assert(withoutFutureRecords.cases.every(item => item.missing.some(reason => /Team records unavailable/.test(reason))));
+  assert(withoutFutureRecords.estimates.every(estimate => !estimate.contributions.some(factor => factor.feature === 'Combined team trends')));
+  const finals = enrich(game(date));
+  finals.forEach(side => { side.teamTrend.capturedAt = new Date(now + 1).toISOString(); side.contextAsOf = new Date(now + 60000).toISOString(); });
+  const [frozen] = context.buildContextDecisions(model, finals, [], now);
+  assert(frozen.cases.every(item => item.missing.some(reason => /Team records unavailable/.test(reason))),
+    'Final capture still rejects records dated after its frozen quote');
+});
+
+test('partial team records remain visible with coverage gaps and cannot supply a complete-record adjustment', () => {
+  const side = enrich(game(date))[0];
+  Object.assign(side.teamTrend.teams[0], { trackedGames: 7, seasonGames: 8, missingGames: 1 });
+  side.teamTrend.score = null;
+  const review = context.contextCase(side, 'NCAAF');
+  assert(review.evidence.some(item => item.label === 'Home · Record coverage' && item.value === '7 of 8 season games graded'));
+  assert.equal(review.evidence.filter(item => item.label.endsWith('Recent results')).length, 6);
+  assert(review.missing.some(reason => reason.includes('Home: 1 season game has no graded market record')));
+  assert(!review.missing.some(reason => /Team records unavailable/.test(reason)));
+  const values = context.CONTEXT_FEATURE_SET.values(side, 'NCAAF');
+  for (const name of ['Team role record', 'Team venue record', 'Team recent form', 'Combined team trends']) {
+    assert.equal(values[context.CONTEXT_FEATURE_NAMES.indexOf(name)], 0, name);
+  }
+});
