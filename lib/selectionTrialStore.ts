@@ -33,7 +33,7 @@ async function sourceRows(sport: TrialSport, date: string, dates?: string[], inc
   const crossYear = sport !== "MLB";
   const season = crossYear && Number(date.slice(5, 7)) < 7 ? Number(date.slice(0, 4)) - 1 : Number(date.slice(0, 4));
   const start = `${season}-${crossYear ? "07-01" : "01-01"}`;
-  // Discard large chart/context arrays in SQL; only original flags, strengths, quote and labels enter the fit.
+  // Legacy fits keep compact signals; the context evaluator also retains the original matchup evidence.
   const detail = `json_extract(payload_json,'$."Details JSON"')`;
   const signalId = `CASE WHEN type='object' THEN json_extract(value,'$.signal') ELSE NULL END`;
   const typeIds = `CASE WHEN json_type(${detail},'$.publicTypeIds')='array' THEN json_extract(${detail},'$.publicTypeIds') ELSE COALESCE((SELECT json_group_array(${signalId}) FROM json_each(${detail},'$.publicMatches') WHERE ${signalId} IS NOT NULL),'[]') END`;
