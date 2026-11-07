@@ -24,7 +24,7 @@ vm.runInNewContext(ts.transpileModule(source, { compilerOptions: { module: ts.Mo
     : name === './NbaGameLineups' ? { __esModule: true, default: () => null }
     : name === './SelectionTrial' ? trial
     : name === './MatchupContextPanel' ? contextPanel
-    : ['../lib/signalCombinationResearch', '../lib/signalPicks', '../lib/signalMovement', '../lib/situationRules'].includes(name) ? require('./load-typescript.cjs')(path.join(root, name.replace('../', '') + '.ts')) : require(name) });
+    : ['../lib/signalCombinationResearch', '../lib/signalPicks', '../lib/signalMovement', '../lib/situationRules', '../lib/teamTrendScorePolicy'].includes(name) ? require('./load-typescript.cjs')(path.join(root, name.replace('../', '') + '.ts')) : require(name) });
 const keys = ['money', 'move', 'system', 'team', 'model'];
 const team = name => ({ team: name, venue: 'Away', role: 'Favorite', opposing: name === 'GB', score: 80, trackedGames: 5, seasonGames: 5, missingGames: 0,
   records: Object.fromEntries([['betType', 'Favorite ATS', 50], ['venue', 'Away ATS', 30], ['recent', 'Last 5 ATS', 20]].map(([k, label, weight]) => [k,
@@ -48,6 +48,19 @@ const opposite = { ...side, id: 'game|Spread|gb', selection: 'GB +1.5', line: 1.
 const board = { sport: 'NFL', today: '2026-10-18', captureAvailable: true, sides: [side, opposite],
   summary: { record: '0-0-0', settled: 0, pending: 0, winPct: null, roiPct: null, netUnits: 0 }, breakdowns: [], history: [] };
 const render = node => renderToStaticMarkup(node);
+
+test('spread team details explain why neutral opposition does not dilute strong support', () => {
+  const updated = { ...side, teamTrend: { ...side.teamTrend, score: 90, aggregation: 'Neutral-relative spread' },
+    signals: side.signals.map(signal => signal.key === 'team' ? { ...signal, value: 90 } : signal) };
+  const html = render(React.createElement(exportsObject.detailTest, { side: updated,
+    signal: updated.signals.find(signal => signal.key === 'team'), onClose: () => {} }));
+  assert.match(html, /<strong>90<\/strong>/);
+  assert.match(html, /even opponent is neutral/);
+  assert.match(html, /Qualifies at 75/);
+  const old = render(React.createElement(exportsObject.detailTest, { side,
+    signal: side.signals.find(signal => signal.key === 'team'), onClose: () => {} }));
+  assert.doesNotMatch(old, /even opponent is neutral/);
+});
 
 test('fade replays render their own sport, prices and conservative ROI without becoming historical picks', () => {
   const props = { date: '2026-11-04', decisions: [] };

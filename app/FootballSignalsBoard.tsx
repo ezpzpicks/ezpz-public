@@ -12,6 +12,7 @@ import { signalResearchView, signalCombinationLabel, signalCombinationRecord, si
 import { evaluateSignalMovement } from "../lib/signalMovement";
 import SelectionTrial from "./SelectionTrial";
 import MatchupContextPanel from "./MatchupContextPanel";
+import { teamTrendAggregationExplanation } from "../lib/teamTrendScorePolicy";
 
 const META = {
   money: { label: "Money", title: "Money support", Icon: Banknote },
@@ -41,6 +42,7 @@ function TeamDetail({ side }: { side: FootballSignalSide }) {
     {awaitingSpread ? <p>Favorite/underdog records and the grade await the line.</p> : null}
     {score.score == null && score.teams.some(team => team.missingGames > 0)
       ? <p>The combined grade is awaiting complete history. Available records are shown below.</p> : null}
+    {score.aggregation === "Neutral-relative spread" ? <p className="fs-metric-caption">{teamTrendAggregationExplanation(score)}</p> : null}
     <div className="fs-team-grid">{score.teams.map(team => <section className="fs-team-card" key={team.team} aria-label={`${team.team} trend records`}>
       <div className="fs-team-card-head"><h4>{team.team}</h4>{team.hasData === false ? <span>Awaiting graded history</span>
         : !awaitingSpread ? <div><strong>{format(team.score)}</strong><small>{team.missingGames ? "Partial grade" : "Support score"}</small></div> : null}</div>

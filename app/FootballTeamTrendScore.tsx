@@ -1,4 +1,5 @@
 import type { FootballTeamTrendScore, TeamTrendRecord } from "../lib/footballTeamTrends";
+import { teamTrendAggregationExplanation } from "../lib/teamTrendScorePolicy";
 
 function RecordLine({ record }: { record: TeamTrendRecord }) {
   return <span className="teamTrendRecord">
@@ -29,7 +30,7 @@ export default function FootballTeamTrendScore({ score, threshold }: { score?: F
     <details className="teamTrendMethod">
       <summary>{score.mode === "locked" ? "Saved pregame" : score.mode === "replay" ? "Pregame replay" : "Live preview"} · {seasonHistory ? "Season history" : "Tracked games"}</summary>
       {seasonHistory ? <p>{score.teams.map(team => `${team.team}: ${team.trackedGames}/${team.seasonGames} games included`).join(" · ")}. {score.teams.some(team => team.missingGames > 0) ? "The score is awaiting missing game lines." : "Each game is graded against its historical spread or total."}</p> : null}
-      <p>Raw hit rates: {score.weights.betType}% bet type, {score.weights.venue}% home/away, {score.weights.recent}% last five. Team scores are averaged. Pushes are excluded from hit rates; an empty category contributes a neutral 50%. A dash means no matching games.</p>
+      <p>Raw hit rates: {score.weights.betType}% bet type, {score.weights.venue}% home/away, {score.weights.recent}% last five. {teamTrendAggregationExplanation(score)} Pushes are excluded from hit rates; an empty category contributes a neutral 50%. A dash means no matching games.</p>
       {score.teams.some(team => team.opposing) ? <p>Records show each team’s actual ATS results. The opposing team’s failures to cover support the selected side and are used for its score.</p> : null}
       <p>This is a testing score, not a win probability. {threshold == null ? "It does not qualify or exclude EZPZ Picks." : `Team Trend Plays qualify at ${threshold}/100.`}{score.mode === "replay" ? " This older pick’s records were reconstructed from prior game dates, rather than saved before kickoff." : ""}</p>
     </details>
