@@ -34,6 +34,102 @@ function state(sport, patches = {}) {
     core: { today: date, trendPlays: markets.map((market, index) => ({ ...base, ...market, ...patches[index] })) } });
 }
 
+function contextPair(market, kind) {
+  const pair = state('NCAAF').board.sides.filter(side => side.market === market);
+  const record = (wins, losses) => ({ wins, losses, pushes: 0, sample: wins + losses, winPct: 100 * wins / (wins + losses) });
+  pair.forEach(side => {
+    side.teamTrend = { asOfDate: date, capturedAt: iso(now), score: 50,
+      teams: [side.awayTeam, side.homeTeam].map((team, i) => ({ team, opposing: market === 'Spread' && i !== 0,
+        hasData: true, missingGames: 0, records: { recent: record(2, 3), venue: record(2, 3), betType: record(2, 3) } })) };
+  });
+  const selected = pair.find(side => market === 'Spread' ? side.line > 0 : side.side === (kind === 'team' ? 'Under' : 'Over'));
+  const other = pair.find(side => side !== selected);
+  if (kind === 'market' || kind === 'team') {
+    Object.assign(other.signals.find(signal => signal.key === 'model'), { available: true, active: true });
+    selected.teamTrend.score = kind === 'team' ? 70 : 40;
+    other.teamTrend.score = 100 - selected.teamTrend.score;
+  }
+  if (kind === 'market') {
+    selected.marketContext.bets = 25; selected.marketContext.money = 30;
+    other.marketContext.bets = 75; other.marketContext.money = 70;
+  }
+  if (kind === 'team') selected.teamTrend.teams.forEach(team => { team.records.recent = record(4, 1); });
+  if (kind === 'spread' || kind === 'sos') {
+    const own = selected.teamTrend.teams.find(team => !team.opposing);
+    own.records.recent = record(4, 1);
+    if (kind === 'spread') {
+      selected.marketContext.openingLine = selected.line + 0.5;
+      other.marketContext.openingLine = other.line - 0.5;
+      own.records.betType = record(4, 2);
+      other.modelContext = { ...other.modelContext, version: 'cfb-v2.8.1-test', projection: other.line - 4,
+        reason: 'No existing qualifying model play on this side.' };
+    } else {
+      own.records.venue = record(3, 1);
+      selected.sosContext = { ...selected.sosContext, gap: 50, capturedAt: iso(now - 3600000) };
+    }
+  }
+  return { pair, selected, other };
+}
+
+function contextRuleIds(example) {
+  const quotes = rules.situationMarketQuotes(example.pair, 'NCAAF', now);
+  return quotes[example.pair.indexOf(example.selected)]?.ruleIds || [];
+}
+
+test('NCAAF context rules recognize independent team, schedule and market cases and begin on watch', () => {
+  const examples = [['Total', 'market', 'ncaaf-total-market-conflict'], ['Total', 'team', 'ncaaf-total-team-model-fade'],
+    ['Spread', 'spread', 'ncaaf-spread-team-model-fade'], ['Spread', 'sos', 'ncaaf-underdog-sos-team-form']];
+  const policy = rules.reviewSituationRules('NCAAF', date, now, undefined, []);
+  for (const [market, kind, id] of examples) {
+    assert(contextRuleIds(contextPair(market, kind)).includes(id), id);
+    assert.equal(policy.rules.find(rule => rule.id === id).active, false);
+  }
+  const buyback = contextPair('Spread', 'spread');
+  buyback.selected.marketContext.openingLine = buyback.selected.line;
+  buyback.selected.marketContext.movement = { usesHistory: true, active: true, value: 0.5 };
+  assert(contextRuleIds(buyback).includes('ncaaf-spread-team-model-fade'));
+  buyback.selected.marketContext.movement.usesHistory = false;
+  assert(!contextRuleIds(buyback).includes('ncaaf-spread-team-model-fade'));
+});
+
+test('NCAAF context rules require the saved evidence and reject weak, future or incomplete support', () => {
+  const cases = [
+    ['Total', 'market', example => { example.other.marketContext.bets = 69; example.selected.marketContext.bets = 31; }],
+    ['Total', 'market', example => { example.other.signals.find(signal => signal.key === 'model').active = false; }],
+    ['Total', 'market', example => { Object.assign(example.selected.signals.find(signal => signal.key === 'model'), { available: true, active: true }); }],
+    ['Total', 'market', example => { example.other.teamTrend.score = 54; }],
+    ['Total', 'market', example => { example.selected.marketContext.openingLine = example.selected.line; }],
+    ['Total', 'team', example => { example.selected.teamTrend.teams[1].records.recent.wins = 3; }],
+    ['Total', 'team', example => { example.selected.teamTrend.teams[1].missingGames = 1; }],
+    ['Spread', 'spread', example => { example.other.modelContext.reason = 'Morning model preview only.'; }],
+    ['Spread', 'spread', example => { example.other.modelContext.projection = example.other.line - 2; }],
+    ['Spread', 'sos', example => { example.selected.sosContext.gap = 49; }],
+    ['Spread', 'sos', example => { example.selected.sosContext.capturedAt = iso(now + 1); }],
+    ['Spread', 'sos', example => { example.selected.teamTrend.capturedAt = iso(now + 1); }],
+    ['Spread', 'sos', example => { example.selected.teamTrend = null; }],
+  ];
+  const ids = { market: 'ncaaf-total-market-conflict', team: 'ncaaf-total-team-model-fade',
+    spread: 'ncaaf-spread-team-model-fade', sos: 'ncaaf-underdog-sos-team-form' };
+  for (const [market, kind, mutate] of cases) {
+    const example = contextPair(market, kind); mutate(example);
+    assert(!contextRuleIds(example).includes(ids[kind]), `${kind} accepted invalid evidence`);
+  }
+});
+
+test('a promoted NCAAF ATS context has priority when the same game also has a conflicting total case', () => {
+  const spread = contextPair('Spread', 'spread'), total = contextPair('Total', 'market');
+  const sides = [spread, total].flatMap(example => {
+    const quotes = rules.situationMarketQuotes(example.pair, 'NCAAF', now);
+    return example.pair.map((side, i) => ({ ...side, situationQuote: quotes[i] }));
+  });
+  const policy = rules.reviewSituationRules('NCAAF', date, now, undefined, []);
+  policy.rules = policy.rules.map(rule => ({ ...rule,
+    active: ['ncaaf-spread-team-model-fade', 'ncaaf-total-market-conflict'].includes(rule.id) }));
+  const picks = rules.situationWinners(sides, policy, now);
+  assert.equal(picks.length, 1);
+  assert.equal(picks[0].id, spread.selected.id);
+});
+
 test('each sport uses its own priority rules and only sends a saved final choice to the official feed', () => {
   const expected = { NFL: 'nfl-spread-fade-70', NCAAF: 'ncaaf-home-unchanged-spread', NBA: 'nba-spread-60-60', NCAAM: 'ncaam-under-balanced-tickets' };
   for (const sport of Object.keys(expected)) {
@@ -142,7 +238,7 @@ test('SQLite owns each NCAAF game decision, requires saved evidence and settles 
   assert.equal((await store.readSituationPicks('NFL', date)).length, 0);
   current += 86400000;
   const next = await store.reviewSituations('NCAAF', '2026-11-07', current);
-  assert.equal(next.rules[0].decided, 1);
-  assert.equal(next.rules[0].netUnits, 0.91);
+  assert.equal(next.rules.find(rule => rule.id === first.situationRuleId).decided, 1);
+  assert.equal(next.rules.find(rule => rule.id === first.situationRuleId).netUnits, 0.91);
   db.close();
 });

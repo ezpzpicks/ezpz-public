@@ -1,4 +1,5 @@
 import type { FootballSignalSide } from "./footballSignals";
+import type { TeamTrendRecord } from "./footballTeamTrends";
 
 export const SITUATION_START_DATE = "2026-11-06";
 export const SITUATION_VERSION = "situation-ezpz-2026-11-06-v1";
@@ -24,7 +25,49 @@ const lineChange = (side: Side) => opener(side) && side.marketContext.openingLin
   ? side.line! - side.marketContext.openingLine : NaN;
 const moneyGap = (side: Side) => side.marketContext.money! - side.marketContext.bets!;
 
-// Priority follows the one-pick-per-game backtest. Each rule also gets its own results.
+function capturedTeamTrends(side: Side) {
+  const trend = side.teamTrend;
+  return trend?.asOfDate === side.date && time(trend.capturedAt) <= time(side.snapshotAt) && trend.teams.length === 2
+    && trend.teams.every(team => team.hasData && team.missingGames === 0) ? trend : null;
+}
+
+const strongLastFive = (record: TeamTrendRecord) => record.sample === 5 && record.wins >= 4;
+const supportsSide = (record: TeamTrendRecord, minimum: number) => record.wins + record.losses >= minimum && (record.winPct ?? 0) >= 60;
+const modelPick = (side: Side) => side.signals.some(signal => signal.key === "model" && signal.available && signal.active);
+
+function ncaafTotalMarketConflict(side: Side, other: Side) {
+  const movement = lineChange(side) * (side.side === "Over" ? 1 : -1);
+  return movement >= 0.5 && opener(other) && side.marketContext.openingLine === other.marketContext.openingLine
+    && other.marketContext.bets! >= 70 && (capturedTeamTrends(other)?.score ?? 0) >= 55 && modelPick(other) && !modelPick(side);
+}
+
+function ncaafTotalTeamModelFade(side: Side, other: Side) {
+  const trend = capturedTeamTrends(side);
+  return trend?.score != null && trend.score >= 60 && trend.teams.every(team => strongLastFive(team.records.recent))
+    && modelPick(other) && !modelPick(side);
+}
+
+function ncaafSpreadTeamModelFade(side: Side, other: Side) {
+  const team = capturedTeamTrends(side)?.teams.find(team => !team.opposing);
+  const move = side.marketContext.movement;
+  // The last confirmed move can return a spread to its opener, as in a buyback.
+  const supportedMove = lineChange(side) <= -0.5
+    || (lineChange(side) === 0 && move?.usesHistory && move.active && (move.value ?? 0) >= 0.5);
+  const { projection, version, reason } = other.modelContext;
+  return Boolean(team && strongLastFive(team.records.recent) && supportsSide(team.records.betType, 4) && supportedMove
+    && version && projection != null && other.line! - projection >= 3
+    && (modelPick(other) || reason === "No existing qualifying model play on this side."));
+}
+
+function ncaafScheduleAndTeamTrends(side: Side) {
+  const team = capturedTeamTrends(side)?.teams.find(team => !team.opposing);
+  const { gap, capturedAt } = side.sosContext;
+  const age = time(side.snapshotAt) - time(capturedAt);
+  return Boolean(side.line! > 0 && gap != null && gap >= 50 && age >= 0 && age <= 86_400_000
+    && team && strongLastFive(team.records.recent) && supportsSide(team.records.venue, 3));
+}
+
+// Ordered for one pick per game. Each rule also gets its own results.
 const RULES: Record<SituationSport, Rule[]> = {
   NFL: [
     { id: "nfl-spread-fade-70", label: "Fade 70% spread tickets", market: "Spread", seed: true,
@@ -37,6 +80,14 @@ const RULES: Record<SituationSport, Rule[]> = {
       matches: side => side.side === "Over" && side.marketContext.bets! >= 45 && side.marketContext.bets! <= 55 },
   ],
   NCAAF: [
+    { id: "ncaaf-spread-team-model-fade", label: "ATS trends and spread movement go against the model", market: "Spread", seed: false,
+      matches: ncaafSpreadTeamModelFade },
+    { id: "ncaaf-underdog-sos-team-form", label: "Underdog with a tougher schedule and strong ATS form", market: "Spread", seed: false,
+      matches: ncaafScheduleAndTeamTrends },
+    { id: "ncaaf-total-team-model-fade", label: "Both teams’ recent totals go against the model", market: "Total", seed: false,
+      matches: ncaafTotalTeamModelFade },
+    { id: "ncaaf-total-market-conflict", label: "Total moves against the public, model and team trends", market: "Total", seed: false,
+      matches: ncaafTotalMarketConflict },
     { id: "ncaaf-home-unchanged-spread", label: "Home spread matches its opener", market: "Spread", seed: true,
       matches: (side, _, homeSide) => side.side === homeSide && lineChange(side) === 0
         && percent(side.marketContext.openingBets) && percent(side.marketContext.openingMoney)

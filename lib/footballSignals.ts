@@ -139,7 +139,7 @@ function modelFor(play: AnyRow, sport: SignalSport, core: AnyRow, asOf: number) 
   const grade = String(found?.playType || slate?.[play.market + " Grade"] || "");
   const version = String(found?.modelVersion || slate?.["Model Version"] || "");
   const probability = found ? signalNumber(found.selectedProbability ?? slate?.[play.market + " Probability"]) : null;
-  const builtAt = Date.parse(String(slate?.["Build At"] || ""));
+  const builtAt = Date.parse(String((sport === "NCAAF" ? slate?.["Build Captured At"] || slate?.["Build At"] : slate?.["Build At"]) || ""));
   const kickoff = Date.parse(nflKickoffIso(play.date, play.gameTime));
   const future = Number.isFinite(builtAt) && (builtAt > asOf || builtAt >= kickoff);
   const pending = slate?.["Build Phase"] === "early" || /pending pregame/i.test(grade);
