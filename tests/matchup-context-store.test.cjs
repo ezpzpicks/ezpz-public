@@ -78,8 +78,23 @@ test('SQL owns a single frozen review and settlement changes outcomes while publ
     assert.deepEqual(await store.readMatchupContext('NBA', date), newerPreview, 'Older pending writes cannot replace newer previews');
     await store.captureMatchupContext('NBA', live, [], clock, true);
     assert.deepEqual(await store.readMatchupContext('NBA', date), newerPreview, 'Unavailable capture leaves the last saved preview intact');
-    assert.equal((await store.readMatchupContext('NBA', date, Date.parse(sides[0].gameTime))).pendingGames, 0);
-    assert.equal((await store.readMatchupContext('NBA', date, clock + 86400000)).today.length, 0);
+    const started = await store.readMatchupContext('NBA', date, Date.parse(sides[0].gameTime));
+    assert.equal(started.pendingGames, 0);
+    assert.equal(started.missedFinalGames, 1);
+    assert.equal(started.today[0].reviewStatus, 'MISSED_FINAL');
+    assert.equal(started.record.pending, 0, 'A retained preview cannot become a tracked paper pick');
+    assert.deepEqual({ ...plain(started.today[0]), reviewStatus: 'PENDING' }, plain(newerPreview.today[0]));
+    assert.equal((await store.readMatchupContext('NBA', date, clock + 86400000)).today.length, 1);
+    const afterStart = Date.parse(sides[0].gameTime) + 60000;
+    const later = game(date, 1, { recorded: false, status: 'LIVE', snapshotAt: new Date(afterStart).toISOString(),
+      gameTime: new Date(afterStart + 2 * 3600000).toISOString() });
+    await store.captureMatchupContext('NBA', later, [], afterStart);
+    const retained = await store.readMatchupContext('NBA', date, afterStart);
+    assert.equal(retained.today.length, 2, 'Refreshing a later matchup must retain the started matchup');
+    assert.equal(retained.missedFinalGames, 1);
+    assert.equal(retained.pendingGames, 1);
+    assert.equal(retained.capturedGames, 0);
+    assert.deepEqual(plain(retained.today[0]), plain(started.today[0]));
     clock = trial.trialDayStart(date) + 17.75 * 3600000;
     const first = await store.captureMatchupContext('NBA', sides, [], clock);
     assert.equal(first.captured, 1);

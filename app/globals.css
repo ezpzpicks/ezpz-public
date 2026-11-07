@@ -2381,13 +2381,54 @@ body::after {
 .mc-review .mc-game-time{grid-column:2;grid-row:1;justify-self:end;white-space:nowrap;color:var(--fs-dim);font-size:.72rem;line-height:1.9;font-variant-numeric:tabular-nums}
 .mc-review .mc-game-status{grid-column:1/-1}
 .mc-review .mc-game-pending{color:var(--fs-dim)}
-.mc-review .mc-game-choices{margin:12px 0 0 6px;padding-left:14px;border-left:2px solid var(--fs-border)}
-.mc-review .mc-choice{margin:0;padding:11px 0}
-.mc-review .mc-choice:first-child{border-top:0}
-.mc-review .mc-choice>summary{display:block;min-height:44px;font-size:.8rem}
-.mc-review .mc-choice>summary .mc-choice-title{display:block;color:#e4edf9;font-size:.8rem;font-weight:500;line-height:1.6}
-.mc-review .mc-choice>summary .mc-choice-status{display:block;margin-top:4px;font-size:.72rem;line-height:1.6}
-.mc-review .mc-choice-body{padding:0 0 5px 5px;font-size:.79rem;line-height:1.7}
+.mc-review .mc-overview{margin:14px 0;padding:12px 14px;border:1px solid var(--fs-border);border-radius:12px;background:var(--fs-field)}
+.mc-review .mc-overview p{margin:0;font-size:.77rem;line-height:1.8}
+.mc-review .mc-instructions,.mc-review .mc-snapshot-note{font-size:.75rem;line-height:1.6;color:var(--fs-dim)}
+.mc-review .mc-game-choices{margin:14px 0 0 4px;padding-left:12px;border-left:2px solid var(--fs-border)}
+.mc-review .mc-market-comparison{margin:0 0 14px}
+.mc-review .mc-market-comparison>h4{margin:0 0 8px;color:var(--fs-dim);font-size:.7rem;letter-spacing:.06em;text-transform:uppercase}
+.mc-review .mc-choice-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.mc-review .mc-choice-card{min-width:0;padding:12px 10px;border:1px solid var(--fs-border);border-radius:11px;background:var(--fs-field);color:#e4edf9;text-align:left;cursor:pointer;line-height:1.5}
+.mc-review .mc-choice-card.mc-choice-active{border-color:#35b9ed;box-shadow:inset 0 0 0 1px #35b9ed;background:#139cdb12}
+.mc-review .mc-choice-card:focus-visible{outline:2px solid #66d2ff;outline-offset:3px}
+.mc-review .mc-choice-title{display:block;font-size:.86rem;font-weight:650;overflow-wrap:anywhere}
+.mc-review .mc-choice-status{display:block;margin:3px 0;color:var(--fs-dim);font-size:.66rem}
+.mc-review .mc-choice-active .mc-choice-status{color:#63d1ff}
+.mc-review .mc-choice-line{display:block;color:#bccbdf;font-size:.68rem;font-variant-numeric:tabular-nums}
+.mc-review .mc-choice-stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px 6px;margin-top:12px}
+.mc-review .mc-choice-stats>span{min-width:0}
+.mc-review .mc-choice-stats small{display:block;color:var(--fs-dim);font-size:.68rem;line-height:1.5;font-weight:400}
+.mc-review .mc-choice-stats strong{display:block;font-size:.8rem;font-weight:600;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.mc-review .mc-selected-evidence{padding:14px;margin:16px 0 0;border:1px solid var(--fs-border);border-radius:12px;background:var(--fs-panel)}
+.mc-review .mc-evidence-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.mc-review .mc-evidence-heading span{color:var(--fs-dim);font-size:.68rem}
+.mc-review .mc-evidence-heading h4{margin:2px 0 0;font-size:.95rem;color:#e4edf9}
+.mc-review .mc-signal-badges{display:flex;gap:5px;flex-wrap:wrap;margin:10px 0}
+.mc-review .mc-signal-badges span{padding:3px 7px;border-radius:5px;background:#35b9ed18;color:#6ed6ff;font-size:.64rem}
+.mc-review .mc-conflicts{padding:10px 12px;margin-top:14px;border-left:3px solid #e7bb59;border-radius:6px;background:#e7bb590b}
+.mc-review .mc-conflicts h5{color:#f0cc7b;margin:0;font-size:.75rem}
+.mc-review .mc-conflicts ul{padding-left:16px;margin:7px 0 0}
+.mc-review .mc-conflicts li,.mc-review .mc-conflicts summary{color:#c7c7bc;font-size:.72rem;line-height:1.6}
+.mc-review .mc-evidence-section{margin-top:18px}
+.mc-review .mc-evidence-section>h5{margin:0 0 8px;color:#dce8f7;font-size:.79rem}
+.mc-review .mc-team-records{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.mc-review .mc-record-card{min-width:0;padding:10px;border:1px solid var(--fs-border);border-radius:9px;background:var(--fs-field)}
+.mc-review .mc-record-card h6{margin:0 0 8px;font-size:.78rem;color:#e4edf9;overflow-wrap:anywhere}
+.mc-review .mc-evidence-rows{margin:0}
+.mc-review .mc-evidence-row{padding:8px 0;border-top:1px solid var(--fs-border)}
+.mc-review .mc-evidence-row:first-child{border-top:0}
+.mc-review .mc-evidence-row dt{font-size:.72rem;color:var(--fs-dim);line-height:1.5}
+.mc-review .mc-evidence-row dd{margin:3px 0 0;overflow-wrap:anywhere}
+.mc-review .mc-evidence-row strong{display:block;font-size:.85rem;font-weight:600;line-height:1.5}
+.mc-review .mc-evidence-row dd>span{display:block;font-size:.67rem;line-height:1.5;color:var(--fs-dim)}
+.mc-review .mc-supports strong,.mc-review .mc-supports dd>span{color:#72dfad}
+.mc-review .mc-opposes strong,.mc-review .mc-opposes dd>span{color:#ffaaa4}
+.mc-review .mc-positive{color:#72dfad}
+.mc-review .mc-negative{color:#ffaaa4}
+.mc-review .mc-missing{font-size:.72rem;line-height:1.6;color:#e4c88b}
+.mc-review .mc-estimate-details{margin-top:14px;padding-top:10px;border-top:1px solid var(--fs-border);font-size:.72rem;line-height:1.7}
+.mc-review .mc-estimate-details summary{cursor:pointer;color:var(--fs-dim)}
+@media(max-width:359px){.mc-review .mc-game-choices{margin-left:0;padding-left:8px}.mc-review .mc-choice-card{padding:10px 8px}.mc-review .mc-selected-evidence{padding:10px}.mc-review .mc-team-records{grid-template-columns:minmax(0,1fr)}}
 
 /* Expanded signal cards: color shows direction; the badge shows qualification. */
 .fs-detail{--fs-accent:#9eafc6;border-left:3px solid var(--fs-accent)}

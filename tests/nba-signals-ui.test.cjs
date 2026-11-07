@@ -56,7 +56,7 @@ test('matchup reviews distinguish preliminary leans from frozen selections and a
   function markup(data) {
     const states = [true, 0, { key: `NBA|${reviewDate}|0`, status: 'ready', data }];
     const panel = component('app/MatchupContextPanel.tsx', { react: { ...React,
-      useState: () => [states.shift(), () => {}], useEffect: () => {},
+      useState: initial => [states.length ? states.shift() : typeof initial === 'function' ? initial() : initial, () => {}], useEffect: () => {},
     } });
     return render(React.createElement(panel.default, { sport: 'NBA', date: reviewDate }));
   }
@@ -64,10 +64,17 @@ test('matchup reviews distinguish preliminary leans from frozen selections and a
   for (const text of ['Pending final snapshot', 'Current lean:', 'Review can change until the final snapshot.',
     '10:00 AM', '6:00 PM', 'Current lean', 'mc-game-choices']) assert(pending.includes(text), text);
   assert.doesNotMatch(pending, /Selected|Awaiting result|Review frozen/);
-  assert.equal((pending.match(/class="fs-results mc-choice"/g) || []).length, 4);
+  assert.equal((pending.match(/class="mc-choice-card(?: mc-choice-active)?"/g) || []).length, 4);
+  assert.match(pending, /Spread comparison/);
+  assert.match(pending, /Total comparison/);
+  assert.match(pending, /aria-pressed="true"/);
+  assert(pending.indexOf('Spread comparison') < pending.indexOf('Total comparison'));
   const final = markup({ ...payload, capturedGames: 1, pendingGames: 0, today: [{ ...review, reviewStatus: 'FINAL' }] });
   for (const text of ['Final snapshot', 'Selected', 'Awaiting result', 'Review frozen at the final snapshot.']) assert(final.includes(text), text);
   assert.doesNotMatch(final, /Pending final snapshot|Current lean/);
+  const missed = markup({ ...payload, pendingGames: 0, missedFinalGames: 1, today: [{ ...review, reviewStatus: 'MISSED_FINAL' }] });
+  for (const text of ['Started · Final snapshot unavailable', 'Last pregame lean:', 'outside the paper record', 'Last pregame review retained']) assert(missed.includes(text), text);
+  assert.doesNotMatch(missed, /Current lean|Awaiting result|Review frozen|>Selected</);
 });
 
 test('NBA and NFL share compact cards while test results live in Signal Research', () => {

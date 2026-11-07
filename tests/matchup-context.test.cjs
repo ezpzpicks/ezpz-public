@@ -47,6 +47,10 @@ test('context uses raw team records, schedule differences and disagreements even
   const review = context.contextCase(side, 'NCAAF');
   assert(review.evidence.some(item => item.value === '4-1-0'));
   assert(review.disagreements.some(item => item.includes('Public tickets')));
+  assert.equal(review.metrics.teamScore, 60);
+  assert.equal(review.metrics.moneyGap, 8);
+  assert.equal(review.metrics.modelEdge, 4);
+  assert.equal(review.metrics.activeSignals.length, 0);
   assert.equal(context.CONTEXT_FEATURE_SET.values(side, 'NBA')[context.CONTEXT_FEATURE_NAMES.indexOf('Schedule strength')], 0);
 });
 
@@ -183,6 +187,7 @@ test('partial team records remain visible with coverage gaps and cannot supply a
   assert.equal(review.evidence.filter(item => item.label.endsWith('Recent results')).length, 6);
   assert(review.missing.some(reason => reason.includes('Home: 1 season game has no graded market record')));
   assert(!review.missing.some(reason => /Team records unavailable/.test(reason)));
+  assert.equal(review.metrics.teamScore, null);
   const values = context.CONTEXT_FEATURE_SET.values(side, 'NCAAF');
   for (const name of ['Team role record', 'Team venue record', 'Team recent form', 'Combined team trends']) {
     assert.equal(values[context.CONTEXT_FEATURE_NAMES.indexOf(name)], 0, name);
