@@ -150,9 +150,29 @@ test('compact picks show frozen results and the new policy waits for the final s
   const now = Date.now(), tip = new Date(now + 3_600_000).toISOString(), date = '2026-11-06';
   const live = { ...total, date, recorded: false, status: 'LIVE', gameTime: tip, snapshotAt: new Date(now).toISOString(), result: '' };
   const preview = render(React.createElement(exportsObject.default, { board: { ...board, today: date, sides: [live] }, picksOnly: true }));
-  assert.match(preview, /No NFL play type qualified at the final snapshot/);
+  assert.match(preview, /No NFL play type currently qualifies/);
   assert.doesNotMatch(preview, /Live preview/);
   assert.doesNotMatch(preview, /Final snapshot|Won/);
+});
+
+test('EZPZ play-type cards distinguish pending previews from saved final picks', () => {
+  const rules = require('./load-typescript.cjs')(path.join(root, 'lib/situationRules.ts'));
+  const now = Date.now(), date = '2026-11-07', gameTime = new Date(now + 3_600_000).toISOString();
+  const live = [side, opposite].map((value, i) => ({ ...value, date, gameTime, snapshotAt: new Date(now).toISOString(),
+    marketContext: { ...value.marketContext, openingLine: value.line, bets: i ? 75 : 25, money: i ? 75 : 25,
+      openingBets: i ? 75 : 25, openingMoney: i ? 75 : 25, openingAt: new Date(now - 13 * 3_600_000).toISOString(), history: [] } }));
+  const data = { ...board, today: date, sport: 'NCAAF', sides: live,
+    situationPolicy: rules.reviewSituationRules('NCAAF', date, now, undefined, []) };
+  const html = render(React.createElement(exportsObject.default, { board: data, picksOnly: true }));
+  for (const text of ['Pending · awaiting final snapshot', 'Home spread matches its opener', 'GB +1.5 EZPZ Pick',
+    'Only locked picks enter official records or posts']) assert(html.includes(text), text);
+  assert.doesNotMatch(html, /Final snapshot|Combined Signal Record/);
+  const [pending] = rules.situationPreviews(live, data.situationPolicy, now);
+  const frozen = { ...pending, situationPending: undefined, recorded: true, status: 'FINAL_PREGAME',
+    gameTime: new Date(now + 900_000).toISOString() };
+  const finalHtml = render(React.createElement(exportsObject.pickTileTest, { rows: [frozen], board: data, picksOnly: true, date }));
+  assert.match(finalHtml, /Final snapshot/);
+  assert.doesNotMatch(finalHtml, /Pending · awaiting final snapshot/);
 });
 
 test('model details distinguish the regraded current quote from the original Strong play', () => {

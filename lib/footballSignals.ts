@@ -58,6 +58,8 @@ export type FootballSignalSide = {
   comboScore?: ComboScore;
   situationQuote?: SituationQuote;
   situationRuleId?: string;
+  situationPending?: boolean;
+  marketStale?: boolean;
   researchOrigin?: "replay";
 };
 export type FootballSignalsBoard = {
@@ -408,6 +410,7 @@ export function buildFootballSignalsState(input: SignalsInput): { board: Footbal
         : sport === "NFL" ? buildNflEzpzLeaderboard(core.trendRecordRows || [], at, play)
         : buildNcaafEzpzLeaderboard(core.trendRecordRows || [], at, play, input.buildSubtypes);
       const side = evaluateSide(play, plays, { ...input, history }, ranking);
+      if (gameStale) side.marketStale = true;
       if (retrospective) {
         const publicSignal = side.signals.find(s => s.key === "system")!;
         Object.assign(publicSignal, { available: false, active: false, value: null, level: "Unavailable",

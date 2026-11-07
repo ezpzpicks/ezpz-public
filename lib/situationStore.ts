@@ -1,6 +1,6 @@
 import { runTursoAtomicSql, runTursoSql, type TursoRow } from "./tursoStore";
 import { FOOTBALL_SIGNALS_TAB, signalRecord, type FootballSignalSide, type FootballSignalsBoard } from "./footballSignals";
-import { reviewSituationRules, savedSituationRule, situationFinalWindow, situationWinners, SITUATION_START_DATE, SITUATION_VERSION, usesSituationRules,
+import { reviewSituationRules, savedSituationRule, situationFinalWindow, situationWinners, situationPreviews, SITUATION_START_DATE, SITUATION_VERSION, usesSituationRules,
   type SituationPolicy, type SituationResult, type SituationSport } from "./situationRules";
 
 const q = (value: unknown) => `'${String(value ?? "").replaceAll("'", "''")}'`;
@@ -146,6 +146,13 @@ export async function attachSituationBoard(board: FootballSignalsBoard, sport: s
       ORDER BY p.date DESC, json_extract(p.pick,'$.gameTime') DESC, p.game_key`]);
   const policy = parsePolicy(policies[0]);
   const picks = parsePicks(current, sport);
+  const liveSides = board.sides.map(side => {
+    if (!side.situationPending) return side;
+    const { situationPending, situationRuleId, situationQuote, ...live } = side;
+    return { ...live, selected: false };
+  });
+  const sides = applySituationPicks(liveSides, picks);
+  const previews = policy && board.captureAvailable ? situationPreviews(sides, policy, Date.now()) : [];
   const rows = history.map(row => ({ date: row.date, game: row.game, selection: row.selection, market: row.market, odds: row.odds,
     ruleLabel: policy?.rules.find(rule => rule.id === row.ruleId)?.label, selectorVersion: SITUATION_VERSION,
     id: row.id, gameTime: row.gameTime, signalCount: 0, combination: "", result: row.result as FootballSignalSide["result"] }));
@@ -153,6 +160,6 @@ export async function attachSituationBoard(board: FootballSignalsBoard, sport: s
     const group = rows.filter(row => row.ruleLabel === rule.label);
     return group.length ? [{ dimension: "Play type", label: rule.label, record: signalRecord(group) }] : [];
   });
-  return { ...board, situationPolicy: policy, sides: applySituationPicks(board.sides, picks), summary: signalRecord(rows),
+  return { ...board, situationPolicy: policy, sides: applySituationPicks(sides, previews), summary: signalRecord(rows),
     breakdowns, history: rows.slice(0, 200) };
 }
