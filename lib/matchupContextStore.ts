@@ -35,10 +35,20 @@ const decisionRow = (decision: ContextDecision): TursoRow => ({ Date: decision.d
 
 /** One refreshable slate preview; frozen decisions and their record have separate ownership. */
 async function savePreviews(sport: ContextSport, date: string, reviews: ContextReview[], now: number) {
+  const next = { updatedAt: new Date(now).toISOString(), reviews };
   const row = { Date: date, "Game Key": `pending|${MATCHUP_CONTEXT_VERSION}`, Market: "Context", Selection: MATCHUP_CONTEXT_VERSION,
-    "Details JSON": JSON.stringify({ updatedAt: new Date(now).toISOString(), reviews }) };
+    "Details JSON": JSON.stringify(next) };
   await insertTrialRows(sport, CONTEXT_PENDING_TAB, [row]);
-  await runTursoAtomicSql([`UPDATE dataset_rows SET payload_json=${q(JSON.stringify(row))},imported_at=${q(new Date(now).toISOString())}
+  // Preserve the last pregame review when a game starts or leaves the feed.
+  // Merge against the row inside the transaction so overlapping producers
+  // cannot discard a review saved after either producer started its work.
+  const merged = `(SELECT json_group_array(json(value)) FROM (
+    SELECT value FROM json_each(${q(JSON.stringify(reviews))})
+    UNION ALL SELECT old.value FROM json_each(${details},'$.reviews') old
+      WHERE NOT EXISTS (SELECT 1 FROM json_each(${q(JSON.stringify(reviews))}) fresh
+        WHERE json_extract(fresh.value,'$.gameKey')=json_extract(old.value,'$.gameKey'))))`;
+  const retained = `printf('%s',json_set(${q(JSON.stringify(next))},'$.reviews',json(${merged})))`;
+  await runTursoAtomicSql([`UPDATE dataset_rows SET payload_json=json_set(${q(JSON.stringify(row))},'$."Details JSON"',${retained}),imported_at=${q(new Date(now).toISOString())}
     WHERE sport=${q(sport)} AND dataset=${q(CONTEXT_PENDING_TAB)} AND date_key=${q(date)} AND selection=${q(MATCHUP_CONTEXT_VERSION)}
       AND json_extract(${details},'$.updatedAt')<${q(new Date(now).toISOString())}`]);
 }
@@ -101,14 +111,17 @@ export async function captureMatchupContext(sport: ContextSport, sides: ContextS
 export async function readMatchupContext(sport: ContextSport, date: string, now = Date.now()) {
   const model = modelFromRows(await readTursoDatasetByDateKeys(sport, CONTEXT_MODELS_TAB, [date]), sport, date);
   // Read pending first so a concurrent final capture always takes precedence below.
-  const pendingRows = date === trialDate(now) ? await readTursoDatasetByDateKeys(sport, CONTEXT_PENDING_TAB, [date]) : [];
+  const pendingRows = await readTursoDatasetByDateKeys(sport, CONTEXT_PENDING_TAB, [date]);
   const saved = decisionsFromRows(await readTursoDatasetByDateKeys(sport, CONTEXT_DECISIONS_TAB, [date]));
   const frozen = new Set(saved.map(decision => decision.gameKey));
   const previews = pendingRows.filter(row => row.Selection === MATCHUP_CONTEXT_VERSION).flatMap(row => {
     const pending = JSON.parse(row["Details JSON"]) as { reviews: ContextReview[] };
     return pending.reviews.filter(review => review.version === MATCHUP_CONTEXT_VERSION && review.sport === sport && review.date === date
       && review.reviewStatus === "PENDING" && review.estimates.length === 4 && review.cases.length === 4
-      && Date.parse(review.gameTime) > now && !frozen.has(review.gameKey));
+      && Date.parse(review.sourceSnapshotAt) <= Date.parse(review.capturedAt)
+      && Date.parse(review.capturedAt) < Date.parse(review.gameTime) && Date.parse(review.capturedAt) <= now
+      && !frozen.has(review.gameKey)).map(review => ({ ...review,
+        reviewStatus: Date.parse(review.gameTime) <= now ? "MISSED_FINAL" as const : "PENDING" as const }));
   });
   const today: ContextReview[] = [...saved.map(decision => ({ ...decision, reviewStatus: "FINAL" as const })), ...previews]
     .sort((a, b) => a.gameTime.localeCompare(b.gameTime) || a.gameKey.localeCompare(b.gameKey));
@@ -127,7 +140,8 @@ export async function readMatchupContext(sport: ContextSport, date: string, now 
     model: model ? { id: model.id, trainingCutoff: model.trainingCutoff,
       models: model.models.map(({ beta, covariance, ...summary }) => summary) } : null,
     capturedGames: Number(counts[0]?.games || 0), passedGames: Number(counts[0]?.passed || 0),
-    pendingGames: previews.length,
+    pendingGames: previews.filter(review => review.reviewStatus === "PENDING").length,
+    missedFinalGames: previews.filter(review => review.reviewStatus === "MISSED_FINAL").length,
     record: { ...signalRecord(priced), assumedPrices: records.filter(row => row.priceBasis === "Assumed -110").length,
       unverifiedPrices: records.filter(row => row.priceBasis === "Unverified provenance").length }, today };
 }

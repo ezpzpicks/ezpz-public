@@ -10,9 +10,11 @@ export type ContextSide = TrialSide & Partial<Pick<FootballSignalSide, "teamTren
   & { contextModelForm?: ModelForm; contextAsOf?: string };
 export type ContextModel = TrialModel & { modelForms: Record<string, ModelForm> };
 export type ContextEvidence = { label: string; value: string; direction: "Supports" | "Opposes" | "Neutral"; sample: number | null };
-export type ContextCase = { id: string; selection: string; evidence: ContextEvidence[]; disagreements: string[]; missing: string[] };
+export type ContextCase = { id: string; selection: string; evidence: ContextEvidence[]; disagreements: string[]; missing: string[];
+  metrics?: { tickets: number | null; money: number | null; moneyGap: number | null; openingLine: number | null;
+    teamScore: number | null; modelEdge: number | null; modelProjection: number | null; activeSignals: string[] } };
 export type ContextDecision = TrialDecision & { cases: ContextCase[] };
-export type ContextReview = ContextDecision & { reviewStatus: "PENDING" | "FINAL" };
+export type ContextReview = ContextDecision & { reviewStatus: "PENDING" | "FINAL" | "MISSED_FINAL" };
 
 const bound = (value: number) => Math.max(-1, Math.min(1, value));
 const stamp = (value: unknown) => /(?:Z|[+-]\d{2}:?\d{2}|EDT|EST)$/i.test(String(value || ""))
@@ -194,7 +196,14 @@ export function contextCase(side: ContextSide, sport: ContextSport): ContextCase
   directions.forEach(([a, first], i) => directions.slice(i + 1).forEach(([b, second]) => {
     if (Math.abs(first) >= 0.05 && Math.abs(second) >= 0.05 && first * second < 0) disagreements.push(`${a} and ${b.toLowerCase()} point in opposite directions`);
   }));
-  return { id: side.id, selection: side.selection, evidence, disagreements, missing };
+  return { id: side.id, selection: side.selection, evidence, disagreements, missing,
+    metrics: { tickets: finite(market?.bets) ? market.bets : null, money: finite(market?.money) ? market.money : null,
+      moneyGap: finite(market?.bets) && finite(market?.money) ? market.money - market.bets : null,
+      openingLine: x.history.opening,
+      teamScore: capturedTeams(side).length && finite(side.teamTrend?.score) ? side.teamTrend!.score : null,
+      modelEdge: modelAvailable(side) ? side.signals.find(signal => signal.key === "model")?.value ?? null : null,
+      modelProjection: modelAvailable(side) ? side.modelContext!.projection : null,
+      activeSignals: side.signals.filter(signal => signal.active && signal.available).map(signal => signal.key) } };
 }
 
 export function buildContextDecisions(model: ContextModel, sides: ContextSide[], incumbentIds: string[], now: number): ContextDecision[] {
