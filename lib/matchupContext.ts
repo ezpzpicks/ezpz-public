@@ -1,6 +1,6 @@
 import type { FootballSignalSide } from "./footballSignals";
 import type { TeamTrendRecord, TeamTrendTeam } from "./footballTeamTrends";
-import { buildTrialModel, buildTrialDecisions, trialPairedMarkets, trialDayStart, trialDigest,
+import { buildTrialModel, buildTrialDecisions, buildTrialPreviews, trialPairedMarkets, trialDayStart, trialDigest,
   type TrialSide, type TrialSport, type TrialModel, type TrialDecision, type TrialFeatureSet } from "./selectionTrial";
 
 export const MATCHUP_CONTEXT_VERSION = "matchup-context-2026-11-06-v1";
@@ -12,6 +12,7 @@ export type ContextModel = TrialModel & { modelForms: Record<string, ModelForm> 
 export type ContextEvidence = { label: string; value: string; direction: "Supports" | "Opposes" | "Neutral"; sample: number | null };
 export type ContextCase = { id: string; selection: string; evidence: ContextEvidence[]; disagreements: string[]; missing: string[] };
 export type ContextDecision = TrialDecision & { cases: ContextCase[] };
+export type ContextReview = ContextDecision & { reviewStatus: "PENDING" | "FINAL" };
 
 const bound = (value: number) => Math.max(-1, Math.min(1, value));
 const stamp = (value: unknown) => /(?:Z|[+-]\d{2}:?\d{2}|EDT|EST)$/i.test(String(value || ""))
@@ -152,7 +153,7 @@ export function contextCase(side: ContextSide, sport: ContextSport): ContextCase
     evidence.push({ label, value, direction: direction(strength), sample });
   };
   const market = side.marketContext;
-  if (finite(market?.bets) && finite(market?.money)) add("Final betting split", `${market.bets}% tickets · ${market.money}% money`, x.gap);
+  if (finite(market?.bets) && finite(market?.money)) add(side.recorded ? "Final betting split" : "Current betting split", `${market.bets}% tickets · ${market.money}% money`, x.gap);
   else missing.push("Betting splits unavailable");
   if (x.history.opening != null) add("Tracked line", `${x.history.opening} → ${side.line}`, x.line);
   else missing.push("Opening line timing unavailable");
@@ -180,9 +181,18 @@ export function contextCase(side: ContextSide, sport: ContextSport): ContextCase
 }
 
 export function buildContextDecisions(model: ContextModel, sides: ContextSide[], incumbentIds: string[], now: number): ContextDecision[] {
+  return compareContext(model, sides, incumbentIds, now, false);
+}
+
+export function buildContextPreviews(model: ContextModel, sides: ContextSide[], incumbentIds: string[], now: number): ContextReview[] {
+  return compareContext(model, sides, incumbentIds, now, true).map(decision => ({ ...decision, reviewStatus: "PENDING" }));
+}
+
+function compareContext(model: ContextModel, sides: ContextSide[], incumbentIds: string[], now: number, preview: boolean): ContextDecision[] {
   const enriched = sides.map(side => ({ ...side, contextModelForm: model.modelForms[formKey(side)] || emptyForm() }));
   const byId = new Map(enriched.map(side => [side.id, side]));
-  return buildTrialDecisions(model, enriched, incumbentIds, now, CONTEXT_FEATURE_SET).map(decision => ({ ...decision,
+  const compare = preview ? buildTrialPreviews : buildTrialDecisions;
+  return compare(model, enriched, incumbentIds, now, CONTEXT_FEATURE_SET).map(decision => ({ ...decision,
     cases: decision.estimates.map(estimate => contextCase(byId.get(estimate.id)!, model.sport as ContextSport)) }));
 }
 

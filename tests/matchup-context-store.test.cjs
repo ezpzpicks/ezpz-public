@@ -18,7 +18,7 @@ test('SQL owns a single frozen review and settlement changes outcomes while publ
     CREATE TABLE dataset_manifest(sport TEXT,dataset TEXT,source_workbook TEXT,source_worksheet TEXT,headers_json TEXT,row_count INTEGER,
     imported_at TEXT,source_kind TEXT,PRIMARY KEY(sport,dataset));`);
   const date = '2026-11-04';
-  let clock = trial.trialDayStart(date) + 17.75 * 3600000, writes = 0;
+  let clock = trial.trialDayStart(date) + 10 * 3600000, writes = 0;
   const batches = [];
   class Clock extends Date { static now() { return clock; } }
   const q = value => `'${String(value).replaceAll("'", "''")}'`;
@@ -55,12 +55,47 @@ test('SQL owns a single frozen review and settlement changes outcomes while publ
     await storage.insertTrialRows('NBA', store.CONTEXT_MODELS_TAB, [{ Date: date, 'Game Key': `model|${context.MATCHUP_CONTEXT_VERSION}`,
       Market: 'Model', Selection: context.MATCHUP_CONTEXT_VERSION, 'Details JSON': JSON.stringify(model) }]);
     const sides = game(date);
+    const live = sides.map(side => ({ ...side, recorded: false, status: 'LIVE', snapshotAt: new Date(clock).toISOString() }));
+    const pending = await store.captureMatchupContext('NBA', live, [], clock);
+    assert.equal(pending.captured, 0);
+    assert.equal(pending.pending, 1);
+    const previewUpdate = batches.at(-1);
+    const preview = await store.readMatchupContext('NBA', date);
+    assert.equal(preview.pendingGames, 1);
+    assert.equal(preview.capturedGames, 0);
+    assert.equal(preview.passedGames, 0);
+    assert.equal(preview.record.pending, 0);
+    assert.equal(preview.today[0].reviewStatus, 'PENDING');
+    assert(preview.today[0].pickId, 'A preliminary selection still stays outside the record');
+    const firstPreview = plain(preview.today[0]);
+    clock += 30 * 60000;
+    const updated = live.map(side => ({ ...side, snapshotAt: new Date(clock).toISOString(),
+      line: side.market === 'Total' ? side.line + 2 : side.line }));
+    await store.captureMatchupContext('NBA', updated, [], clock);
+    const newerPreview = await store.readMatchupContext('NBA', date);
+    assert.equal(newerPreview.today[0].estimates.find(estimate => estimate.market === 'Total').line, 222.5);
+    await io.runTursoAtomicSql(previewUpdate);
+    assert.deepEqual(await store.readMatchupContext('NBA', date), newerPreview, 'Older pending writes cannot replace newer previews');
+    await store.captureMatchupContext('NBA', live, [], clock, true);
+    assert.deepEqual(await store.readMatchupContext('NBA', date), newerPreview, 'Unavailable capture leaves the last saved preview intact');
+    assert.equal((await store.readMatchupContext('NBA', date, Date.parse(sides[0].gameTime))).pendingGames, 0);
+    assert.equal((await store.readMatchupContext('NBA', date, clock + 86400000)).today.length, 0);
+    clock = trial.trialDayStart(date) + 17.75 * 3600000;
     const first = await store.captureMatchupContext('NBA', sides, [], clock);
     assert.equal(first.captured, 1);
     const saved = () => JSON.parse(JSON.parse(db.prepare(`SELECT payload_json FROM dataset_rows WHERE dataset=${q(store.CONTEXT_DECISIONS_TAB)}`).get().payload_json)['Details JSON']);
     const original = saved();
     assert(original.pickId);
     assert.equal(original.cases.length, 4);
+    assert.equal(original.estimates.find(estimate => estimate.market === 'Total').line, 220.5, 'Final review uses its own final quote');
+    // Simulate an overlapping preview writer committing after final capture.
+    await io.runTursoAtomicSql([`UPDATE dataset_rows SET payload_json=json_set(payload_json,'$."Details JSON"',${q(JSON.stringify({
+      updatedAt: new Date(clock + 1).toISOString(), reviews: [firstPreview] }))}) WHERE dataset=${q(store.CONTEXT_PENDING_TAB)}`]);
+    const finalized = await store.readMatchupContext('NBA', date);
+    assert.equal(finalized.today.length, 1);
+    assert.equal(finalized.today[0].reviewStatus, 'FINAL');
+    assert.equal(finalized.pendingGames, 0);
+    assert.equal(finalized.record.pending, 1);
     await store.captureMatchupContext('NBA', sides.map(side => ({ ...side, line: side.line + 1 })), [], clock + 1);
     assert.deepEqual(saved(), original);
     clock += 4 * 3600000;
