@@ -1,0 +1,104 @@
+import { readTursoDatasetByDateKeys, runTursoAtomicSql, runTursoSql, type TursoRow } from "./tursoStore";
+import { readTrialSourceRows, trialSidesFromRows, insertTrialRows } from "./selectionTrialStore";
+import { trialDate, trialOdds, settleTrialDecision } from "./selectionTrial";
+import { signalRecord } from "./footballSignals";
+import { buildContextModel, buildContextDecisions, validContextModel, MATCHUP_CONTEXT_VERSION,
+  type ContextModel, type ContextDecision, type ContextSide, type ContextSport } from "./matchupContext";
+
+export const CONTEXT_MODELS_TAB = "matchup_context_models";
+export const CONTEXT_DECISIONS_TAB = "matchup_context_decisions";
+const q = (value: unknown) => `'${String(value ?? "").replaceAll("'", "''")}'`;
+const details = `json_extract(payload_json,'$."Details JSON"')`;
+
+function modelFromRows(rows: TursoRow[], sport: ContextSport, date: string): ContextModel | null {
+  const row = rows.find(row => row.Selection === MATCHUP_CONTEXT_VERSION);
+  if (!row) return null;
+  const model = JSON.parse(row["Details JSON"]) as ContextModel;
+  if (!validContextModel(model, sport, date)) throw new Error("Saved matchup context model is invalid");
+  return model;
+}
+
+function decisionsFromRows(rows: TursoRow[]): ContextDecision[] {
+  return rows.filter(row => row.Selection === MATCHUP_CONTEXT_VERSION).map(row => {
+    const decision = JSON.parse(row["Details JSON"]) as ContextDecision;
+    if (decision.version !== MATCHUP_CONTEXT_VERSION || decision.date !== row.Date || decision.gameKey !== row["Game Key"]
+      || decision.estimates.length !== 4 || decision.cases.length !== 4) throw new Error("Saved matchup context decision is invalid");
+    return decision;
+  });
+}
+
+const decisionRow = (decision: ContextDecision): TursoRow => ({ Date: decision.date, "Game Key": decision.gameKey,
+  Game: decision.game, Market: "Context", Selection: MATCHUP_CONTEXT_VERSION,
+  Result: decision.estimates.every(estimate => decision.outcomes[estimate.id]) ? "SETTLED" : "PENDING",
+  "Details JSON": JSON.stringify(decision) });
+
+/** Producers own capture and settlement. Read-only pages only retrieve the saved analysis. */
+export async function captureMatchupContext(sport: ContextSport, sides: ContextSide[], incumbentIds: string[], now = Date.now(), stale = false) {
+  const date = trialDate(now);
+  const [pending] = await runTursoSql([`SELECT DISTINCT date_key FROM dataset_rows INDEXED BY idx_dataset_rows_date
+    WHERE sport=${q(sport)} AND dataset=${q(CONTEXT_DECISIONS_TAB)} AND date_key<=${q(date)} AND result='PENDING'`]);
+  const pendingDates = pending.map(row => row.date_key);
+  const dates = [...new Set([date, ...pendingDates, ...sides.filter(side => side.recorded && side.date <= date).map(side => side.date)])];
+  const saved = decisionsFromRows(await readTursoDatasetByDateKeys(sport, CONTEXT_DECISIONS_TAB, dates));
+  const quoteKey = (side: ContextSide) => JSON.stringify([side.id, side.snapshotAt, side.line, side.odds]);
+  const supplied = new Set(sides.filter(side => side.recorded).map(quoteKey));
+  const missing = [...new Set(saved.filter(decision => decision.estimates.some(estimate => !supplied.has(
+    JSON.stringify([estimate.id, estimate.quoteAt, estimate.line, estimate.odds])))).map(decision => decision.date))];
+  const settlement = [...sides, ...trialSidesFromRows(sport, await readTrialSourceRows(sport, date, missing))];
+  const changed = saved.flatMap(decision => {
+    const next = settleTrialDecision(decision, settlement, now);
+    return next === decision ? [] : [{ ...next, outcomes: Object.fromEntries(Object.entries(next.outcomes)
+      .map(([id, outcome]) => [id, { ...outcome, knownAt: new Date(outcome.knownAt).toISOString() }])) } as ContextDecision];
+  });
+  if (changed.length) await runTursoAtomicSql(changed.map(decision => {
+    const labels = `json_patch(COALESCE(json_extract(${details},'$.outcomes'),'{}'),json(${q(JSON.stringify(decision.outcomes))}))`;
+    const status = `CASE WHEN (SELECT COUNT(*) FROM json_each(${labels}))=4 THEN 'SETTLED' ELSE 'PENDING' END`;
+    return `UPDATE dataset_rows SET payload_json=json_set(payload_json,'$."Details JSON"',printf('%s',json_set(${details},'$.outcomes',${labels})),'$.Result',${status}),
+      result=${status},imported_at=${q(new Date(now).toISOString())} WHERE sport=${q(sport)} AND dataset=${q(CONTEXT_DECISIONS_TAB)}
+      AND date_key=${q(decision.date)} AND game_key=${q(decision.gameKey)} AND selection=${q(MATCHUP_CONTEXT_VERSION)}
+      AND NOT EXISTS (SELECT 1 FROM json_each(${details},'$.outcomes') old JOIN json_each(${q(JSON.stringify(decision.outcomes))}) incoming ON old.key=incoming.key
+        WHERE json_extract(old.value,'$.knownAt')>json_extract(incoming.value,'$.knownAt')
+          OR (json_extract(old.value,'$.knownAt')=json_extract(incoming.value,'$.knownAt')
+            AND json_extract(old.value,'$.result')<>json_extract(incoming.value,'$.result')))`;
+  }));
+  const existing = new Set(saved.map(decision => decision.gameKey));
+  const candidate = sides.some(side => side.date === date && side.recorded && !existing.has(side.gameKey)
+    && Date.parse(side.gameTime) - now >= 600_000 && Date.parse(side.gameTime) - now <= 1_200_000);
+  if (stale || !candidate) return { captured: 0, settled: changed.length };
+
+  let model = modelFromRows(await readTursoDatasetByDateKeys(sport, CONTEXT_MODELS_TAB, [date]), sport, date);
+  if (!model) {
+    const training = trialSidesFromRows(sport, await readTrialSourceRows(sport, date, undefined, true)) as ContextSide[];
+    const prepared = buildContextModel(sport, date, training, now);
+    await insertTrialRows(sport, CONTEXT_MODELS_TAB, [{ Date: date, "Game Key": `model|${MATCHUP_CONTEXT_VERSION}`,
+      Market: "Model", Selection: MATCHUP_CONTEXT_VERSION, "Details JSON": JSON.stringify(prepared) }]);
+    model = modelFromRows(await readTursoDatasetByDateKeys(sport, CONTEXT_MODELS_TAB, [date]), sport, date);
+    if (!model) throw new Error("Matchup context model was not saved");
+  }
+  const fresh = buildContextDecisions(model, sides, incumbentIds, Math.max(now, Date.now()))
+    .filter(decision => !existing.has(decision.gameKey));
+  await insertTrialRows(sport, CONTEXT_DECISIONS_TAB, fresh.map(decisionRow));
+  return { captured: fresh.length, settled: changed.length, modelId: model.id };
+}
+
+export async function readMatchupContext(sport: ContextSport, date: string) {
+  const model = modelFromRows(await readTursoDatasetByDateKeys(sport, CONTEXT_MODELS_TAB, [date]), sport, date);
+  const today = decisionsFromRows(await readTursoDatasetByDateKeys(sport, CONTEXT_DECISIONS_TAB, [date]));
+  const [records, counts] = await runTursoSql([
+    `SELECT json_extract(e.value,'$.odds') AS odds, json_extract(e.value,'$.priceBasis') AS priceBasis,
+      COALESCE(json_extract(o.value,'$.result'),'') AS result FROM dataset_rows r INDEXED BY idx_dataset_rows_date,
+      json_each(${details},'$.estimates') e LEFT JOIN json_each(${details},'$.outcomes') o ON o.key=json_extract(e.value,'$.id')
+      WHERE r.sport=${q(sport)} AND r.dataset=${q(CONTEXT_DECISIONS_TAB)} AND r.date_key<=${q(date)}
+        AND r.selection=${q(MATCHUP_CONTEXT_VERSION)} AND json_extract(e.value,'$.id')=json_extract(${details},'$.pickId')`,
+    `SELECT COUNT(*) AS games, SUM(CASE WHEN json_extract(${details},'$.pickId') IS NULL THEN 1 ELSE 0 END) AS passed
+      FROM dataset_rows INDEXED BY idx_dataset_rows_date WHERE sport=${q(sport)} AND dataset=${q(CONTEXT_DECISIONS_TAB)}
+        AND date_key<=${q(date)} AND selection=${q(MATCHUP_CONTEXT_VERSION)}`,
+  ]);
+  const priced = records.filter(row => trialOdds(row.odds)).map(row => ({ odds: row.odds, result: row.result as "W" | "L" | "P" | "" }));
+  return { ok: true, available: Boolean(model || today.length), version: MATCHUP_CONTEXT_VERSION, sport, date,
+    model: model ? { id: model.id, trainingCutoff: model.trainingCutoff,
+      models: model.models.map(({ beta, covariance, ...summary }) => summary) } : null,
+    capturedGames: Number(counts[0]?.games || 0), passedGames: Number(counts[0]?.passed || 0),
+    record: { ...signalRecord(priced), assumedPrices: records.filter(row => row.priceBasis === "Assumed -110").length,
+      unverifiedPrices: records.filter(row => row.priceBasis === "Unverified provenance").length }, today };
+}

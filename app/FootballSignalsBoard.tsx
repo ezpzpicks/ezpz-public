@@ -11,6 +11,7 @@ import { savedSituationRule, usesSituationRules } from "../lib/situationRules";
 import { signalResearchView, signalCombinationLabel, signalCombinationRecord, signalResearchSideGroup, type ResearchPhase, type SignalResearchReport } from "../lib/signalCombinationResearch";
 import { evaluateSignalMovement } from "../lib/signalMovement";
 import SelectionTrial from "./SelectionTrial";
+import MatchupContextPanel from "./MatchupContextPanel";
 
 const META = {
   money: { label: "Money", title: "Money support", Icon: Banknote },
@@ -303,7 +304,7 @@ export default function FootballSignals({ board, picksOnly = false, sport: fallb
   const activeRules = board.situationPolicy?.rules.filter(rule => rule.active);
   return <section className={`fs-board${picksOnly ? " ep-board" : ""}`} aria-label={`${board.sport} ${picksOnly ? "EZPZ Picks" : "Signals"}`}>
     <div className="fs-heading"><h2>{picksOnly ? `${board.sport} EZPZ Picks` : "Signals"}</h2></div>
-    {!picksOnly ? <SelectionTrial sport={board.sport} date={selectedDate} /> : null}
+    {!picksOnly ? <><MatchupContextPanel sport={board.sport} date={selectedDate} /><SelectionTrial sport={board.sport} date={selectedDate} /></> : null}
     {!board.captureAvailable ? <p className="fs-notice" role="status">{liveNba ? "Pregame capture is unavailable. Signals below are previews." : "Test capture is unavailable. Signals below are previews."}</p> : null}
     {picksOnly && selectedDate === board.today && activeRules?.length ? <p className="fs-notice">Active play types · {activeRules.map(rule => rule.label).join(" · ")}</p> : null}
     {picksOnly ? <div className="fs-picks-summary" aria-label={officialRecord ? "EZPZ record" : "Saved signal test record"}><span>{officialRecord ? "EZPZ record" : "Saved signal tests"}<strong>{board.summary.record}</strong></span><span>Units<strong>{format(board.summary.netUnits, true)}u</strong></span><span>ROI<strong>{percent(board.summary.roiPct)}</strong></span></div> : null}
@@ -333,6 +334,7 @@ export function SignalResearch({ board }: { board?: FootballSignalsBoard }) {
   return <section className="fs-board fs-records-research" aria-label={`${board.sport} Signal Research`}>
     <h2>Signal Research</h2>
     <SelectionTrial sport={board.sport} date={board.today} />
+    <MatchupContextPanel sport={board.sport} date={board.today} />
     <details className="fs-results"><summary>{situation ? "Official EZPZ play-type results" : calibrationPending ? "EZPZ qualification pending calibration" : resultPolicy ? `Score ${resultPolicy.threshold}+ EZPZ results` : `${signalPickThreshold(board.sport)}+ signal test results`} <strong>{board.summary.record}</strong><span>{board.summary.settled} settled · {board.summary.pending} pending</span></summary>
       <Lines items={[["Win rate", percent(board.summary.winPct)], ["Net units", format(board.summary.netUnits, true)], ["ROI", percent(board.summary.roiPct)], ["Mode", situation ? "Official picks saved under the daily play-type rules" : calibrationPending ? "Collecting NCAAM combination history; official threshold pending" : resultPolicy ? "Official score selections from Nov 1; original score inputs retained" : "Saved pregame tests evaluated at the current EZPZ threshold"]]} />
       {board.breakdowns.length ? <table className="fs-table"><thead><tr><th scope="col">Group</th><th scope="col">Record / sample</th><th scope="col">ROI</th></tr></thead><tbody>{board.breakdowns.map(row => <tr key={`${row.dimension}-${row.label}`}><th scope="row">{row.label}<small>{row.dimension}</small></th><td data-label="Record / sample">{row.record.record}<small>{row.record.settled} settled · {row.record.pending} pending</small></td><td data-label="ROI">{percent(row.record.roiPct)}</td></tr>)}</tbody></table> : <p>{liveNba ? "Results appear after qualifying selections are saved before tipoff and settled." : "Results appear after qualifying test selections are saved before kickoff and settled."}</p>}

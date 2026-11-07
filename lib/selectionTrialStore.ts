@@ -27,7 +27,7 @@ export function trialSidesFromRows(sport: TrialSport, rows: TursoRow[]): TrialSi
     } catch { return []; }
   });
 }
-async function sourceRows(sport: TrialSport, date: string, dates?: string[]) {
+async function sourceRows(sport: TrialSport, date: string, dates?: string[], includeContext = false) {
   if (dates) return readTursoDatasetByDateKeys(sport, sourceTab(sport), dates);
   // One bounded source read per sport/date, only when the collector first creates its frozen daily model.
   const crossYear = sport !== "MLB";
@@ -37,10 +37,14 @@ async function sourceRows(sport: TrialSport, date: string, dates?: string[]) {
   const detail = `json_extract(payload_json,'$."Details JSON"')`;
   const signalId = `CASE WHEN type='object' THEN json_extract(value,'$.signal') ELSE NULL END`;
   const typeIds = `CASE WHEN json_type(${detail},'$.publicTypeIds')='array' THEN json_extract(${detail},'$.publicTypeIds') ELSE COALESCE((SELECT json_group_array(${signalId}) FROM json_each(${detail},'$.publicMatches') WHERE ${signalId} IS NOT NULL),'[]') END`;
-  const compact = `CASE WHEN json_valid(${detail}) THEN json_set(json_remove(${detail},'$.marketContext','$.teamGames','$.publicMatches','$.teamTrend','$.sosContext','$.modelContext','$.comboScore'),'$.publicTypeIds',json(${typeIds})) ELSE '{}' END`;
+  const remove = includeContext ? "'$.teamGames','$.publicMatches','$.comboScore'"
+    : "'$.marketContext','$.teamGames','$.publicMatches','$.teamTrend','$.sosContext','$.modelContext','$.comboScore'";
+  const compact = `CASE WHEN json_valid(${detail}) THEN json_set(json_remove(${detail},${remove}),'$.publicTypeIds',json(${typeIds})) ELSE '{}' END`;
   const result = await runTursoSql([`SELECT json_set(payload_json,'$."Details JSON"',printf('%s',${compact})) AS payload_json FROM dataset_rows INDEXED BY idx_dataset_rows_date WHERE sport=${q(sport)} AND dataset=${q(sourceTab(sport))} AND date_key>=${q(start)} AND date_key<${q(date)} ORDER BY date_key,row_index`]);
   return result[0].map(row => JSON.parse(row.payload_json) as TursoRow);
 }
+
+export { sourceRows as readTrialSourceRows, insertImmutable as insertTrialRows };
 function parseModels(rows: TursoRow[], sport: TrialSport, date: string): TrialModel | null {
   const row = rows.find(r => r.Date === date && r.Selection === SELECTION_TRIAL_VERSION);
   if (!row) return null;
