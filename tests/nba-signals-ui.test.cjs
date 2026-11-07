@@ -42,6 +42,34 @@ const plays = ['Cleveland Cavaliers', 'Philadelphia 76ers'].map((name, i) => ({ 
   selectionTeam: name, side: '', line: i ? -3.5 : 3.5, odds: '-110', betsPct: 50, moneyPct: 50, updatedAt: date + 'T20:00:00Z',
   snapshotStatus: 'LIVE', movementHistory: [] }));
 
+test('matchup reviews distinguish preliminary leans from frozen selections and awaiting results', () => {
+  const { game, api } = require('./selection-trial-fixtures.cjs');
+  const context = require('./load-typescript.cjs')(path.resolve(__dirname, '../lib/matchupContext.ts'));
+  const reviewDate = '2026-11-04', early = api.trialDayStart(reviewDate) + 10 * 3600000;
+  const model = context.buildContextModel('NBA', reviewDate, [], early);
+  const [review] = context.buildContextPreviews(model, game(reviewDate, 0, {
+    recorded: false, status: 'LIVE', snapshotAt: new Date(early).toISOString(),
+  }), [], early);
+  review.pickId = review.estimates[0].id;
+  const payload = { ok: true, available: true, capturedGames: 0, passedGames: 0, pendingGames: 1, model: null,
+    record: { record: '0-0-0', pending: 0, netUnits: 0, assumedPrices: 0, unverifiedPrices: 0 }, today: [review] };
+  function markup(data) {
+    const states = [true, 0, { key: `NBA|${reviewDate}|0`, status: 'ready', data }];
+    const panel = component('app/MatchupContextPanel.tsx', { react: { ...React,
+      useState: () => [states.shift(), () => {}], useEffect: () => {},
+    } });
+    return render(React.createElement(panel.default, { sport: 'NBA', date: reviewDate }));
+  }
+  const pending = markup(payload);
+  for (const text of ['Pending final snapshot', 'Current lean:', 'Review can change until the final snapshot.',
+    '10:00 AM', '6:00 PM', 'Current lean', 'mc-game-choices']) assert(pending.includes(text), text);
+  assert.doesNotMatch(pending, /Selected|Awaiting result|Review frozen/);
+  assert.equal((pending.match(/class="fs-results mc-choice"/g) || []).length, 4);
+  const final = markup({ ...payload, capturedGames: 1, pendingGames: 0, today: [{ ...review, reviewStatus: 'FINAL' }] });
+  for (const text of ['Final snapshot', 'Selected', 'Awaiting result', 'Review frozen at the final snapshot.']) assert(final.includes(text), text);
+  assert.doesNotMatch(final, /Pending final snapshot|Current lean/);
+});
+
 test('NBA and NFL share compact cards while test results live in Signal Research', () => {
   const html = render(React.createElement(football.default, { board }));
   assert.equal((html.match(/class="fs-details-toggle" aria-expanded="false"/g) || []).length, 1);

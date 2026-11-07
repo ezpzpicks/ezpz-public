@@ -102,14 +102,15 @@ export function trialOdds(odds: string | number) {
     ? { odds: n, profit: n < 0 ? 100 / -n : n / 100, implied: n < 0 ? -n / (100 - n) : 100 / (100 + n) } : null;
 }
 function kickoff(side: TrialSide) { return Date.parse(side.scheduledGameTime || side.gameTime); }
-function validSide(s: TrialSide, now: number) {
+function validSide(s: TrialSide, now: number, preview = false) {
   const at = Date.parse(s.snapshotAt), start = kickoff(s);
   if (!Array.isArray(s.signals) || s.signals.some(v => !v || typeof v.active !== "boolean" || typeof v.available !== "boolean")) return false;
   const active = s.signals.filter(v => v.active);
   return Boolean(s.id && s.gameKey && s.game && s.selection && /^\d{4}-\d{2}-\d{2}$/.test(s.date)
-    && s.policyVersion && !s.researchOrigin && !s.lineSource && s.recorded && s.status === "FINAL_PREGAME"
+    && s.policyVersion && !s.researchOrigin && !s.lineSource
+    && (preview ? !s.recorded && ["LIVE", "FINAL_PREGAME"].includes(s.status) : s.recorded && s.status === "FINAL_PREGAME")
     && Number.isFinite(at) && at <= now && Number.isFinite(start) && trialDate(start) === s.date
-    && start - at >= 600000 && start - at <= 1200000 && trialOdds(s.odds)
+    && (preview ? start > now && at < start : start - at >= 600000 && start - at <= 1200000) && trialOdds(s.odds)
     && ["Moneyline", "Spread", "Total"].includes(s.market)
     && (s.market === "Moneyline" || (s.line != null && Number.isFinite(s.line) && Number.isInteger(s.line * 2)
       && (s.market !== "Total" || s.line > 0)))
@@ -135,11 +136,11 @@ function outcome(s: TrialSide, cutoff: number) {
   const at = /(?:Z|[+-]\d{2}:?\d{2}|EDT|EST)$/i.test(s.resultUpdated) ? Date.parse(s.resultUpdated) : NaN;
   return /^[WLP]$/.test(s.result) && Number.isFinite(at) && at > kickoff(s) && at < cutoff ? s.result : "";
 }
-function pairs(sides: TrialSide[], sport: TrialSport, now: number, features = DEFAULT_FEATURE_SET): { values: Pair[]; rejected: number } {
+function pairs(sides: TrialSide[], sport: TrialSport, now: number, features = DEFAULT_FEATURE_SET, preview = false): { values: Pair[]; rejected: number } {
   const byId = new Map<string, TrialSide>(), conflicts = new Set<string>();
   let rejected = 0;
   for (const side of sides) {
-    if (!validSide(side, now)) { rejected++; continue; }
+    if (!validSide(side, now, preview)) { rejected++; continue; }
     const previous = byId.get(side.id);
     const identity = (s: TrialSide) => JSON.stringify([s.date, s.gameKey, s.market, s.side, s.selection, s.line, s.odds,
       s.snapshotAt, s.gameTime, s.scheduledGameTime, s.policyVersion, s.signals, features.identity?.(s)]);
@@ -347,9 +348,20 @@ function paperComparison(model: TrialModel, estimates: TrialEstimate[], raw: Tri
 /** Freeze only complete, contemporaneous game cards while still in the final window. */
 export function buildTrialDecisions(model: TrialModel, sides: TrialSide[], incumbentIds: string[], now: number,
   features = DEFAULT_FEATURE_SET): TrialDecision[] {
+  return buildDecisions(model, sides, incumbentIds, now, features, false);
+}
+
+/** Reuse the comparison for live quotes without admitting them to final capture or training. */
+export function buildTrialPreviews(model: TrialModel, sides: TrialSide[], incumbentIds: string[], now: number,
+  features: TrialFeatureSet): TrialDecision[] {
+  return buildDecisions(model, sides, incumbentIds, now, features, true);
+}
+
+function buildDecisions(model: TrialModel, sides: TrialSide[], incumbentIds: string[], now: number,
+  features: TrialFeatureSet, preview: boolean): TrialDecision[] {
   if (model.version !== features.version || trialDate(now) !== model.date || Date.parse(model.createdAt) > now
     || JSON.stringify(model.featureNames) !== JSON.stringify(features.names)) return [];
-  const values = pairs(sides.filter(s => s.date === model.date), model.sport, now, features).values;
+  const values = pairs(sides.filter(s => s.date === model.date), model.sport, now, features, preview).values;
   const groups = new Map<string, Pair[]>();
   for (const pair of values) groups.set(pair.gameKey, [...(groups.get(pair.gameKey) || []), pair]);
   const decisions: TrialDecision[] = [];
@@ -358,7 +370,7 @@ export function buildTrialDecisions(model: TrialModel, sides: TrialSide[], incum
     const quotes = group.flatMap(pair => [pair.a, pair.b]);
     const times = quotes.map(kickoff), snapshots = quotes.map(s => Date.parse(s.snapshotAt));
     if (group.length !== 2 || expected.some(m => !group.some(p => p.market === m)) || new Set(times).size !== 1
-      || times[0] - now < 600000 || times[0] - now > 1200000 || quotes.some(s => s.result)
+      || (preview ? times[0] <= now : times[0] - now < 600000 || times[0] - now > 1200000) || quotes.some(s => s.result)
       || Math.max(...snapshots) - Math.min(...snapshots) > 60000) continue;
     const estimates = group.flatMap(pair => {
       const marketModel = model.models.find(m => m.market === pair.market);

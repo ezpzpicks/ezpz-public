@@ -24,9 +24,11 @@ The saved explanation contains each side's raw team records, line history, betti
 
 ## Capture and records
 
-The existing NFL, NCAAF, NBA and NCAAM producers capture complete original paired markets in the final 10–20 minutes. Daily models and game decisions use atomic first-insert ownership. The original quotes, case descriptions, weights and decision freeze together. Later settlement updates outcomes at those exact quotes, with protection against older concurrent updates replacing newer outcome labels.
+The existing NFL, NCAAF, NBA and NCAAM producers prepare pending reviews as soon as complete live spread and total pairs are available. The same comparisons, eligibility settings and earlier-results-only daily model apply; live quotes never enter final capture or training. Pending reviews refresh with each producer run, show their source time, and remain outside paper records. The open review panel checks for updates every 30 seconds while visible.
 
-Models and decisions use the versioned `matchup_context_models` and `matchup_context_decisions` datasets. The public Signals view reads saved reports through `/api/matchup-context`. Ordinary page reads retrieve saved data. The registration is paper evaluation with its own record.
+The producers capture complete original paired markets in the final 10–20 minutes. Daily models and final game decisions use atomic first-insert ownership. The original quotes, case descriptions, weights and decision freeze together. A final review replaces the pending display for its game, even if an overlapping producer saves an older preview. Unfinalized previews disappear at kickoff and do not become historical decisions. Later settlement updates outcomes at the frozen quotes, with protection against older concurrent updates replacing newer outcome labels.
+
+Models, pending slate previews and final decisions use the versioned `matchup_context_models`, `matchup_context_pending` and `matchup_context_decisions` datasets. The public Signals view reads saved reports through `/api/matchup-context`. Ordinary page reads retrieve saved data. The registration is paper evaluation with its own record.
 
 The existing quote provenance stays visible as observed, assumed −110 or unverified. Missing context supplies zero directional evidence and is identified in the saved case. Historical flags and model-form counts use the captured input definitions.
 

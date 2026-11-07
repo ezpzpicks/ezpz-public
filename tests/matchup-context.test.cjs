@@ -113,3 +113,34 @@ test('fitting and comparing matchups completes with network access disabled', ()
     assert.equal(context.buildContextDecisions(model, enrich(game(date)), [], now).length, 1);
   } finally { global.fetch = previous; }
 });
+
+test('pending comparisons support all four sports before lock without weakening final capture or training', () => {
+  const early = now - 6 * 3600000;
+  for (const sport of ['NFL', 'NCAAF', 'NBA', 'NCAAM']) {
+    const model = context.buildContextModel(sport, date, [], early);
+    const sides = enrich(game(date, 0, { recorded: false, status: 'LIVE', snapshotAt: new Date(early).toISOString() }));
+    const before = plain(sides);
+    const [pending] = context.buildContextPreviews(model, sides, [], early);
+    assert.equal(pending.reviewStatus, 'PENDING', sport);
+    assert.equal(pending.estimates.length, 4);
+    assert.equal(pending.cases.length, 4);
+    assert(pending.cases.every(item => item.evidence.some(evidence => evidence.label === 'Current betting split')));
+    assert.equal(context.buildContextDecisions(model, sides, [], early).length, 0);
+    assert.equal(trial.buildTrialDecisions(model, sides, [], early, context.CONTEXT_FEATURE_SET).length, 0);
+    assert.deepEqual(plain(sides), before);
+    for (const invalid of [sides.slice(1), [...sides, { ...sides[0], line: -99.5 }],
+      sides.map(side => ({ ...side, snapshotAt: new Date(early + 1).toISOString() })),
+      sides.map(side => ({ ...side, status: 'MISSED_LOCK' })),
+      sides.map(side => ({ ...side, result: 'W' })),
+      sides.map(side => ({ ...side, scheduledGameTime: new Date(early).toISOString() })),
+      sides.map(side => ({ ...side, lineSource: 'fallback' }))]) {
+      assert.equal(context.buildContextPreviews(model, invalid, [], early).length, 0, sport);
+    }
+    assert.equal(context.buildContextPreviews(model, sides, [], Date.parse(sides[0].gameTime)).length, 0);
+    assert.equal(context.buildContextPreviews(model, enrich(game(date)), [], now).length, 0);
+    const [final] = context.buildContextDecisions(model, enrich(game(date)), [], now);
+    assert.equal(final.estimates.length, 4);
+    assert.equal(final.sourceSnapshotAt, game(date)[0].snapshotAt);
+    assert.equal(final.reviewStatus, undefined);
+  }
+});

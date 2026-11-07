@@ -2380,6 +2380,7 @@ body::after {
 .mc-review .mc-game>summary .mc-game-title{min-width:0;font-size:.94rem;font-weight:600;line-height:1.5}
 .mc-review .mc-game-time{grid-column:2;grid-row:1;justify-self:end;white-space:nowrap;color:var(--fs-dim);font-size:.72rem;line-height:1.9;font-variant-numeric:tabular-nums}
 .mc-review .mc-game-status{grid-column:1/-1}
+.mc-review .mc-game-pending{color:var(--fs-dim)}
 .mc-review .mc-game-choices{margin:12px 0 0 6px;padding-left:14px;border-left:2px solid var(--fs-border)}
 .mc-review .mc-choice{margin:0;padding:11px 0}
 .mc-review .mc-choice:first-child{border-top:0}

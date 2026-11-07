@@ -2,11 +2,12 @@ import { readTursoDatasetByDateKeys, runTursoAtomicSql, runTursoSql, type TursoR
 import { readTrialSourceRows, trialSidesFromRows, insertTrialRows } from "./selectionTrialStore";
 import { trialDate, trialOdds, settleTrialDecision } from "./selectionTrial";
 import { signalRecord } from "./footballSignals";
-import { buildContextModel, buildContextDecisions, validContextModel, MATCHUP_CONTEXT_VERSION,
-  type ContextModel, type ContextDecision, type ContextSide, type ContextSport } from "./matchupContext";
+import { buildContextModel, buildContextDecisions, buildContextPreviews, validContextModel, MATCHUP_CONTEXT_VERSION,
+  type ContextModel, type ContextDecision, type ContextReview, type ContextSide, type ContextSport } from "./matchupContext";
 
 export const CONTEXT_MODELS_TAB = "matchup_context_models";
 export const CONTEXT_DECISIONS_TAB = "matchup_context_decisions";
+export const CONTEXT_PENDING_TAB = "matchup_context_pending";
 const q = (value: unknown) => `'${String(value ?? "").replaceAll("'", "''")}'`;
 const details = `json_extract(payload_json,'$."Details JSON"')`;
 
@@ -32,7 +33,17 @@ const decisionRow = (decision: ContextDecision): TursoRow => ({ Date: decision.d
   Result: decision.estimates.every(estimate => decision.outcomes[estimate.id]) ? "SETTLED" : "PENDING",
   "Details JSON": JSON.stringify(decision) });
 
-/** Producers own capture and settlement. Read-only pages only retrieve the saved analysis. */
+/** One refreshable slate preview; frozen decisions and their record have separate ownership. */
+async function savePreviews(sport: ContextSport, date: string, reviews: ContextReview[], now: number) {
+  const row = { Date: date, "Game Key": `pending|${MATCHUP_CONTEXT_VERSION}`, Market: "Context", Selection: MATCHUP_CONTEXT_VERSION,
+    "Details JSON": JSON.stringify({ updatedAt: new Date(now).toISOString(), reviews }) };
+  await insertTrialRows(sport, CONTEXT_PENDING_TAB, [row]);
+  await runTursoAtomicSql([`UPDATE dataset_rows SET payload_json=${q(JSON.stringify(row))},imported_at=${q(new Date(now).toISOString())}
+    WHERE sport=${q(sport)} AND dataset=${q(CONTEXT_PENDING_TAB)} AND date_key=${q(date)} AND selection=${q(MATCHUP_CONTEXT_VERSION)}
+      AND json_extract(${details},'$.updatedAt')<${q(new Date(now).toISOString())}`]);
+}
+
+/** Producers refresh pending reviews and own final capture/settlement. Pages only read saved analysis. */
 export async function captureMatchupContext(sport: ContextSport, sides: ContextSide[], incumbentIds: string[], now = Date.now(), stale = false) {
   const date = trialDate(now);
   const [pending] = await runTursoSql([`SELECT DISTINCT date_key FROM dataset_rows INDEXED BY idx_dataset_rows_date
@@ -64,7 +75,9 @@ export async function captureMatchupContext(sport: ContextSport, sides: ContextS
   const existing = new Set(saved.map(decision => decision.gameKey));
   const candidate = sides.some(side => side.date === date && side.recorded && !existing.has(side.gameKey)
     && Date.parse(side.gameTime) - now >= 600_000 && Date.parse(side.gameTime) - now <= 1_200_000);
-  if (stale || !candidate) return { captured: 0, settled: changed.length };
+  const previewCandidate = sides.some(side => side.date === date && !side.recorded && !existing.has(side.gameKey)
+    && ["LIVE", "FINAL_PREGAME"].includes(side.status) && Date.parse(side.scheduledGameTime || side.gameTime) > now);
+  if (stale || (!candidate && !previewCandidate)) return { captured: 0, settled: changed.length, pending: 0 };
 
   let model = modelFromRows(await readTursoDatasetByDateKeys(sport, CONTEXT_MODELS_TAB, [date]), sport, date);
   if (!model) {
@@ -75,15 +88,30 @@ export async function captureMatchupContext(sport: ContextSport, sides: ContextS
     model = modelFromRows(await readTursoDatasetByDateKeys(sport, CONTEXT_MODELS_TAB, [date]), sport, date);
     if (!model) throw new Error("Matchup context model was not saved");
   }
-  const fresh = buildContextDecisions(model, sides, incumbentIds, Math.max(now, Date.now()))
+  const decisionAt = Math.max(now, Date.now());
+  const fresh = buildContextDecisions(model, sides, incumbentIds, decisionAt)
     .filter(decision => !existing.has(decision.gameKey));
   await insertTrialRows(sport, CONTEXT_DECISIONS_TAB, fresh.map(decisionRow));
-  return { captured: fresh.length, settled: changed.length, modelId: model.id };
+  const frozen = new Set([...existing, ...fresh.map(decision => decision.gameKey)]);
+  const previews = buildContextPreviews(model, sides, incumbentIds, decisionAt).filter(review => !frozen.has(review.gameKey));
+  await savePreviews(sport, date, previews, decisionAt);
+  return { captured: fresh.length, settled: changed.length, pending: previews.length, modelId: model.id };
 }
 
-export async function readMatchupContext(sport: ContextSport, date: string) {
+export async function readMatchupContext(sport: ContextSport, date: string, now = Date.now()) {
   const model = modelFromRows(await readTursoDatasetByDateKeys(sport, CONTEXT_MODELS_TAB, [date]), sport, date);
-  const today = decisionsFromRows(await readTursoDatasetByDateKeys(sport, CONTEXT_DECISIONS_TAB, [date]));
+  // Read pending first so a concurrent final capture always takes precedence below.
+  const pendingRows = date === trialDate(now) ? await readTursoDatasetByDateKeys(sport, CONTEXT_PENDING_TAB, [date]) : [];
+  const saved = decisionsFromRows(await readTursoDatasetByDateKeys(sport, CONTEXT_DECISIONS_TAB, [date]));
+  const frozen = new Set(saved.map(decision => decision.gameKey));
+  const previews = pendingRows.filter(row => row.Selection === MATCHUP_CONTEXT_VERSION).flatMap(row => {
+    const pending = JSON.parse(row["Details JSON"]) as { reviews: ContextReview[] };
+    return pending.reviews.filter(review => review.version === MATCHUP_CONTEXT_VERSION && review.sport === sport && review.date === date
+      && review.reviewStatus === "PENDING" && review.estimates.length === 4 && review.cases.length === 4
+      && Date.parse(review.gameTime) > now && !frozen.has(review.gameKey));
+  });
+  const today: ContextReview[] = [...saved.map(decision => ({ ...decision, reviewStatus: "FINAL" as const })), ...previews]
+    .sort((a, b) => a.gameTime.localeCompare(b.gameTime) || a.gameKey.localeCompare(b.gameKey));
   const [records, counts] = await runTursoSql([
     `SELECT json_extract(e.value,'$.odds') AS odds, json_extract(e.value,'$.priceBasis') AS priceBasis,
       COALESCE(json_extract(o.value,'$.result'),'') AS result FROM dataset_rows r INDEXED BY idx_dataset_rows_date,
@@ -99,6 +127,7 @@ export async function readMatchupContext(sport: ContextSport, date: string) {
     model: model ? { id: model.id, trainingCutoff: model.trainingCutoff,
       models: model.models.map(({ beta, covariance, ...summary }) => summary) } : null,
     capturedGames: Number(counts[0]?.games || 0), passedGames: Number(counts[0]?.passed || 0),
+    pendingGames: previews.length,
     record: { ...signalRecord(priced), assumedPrices: records.filter(row => row.priceBasis === "Assumed -110").length,
       unverifiedPrices: records.filter(row => row.priceBasis === "Unverified provenance").length }, today };
 }
