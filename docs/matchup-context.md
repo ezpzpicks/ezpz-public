@@ -10,6 +10,8 @@ Continuous interaction terms represent disagreements between the line, public ti
 
 Each team record is adjusted toward neutral using four prior decisions. Model form uses up to 20 earlier qualified model observations and eight prior neutral units. Original records and sample sizes remain visible beside the adjusted comparisons.
 
+Pending comparisons accept team records and schedule context known at the review time, independently of the last odds-quote timestamp. Their original quote timestamps remain unchanged. Final observations and historical fits keep the frozen quote-time cutoff. Available partial team records stay visible with graded-season coverage and missing-game counts; the existing complete-record scoring gate remains in place until both teams have complete coverage.
+
 The chart retains the ticket share at the latest line change. That lets the review distinguish a line move made during majority support from a higher line that later held as the public shifted to the opposite direction. Future quotes, conflicting quotes at the same timestamp and timestamps without a timezone cannot supply movement features.
 
 ## Learning and decisions

@@ -7,7 +7,7 @@ export const MATCHUP_CONTEXT_VERSION = "matchup-context-2026-11-06-v1";
 export type ContextSport = Exclude<TrialSport, "MLB">;
 export type ModelForm = { wins: number; losses: number; pushes: number; games: number; netUnits: number };
 export type ContextSide = TrialSide & Partial<Pick<FootballSignalSide, "teamTrend" | "marketContext" | "modelContext" | "sosContext">>
-  & { contextModelForm?: ModelForm };
+  & { contextModelForm?: ModelForm; contextAsOf?: string };
 export type ContextModel = TrialModel & { modelForms: Record<string, ModelForm> };
 export type ContextEvidence = { label: string; value: string; direction: "Supports" | "Opposes" | "Neutral"; sample: number | null };
 export type ContextCase = { id: string; selection: string; evidence: ContextEvidence[]; disagreements: string[]; missing: string[] };
@@ -28,11 +28,21 @@ function recordStrength(record: TeamTrendRecord | undefined) {
   return (record.wins - record.losses) / (record.wins + record.losses + 4);
 }
 
-function capturedTeams(side: ContextSide): TeamTrendTeam[] {
+// A pending review can use records refreshed after its latest odds quote.
+// Frozen observations retain their original quote-time evidence cutoff.
+function contextAt(side: ContextSide) {
+  return stamp(!side.recorded && side.contextAsOf ? side.contextAsOf : side.snapshotAt);
+}
+
+function capturedTeamRecords(side: ContextSide): TeamTrendTeam[] {
   const trend = side.teamTrend;
-  return trend && trend.asOfDate === side.date && stamp(trend.capturedAt) <= stamp(side.snapshotAt)
-    && trend.teams.length === 2 && trend.teams.every(team => team.hasData && team.missingGames === 0)
-    ? trend.teams : [];
+  return trend && trend.asOfDate === side.date && stamp(trend.capturedAt) <= contextAt(side) && trend.teams.length === 2
+    ? trend.teams.filter(team => Object.values(team.records).some(record => record.sample > 0)) : [];
+}
+
+function capturedTeams(side: ContextSide): TeamTrendTeam[] {
+  const teams = capturedTeamRecords(side);
+  return teams.length === 2 && teams.every(team => team.hasData && team.missingGames === 0) ? teams : [];
 }
 
 function teamStrength(side: ContextSide, category: "betType" | "venue" | "recent") {
@@ -87,7 +97,7 @@ function inputs(side: ContextSide, sport: TrialSport) {
   const model = side.signals.find(signal => signal.key === "model");
   const edge = modelAvailable(side) && finite(model?.value) ? bound(model.value / 15) : 0;
   const qualified = modelAvailable(side) && model?.active ? 1 : 0;
-  const schedule = side.sosContext, age = stamp(side.snapshotAt) - stamp(schedule?.capturedAt);
+  const schedule = side.sosContext, age = contextAt(side) - stamp(schedule?.capturedAt);
   const sos = sport === "NCAAF" && side.market === "Spread" && finite(schedule?.gap) && age >= 0 && age <= 86_400_000
     ? bound(schedule.gap / 100) : 0;
   const form = side.contextModelForm || emptyForm();
@@ -105,7 +115,8 @@ export const CONTEXT_FEATURE_SET: TrialFeatureSet = {
   version: MATCHUP_CONTEXT_VERSION, names: CONTEXT_FEATURE_NAMES,
   identity: side => {
     const context = side as ContextSide;
-    return [context.teamTrend, context.marketContext, context.modelContext, context.sosContext, context.contextModelForm];
+    return [context.teamTrend, context.marketContext, context.modelContext, context.sosContext, context.contextModelForm,
+      ...(context.contextAsOf ? [context.contextAsOf] : [])];
   },
   values: (raw, sport) => {
     const x = inputs(raw as ContextSide, sport);
@@ -158,13 +169,19 @@ export function contextCase(side: ContextSide, sport: ContextSport): ContextCase
   if (x.history.opening != null) add("Tracked line", `${x.history.opening} → ${side.line}`, x.line);
   else missing.push("Opening line timing unavailable");
   if (x.history.movedAt) add("Latest line move", `${x.history.movedAt} · ${x.history.ticketsAtMove ?? "Unknown"}% tickets on this side at the move`, x.lastMove);
-  for (const team of capturedTeams(side)) {
+  const teamRecords = capturedTeamRecords(side);
+  for (const team of teamRecords) {
     for (const category of ["betType", "venue", "recent"] as const) {
       const record = team.records[category];
       add(`${team.team} · ${record.label}`, record.record, recordStrength(record) * (team.opposing ? -1 : 1), record.sample);
     }
+    if (team.missingGames > 0) {
+      add(`${team.team} · Record coverage`, `${team.trackedGames} of ${team.seasonGames} season games graded`, 0, team.trackedGames);
+      missing.push(`${team.team}: ${team.missingGames} season ${team.missingGames === 1 ? "game has" : "games have"} no graded market record; team-record scoring waits for complete coverage`);
+    }
   }
-  if (!capturedTeams(side).length) missing.push("Complete team records unavailable at the snapshot");
+  if (!teamRecords.length) missing.push("Team records unavailable at the review cutoff");
+  else if (teamRecords.length < 2) missing.push("Only one team has graded market records; team-record scoring waits for both teams");
   if (modelAvailable(side)) {
     add("Saved model", `${side.modelContext!.grade} · edge ${side.signals.find(signal => signal.key === "model")?.value ?? "Unknown"} points at this line`, x.edge);
     const form = side.contextModelForm || emptyForm();
@@ -189,7 +206,8 @@ export function buildContextPreviews(model: ContextModel, sides: ContextSide[], 
 }
 
 function compareContext(model: ContextModel, sides: ContextSide[], incumbentIds: string[], now: number, preview: boolean): ContextDecision[] {
-  const enriched = sides.map(side => ({ ...side, contextModelForm: model.modelForms[formKey(side)] || emptyForm() }));
+  const enriched = sides.map(side => ({ ...side, contextAsOf: preview ? new Date(now).toISOString() : undefined,
+    contextModelForm: model.modelForms[formKey(side)] || emptyForm() }));
   const byId = new Map(enriched.map(side => [side.id, side]));
   const compare = preview ? buildTrialPreviews : buildTrialDecisions;
   return compare(model, enriched, incumbentIds, now, CONTEXT_FEATURE_SET).map(decision => ({ ...decision,
