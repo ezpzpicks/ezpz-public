@@ -218,8 +218,11 @@ function compareContext(model: ContextModel, sides: ContextSide[], incumbentIds:
   const enriched = sides.map(side => ({ ...side, contextAsOf: preview ? new Date(now).toISOString() : undefined,
     contextModelForm: model.modelForms[formKey(side)] || emptyForm() }));
   const byId = new Map(enriched.map(side => [side.id, side]));
-  const compare = preview ? buildTrialPreviews : buildTrialDecisions;
-  return compare(model, enriched, incumbentIds, now, CONTEXT_FEATURE_SET).map(decision => ({ ...decision,
+  // The saved quote must originate in the 10–20 minute window, but a slow
+  // collector may finish after that window. Never finalize at/after kickoff.
+  const decisions = preview ? buildTrialPreviews(model, enriched, incumbentIds, now, CONTEXT_FEATURE_SET)
+    : buildTrialDecisions(model, enriched, incumbentIds, now, CONTEXT_FEATURE_SET, true);
+  return decisions.map(decision => ({ ...decision,
     cases: decision.estimates.map(estimate => contextCase(byId.get(estimate.id)!, model.sport as ContextSport)) }));
 }
 

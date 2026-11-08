@@ -77,10 +77,10 @@ function MatchupGame({ game }: { game: ContextReview }) {
   return <details className="fs-results mc-game">
     <summary className="mc-game-summary"><strong className="mc-game-title">{game.game}</strong>
       {Number.isFinite(start) ? <time className="mc-game-time" dateTime={game.gameTime}>{gameClock.format(start)} ET</time> : null}
-      <span className={`mc-game-status${preliminary ? " mc-game-pending" : ""}`}>{pending ? "Pending final snapshot" : missed ? "Started · Final snapshot unavailable" : finalStatus} · {selectionLabel}{resultLabel}</span>
+      <span className={`mc-game-status${preliminary ? " mc-game-pending" : ""}`}>{pending ? "Pending final snapshot" : missed ? "Started · Review not finalized" : finalStatus} · {selectionLabel}{resultLabel}</span>
     </summary>
     <p className="mc-snapshot-note">{pending ? "Review can change until the final snapshot." : missed
-      ? "Last pregame review retained. A final review was not captured; this game is outside the paper record."
+      ? "Last pregame review retained. A frozen matchup review was not captured, even if the final market snapshot exists. This game remains outside the paper record."
       : "Review frozen at the final snapshot."} {Number.isFinite(updated) ? `Updated ${gameClock.format(updated)} ET.` : ""}</p>
     <div className="mc-game-choices" aria-label="Compare all four choices">
       {(["Spread", "Total"] as const).map(market => <section className="mc-market-comparison" key={market}>
@@ -152,7 +152,7 @@ export default function MatchupContextPanel({ sport, date }: { sport: ContextSpo
         : !data?.available ? <p>Pending reviews appear when both spread sides and both total directions are available. They finalize with the final snapshot.</p>
         : <>
           <div className="mc-overview"><p>Paper record <strong>{data.record.record}</strong> · {data.record.pending} awaiting result · {data.record.netUnits.toFixed(2)}u</p>
-            <p>{data.pendingGames || 0} pending final snapshot · {data.capturedGames} finalized{data.missedFinalGames ? ` · ${data.missedFinalGames} retained without a final snapshot` : ""}</p></div>
+            <p>{data.pendingGames || 0} pending final snapshot · {data.capturedGames} finalized{data.missedFinalGames ? ` · ${data.missedFinalGames} retained without a finalized review` : ""}</p></div>
           <p className="mc-instructions">Open a game to compare both spread sides and both totals. Tap a choice for its team records, market evidence, and conflicts.</p>
           {data.today.map(game => <MatchupGame key={game.gameKey} game={game} />)}
           <details className="mc-estimate-details"><summary>About the paper review</summary>

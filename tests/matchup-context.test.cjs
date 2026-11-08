@@ -109,6 +109,25 @@ test('all four sides share coherent paired estimates and context conflicts canno
   assert.equal(decision.paperComparison, undefined);
 });
 
+test('verified final quotes still freeze before kickoff when a slow collector misses the original window', () => {
+  const model = context.buildContextModel('NCAAF', date, enrich(history()), now);
+  const sides = enrich(game(date));
+  const kickoff = Date.parse(sides[0].gameTime);
+  const late = kickoff - 5 * 60000;
+  assert(late > now, 'The saved quote is earlier than the delayed review');
+  assert.equal(context.buildContextDecisions(model, sides, [], late).length, 1,
+    'A saved 15-minute quote can finalize with five minutes left');
+  assert.equal(trial.buildTrialDecisions(model, sides, [], late, context.CONTEXT_FEATURE_SET).length, 0,
+    'Strict paper-trial capture remains unchanged');
+  assert.equal(context.buildContextDecisions(model, sides, [], kickoff).length, 0,
+    'Never finalize at or after kickoff');
+  assert.equal(context.buildContextDecisions(model, sides.map(side => ({ ...side, recorded: false })), [], late).length, 0,
+    'An unrecorded apparent final snapshot cannot be promoted');
+  assert.equal(context.buildContextDecisions(model, sides.map(side => ({
+    ...side, snapshotAt: new Date(kickoff - 9 * 60000).toISOString(),
+  })), [], late).length, 0, 'Reject quotes outside the original 10–20 minute window');
+});
+
 test('fitting and comparing matchups completes with network access disabled', () => {
   const previous = global.fetch;
   global.fetch = () => { throw new Error('Network calls are disabled for matchup evaluation'); };

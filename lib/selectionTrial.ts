@@ -347,8 +347,8 @@ function paperComparison(model: TrialModel, estimates: TrialEstimate[], raw: Tri
 
 /** Freeze only complete, contemporaneous game cards while still in the final window. */
 export function buildTrialDecisions(model: TrialModel, sides: TrialSide[], incumbentIds: string[], now: number,
-  features = DEFAULT_FEATURE_SET): TrialDecision[] {
-  return buildDecisions(model, sides, incumbentIds, now, features, false);
+  features = DEFAULT_FEATURE_SET, allowLateFinal = false): TrialDecision[] {
+  return buildDecisions(model, sides, incumbentIds, now, features, false, allowLateFinal);
 }
 
 /** Reuse the comparison for live quotes without admitting them to final capture or training. */
@@ -358,7 +358,7 @@ export function buildTrialPreviews(model: TrialModel, sides: TrialSide[], incumb
 }
 
 function buildDecisions(model: TrialModel, sides: TrialSide[], incumbentIds: string[], now: number,
-  features: TrialFeatureSet, preview: boolean): TrialDecision[] {
+  features: TrialFeatureSet, preview: boolean, allowLateFinal = false): TrialDecision[] {
   if (model.version !== features.version || trialDate(now) !== model.date || Date.parse(model.createdAt) > now
     || JSON.stringify(model.featureNames) !== JSON.stringify(features.names)) return [];
   const values = pairs(sides.filter(s => s.date === model.date), model.sport, now, features, preview).values;
@@ -370,7 +370,8 @@ function buildDecisions(model: TrialModel, sides: TrialSide[], incumbentIds: str
     const quotes = group.flatMap(pair => [pair.a, pair.b]);
     const times = quotes.map(kickoff), snapshots = quotes.map(s => Date.parse(s.snapshotAt));
     if (group.length !== 2 || expected.some(m => !group.some(p => p.market === m)) || new Set(times).size !== 1
-      || (preview ? times[0] <= now : times[0] - now < 600000 || times[0] - now > 1200000) || quotes.some(s => s.result)
+      || (preview ? times[0] <= now : allowLateFinal ? times[0] <= now
+        : times[0] - now < 600000 || times[0] - now > 1200000) || quotes.some(s => s.result)
       || Math.max(...snapshots) - Math.min(...snapshots) > 60000) continue;
     const estimates = group.flatMap(pair => {
       const marketModel = model.models.find(m => m.market === pair.market);

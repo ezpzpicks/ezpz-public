@@ -83,8 +83,12 @@ export async function captureMatchupContext(sport: ContextSport, sides: ContextS
             AND json_extract(old.value,'$.result')<>json_extract(incoming.value,'$.result')))`;
   }));
   const existing = new Set(saved.map(decision => decision.gameKey));
-  const candidate = sides.some(side => side.date === date && side.recorded && !existing.has(side.gameKey)
-    && Date.parse(side.gameTime) - now >= 600_000 && Date.parse(side.gameTime) - now <= 1_200_000);
+  const candidate = sides.some(side => {
+    const kickoff = Date.parse(side.scheduledGameTime || side.gameTime), quoteAt = Date.parse(side.snapshotAt);
+    return side.date === date && side.recorded && !existing.has(side.gameKey)
+      && kickoff > now && quoteAt <= now
+      && kickoff - quoteAt >= 600_000 && kickoff - quoteAt <= 1_200_000;
+  });
   const previewCandidate = sides.some(side => side.date === date && !side.recorded && !existing.has(side.gameKey)
     && ["LIVE", "FINAL_PREGAME"].includes(side.status) && Date.parse(side.scheduledGameTime || side.gameTime) > now);
   if (stale || (!candidate && !previewCandidate)) return { captured: 0, settled: changed.length, pending: 0 };
