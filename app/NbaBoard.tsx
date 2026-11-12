@@ -12,6 +12,8 @@ import NbaEzpzPicks from "./NbaEzpzPicks";
 import NbaGameLineups, { NbaLineupProvider } from "./NbaGameLineups";
 import NcaamModelDetails, { type NcaamModelContext } from "./NcaamModelDetails";
 import type { NbaGameLineup } from "../lib/nbaLineupsCore";
+import { ncaamMatchupGrade } from "../lib/ncaamMatchupGrades";
+import NcaamMatchupGrade from "./NcaamMatchupGrade";
 
 const PublicSplits = dynamic(() => import("./NbaPublicSplits"), { loading: () => <div className="fs-empty">Loading NBA markets…</div> });
 const Signals = dynamic(() => import("./FootballSignalsBoard"), { loading: () => <div className="fs-empty">Loading signals…</div> });
@@ -54,6 +56,7 @@ function GameScore({ game }: { game?: Row }) {
     awayScore={game["Away Score"]} homeScore={game["Home Score"]} label={gameStatus(game) === "Final" ? "Final score" : "Current score"} /> : null;
 }
 function ForecastCard({ forecast, game, qualifiedOnly = false, sport = "NBA" }: { forecast: Forecast; game?: Row; qualifiedOnly?: boolean; sport?: "NBA" | "NCAAM" }) {
+  const matchupGrade = sport === "NCAAM" ? ncaamMatchupGrade(forecast) : null;
   const markets = [
     { name: "Spread", pick: forecast.spread_pick, grade: forecast.spread_grade, model: signed(forecast.fair_home_spread),
       line: forecast.market ? signed(forecast.market.home_spread) : "—", edge: forecast.home_spread_edge, result: forecast.spreadResult },
@@ -75,8 +78,10 @@ function ForecastCard({ forecast, game, qualifiedOnly = false, sport = "NBA" }: 
       <dl className="nbaMetrics">
         <div><dt>{market.name === "Spread" ? "Model home spread" : "Model total"}</dt><dd>{market.model}</dd></div>
         <div><dt>{market.name === "Spread" ? "Market home spread" : "Market total"}</dt><dd>{market.line}</dd></div>
-        <div><dt>Edge</dt><dd>{market.edge == null ? "—" : `${Math.abs(market.edge).toFixed(1)} pts`}</dd></div>
+        <div><dt>{market.name === "Total" && matchupGrade ? "Point-model lean" : "Edge"}</dt><dd>{market.name === "Total" && matchupGrade
+          ? forecast.numeric_total_pick || "—" : market.edge == null ? "—" : `${Math.abs(market.edge).toFixed(1)} pts`}</dd></div>
       </dl>
+      {market.name === "Total" && matchupGrade && <NcaamMatchupGrade grade={matchupGrade} away={forecast.away_team} home={forecast.home_team} />}
       {market.result && <p className="nbaSmall">Result: <strong>{market.result}</strong></p>}
     </section>)}</div>
     <GameScore game={game} />
@@ -111,6 +116,8 @@ function ModelSlate({ tab, data }: { tab: string; data: NbaMarketPayload }) {
   const fullSlate = tab === "Full Slate";
   return <section className="nbaBoard">
     <div className="nbaIntro"><h2>{fullSlate ? `${sport} Full Slate` : `${sport} Model Plays`}</h2></div>
+    {sport === "NCAAM" && <p className="nbaSmall">Total A/B grades combine adjusted offense, defense, tempo and the market total. Point projections remain visible for context.</p>}
+    {sport === "NCAAM" && latest.some(f => f.matchup_total?.record_mode === "replay") && <p className="nbaNotice">This slate includes retrospective replay grades. Their results are tracked separately from plays saved live before tipoff.</p>}
     {data.stale && <p role="status" className="nbaNotice">{sport === "NCAAM" ? "Some matchups are waiting for market lines. Saved forecasts remain visible." : "The latest live market observation is delayed. Saved lines remain visible; the builder waits for fresh, complete lines."}</p>}
     {fullSlate ? games.map(game => {
       const forecast = latestByGame.get(game["Game ID"]);

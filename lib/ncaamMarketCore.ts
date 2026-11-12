@@ -1,6 +1,7 @@
 import type { ScoresAndOddsMarketSplit } from "./scoresAndOddsBettingSplits";
 import type { TursoRow } from "./tursoStore";
 import { ncaamDivisionOneMatchup } from "./ncaamDivisionOne";
+import { ncaamMatchupGrade } from "./ncaamMatchupGrades";
 
 export const NCAAM_MARKET_POLICY = "ncaam-scoresandodds-2026-11-01-v1";
 export const NCAAM_MARKET_SOURCE = "ScoresAndOdds";
@@ -149,6 +150,9 @@ export function settleNcaamForecast(selected: any, game: any, gameId: string, lo
   const grade = (edge: number | null, actual: number) => edge == null ? "NO LINE" : edge === 0 ? "PASS"
     : Math.abs(actual) < 1e-9 ? "PUSH" : edge * actual > 0 ? "WIN" : "LOSS";
   const margin = Number(game.home.score)-Number(game.away.score), total = Number(game.home.score)+Number(game.away.score);
+  const numericTotalResult = grade(selected.numeric_total_edge ?? selected.total_edge ?? null, total - Number(selected.market?.total || 0));
+  const matchup = ncaamMatchupGrade(selected);
   return { spreadResult: grade(selected.home_spread_edge ?? null, margin + Number(selected.market?.home_spread || 0)),
-    totalResult: grade(selected.total_edge ?? null, total - Number(selected.market?.total || 0)) };
+    totalResult: matchup ? matchup.side ? grade(matchup.side === "Over" ? 1 : -1, total - matchup.line) : "PASS" : numericTotalResult,
+    ...(matchup ? { numeric_totalResult: numericTotalResult } : {}) };
 }

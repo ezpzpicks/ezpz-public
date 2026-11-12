@@ -65,6 +65,10 @@
 .nbaBoard .nbaGrade { border: 1px solid #41566d; border-radius: 999px; padding: 5px 9px; font-size: 12px; font-weight: 800; color: #c0cede; white-space: nowrap; }
 .nbaBoard .nbaGrade[data-grade="A"], .nbaBoard .nbaGrade[data-grade="B"] { border-color: #238865; background: #123c31; color: #99f6c9; }
 .nbaBoard .nbaGrade[data-grade="Lean"] { border-color: #85702d; color: #f4d98a; }
+.ncaamGradeDetails { margin-top: 14px; border-top: 1px solid #29405b; padding-top: 6px; }
+.ncaamGradeDetails summary { cursor: pointer; color: #b7e2ff; font-size: 12px; line-height: 1.6; }
+.ncaamGradeDetails h5 { margin: 14px 0 8px; font-size: 13px; }
+.nbaBoard .ncaamGradeDetails dd { font-size: 12px; font-weight: 600; }
 .nbaBoard .nbaSelection { display: block; margin: 14px 0; font-size: 18px; line-height: 1.4; }
 .nbaBoard .nbaMetrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 0; padding-top: 12px; border-top: 1px solid #29405b; }
 .nbaBoard .nbaMetrics > div, .nbaBoard .nbaMarketQuotes > div { min-width: 0; }

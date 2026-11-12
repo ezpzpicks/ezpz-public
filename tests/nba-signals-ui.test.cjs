@@ -28,6 +28,7 @@ const ezpz = component('app/NbaEzpzPicks.tsx', { './FootballSignalsBoard': footb
 const nbaBoard = component('app/NbaBoard.tsx', { 'next/dynamic': { default: loader => String(loader).includes('NbaRecords') ? records.default : () => null },
   './NbaRecords': records, './NbaEzpzPicks': ezpz,
   './NcaamModelDetails': component('app/NcaamModelDetails.tsx'),
+  './NcaamMatchupGrade': component('app/NcaamMatchupGrade.tsx'),
   './TeamLogoName': { MatchupWithLogos: props => props.game } });
 const date = '2026-10-22', time = date + 'T23:00:00Z';
 const keys = ['money', 'move', 'system', 'team', 'model'];
@@ -131,6 +132,19 @@ const forecastData = { games: slate, forecasts: [pregame, early], stale: false, 
   { 'Game ID': 'first', Market: 'Total', Selection: 'Over', Line: '236.5' },
 ] };
 const renderNba = (tab, data = forecastData) => render(React.createElement(nbaBoard.default, { tab, data }));
+
+test('NCAAM factor grades display the selected side, point lean, downgrade and explicit replay label', () => {
+  const { attachNcaamMatchupGrades } = require('../lib/ncaamMatchupGrades.ts');
+  const forecast = {...pregame,recordId:'ui-factor',total_pick:'Under 236.5',total_edge:-2,total_grade:'Research',market:{...pregame.market,total:236.5}};
+  const grade = {policy_version:'ncaam-matchup-grades-v1',policy_sha256:'a'.repeat(64),forecast_record_id:forecast.recordId,game_id:forecast.gameId,
+    grade:'B',side:'Over',line:236.5,reason:'Very fast team with favorable opposing offense/defense pairing',record_mode:'replay',
+    as_of:forecast.lockedAt,tipoff:forecast.tipoff,published_at:'2026-11-12T01:00:00Z',benchmark_observed_at:forecast.lockedAt,
+    market_reference:{observed_at:forecast.lockedAt},z:{away:{offense:1,defense:1,tempo:2},home:{offense:-1,defense:-1,tempo:0}},
+    directions:{Over:{grade:'B',conflicts:[{id:'price',reason:'High total for an Over',levels:1}]}}};
+  const data={...forecastData,sport:'NCAAM',forecasts:attachNcaamMatchupGrades([forecast],[{'Details JSON':JSON.stringify(grade)}])};
+  const html=renderNba('Today’s Model Plays',data);
+  for (const text of ['Grade B','Over 236.5','Point-model lean','Under 236.5','Retrospective replay','High total for an Over','Very fast']) assert(html.includes(text),text);
+});
 
 test('NBA Full Slate includes scheduled games without a forecast, their actual scores and captured market lines', () => {
   const html = renderNba('Full Slate');

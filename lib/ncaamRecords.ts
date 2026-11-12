@@ -1,18 +1,22 @@
 import { ncaamDate, ncaamTeamKey, settleNcaamForecast } from "./ncaamMarketCore";
 import { signalPickThreshold } from "./signalPicks";
+import { ncaamMatchupGrade } from "./ncaamMatchupGrades";
 
 type Row = Record<string, any>;
-export const NCAAM_MODEL_RECORD_POLICY = "ncaam-latest-pregame-ab-v1";
+export const NCAAM_MODEL_RECORD_POLICY = "ncaam-matchup-total-records-v2";
+const MODEL_LABELS = ["A Spread", "B Spread", "A Total", "B Total", "A Over", "B Over", "A Under", "B Under"];
 export type NcaamRecordTotals = { wins: number; losses: number; pushes: number; pending: number; totalBets: number;
   record: string; winPct: number | null; unitsWon: number; roiPct: number | null };
 export type NcaamModelPlay = { id: string; date: string; gameId: string; game: string; gameTime: string;
   market: "Spread" | "Total"; selection: string; grade: string; line: number; odds: string;
-  result: string; lockedAt: string; modelVersion: string };
+  result: string; lockedAt: string; modelVersion: string; recordMode?: "live" | "replay"; gradeReason?: string };
 type ModelDay = { totals: NcaamRecordTotals; byType: Record<string, NcaamRecordTotals> };
-export type NcaamModelRecordState = { version: string; days: Record<string, ModelDay>; recent: NcaamModelPlay[] };
-export type NcaamModelRecords = { policy: string; overall: NcaamRecordTotals; last7Days: NcaamRecordTotals;
+export type NcaamModelRecordState = { version: string; days: Record<string, ModelDay>; recent: NcaamModelPlay[];
+  replayDays?: Record<string, ModelDay>; replayRecent?: NcaamModelPlay[] };
+type ModelRecordSummary = { policy: string; overall: NcaamRecordTotals; last7Days: NcaamRecordTotals;
   byType: { label: string; overall: NcaamRecordTotals; last7Days: NcaamRecordTotals }[]; history: NcaamModelPlay[];
   availableDates: string[] };
+export type NcaamModelRecords = ModelRecordSummary & { replay?: ModelRecordSummary };
 const round = (n: number) => Math.round(n * 100) / 100;
 const code = (value: unknown) => ({ WIN: "W", LOSS: "L", PUSH: "P", W: "W", L: "L", P: "P" }[String(value).toUpperCase()] || "");
 const number = (value: unknown) => value == null || String(value).trim() === "" || !Number.isFinite(Number(value)) ? null : Number(value);
@@ -60,6 +64,7 @@ export function ncaamModelPlays(forecasts: Row[], schedule: Row[] = [], now = Da
     const settled = final ? settleNcaamForecast(f, { game_id: f.gameId, completed: true, status: "STATUS_FINAL", tipoff: f.tipoff,
       source: { observed_at: game!["Result Updated"] }, away: { name: f.away_team, score: away }, home: { name: f.home_team, score: home } }, f.gameId, f.lockedAt) : f;
     return (["Spread", "Total"] as const).flatMap(market => {
+      const matchup = market === "Total" ? ncaamMatchupGrade(f) : null;
       const prefix = market === "Spread" ? "spread" : "total", grade = String(f[`${prefix}_grade`] || "");
       const selection = String(f[`${prefix}_pick`] || ""), saved = number(market === "Spread" ? f.market?.home_spread : f.market?.total);
       const line = number(selection.match(/\s([+-]?\d+(?:\.\d+)?)\s*$/)?.[1]);
@@ -72,7 +77,8 @@ export function ncaamModelPlays(forecasts: Row[], schedule: Row[] = [], now = Da
       if (["EXCLUDED", "NO LINE", "PASS"].includes(result)) return [];
       return [{ id: `${ncaamDate(Date.parse(f.tipoff))}|${f.gameId}|${market}`, date: ncaamDate(Date.parse(f.tipoff)), gameId: f.gameId,
         game: `${f.away_team} @ ${f.home_team}`, gameTime: f.tipoff, market, selection, grade, line, odds: "-110",
-        result: code(result), lockedAt: f.lockedAt, modelVersion: f.modelVersion }];
+        result: code(result), lockedAt: f.lockedAt, modelVersion: matchup?.policy_version || f.modelVersion,
+        ...(matchup ? { recordMode: matchup.record_mode, gradeReason: matchup.reason } : {}) }];
     });
   });
 }
@@ -80,26 +86,33 @@ export function ncaamModelPlays(forecasts: Row[], schedule: Row[] = [], now = Da
 /** The collector changes only active days; the public board reads compact saved totals. */
 export function updateNcaamModelRecords(previous: NcaamModelRecordState | undefined, forecasts: Row[], schedule: Row[], now = Date.now(), dates?: string[]): NcaamModelRecordState {
   const state = previous?.version === NCAAM_MODEL_RECORD_POLICY ? previous : { version: NCAAM_MODEL_RECORD_POLICY, days: {}, recent: [] };
-  const plays = ncaamModelPlays(forecasts, schedule, now), days = { ...state.days };
+  const plays = ncaamModelPlays(forecasts, schedule, now), days = { ...state.days }, replayDays = { ...state.replayDays };
   const changed = new Set(dates || [...new Set(plays.map(p => p.date))]);
   for (const date of changed) {
-    const rows = plays.filter(p => p.date === date);
-    days[date] = { totals: ncaamRecordTotals(rows), byType: Object.fromEntries(["A Spread", "B Spread", "A Total", "B Total"]
-      .map(label => [label, ncaamRecordTotals(rows.filter(p => `${p.grade} ${p.market}` === label))])) };
+    const summarize = (rows: NcaamModelPlay[]) => ({ totals: ncaamRecordTotals(rows), byType: Object.fromEntries(MODEL_LABELS
+      .map(label => [label, ncaamRecordTotals(rows.filter(p => `${p.grade} ${p.market}` === label
+        || (p.market === "Total" && `${p.grade} ${p.selection.split(" ")[0]}` === label)))])) });
+    days[date] = summarize(plays.filter(p => p.date === date && p.recordMode !== "replay"));
+    replayDays[date] = summarize(plays.filter(p => p.date === date && p.recordMode === "replay"));
   }
-  return { version: NCAAM_MODEL_RECORD_POLICY, days, recent: [...state.recent.filter(p => !changed.has(p.date)), ...plays.filter(p => changed.has(p.date))]
-    .sort((a, b) => b.date.localeCompare(a.date) || Date.parse(b.gameTime) - Date.parse(a.gameTime) || a.id.localeCompare(b.id)).slice(0, 100) };
+  const recent = (old: NcaamModelPlay[], replay: boolean) => [...old.filter(p => !changed.has(p.date)),
+    ...plays.filter(p => changed.has(p.date) && (p.recordMode === "replay") === replay)]
+    .sort((a, b) => b.date.localeCompare(a.date) || Date.parse(b.gameTime) - Date.parse(a.gameTime) || a.id.localeCompare(b.id)).slice(0, 100);
+  return { version: NCAAM_MODEL_RECORD_POLICY, days, replayDays, recent: recent(state.recent, false), replayRecent: recent(state.replayRecent || [], true) };
 }
 
 export function summarizeNcaamModelRecords(state: NcaamModelRecordState, today: string): NcaamModelRecords {
   const start = new Date(Date.parse(`${today}T12:00:00Z`) - 6 * 86400000).toISOString().slice(0, 10);
-  const days = Object.entries(state.days).filter(([day]) => day <= today);
-  const recent = days.filter(([day]) => day >= start);
-  return { policy: NCAAM_MODEL_RECORD_POLICY, overall: combine(days.map(([, d]) => d.totals)), last7Days: combine(recent.map(([, d]) => d.totals)),
-    byType: ["A Spread", "B Spread", "A Total", "B Total"].map(label => ({ label,
+  const summary = (savedDays: Record<string, ModelDay>, history: NcaamModelPlay[]): ModelRecordSummary => {
+    const days = Object.entries(savedDays).filter(([day]) => day <= today);
+    const recent = days.filter(([day]) => day >= start);
+    return { policy: NCAAM_MODEL_RECORD_POLICY, overall: combine(days.map(([, d]) => d.totals)), last7Days: combine(recent.map(([, d]) => d.totals)),
+    byType: MODEL_LABELS.map(label => ({ label,
       overall: combine(days.flatMap(([, d]) => d.byType[label] ? [d.byType[label]] : [])),
       last7Days: combine(recent.flatMap(([, d]) => d.byType[label] ? [d.byType[label]] : [])) })),
-    history: state.recent.filter(p => p.date <= today), availableDates: days.map(([date]) => date).sort() };
+    history: history.filter(p => p.date <= today), availableDates: days.map(([date]) => date).sort() };
+  };
+  return { ...summary(state.days, state.recent), replay: summary(state.replayDays || {}, state.replayRecent || []) };
 }
 
 /** Summarize qualified signal tests at the current NCAAM threshold; tied leaders wait. */

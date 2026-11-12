@@ -3,7 +3,7 @@ import { readTursoDatasetByDateKeys, runTursoSql, type TursoRow } from "./tursoS
 import { saveNcaamMarketRows } from "./ncaamMarketStore";
 import { readNcaamForecasts, readNcaamForecastHistory } from "./ncaamForecasts";
 import { NCAAM_MODEL_RECORD_POLICY, updateNcaamModelRecords } from "./ncaamRecords";
-import { ncaamRowKey, normalizeNcaamSlate, type NcaamGame } from "./ncaamMarketCore";
+import { ncaamDate, ncaamRowKey, normalizeNcaamSlate, type NcaamGame } from "./ncaamMarketCore";
 import { buildNcaamSignals, buildNcaamSignalTests, emptyNcaamAnalysis, mergeNcaamTeamHistory, ncaamSeason, settleNcaamTrendRows, ncaamRowsToPlays, NCAAM_ANALYSIS_VERSION, type NcaamAnalysisState } from "./ncaamAnalysisCore";
 import { buildNcaamTrendLeaderboard, NCAAM_ANALYSIS_TAB, NCAAM_SIGNALS_TAB, NCAAM_TREND_RECORDS_TAB, NCAAM_SIGNALS_POLICY } from "./ncaamTrendLeaderboard";
 import { readSavedFootballSignalsForDate } from "./footballSignals";
@@ -95,7 +95,13 @@ export async function refreshNcaamAnalysis(date: string, currentSchedule: TursoR
     state.selectionThreshold = signalPickThreshold("NCAAM");
   }
   if (state.modelRecords?.version !== NCAAM_MODEL_RECORD_POLICY) {
-    state.modelRecords = updateNcaamModelRecords(undefined, await readNcaamForecastHistory(date), schedule, now);
+    const history = await readNcaamForecastHistory(date);
+    const historyDates = [...new Set(history.filter(f => Number.isFinite(Date.parse(f.tipoff))).map(f => ncaamDate(Date.parse(f.tipoff))))];
+    // Settled archive days may have left pendingDates before this policy was
+    // installed. Include their saved final scores in the one-time rollup seed.
+    const savedSchedule = await readTursoDatasetByDateKeys("NCAAM", "schedule", historyDates);
+    const seedSchedule = [...new Map([...savedSchedule, ...schedule].map(row => [row["Game Key"], row])).values()];
+    state.modelRecords = updateNcaamModelRecords(undefined, history, seedSchedule, now);
   }
   state.modelRecords = updateNcaamModelRecords(state.modelRecords, forecasts.flatMap(([, rows]) => rows), schedule, now, dates);
   if (seedResearch) state.signalResearch = { version: SIGNAL_RESEARCH_VERSION, days: buildSignalResearchDays(
