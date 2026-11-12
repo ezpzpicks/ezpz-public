@@ -6,6 +6,7 @@ import { quoteImpliedProbability, regradeModelQuote } from "./modelSignalQuote";
 import { buildConsolidatedLeaderboard, visibleConsolidatedBadges } from "./consolidatedSportTrends";
 import { CONSOLIDATED_SPORT_EFFECTIVE_AT } from "./catalog/consolidatedSportCatalog";
 import { ncaamMatchupGrade } from "./ncaamMatchupGrades";
+import { ncaamSpreadGrade, ncaamSpreadQuote, spreadSelection } from "./ncaamSpreadGrades";
 
 type Row = Record<string, any>;
 export const NCAAM_SIGNALS_POLICY = { version: "ncaam-signals-2026-11-01-v1", prefix: "ncaam-signals-", launchAt: "2026-11-01T00:00:00.000Z" };
@@ -43,6 +44,25 @@ export function ncaamModelFor(play: Row, forecasts: Row[], asOf: number) {
     && ncaamTeamKey(f.away_team) === ncaamTeamKey(play.awayTeam) && ncaamTeamKey(f.home_team) === ncaamTeamKey(play.homeTeam)
     && Date.parse(f.tipoff) === Date.parse(play.gameTime)).sort((a, b) => Date.parse(b.lockedAt) - Date.parse(a.lockedAt))[0];
   const line = play.line == null ? null : Number(play.line);
+  const spread = forecast && play.market === "Spread" ? ncaamSpreadGrade(forecast) : null;
+  if (spread) {
+    const published = spread.record_mode === "live" && Date.parse(spread.published_at) <= asOf;
+    const matches = ncaamTeamKey(spread.selection_team || "") === selected && ["A", "B"].includes(spread.grade);
+    const quote = line != null && Number.isFinite(line) ? ncaamSpreadQuote(spread, line) : null;
+    const price = quoteImpliedProbability(play.odds || "-110");
+    const active = published && matches && quote != null && ["A", "B"].includes(quote.grade) && price != null && price <= 110 / 210;
+    const reason = spread.record_mode === "replay" ? "Retrospective replay grades do not create pregame model signals."
+      : !published ? "The spread grade was not published before this decision."
+      : !matches ? "No qualifying spread grade on this projected cover side."
+      : !quote || !["A", "B"].includes(quote.grade) ? quote?.reason || "The current spread is unavailable."
+      : active ? quote.reason : "The current price does not qualify for the saved spread grade.";
+    return { active, available: true, edge: matches ? quote?.edge ?? null : null, context: {
+      play: matches && line != null ? `${spread.selection_team} ${line > 0 ? "+" : ""}${line}` : spreadSelection(spread),
+      grade: matches ? quote?.grade || "Research" : spread.grade, version: spread.policy_version,
+      projection: -spread.projected_margin, line: matches ? line : spread.line, probability: null, reason,
+      regraded: matches && line != null && (line !== spread.line || quote?.grade !== spread.grade),
+      originalPlay: spreadSelection(spread), originalGrade: spread.grade } };
+  }
   const matchup = forecast && play.market === "Total" ? ncaamMatchupGrade(forecast) : null;
   if (matchup) {
     const published = Date.parse(matchup.published_at) <= asOf && matchup.record_mode === "live";

@@ -14,6 +14,8 @@ import NcaamModelDetails, { type NcaamModelContext } from "./NcaamModelDetails";
 import type { NbaGameLineup } from "../lib/nbaLineupsCore";
 import { ncaamMatchupGrade } from "../lib/ncaamMatchupGrades";
 import NcaamMatchupGrade from "./NcaamMatchupGrade";
+import { ncaamSpreadGrade } from "../lib/ncaamSpreadGrades";
+import NcaamSpreadGrade from "./NcaamSpreadGrade";
 
 const PublicSplits = dynamic(() => import("./NbaPublicSplits"), { loading: () => <div className="fs-empty">Loading NBA markets…</div> });
 const Signals = dynamic(() => import("./FootballSignalsBoard"), { loading: () => <div className="fs-empty">Loading signals…</div> });
@@ -57,6 +59,7 @@ function GameScore({ game }: { game?: Row }) {
 }
 function ForecastCard({ forecast, game, qualifiedOnly = false, sport = "NBA" }: { forecast: Forecast; game?: Row; qualifiedOnly?: boolean; sport?: "NBA" | "NCAAM" }) {
   const matchupGrade = sport === "NCAAM" ? ncaamMatchupGrade(forecast) : null;
+  const spreadGrade = sport === "NCAAM" ? ncaamSpreadGrade(forecast) : null;
   const markets = [
     { name: "Spread", pick: forecast.spread_pick, grade: forecast.spread_grade, model: signed(forecast.fair_home_spread),
       line: forecast.market ? signed(forecast.market.home_spread) : "—", edge: forecast.home_spread_edge, result: forecast.spreadResult },
@@ -82,6 +85,7 @@ function ForecastCard({ forecast, game, qualifiedOnly = false, sport = "NBA" }: 
           ? forecast.numeric_total_pick || "—" : market.edge == null ? "—" : `${Math.abs(market.edge).toFixed(1)} pts`}</dd></div>
       </dl>
       {market.name === "Total" && matchupGrade && <NcaamMatchupGrade grade={matchupGrade} away={forecast.away_team} home={forecast.home_team} />}
+      {market.name === "Spread" && spreadGrade && <NcaamSpreadGrade grade={spreadGrade} />}
       {market.result && <p className="nbaSmall">Result: <strong>{market.result}</strong></p>}
     </section>)}</div>
     <GameScore game={game} />
@@ -116,7 +120,7 @@ function ModelSlate({ tab, data }: { tab: string; data: NbaMarketPayload }) {
   const fullSlate = tab === "Full Slate";
   return <section className="nbaBoard">
     <div className="nbaIntro"><h2>{fullSlate ? `${sport} Full Slate` : `${sport} Model Plays`}</h2></div>
-    {sport === "NCAAM" && <p className="nbaSmall">Total A/B grades combine offense, defense, tempo and the market total. Live grading now requires the point projection to favor the same direction, with no minimum point edge.</p>}
+    {sport === "NCAAM" && <p className="nbaSmall">Spread A/B grades combine a 1 to under 4 point projected cover edge with offense, defense and tempo. Total A/B grades combine matchup factors and the market total, with no minimum point edge. Both require projection agreement.</p>}
     {sport === "NCAAM" && latest.some(f => f.matchup_total?.record_mode === "replay") && <p className="nbaNotice">This saved replay uses the original factor-only rules. Its results remain separate from live plays. Projection agreement applies to the live policy introduced November 12.</p>}
     {data.stale && <p role="status" className="nbaNotice">{sport === "NCAAM" ? "Some matchups are waiting for market lines. Saved forecasts remain visible." : "The latest live market observation is delayed. Saved lines remain visible; the builder waits for fresh, complete lines."}</p>}
     {fullSlate ? games.map(game => {
