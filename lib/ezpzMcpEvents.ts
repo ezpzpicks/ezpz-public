@@ -164,6 +164,11 @@ async function deliverPending(sport: McpSport, now: number) {
 }
 
 export async function captureEzpzFinalPickEvents(sport: McpSport, rawPicks: Record<string, any>[], now = Date.now()) {
+  // Manual-only cutover: legacy model/signal events MUST NEVER create official
+  // posts after Nov 12. ChatGPT publishes expressly approved plays to Buffer.
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(now);
+  const part = (type: string) => parts.find(value => value.type === type)?.value || "";
+  if (`${part("year")}-${part("month")}-${part("day")}` >= "2026-11-12") return { delivered: 0, subscriptions: 0, eligiblePicks: 0 };
   if (!isTursoConfigured()) return { delivered: 0, subscriptions: 0, eligiblePicks: 0 };
   await ensureSchema();
   const subscriptions = await sql(`SELECT * FROM ezpz_mcp_subscriptions WHERE active=1 AND (expires_at IS NULL OR expires_at>${now})`);
