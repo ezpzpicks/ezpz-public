@@ -7755,7 +7755,7 @@ export default function Home() {
                 green={Boolean(basketballMarket?.modelRecords?.overall.totalBets)} />
               <Tile label="Today’s Model Plays" value={String(basketballMarket?.modelPlays?.length || 0)} meta="A/B spreads + totals" />
               <Tile label="Public Betting Splits" value={String(new Set(basketballMarket?.splits.map(r => r["Game ID"]) || []).size)} meta="Games with market lines" />
-              <Tile label="Model Stage" value={activeSport === "NCAAM" ? "RESEARCH" : "LIVE"} meta={activeSport === "NCAAM" ? "Grades pending validation" : "Lineup-aware model"} green={activeSport === "NBA"} />
+              <Tile label={activeSport === "NCAAM" ? "Matchup Total Grades" : "Model Stage"} value={activeSport === "NCAAM" ? "A/B" : "LIVE"} meta={activeSport === "NCAAM" ? "Offense • defense • tempo" : "Lineup-aware model"} green />
               <Tile label="Published Matchups" value={String(basketballMarket?.games.length || 0)} meta={`${activeSport} slate`} />
             </>
           ) : activeSport === "NFL" || activeSport === "NCAAF" ? (
