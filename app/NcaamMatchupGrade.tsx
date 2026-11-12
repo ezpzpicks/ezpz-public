@@ -16,6 +16,8 @@ export default function NcaamMatchupGrade({ grade, away, home }: { grade: Matchu
   return <div className="ncaamGradeDetails">
     <p className="nbaSmall"><strong>Matchup grade</strong>{grade.record_mode === "replay" ? " · Retrospective replay" : " · Saved before tipoff"}</p>
     <p className="nbaSmall">{grade.reason}</p>
+    {grade.projection_gate?.required && <p className="nbaSmall">Projection agreement required · Point projection: {grade.projection_gate.direction || "No direction"}
+      {grade.projection_gate.factor_side ? ` · Factor profile: ${grade.projection_gate.factor_grade} ${grade.projection_gate.factor_side}` : ""}</p>}
     {direction?.conflicts.map(conflict => <p className="nbaSmall" key={conflict.id}>Grade reduced: {conflict.reason}.</p>)}
     <details><summary>Offense, defense & tempo factors</summary>
       {(["away", "home"] as const).map(side => <section key={side}>
@@ -26,7 +28,9 @@ export default function NcaamMatchupGrade({ grade, away, home }: { grade: Matchu
         </div>)}</dl>
       </section>)}
       <p className="nbaSmall">Compared with the dated Division I national average. A higher defensive rating means more points allowed.</p>
-      <p className="nbaSmall">Grades combine the matchup factors and market total. The point-model lean is shown separately.</p>
+      <p className="nbaSmall">{grade.projection_gate?.required
+        ? "A/B grades require the point projection to favor the same direction. Matchup factors determine A or B; no minimum point edge is required."
+        : "This earlier policy graded the matchup factors independently. Its original selection is retained."}</p>
     </details>
   </div>;
 }
