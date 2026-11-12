@@ -40,6 +40,10 @@
     {
       "path": "/api/cron/ezpz-play-types",
       "schedule": "0 11 * * *"
+    },
+    {
+      "path": "/api/cron/manual-ezpz-events",
+      "schedule": "*/5 * * * *"
     }
   ]
 }
