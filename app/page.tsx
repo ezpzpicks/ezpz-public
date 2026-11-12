@@ -8,6 +8,7 @@ import dynamic from "next/dynamic";
 const SignalResearch = dynamic(() => import("./FootballSignalsBoard").then(module => module.SignalResearch));
 const SignalEzpzPicks = dynamic(() => import("./FootballSignalsBoard"), { loading: () => <div className="empty">Loading EZPZ Picks…</div> });
 const ManualEzpzPicks = dynamic(() => import("./ManualEzpzPicks"), { loading: () => <div className="empty">Loading official picks…</div> });
+const ManualEzpzRecords = dynamic(() => import("./ManualEzpzRecords"), { loading: () => <div className="empty">Loading official records…</div> });
 import NbaBoard, { type NbaMarketPayload } from "./NbaBoard";
 import { buildNflEzpzRecords } from "../lib/nflEzpzRecords";
 import { restoreFootballPublicDisplay } from "../lib/footballPublicDisplay";
@@ -7702,7 +7703,7 @@ export default function Home() {
         </div>
       ) : null}
 
-      {data && active !== "Signals" && active !== "EZPZ Picks" ? (
+      {data && active !== "Signals" && active !== "EZPZ Picks" && active !== "Records" ? (
         <section className="tileGrid">
           {activeSport === "MLB" ? (
             <>
@@ -7794,8 +7795,14 @@ export default function Home() {
         </section>
       ) : null}
 
-      {content}
-      {active === "Records" ? <SignalResearch key={activeSport} board={signalBoard} /> : null}
+      {active === "Records" ? <>
+        <ManualEzpzRecords key={activeSport} sport={activeSport} />
+        <details className="ep-method">
+          <summary>Historical automated model and signal records (legacy, not manual EZPZ Picks)</summary>
+          {content}
+          <SignalResearch key={activeSport} board={signalBoard} />
+        </details>
+      </> : content}
 
       <footer className="siteFooter">
         <div>
