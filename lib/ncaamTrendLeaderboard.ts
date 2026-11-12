@@ -5,6 +5,7 @@ import { NCAAM_MARKET_POLICY, ncaamTeamKey } from "./ncaamMarketCore";
 import { quoteImpliedProbability, regradeModelQuote } from "./modelSignalQuote";
 import { buildConsolidatedLeaderboard, visibleConsolidatedBadges } from "./consolidatedSportTrends";
 import { CONSOLIDATED_SPORT_EFFECTIVE_AT } from "./catalog/consolidatedSportCatalog";
+import { ncaamMatchupGrade } from "./ncaamMatchupGrades";
 
 type Row = Record<string, any>;
 export const NCAAM_SIGNALS_POLICY = { version: "ncaam-signals-2026-11-01-v1", prefix: "ncaam-signals-", launchAt: "2026-11-01T00:00:00.000Z" };
@@ -42,6 +43,22 @@ export function ncaamModelFor(play: Row, forecasts: Row[], asOf: number) {
     && ncaamTeamKey(f.away_team) === ncaamTeamKey(play.awayTeam) && ncaamTeamKey(f.home_team) === ncaamTeamKey(play.homeTeam)
     && Date.parse(f.tipoff) === Date.parse(play.gameTime)).sort((a, b) => Date.parse(b.lockedAt) - Date.parse(a.lockedAt))[0];
   const line = play.line == null ? null : Number(play.line);
+  const matchup = forecast && play.market === "Total" ? ncaamMatchupGrade(forecast) : null;
+  if (matchup) {
+    const published = Date.parse(matchup.published_at) <= asOf && matchup.record_mode === "live";
+    const matches = matchup.side === selected && ["A", "B"].includes(matchup.grade);
+    const noWorse = line != null && Number.isFinite(line) && (selected === "Over" ? line <= matchup.line : line >= matchup.line);
+    const price = quoteImpliedProbability(play.odds || "-110");
+    const active = published && matches && noWorse && price != null && price <= 110 / 210;
+    const reason = matchup.record_mode === "replay" ? "Retrospective replay grades do not create pregame model signals."
+      : !published ? "The matchup grade was not published before this decision."
+      : !matches ? "No qualifying matchup grade on this side."
+      : !noWorse ? "The current line is worse than the saved matchup selection."
+      : active ? matchup.reason : "The current price does not qualify for the saved matchup grade.";
+    return { active, available: true, edge: null, context: { play: matchup.side ? `${matchup.side} ${matchup.line}` : "",
+      grade: matchup.grade, version: matchup.policy_version, projection: forecast.total, line: matchup.line,
+      probability: null, reason } };
+  }
   let projection: number | null = null, savedLine: number | null = null, pick = "", grade = "";
   if (forecast) {
     const away = selected === ncaamTeamKey(play.awayTeam);
