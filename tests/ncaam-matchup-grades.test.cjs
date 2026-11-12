@@ -4,7 +4,7 @@ const fs = require('node:fs'), ts = require('typescript');
 require.extensions['.ts'] = (m, f) => m._compile(ts.transpileModule(fs.readFileSync(f, 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText, f);
-const { attachNcaamMatchupGrades, ncaamMatchupGrade } = require('../lib/ncaamMatchupGrades.ts');
+const { attachNcaamMatchupGrades, ncaamMatchupGrade, NCAAM_PROJECTION_AGREEMENT_POLICY } = require('../lib/ncaamMatchupGrades.ts');
 const { settleNcaamForecast } = require('../lib/ncaamMarketCore.ts');
 const records = require('../lib/ncaamRecords.ts');
 const { ncaamModelFor } = require('../lib/ncaamTrendLeaderboard.ts');
@@ -80,4 +80,44 @@ test('Research factor grades do not inherit a numeric A/B grade or count as a mo
   const f = attach({...forecast,total_grade:'A'},{...grade,side:null,grade:'Research',reason:'Opposing directions have equal grades'});
   assert.equal(f.total_grade,'Research');
   assert.equal(records.ncaamModelPlays([f],[schedule],Date.parse(resultAt)+1).length,0);
+});
+test('the agreement policy accepts tiny aligned projections and rejects opposed, flat or unsupported grades', () => {
+  for (const side of ['Over','Under']) {
+    const {forecast,grade}=fixtures();
+    const f={...forecast,total:side==='Over'?160.51:160.49};
+    const g={...grade,side,policy_version:NCAAM_PROJECTION_AGREEMENT_POLICY,
+      directions:{...grade.directions,[side]:{...grade.directions.Over}},
+      projection_gate:{required:true,projection_total:f.total,direction:side,agrees:true,factor_side:side,factor_grade:'B'}};
+    assert.equal(attach(f,g).total_grade,'B');
+    assert.equal(attach(f,g).total_pick,`${side} 160.5`);
+    for(const changed of [{total:160.5},{total:side==='Over'?160.49:160.51},{total:null}])
+      assert.equal(ncaamMatchupGrade({...f,...changed,matchup_total:g}),null);
+    assert.equal(ncaamMatchupGrade({...f,matchup_total:{...g,projection_gate:undefined}}),null);
+    const blocked={...g,grade:'Research',side:null,reason:'Projection direction disagrees',projection_gate:{...g.projection_gate,agrees:false}};
+    const excluded=attach(f,blocked);
+    assert.equal(excluded.total_grade,'Research');
+    assert.equal(records.ncaamModelPlays([excluded],[],Date.parse(published)+1000).length,0);
+  }
+});
+test('a reviewed live policy annotation supersedes the earlier inline grade, preserving the source capture and replay history', () => {
+  const {forecast,grade,schedule}=fixtures();
+  const newer={...grade,policy_version:NCAAM_PROJECTION_AGREEMENT_POLICY,policy_sha256:'b'.repeat(64),
+    published_at:'2026-11-11T18:40:00Z',side:null,grade:'Research',reason:'Factor Over conflicts with point projection Under; agreement required',
+    projection_gate:{required:true,projection_total:158.29,direction:'Under',agrees:false,factor_side:'Over',factor_grade:'B'}};
+  const f=attach({...forecast,matchup_total:grade},newer);
+  assert.equal(f.total_grade,'Research'); assert.equal(f.matchup_total.policy_version,NCAAM_PROJECTION_AGREEMENT_POLICY);
+  assert.equal(f.recordId,forecast.recordId); assert.equal(forecast.total_grade,'Research');
+  assert.equal(records.ncaamModelPlays([f],[schedule],Date.parse(resultAt)+1).length,0);
+  const originalReplay=attach(forecast,{...grade,record_mode:'replay',published_at:resultAt});
+  assert.equal(originalReplay.total_grade,'B');
+  assert.equal(records.ncaamModelPlays([originalReplay],[schedule],Date.parse(resultAt)+1)[0].result,'W');
+});
+test('current live grades cannot evade projection agreement by retaining the earlier policy version', () => {
+  const {forecast,grade}=fixtures();
+  const f={...forecast,lockedAt:'2026-11-12T12:00:00Z',tipoff:'2026-11-12T20:00:00Z'};
+  const g={...grade,as_of:f.lockedAt,tipoff:f.tipoff,published_at:'2026-11-12T12:00:01Z'};
+  assert.equal(ncaamMatchupGrade({...f,matchup_total:g}),null);
+  const excluded=attach({...f,matchup_total:g},g);
+  assert.equal(excluded.total_grade,'Research'); assert.equal(excluded.matchup_total,undefined);
+  assert.equal(attach({...f,total:160.51},g).total_grade,'B');
 });

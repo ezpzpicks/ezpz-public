@@ -113,7 +113,7 @@ export async function readNcaamPublicData(date = ncaamDate()) {
     bestPlays: modelPlays, slateToday: games, betTrackerRows: [], trendPlays: analysis.plays, recordSummary: [], last7RecordSummary: [],
     ncaamMarket: { consolidation: state.consolidation, sport: "NCAAM" as const, source: "ScoresAndOdds", date, availableDates: [...new Set([date, ...state.archiveDates])].sort(), games, splits,
       forecasts,
-      modelRecords, modelPlays, ezpzSelections, ezpzRecords, lineups, warrenNolan: sos, modelStatus: "Matchup total grades combine adjusted offense, defense and tempo, with market-line context. Point projections remain separate supporting information.",
+      modelRecords, modelPlays, ezpzSelections, ezpzRecords, lineups, warrenNolan: sos, modelStatus: "Matchup total grades combine offense, defense, tempo and market context. A/B plays require the point projection to favor the same side; no minimum point edge is required.",
       trendPlays: analysis.plays, leaderboard: state.leaderboard, signals: analysis.board, stale: analysis.stale,
       refreshPolicy: "30 minutes until 90 minutes before tipoff, then 5 minutes", finalWindow: "10–20 minutes before tipoff" } };
 }

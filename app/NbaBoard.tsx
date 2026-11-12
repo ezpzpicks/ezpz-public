@@ -116,8 +116,8 @@ function ModelSlate({ tab, data }: { tab: string; data: NbaMarketPayload }) {
   const fullSlate = tab === "Full Slate";
   return <section className="nbaBoard">
     <div className="nbaIntro"><h2>{fullSlate ? `${sport} Full Slate` : `${sport} Model Plays`}</h2></div>
-    {sport === "NCAAM" && <p className="nbaSmall">Total A/B grades combine adjusted offense, defense, tempo and the market total. Point projections remain visible for context.</p>}
-    {sport === "NCAAM" && latest.some(f => f.matchup_total?.record_mode === "replay") && <p className="nbaNotice">This slate includes retrospective replay grades. Their results are tracked separately from plays saved live before tipoff.</p>}
+    {sport === "NCAAM" && <p className="nbaSmall">Total A/B grades combine offense, defense, tempo and the market total. Live grading now requires the point projection to favor the same direction, with no minimum point edge.</p>}
+    {sport === "NCAAM" && latest.some(f => f.matchup_total?.record_mode === "replay") && <p className="nbaNotice">This saved replay uses the original factor-only rules. Its results remain separate from live plays. Projection agreement applies to the live policy introduced November 12.</p>}
     {data.stale && <p role="status" className="nbaNotice">{sport === "NCAAM" ? "Some matchups are waiting for market lines. Saved forecasts remain visible." : "The latest live market observation is delayed. Saved lines remain visible; the builder waits for fresh, complete lines."}</p>}
     {fullSlate ? games.map(game => {
       const forecast = latestByGame.get(game["Game ID"]);
