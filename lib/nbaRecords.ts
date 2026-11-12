@@ -7,7 +7,7 @@ export type NbaRecordTotals = { wins: number; losses: number; pushes: number; pe
   record: string; winPct: number | null; unitsWon: number; roiPct: number | null };
 export type NbaModelPlay = { id: string; date: string; gameId: string; game: string; gameTime: string;
   market: "Spread" | "Total"; selection: string; grade: string; line: number; odds: string;
-  result: string; lockedAt: string; modelVersion: string; recordMode?: "live" | "replay"; gradeReason?: string };
+  result: string; lockedAt: string; modelVersion: string; recordMode?: "live" | "replay"; gradeReason?: string; spreadRole?: "Favorite" | "Underdog" | "Pickem" };
 type ModelDay = { totals: NbaRecordTotals; byType: Record<string, NbaRecordTotals> };
 export type NbaModelRecordState = { version: string; days: Record<string, ModelDay>; recent: NbaModelPlay[] };
 export type NbaModelRecords = { policy: string; overall: NbaRecordTotals; last7Days: NbaRecordTotals;

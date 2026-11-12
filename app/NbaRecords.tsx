@@ -44,7 +44,7 @@ export default function NbaRecords({ data }: { data: NbaMarketPayload }) {
       <button type="button" aria-pressed={period === "overall"} onClick={() => setPeriod("overall")}>Season</button>
       <button type="button" aria-pressed={period === "last7Days"} onClick={() => setPeriod("last7Days")}>Last 7 days</button>
     </div>
-    {sport === "NCAAM" && <p className="nbaSmall">Live Model Plays count grades saved before tipoff. Totals are split into A/B Over and Under records.</p>}
+    {sport === "NCAAM" && <p className="nbaSmall">Live Model Plays count grades saved before tipoff. Spreads include A/B Favorite and Underdog records; totals include A/B Over and Under records.</p>}
     <div className="nbaRecordGrid"><RecordCard label={sport === "NCAAM" ? "Live Model Plays" : "Model Plays"} totals={models?.[period] || zero} /><RecordCard label="EZPZ Picks" totals={ezpz?.[period] || zero} /></div>
     <GradeRecords models={models} period={period} sport={sport} title="Model records by grade and market" />
     <ModelHistory history={history} sport={sport} title="Recent Model Plays" />

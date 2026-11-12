@@ -29,6 +29,7 @@ const nbaBoard = component('app/NbaBoard.tsx', { 'next/dynamic': { default: load
   './NbaRecords': records, './NbaEzpzPicks': ezpz,
   './NcaamModelDetails': component('app/NcaamModelDetails.tsx'),
   './NcaamMatchupGrade': component('app/NcaamMatchupGrade.tsx'),
+  './NcaamSpreadGrade': component('app/NcaamSpreadGrade.tsx'),
   './TeamLogoName': { MatchupWithLogos: props => props.game } });
 const date = '2026-10-22', time = date + 'T23:00:00Z';
 const keys = ['money', 'move', 'system', 'team', 'model'];
@@ -144,6 +145,22 @@ test('NCAAM factor grades display the selected side, point lean, downgrade and e
   const data={...forecastData,sport:'NCAAM',forecasts:attachNcaamMatchupGrades([forecast],[{'Details JSON':JSON.stringify(grade)}])};
   const html=renderNba('Today’s Model Plays',data);
   for (const text of ['Grade B','Over 236.5','Point-model lean','Under 236.5','Retrospective replay','High total for an Over','Very fast']) assert(html.includes(text),text);
+});
+
+test('NCAAM spread cards explain the projected cover, role and matchup factors', () => {
+  const { attachNcaamSpreadGrades } = require('../lib/ncaamSpreadGrades.ts');
+  const forecast={...pregame,recordId:'ui-spread',spread_grade:'Research',total_grade:'Research',fair_home_spread:-5.5,home_spread_edge:-3,
+    away_rating:{team:'Denver Nuggets',offense:110,defense:100,tempo:71},home_rating:{team:'Oklahoma City Thunder',offense:108,defense:107,tempo:71}};
+  const grade={policy_version:'ncaam-spread-grades-v1',policy_sha256:'a'.repeat(64),forecast_record_id:forecast.recordId,game_id:forecast.gameId,
+    grade:'A',side:'away',projected_side:'away',selection_team:forecast.away_team,line:8.5,home_line:-8.5,fair_home_spread:-5.5,projected_margin:-5.5,edge:3,
+    role:'Underdog',reason:'Strong national defense with projection support',record_mode:'live',as_of:forecast.lockedAt,tipoff:forecast.tipoff,
+    published_at:forecast.lockedAt,benchmark_observed_at:forecast.lockedAt,offense_advantage:2,defense_advantage:7,picked_defense_z:-1,mean_tempo_z:0,
+    policy:{edge_window:{minimum_inclusive:1,maximum_exclusive:4},A_profiles:[{id:'defense-supported',minimum_edge:2,picked_defense_z_maximum:-1,maximum_opposing_matchup_tempo_z_exclusive:1},{id:'three-factor-confluence',minimum_edge:3}],B_profile:{minimum_edge:1}}};
+  const data={...forecastData,sport:'NCAAM',forecasts:attachNcaamSpreadGrades([forecast],[{'Details JSON':JSON.stringify(grade)}])};
+  const html=renderNba('Today’s Model Plays',data);
+  for(const text of ['Grade A','Denver Nuggets +8.5','Spread matchup grade','Underdog','cover edge 3.00 points','Offense advantage','Defense advantage','National average','Spread A'])assert(html.includes(text),text);
+  assert.equal((html.match(/aria-label="Spread forecast"/g)||[]).length,1);
+  assert.equal((html.match(/aria-label="Total forecast"/g)||[]).length,0);
 });
 
 test('NBA Full Slate includes scheduled games without a forecast, their actual scores and captured market lines', () => {
