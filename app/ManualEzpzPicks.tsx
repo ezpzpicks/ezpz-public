@@ -7,6 +7,7 @@ type Pick = {
   market: string; selection: string; line: number | string | null;
   odds: string | null; gameTime: string; approvedAt: string;
   pickCategory: "manual"; pickLabel: "EZPZ PICK"; eligibleForPosting: boolean;
+  selectedBy: "Ryan";
   notes?: string;
 };
 
@@ -56,7 +57,7 @@ export default function ManualEzpzPicks({ sport }: { sport: string }) {
           throw new Error("The approved-pick feed is unavailable.");
         }
         if (!controller.signal.aborted) setPicks(data.picks.filter(
-          (pick: Pick) => pick.pickCategory === "manual" && pick.pickLabel === "EZPZ PICK"));
+          (pick: Pick) => pick.pickCategory === "manual" && pick.pickLabel === "EZPZ PICK" && pick.selectedBy === "Ryan"));
       } catch {
         if (!controller.signal.aborted) setError("Could not verify official manual selections. No candidate picks will be substituted.");
       } finally {
@@ -72,7 +73,7 @@ export default function ManualEzpzPicks({ sport }: { sport: string }) {
 
   return <section className="fs-board ep-board" aria-label={`${sport} manually approved EZPZ Picks`}>
     <div className="fs-heading ep-heading"><h2>{sport} EZPZ Picks</h2></div>
-    <p className="fs-notice">Official picks are selected manually after comparing ChatGPT and Muse research. Models, signals, and situation rules are research only and never automatically become EZPZ Picks.</p>
+    <p className="fs-notice">Official picks are selected by Ryan and posted here when he sends them in.</p>
     <div className="fs-toolbar">
       <span>{loading ? "Checking approved picks…" : error ? "Approval feed unavailable" : `${visible.length} officially approved ${visible.length === 1 ? "pick" : "picks"}`}</span>
       <label className="fs-date">Slate{" "}
@@ -85,7 +86,7 @@ export default function ManualEzpzPicks({ sport }: { sport: string }) {
       : loading ? <div className="fs-empty">Loading approved picks…</div>
       : visible.length ? <div className="fs-games">
         {visible.map(pick => <article key={pick.id} className="fs-game fs-official-pick">
-          <div className="fs-game-status"><strong>🎯 EZPZ PICK</strong><span>Manually approved</span></div>
+          <div className="fs-game-status"><strong>🎯 EZPZ PICK</strong><span>Selected by Ryan</span></div>
           <h3>{pick.selection}</h3>
           <p>{pick.game}</p>
           <div className="fs-summary-signals">
@@ -93,8 +94,8 @@ export default function ManualEzpzPicks({ sport }: { sport: string }) {
             <span className="fs-count">{readableDate(pick.date)} · {readableTime(pick.gameTime)}</span>
             {pick.odds ? <span className="fs-count">{pick.odds}</span> : null}
           </div>
-          {pick.notes ? <p className="fs-notice">{pick.notes}</p> : null}
+          {/* Approval notes remain in the ledger; the card shows Ryan’s selection. */}
         </article>)}
-      </div> : <div className="fs-empty">No official {sport} picks were manually approved for {readableDate(selectedDate)}. Research recommendations and signal matches remain separate until explicitly selected.</div>}
+      </div> : <div className="fs-empty">No official {sport} picks were manually approved for {readableDate(selectedDate)}. Picks appear here after Ryan selects them.</div>}
   </section>;
 }

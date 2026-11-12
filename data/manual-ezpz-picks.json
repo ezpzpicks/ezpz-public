@@ -1,6 +1,6 @@
 {
-  "schemaVersion": 1,
-  "policy": "Only plays explicitly approved by ChatGPT after comparison with Muse and user review may be official EZPZ Picks. Signals, models, situations and Top 5 research lists are never automatically promoted.",
+  "schemaVersion": 2,
+  "policy": "Only plays explicitly selected by Ryan and manually recorded by ChatGPT may be official EZPZ Picks. ChatGPT/Muse research or comparison is not required. Signals, models, situations and research lists are never automatically promoted.",
   "effectiveDate": "2026-11-12",
   "picks": [
     {
@@ -18,7 +18,8 @@
       "reviewedWithMuse": true,
       "status": "approved",
       "notes": "Manually selected after ChatGPT/Muse research and user review.",
-      "result": "PENDING"
+      "result": "PENDING",
+      "selectedBy": "Ryan"
     },
     {
       "id": "manual_20261112_ncaam_umes_rhodeisland_spread_ri_minus22p5",
@@ -35,7 +36,8 @@
       "reviewedWithMuse": true,
       "status": "approved",
       "notes": "Manually selected after ChatGPT/Muse research and user review.",
-      "result": "PENDING"
+      "result": "PENDING",
+      "selectedBy": "Ryan"
     },
     {
       "id": "manual_20261112_ncaam_okstate_tamu_spread_okstate_plus8p5",
@@ -52,7 +54,8 @@
       "reviewedWithMuse": true,
       "status": "approved",
       "notes": "Manually selected after ChatGPT/Muse research and user review.",
-      "result": "PENDING"
+      "result": "PENDING",
+      "selectedBy": "Ryan"
     },
     {
       "id": "manual_20261112_ncaaf_memphis_usf_total_over50p5",
@@ -69,7 +72,8 @@
       "reviewedWithMuse": true,
       "status": "approved",
       "notes": "Manually selected after ChatGPT/Muse research and user review.",
-      "result": "PENDING"
+      "result": "PENDING",
+      "selectedBy": "Ryan"
     },
     {
       "id": "manual_20261112_ncaam_nmstate_utep_spread_nmsu_plus5p5",
@@ -86,7 +90,8 @@
       "reviewedWithMuse": true,
       "status": "approved",
       "notes": "Manually selected after ChatGPT/Muse research and user review.",
-      "result": "PENDING"
+      "result": "PENDING",
+      "selectedBy": "Ryan"
     },
     {
       "id": "manual_20261112_ncaam_ucr_sjsu_spread_ucr_plus8p5",
@@ -103,7 +108,8 @@
       "reviewedWithMuse": true,
       "status": "approved",
       "notes": "Manually selected after ChatGPT/Muse research and user review.",
-      "result": "PENDING"
+      "result": "PENDING",
+      "selectedBy": "Ryan"
     }
   ]
 }

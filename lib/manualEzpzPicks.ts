@@ -3,9 +3,9 @@
  *
  * An approved row is intentionally a Git-reviewed, manually entered decision.
  * Research shortlists, model grades, signals and situation rules cannot write
- * to this manifest. A pick is official only after ChatGPT and the user choose
- * it following comparison with Muse; editing the manifest is the explicit
- * approval action. Historical automatic signal ledgers remain untouched.
+ * to this manifest. Ryan alone chooses official picks; ChatGPT records his
+ * explicit selections here and publishes them. No research comparison is an
+ * approval requirement. Historical automatic signal ledgers remain untouched.
  */
 import manifest from "../data/manual-ezpz-picks.json";
 import type { McpSport } from "./ezpzMcpPicks";
@@ -24,7 +24,8 @@ export type ManualApprovedPick = {
   odds: string | null;
   approvedAt: string;
   approvedBy: "ChatGPT";
-  reviewedWithMuse: true;
+  selectedBy: "Ryan";
+  reviewedWithMuse?: boolean; // Historical context only; never an approval requirement.
   status: "approved";
   notes?: string;
   result?: "W" | "L" | "P" | "VOID" | "PENDING";
@@ -63,7 +64,7 @@ export function getApprovedManualPicks(sport?: McpSport, date?: string, now = Da
       || !game || !market || !selection || numericLine === undefined
       || !Number.isFinite(gameTime) || !Number.isFinite(approvedAt)
       || easternDate(gameTime) !== selectedDate || approvedAt > gameTime || approvedAt > now
-      || row.status !== "approved" || row.approvedBy !== "ChatGPT" || row.reviewedWithMuse !== true) continue;
+      || row.status !== "approved" || row.approvedBy !== "ChatGPT" || row.selectedBy !== "Ryan") continue;
     if (row.odds !== null && row.odds !== undefined && typeof row.odds !== "string") continue;
     const result = String(row.result || "PENDING").toUpperCase();
     if (!["W", "L", "P", "VOID", "PENDING"].includes(result)) continue;
@@ -78,7 +79,8 @@ export function getApprovedManualPicks(sport?: McpSport, date?: string, now = Da
       market, selection, line: numericLine,
       odds: row.odds == null ? null : String(row.odds),
       approvedAt: new Date(approvedAt).toISOString(),
-      approvedBy: "ChatGPT", reviewedWithMuse: true, status: "approved",
+      approvedBy: "ChatGPT", selectedBy: "Ryan", status: "approved",
+      ...(typeof row.reviewedWithMuse === "boolean" ? { reviewedWithMuse: row.reviewedWithMuse } : {}),
       ...(typeof row.notes === "string" && row.notes.trim() ? { notes: row.notes.trim() } : {}),
       result: result as ManualApprovedPick["result"],
       ...(result !== "PENDING" ? { netUnits: row.netUnits as number, resultSource: String(row.resultSource) } : {}),
@@ -92,6 +94,6 @@ export function manualPickForMcp(pick: ManualApprovedPick) {
   return {
     ...pick, gameKey: pick.id, pickCategory: "manual" as const,
     snapshotStatus: "FINAL_PREGAME" as const, lockedAt: pick.approvedAt,
-    selected: true, result: "", source: "chatgpt-muse-reviewed-manual-approval",
+    selected: true, result: "", source: "ryan-selected-manual-approval",
   };
 }
