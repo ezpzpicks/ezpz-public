@@ -1,3 +1,23 @@
+# EZPZ Picks — manual approval policy (effective November 12, 2026)
+
+**Current policy:** A research recommendation is NOT an EZPZ PICK, even if it qualifies for every model, signal or situation rule. Only the exact plays that ChatGPT explicitly approves after comparing independent ChatGPT and Muse research, and discussing the best selections with the user, may be called **EZPZ PICK**. Research jobs and automated selectors must never insert official rows.
+
+## Official approval workflow
+
+1. ChatGPT independently researches each sport and freezes its shortlist, then compares the actual Muse report when available. The user and ChatGPT deliberately choose the official wagers; overlapping picks are corroboration, not automatic inclusion.
+2. ChatGPT manually commits each chosen selection to `data/manual-ezpz-picks.json` in GitHub. This is the only new official approval source. Every row requires a unique `manual_...` ID, `sport` (MLB/NFL/NCAAF/NBA/NCAAM), Eastern `date`, full `game`, unambiguous `market`, exact `selection` and `line`, optional `odds`, ISO `gameTime`, ISO `approvedAt` before kickoff, `approvedBy: "ChatGPT"`, `reviewedWithMuse: true`, and `status: "approved"`. No unapproved or post-start entries. The manifest starts empty: previously selected automatic signal plays are not backfilled.
+3. The website's EZPZ Picks tab and `GET /api/ezpz-picks?sport=SPORT` display ONLY manifest-approved plays, regardless of automatic model/signal eligibility. `/api/ezpz-results` and official record totals are also manual-only from November 12 onward, while prior dates retain separately labeled legacy history.
+4. The site's existing sport snapshot cron checks the manual manifest and emits `ezpz.pick.finalized` ONLY for eligible approved pregame rows. The Buffer automation must re-fetch `get_finalized_pick` and require `pickCategory=manual`, `pickLabel=EZPZ PICK`, `snapshotStatus=FINAL_PREGAME`, `eligibleForPosting=true`; it must reject old auto-signal events. Deduplicate all Buffer statuses/threads before posting. Keep existing EZPZPICKS X formatting. Actual posting support depends on the event subscription's sport list; any unsupported NCAAM event requires a direct verified Buffer post after approval until its subscription is expanded.
+5. After settlement, ChatGPT may manually enter `result` (W/L/P/VOID), `netUnits` and `resultSource` on the same approved row. Until verified, it remains pending; never invent a result.
+
+Signals, play types, Full Slate projections, and their historical research ledgers continue to operate **as research tools** and must not be renamed or conflated with the post-November-12 official record.
+
+---
+
+## Historical connection documentation (pre-November-12 signal-selector policy only)
+
+The following is archived operating context for historical signal/trend data. Its statements about automatic official selection, signal-pick category, qualification thresholds and publishing eligibility no longer govern NEW EZPZ Picks.
+
 # EZPZ Picks connection
 
 This connection exposes the existing public EZPZ Picks feed and the `ezpz.pick.finalized` event. The user's separately connected Buffer account performs publishing. No Buffer API key is stored on the website.

@@ -9,7 +9,8 @@ import { isSignalFeedPick, SIGNAL_EZPZ_EFFECTIVE_DATE } from "./signalPicks";
 import { NFL_EZPZ_POLICY_VERSION } from "./nflEzpzPolicy";
 import { NCAAF_EZPZ_POLICY_VERSION } from "./ncaafEzpzPolicy";
 import { captureEzpzFinalPickEvents } from "./ezpzMcpEvents";
-import { isSelectedTeamTrendPick, isVerifiedFrozenFootballMcpPick } from "./ezpzMcpPicks";
+import { isSelectedTeamTrendPick } from "./ezpzMcpPicks";
+import { getApprovedManualPicks, manualPickForMcp } from "./manualEzpzPicks";
 
 export type EzpzCurrentSport = Extract<TursoSport, "MLB" | "NFL" | "NCAAF" | "NBA" | "NCAAM">;
 
@@ -126,10 +127,9 @@ export async function persistEzpzCurrentPicks(
   await replaceTursoDataset(sport, DATASET, rows, HEADERS);
   // The durable snapshot owns the trigger. Delivery failures must not invalidate a saved pick.
   try {
-    const allPicks = [...picks, ...teamTrendPicks];
-    const eventPicks = sourceStale
-      ? allPicks.filter((pick: AnyRow) => isVerifiedFrozenFootballMcpPick(sport, pick, now))
-      : allPicks;
+    // Do not emit finalized events for automatic signals or trend selections.
+    // Only an explicitly ChatGPT-approved manifest row can trigger Buffer.
+    const eventPicks = getApprovedManualPicks(sport, undefined, now).map(manualPickForMcp);
     const capture = await captureEzpzFinalPickEvents(sport, eventPicks, now);
     console.info("[ezpz-mcp] final-pick capture", { sport, sourceStale, ...capture });
   } catch {

@@ -15,7 +15,7 @@ export type McpTeamRecords = {
 export type McpPick = {
   pickId: string; sport: McpSport; date: string; game: string; market: string;
   selection: string; line: string | number | null; odds: string | null; gameTime: string;
-  pickCategory: "public_bet_trend" | "team_trend" | "signals"; signalCount?: number; threshold?: number; signalNames?: string[]; pickLabel: string; teamTrendScore: number | null;
+  pickCategory: "public_bet_trend" | "team_trend" | "signals" | "manual"; signalCount?: number; threshold?: number; signalNames?: string[]; pickLabel: string; teamTrendScore: number | null;
   selectionMethod?: "combo_score" | "signal_count" | "situation_rule"; ruleId?: string;
   score?: number; scoreThreshold?: number; scoreVersion?: string; selectorVersion?: string;
   teamTrendRecords: McpTeamRecords[] | null;
@@ -33,7 +33,7 @@ export function stablePickId(sport: McpSport, pick: AnyPick): string {
   const identity = [sport, date, game, market, player];
   // Preserve existing public-pick IDs and their delivery ledger. A team decision
   // is independently publishable even for the same game, market and direction.
-  if (pick.pickCategory === "team_trend" || pick.pickCategory === "signals") identity.push(pick.pickCategory);
+  if (pick.pickCategory === "team_trend" || pick.pickCategory === "signals" || pick.pickCategory === "manual") identity.push(pick.pickCategory);
   return `ezpz_${createHash("sha256").update(JSON.stringify(identity)).digest("hex").slice(0,32)}`;
 }
 
@@ -82,19 +82,19 @@ function capturedTeamRecords(pick: AnyPick): McpTeamRecords[] | null {
 }
 
 export function normalizeMcpPick(sport: McpSport, pick: AnyPick, now = Date.now()): McpPick | null {
-  const teamTrend = pick.pickCategory === "team_trend", signalTest = pick.pickCategory === "signals";
-  if (["NBA", "NCAAM"].includes(sport) && !signalTest) return null;
+  const teamTrend = pick.pickCategory === "team_trend", signalTest = pick.pickCategory === "signals", manual = pick.pickCategory === "manual";
+  if (["NBA", "NCAAM"].includes(sport) && !signalTest && !manual) return null;
   if (signalTest && !isSignalFeedPick(pick, sport, now)) return null;
   if (teamTrend && (sport === "MLB" || !isSelectedTeamTrendPick(pick))) return null;
   if (pick.selected === false || (pick.protectionStatus && pick.protectionStatus !== "PASSED")) return null;
   // MLB cards explicitly gate selection; football's feed is already the catalog-selected list.
-  if (sport === "MLB" && (pick.selected !== true || pick.protectionStatus !== "PASSED")) return null;
+  if (sport === "MLB" && !manual && (pick.selected !== true || pick.protectionStatus !== "PASSED")) return null;
   const date = isoDate(pick.date || pick.Date);
   const game = String(pick.game || pick.Game || "").trim();
   const market = String(pick.market || pick.Market || pick.propMarket || "").trim();
   const selection = String(pick.selection || pick.play || pick.Play || "").trim();
   const gameStart = parseGameStart(date, pick.gameTime || pick["Game Time"]);
-  const status = pick.snapshotStatus === "FINAL_PREGAME" ? "FINAL_PREGAME" : "LIVE";
+  const status = (manual || pick.snapshotStatus === "FINAL_PREGAME") ? "FINAL_PREGAME" : "LIVE";
   if (!date || !game || !market || !selection || gameStart == null) return null;
   const frozen = Date.parse(String(teamTrend ? pick.savedAt : pick.lockedAt || pick.frozenAt || ""));
   const result = String(pick.result || pick.Result || "").trim();
@@ -102,7 +102,7 @@ export function normalizeMcpPick(sport: McpSport, pick: AnyPick, now = Date.now(
     pickId: stablePickId(sport, pick), sport, date, game, market, selection,
     line: pick.line ?? pick.propLine ?? null, odds: pick.odds == null || pick.odds === "" ? null : String(pick.odds),
     gameTime: new Date(gameStart).toISOString(),
-    pickCategory: signalTest ? "signals" : teamTrend ? "team_trend" : "public_bet_trend",
+    pickCategory: manual ? "manual" : signalTest ? "signals" : teamTrend ? "team_trend" : "public_bet_trend",
     ...(signalTest ? { signalCount: pick.signalCount, threshold: pick.threshold, selectionMethod: pick.selectionMethod || "signal_count",
       selectorVersion: pick.selectorVersion,
       ...(pick.selectionMethod === "situation_rule" ? { ruleId: pick.ruleId } : {}),
@@ -110,14 +110,14 @@ export function normalizeMcpPick(sport: McpSport, pick: AnyPick, now = Date.now(
       signalNames: pick.signals.filter((s: AnyPick) => s.active && s.available).map((s: AnyPick) => SIGNAL_NAMES[s.key]) } : {}),
     // Retain the integration label/category and stable IDs. selectionMethod
     // identifies the new score policy without breaking existing subscribers.
-    pickLabel: signalTest ? "EZPZ Signal Pick" : teamTrend ? "EZPZ Team Trend" : "EZPZ Public Bet Trend",
+    pickLabel: manual ? "EZPZ PICK" : signalTest ? "EZPZ Signal Pick" : teamTrend ? "EZPZ Team Trend" : "EZPZ Public Bet Trend",
     teamTrendScore: teamTrend ? pick.teamTrendScore.score : null,
     teamTrendRecords: teamTrend ? capturedTeamRecords(pick) : null,
-    pickType: signalTest ? pick.selectionMethod === "combo_score" ? `Combo score ${Number(pick.score).toFixed(1)}/100 (minimum ${pick.scoreThreshold})`
+    pickType: manual ? "Manually approved after ChatGPT and Muse comparison" : signalTest ? pick.selectionMethod === "combo_score" ? `Combo score ${Number(pick.score).toFixed(1)}/100 (minimum ${pick.scoreThreshold})`
       : pick.selectionMethod === "situation_rule" ? String(pick.qualification) : `${pick.signalCount} signals: ${pick.qualification}` : teamTrend ? `Team Trend (score >= ${pick.threshold}/100)`
       : String(pick.tier || pick.trendTier || pick.bestPlayType || pick.source || "").trim(),
     // Team records used by the score are not the strategy's last seven bets.
-    lastSeven: teamTrend || signalTest ? null : lastSeven(pick), snapshotStatus: status,
+    lastSeven: manual || teamTrend || signalTest ? null : lastSeven(pick), snapshotStatus: status,
     finalizedAt: status === "FINAL_PREGAME" && Number.isFinite(frozen) ? new Date(frozen).toISOString() : null,
     eligibleForPosting: status === "FINAL_PREGAME" && gameStart > now && (!Number.isFinite(frozen) || frozen <= now)
       && !/^(?:W|L|P|WIN|LOSS|PUSH|WON|LOST)$/i.test(result),
