@@ -15,8 +15,8 @@ export type McpTeamRecords = {
 export type McpPick = {
   pickId: string; sport: McpSport; date: string; game: string; market: string;
   selection: string; line: string | number | null; odds: string | null; gameTime: string;
-  pickCategory: "public_bet_trend" | "team_trend" | "signals"; signalCount?: number; threshold?: number; signalNames?: string[]; pickLabel: string; teamTrendScore: number | null;
-  selectionMethod?: "combo_score" | "signal_count" | "situation_rule"; ruleId?: string;
+  pickCategory: "public_bet_trend" | "team_trend" | "signals" | "manual"; signalCount?: number; threshold?: number; signalNames?: string[]; pickLabel: string; teamTrendScore: number | null;
+  selectionMethod?: "combo_score" | "signal_count" | "situation_rule" | "manual_review"; ruleId?: string;
   score?: number; scoreThreshold?: number; scoreVersion?: string; selectorVersion?: string;
   teamTrendRecords: McpTeamRecords[] | null;
   pickType: string; lastSeven: { record: string; wins: number; losses: number; pushes: number; totalBets: number } | null;
