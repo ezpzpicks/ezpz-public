@@ -27,6 +27,9 @@ export type ManualApprovedPick = {
   reviewedWithMuse: true;
   status: "approved";
   notes?: string;
+  result?: "W" | "L" | "P" | "VOID" | "PENDING";
+  netUnits?: number;
+  resultSource?: string;
 };
 
 const SPORTS = new Set<string>(["MLB", "NFL", "NCAAF", "NBA", "NCAAM"]);
@@ -62,6 +65,12 @@ export function getApprovedManualPicks(sport?: McpSport, date?: string, now = Da
       || easternDate(gameTime) !== selectedDate || approvedAt > gameTime || approvedAt > now
       || row.status !== "approved" || row.approvedBy !== "ChatGPT" || row.reviewedWithMuse !== true) continue;
     if (row.odds !== null && row.odds !== undefined && typeof row.odds !== "string") continue;
+    const result = String(row.result || "PENDING").toUpperCase();
+    if (!["W", "L", "P", "VOID", "PENDING"].includes(result)) continue;
+    if (result !== "PENDING" && (typeof row.netUnits !== "number" || !Number.isFinite(row.netUnits)
+      || (result === "W" && row.netUnits <= 0) || (result === "L" && row.netUnits !== -1)
+      || (["P", "VOID"].includes(result) && row.netUnits !== 0)
+      || typeof row.resultSource !== "string" || !row.resultSource.trim())) continue;
     used.add(id);
     const pick: ManualApprovedPick = {
       id, sport: selectedSport as McpSport, date: selectedDate,
@@ -71,6 +80,8 @@ export function getApprovedManualPicks(sport?: McpSport, date?: string, now = Da
       approvedAt: new Date(approvedAt).toISOString(),
       approvedBy: "ChatGPT", reviewedWithMuse: true, status: "approved",
       ...(typeof row.notes === "string" && row.notes.trim() ? { notes: row.notes.trim() } : {}),
+      result: result as ManualApprovedPick["result"],
+      ...(result !== "PENDING" ? { netUnits: row.netUnits as number, resultSource: String(row.resultSource) } : {}),
     };
     if ((!sport || pick.sport === sport) && (!date || pick.date === date)) output.push(pick);
   }
