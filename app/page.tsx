@@ -7,6 +7,7 @@ import FullSlateHistory from "./FullSlateHistory";
 import dynamic from "next/dynamic";
 const SignalResearch = dynamic(() => import("./FootballSignalsBoard").then(module => module.SignalResearch));
 const SignalEzpzPicks = dynamic(() => import("./FootballSignalsBoard"), { loading: () => <div className="empty">Loading EZPZ Picks…</div> });
+const ManualEzpzPicks = dynamic(() => import("./ManualEzpzPicks"), { loading: () => <div className="empty">Loading official picks…</div> });
 import NbaBoard, { type NbaMarketPayload } from "./NbaBoard";
 import { buildNflEzpzRecords } from "../lib/nflEzpzRecords";
 import { restoreFootballPublicDisplay } from "../lib/footballPublicDisplay";
@@ -7172,6 +7173,9 @@ export default function Home() {
 
 
   const content = useMemo(() => {
+    // Official selections are independent of the model/signal feed. An outage
+    // in projections must never cause automatic candidates to appear as picks.
+    if (active === "EZPZ Picks") return <ManualEzpzPicks sport={activeSport} />;
     if (error && !data) {
       return (
         <div className="error">
@@ -7185,8 +7189,8 @@ export default function Home() {
     }
     if (!data) return <LoadingState />;
 
-    if (active === "Signals" || active === "EZPZ Picks") {
-      return <SignalEzpzPicks key={`${activeSport}-${active}`} board={signalBoard} picksOnly={active === "EZPZ Picks"} sport={activeSport} selectedDate={signalDate} onDateChange={setSelectedSignalDate} lineups={activeSport === "NBA" ? data.nbaMarket?.lineups : activeSport === "NCAAM" ? data.ncaamMarket?.lineups : undefined} />;
+    if (active === "Signals") {
+      return <SignalEzpzPicks key={`${activeSport}-${active}`} board={signalBoard} picksOnly={false} sport={activeSport} selectedDate={signalDate} onDateChange={setSelectedSignalDate} lineups={activeSport === "NBA" ? data.nbaMarket?.lineups : activeSport === "NCAAM" ? data.ncaamMarket?.lineups : undefined} />;
     }
 
     if (activeSport === "NCAAM" && data.ncaamMarket) return <NbaBoard tab={active} data={data.ncaamMarket} />;
