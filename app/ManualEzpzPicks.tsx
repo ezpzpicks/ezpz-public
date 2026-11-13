@@ -72,8 +72,7 @@ export default function ManualEzpzPicks({ sport }: { sport: string }) {
   const visible = useMemo(() => picks.filter(pick => pick.date === selectedDate), [picks, selectedDate]);
 
   return <section className="fs-board ep-board" aria-label={`${sport} manually approved EZPZ Picks`}>
-    <div className="fs-heading ep-heading"><h2>{sport} EZPZ Picks</h2></div>
-    <p className="fs-notice">Official picks are selected by Ryan and posted here when he sends them in.</p>
+    <div className="fs-heading ep-heading"><h2>EZPZ Picks</h2></div>
     <div className="fs-toolbar">
       <span>{loading ? "Checking approved picks…" : error ? "Approval feed unavailable" : `${visible.length} officially approved ${visible.length === 1 ? "pick" : "picks"}`}</span>
       <label className="fs-date">Slate{" "}
