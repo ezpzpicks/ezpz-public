@@ -1,5 +1,7 @@
 "use client";
 
+import { ncaafMatchupRecordSummary } from "../lib/ncaafMatchupFactors";
+
 import { useMemo, useState } from "react";
 import FootballBoardBase from "./FootballBoardBase";
 import FootballGameTabs from "./FootballGameTabs";
@@ -528,6 +530,7 @@ function FootballRecords({ sport, data }: { sport: Sport; data: FootballData }) 
   const overallRows = data.recordSummary || [];
   const last7Rows = data.last7RecordSummary || [];
   const trackerRows = data.betTrackerRows || [];
+  const matchupRecords = sport === "NCAAF" ? ncaafMatchupRecordSummary(trackerRows, data.today || "") : null;
   const last7BetRows = sport === "NFL" ? lastSevenModelBetRecordRows(trackerRows, sport) : [];
   const nflEzpz = data.ezpzRecords || (sport === "NFL" ? buildNflEzpzRecords(data.aiPickRecordRows || [], data.today || "") : null);
   const ezpzRows = sport === "NFL" ? [] : footballEzpzHistoryRows(data, sport);
@@ -538,6 +541,7 @@ function FootballRecords({ sport, data }: { sport: Sport; data: FootballData }) 
   return (
     <>
       <section className="footballCanonicalRecords">
+        {matchupRecords ? <><div className="sectionHead"><div><h2>NCAAF SP+ Matchup Model</h2><p className="nbaSmall">Provisional grades · New results tracked separately from the earlier model</p></div></div><div className="qualifiedGrid"><RecordTile label="SP+ Matchup Model - Running Total" value={matchupRecords.overall} /><RecordTile label="SP+ Matchup Model - Last 7 Days" value={matchupRecords.last7Days} /></div></> : null}
         <div className="sectionHead"><div><h2>{sport} Model Play Records</h2></div></div>
         <div className="qualifiedGrid">
           <RecordTile label="Model Plays - Last 7 Days" value={last7} />

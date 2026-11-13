@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { MatchupWithLogos, SelectionWithTeamLogo, TeamLogoName } from "./TeamLogoName";
 import FootballModelFormBadges from "./FootballModelFormBadges";
+import NcaafModelDetails from "./NcaafModelDetails";
 
 type Sport = "NFL" | "NCAAF";
 type Tab = "Today’s Model Plays" | "Full Slate";
@@ -31,6 +32,7 @@ type Play = {
   formRecord?: string;
   formTotalBets?: number;
   formType?: string;
+  gradingPolicyVersion?: string;
 };
 
 type Split = {
@@ -356,6 +358,7 @@ function FullSlateCard({ row, sport }: { row: SheetRow; sport: Sport }) {
           <small>Model probability {probability(row["Total Probability"])}</small>
         </div>
       </div>
+      {sport === "NCAAF" ? <NcaafModelDetails row={row} /> : null}
     </div>
   );
 }
@@ -404,7 +407,7 @@ function ModelPlayRow({ play, sport, data }: { play: Play; sport: Sport; data: F
       </div>
       {sport === "NCAAF" && !isProp ? (
         <FootballModelFormBadges
-          rows={data.betTrackerRows || []}
+          rows={(data.betTrackerRows || []).filter(row => !play.gradingPolicyVersion || row["Grading Policy Version"] === play.gradingPolicyVersion)}
           today={data.today}
           grade={play.playType}
           market={play.role || play.playType}
@@ -486,7 +489,7 @@ export default function FootballGameTabs({ sport, tab, data }: { sport: Sport; t
       ) : (
         groups.length ? <div className="fgtStack">{groups.map((group, groupIndex) => <details className="fgtGame fgtModelGame" key={`${teamKey(playTeams(group.plays[0]).away, sport)}-${teamKey(playTeams(group.plays[0]).home, sport)}-${groupIndex}`}>
           <GameSummary sport={sport} game={group.game} time={group.time} count={group.plays.length} noun={group.plays.length === 1 ? "play" : "plays"} />
-          <div className="fgtModelBody">{group.plays.map((play, index) => <ModelPlayRow key={`${play.play}-${play.playerName}-${play.propMarket}-${index}`} play={play} sport={sport} data={data} />)}</div>
+          <div className="fgtModelBody">{group.plays.map((play, index) => <ModelPlayRow key={`${play.play}-${play.playerName}-${play.propMarket}-${index}`} play={play} sport={sport} data={data} />)}{sport === "NCAAF" && group.row ? <NcaafModelDetails row={group.row} /> : null}</div>
         </details>)}</div> : <div className="fgtEmpty">No graded {sport} Model Plays are saved for {data.today || "today"}.</div>
       )}
 
