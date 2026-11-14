@@ -15,6 +15,7 @@ import { buildSignalResearchDays, buildSignalResearchReport, mergeSignalResearch
 import { attachComboScores, comboPickPolicy, validComboFinalWindow, type ComboScore } from "./comboScore";
 import { situationMarketQuotes, usesSituationRules, type SituationPolicy, type SituationQuote } from "./situationRules";
 import { quoteImpliedProbability, regradeModelQuote } from "./modelSignalQuote";
+import { ncaafMatchupQuoteReview } from "./ncaafMatchupFactors";
 import { evaluateSignalMovement, type SignalMovement } from "./signalMovement";
 import { nflConsolidatedSignals, nflGroupCategoryMatches } from "./nflConsolidatedTrends";
 import { replayNflConsolidatedSignals } from "./nflConsolidatedResearch";
@@ -147,15 +148,18 @@ function modelFor(play: AnyRow, sport: SignalSport, core: AnyRow, asOf: number) 
   const future = Number.isFinite(builtAt) && (builtAt > asOf || builtAt >= kickoff);
   const pending = slate?.["Build Phase"] === "early" || /pending pregame/i.test(grade);
   const delta = modelLine == null || current == null ? 0 : play.market === "Spread" || selected === "Under" ? current - modelLine : modelLine - current;
+  const matchupPolicy = sport === "NCAAF" ? String(slate?.["Grading Policy Version"] || "") : "";
+  const matchupValidation = matchupPolicy.startsWith("ncaaf-sp-matchup-")
+    ? ncaafMatchupQuoteReview(slate || {}, play.market, current ?? NaN, selected, asOf) : undefined;
   const regraded = found && !future && !pending && modelLine != null && current != null && edge != null
-    ? regradeModelQuote({ sport, market: play.market, side: selected, version, savedLine: modelLine, line: current,
+    ? regradeModelQuote({ sport, market: play.market, side: selected, version, policy: matchupPolicy, matchupValidation, savedLine: modelLine, line: current,
       savedEdge: signalNumber(slate?.[play.market + " Edge"]) ?? edge - delta, savedGrade: grade,
       probability, reliability: signalNumber(slate?.Reliability), confluence: signalNumber(slate?.[play.market + " Confluence"]),
       odds: String(play.odds || "-110") }) : null;
   const currentPrice = quoteImpliedProbability(play.odds || "-110");
   const savedPrice = quoteImpliedProbability(found?.oddsLine || "-110");
   const priceOkay = currentPrice != null && (probability != null ? probability > currentPrice : savedPrice != null && currentPrice <= savedPrice);
-  const active = !future && !pending && (regraded ? regraded.active : Boolean(found && noWorse && priceOkay));
+  const active = !future && !pending && (matchupValidation?.valid ?? true) && (regraded ? regraded.active : Boolean(found && noWorse && priceOkay));
   const changed = Boolean(regraded && (Math.abs(delta) > 1e-9 || regraded.grade !== grade));
   const currentPlay = play.market === "Total" ? `${selected} ${current}`
     : `${String(play.selectionTeam || play.selection || "").replace(/\s+[+−–—-]?\d+(?:\.\d+)?\s*$/, "")} ${signed(current!)}`;
@@ -165,6 +169,7 @@ function modelFor(play: AnyRow, sport: SignalSport, core: AnyRow, asOf: number) 
       ...(regraded ? { regraded: changed, originalPlay: String(found.play), originalGrade: grade, probabilityEstimated: regraded.estimated } : {}),
       reason: future ? "This model build was not available before the signal snapshot; no model signal is counted."
         : pending ? "Morning model preview only. The official pregame model build is pending; no model signal is counted yet."
+        : matchupValidation && !matchupValidation.valid ? matchupValidation.reason
         : regraded ? regraded.reason : found ? !priceOkay ? "The current price does not qualify for the saved model forecast."
         : noWorse ? "Matches an existing qualifying model play at an equal or better line."
         : "The changed line needs a supported model re-evaluation; the saved grade is not carried forward automatically."

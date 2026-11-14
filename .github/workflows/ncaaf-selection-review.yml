@@ -1,0 +1,23 @@
+name: NCAAF selection review checks
+on:
+  pull_request:
+    paths: ['lib/ncaafSelectionReview.ts', 'lib/ncaafMatchupFactors.ts', 'lib/modelSignalQuote.ts', 'lib/footballSignals.ts', 'tests/ncaaf-selection-review.test.cjs', 'tests/fixtures/ncaaf_selection_review.json', '.github/workflows/ncaaf-selection-review.yml']
+  push:
+    branches: [main]
+    paths: ['lib/ncaafSelectionReview.ts', 'lib/ncaafMatchupFactors.ts', 'lib/modelSignalQuote.ts', 'lib/footballSignals.ts', 'tests/ncaaf-selection-review.test.cjs', 'tests/fixtures/ncaaf_selection_review.json', '.github/workflows/ncaaf-selection-review.yml']
+permissions:
+  contents: read
+jobs:
+  selection-review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: node --test tests/ncaaf-selection-review.test.cjs tests/ncaaf-matchup-factors.test.cjs tests/model-signal-quote.test.cjs tests/football-signals.test.cjs tests/football-signals-history.test.cjs tests/ncaaf-ezpz-selection.test.cjs
+      - run: npx tsc --noEmit
+      - run: npm run build

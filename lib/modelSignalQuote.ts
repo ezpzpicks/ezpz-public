@@ -9,6 +9,7 @@ type Quote = {
   side: string;
   version: string;
   policy?: string;
+  matchupValidation?: { valid: boolean; reason: string };
   savedLine: number;
   line: number;
   savedEdge: number;
@@ -48,7 +49,7 @@ export function regradeModelQuote(q: Quote) {
   const delta = q.market === "Spread" || q.side === "Under" ? q.line - q.savedLine : q.savedLine - q.line;
   const edge = q.savedEdge + delta;
   const savedP = q.probability != null && q.probability > 0 && q.probability < 1 ? q.probability : null;
-  let probability = savedP, grade = "", supported = false, estimated = false;
+  let probability = savedP, grade = "", supported = false, estimated = false, policyReason: string | undefined;
   if (![q.savedLine, q.line, q.savedEdge].every(Number.isFinite)) return null;
 
   if (q.sport === "NFL" && /^nfl-v4\.28-/.test(q.version)
@@ -76,9 +77,16 @@ export function regradeModelQuote(q: Quote) {
       probability = modelNormalCdf(edge / sigma);
       estimated = true;
     }
-    const a = edge >= (q.market === "Spread" ? 10 : 6), b = edge >= (q.market === "Spread" ? 8 : 3);
-    grade = q.market === "Spread" && Math.abs(q.line) >= 20 ? "No Play"
-      : a ? `A ${q.market}` : b ? `B ${q.market}` : "No Play";
+    if (q.policy?.startsWith("ncaaf-sp-matchup-")) {
+      grade = q.matchupValidation?.valid && edge > 0 && !(q.market === "Spread" && Math.abs(q.line) >= 20)
+        ? q.savedGrade : "No Play";
+      policyReason = !q.matchupValidation?.valid ? q.matchupValidation?.reason || "Saved SP+ matchup validation is unavailable"
+        : edge <= 0 ? "The point projection no longer supports this side" : undefined;
+    } else {
+      const a = edge >= (q.market === "Spread" ? 10 : 6), b = edge >= (q.market === "Spread" ? 8 : 3);
+      grade = q.market === "Spread" && Math.abs(q.line) >= 20 ? "No Play"
+        : a ? `A ${q.market}` : b ? `B ${q.market}` : "No Play";
+    }
   } else if (q.sport === "NBA" && (q.policy === "shared-market-grade-nba-validation-normal-v1"
       || q.version.startsWith("nba-v0.5-market-grades-2026-10-22"))) {
     supported = true;
@@ -92,8 +100,8 @@ export function regradeModelQuote(q: Quote) {
   const implied = quoteImpliedProbability(q.odds);
   const priceOkay = implied != null && probability != null && probability > implied;
   return { active: qualifying && priceOkay, grade, edge, probability, estimated,
-    reason: implied == null ? "The current price is unavailable; no model signal is counted."
+    reason: policyReason ?? (implied == null ? "The current price is unavailable; no model signal is counted."
       : qualifying && !priceOkay ? "The current price no longer has positive expected value; no model signal is counted."
       : qualifying ? "Re-evaluated the saved forecast at this line and price; it still meets the model's qualifying requirements."
-      : "Re-evaluated the saved forecast at this line; it no longer meets the model's qualifying requirements." };
+      : "Re-evaluated the saved forecast at this line; it no longer meets the model's qualifying requirements.") };
 }
