@@ -2,6 +2,7 @@ import { MatchupWithLogos, SelectionWithTeamLogo } from "./TeamLogoName";
 import FootballModelFormBadges from "./FootballModelFormBadges";
 import NcaafModelDetails from "./NcaafModelDetails";
 import { ncaafMatchupContext, type NcaafMatchupContext } from "../lib/ncaafMatchupFactors";
+import { modelFactorLabel } from "../lib/modelFactorLabels";
 
 type Row = Record<string, string>;
 type Play = { playType?: string; play?: string; role?: string; marketOdds?: string; oddsLine?: string;
@@ -55,8 +56,7 @@ function MatchupGrade({ context, market, row }: { context: NcaafMatchupContext; 
       {([factors.away, factors.home]).map(team => <section key={team.team}><h5>{team.team}</h5>
         <dl className="nbaMetrics">{(["offense", "defense", "tempo"] as const).map(metric => {
           const z = (team[metric] - factors.national[metric].mean) / factors.national[metric].sd;
-          const label = Math.abs(z) < .5 ? "Near national average" : metric === "tempo" ? z > 0 ? "Fast" : "Slow"
-            : metric === "defense" ? z > 0 ? "Weak defense" : "Good defense" : z > 0 ? "Strong offense" : "Weak offense";
+          const label = modelFactorLabel(z, metric);
           return <div key={metric}><dt>{metric === "tempo" ? "Tempo" : `Adjusted ${metric}`}</dt><dd>{label}</dd></div>;
         })}</dl>
       </section>)}

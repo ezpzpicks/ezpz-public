@@ -1,14 +1,5 @@
 import type { NcaamMatchupGrade as MatchupGrade } from "../lib/ncaamMatchupGrades";
-
-function factor(value: number, metric: string, extreme: number, veryExtreme: number) {
-  if (!Number.isFinite(value)) return "Unavailable";
-  const strength = Math.abs(value) >= veryExtreme ? "Very " : "";
-  const label = metric === "tempo" ? value > 0 ? "fast" : "slow"
-    : metric === "defense" ? value > 0 ? "weak defense" : "good defense"
-    : value > 0 ? "strong offense" : "weak offense";
-  return Math.abs(value) < .001 ? "National average" : Math.abs(value) >= extreme ? `${strength}${label}`
-    : `${value > 0 ? "Above" : "Below"} average${metric === "defense" ? value > 0 ? " (weaker)" : " (better)" : ""}`;
-}
+import { modelFactorLabel as factor } from "../lib/modelFactorLabels";
 
 export default function NcaamMatchupGrade({ grade, away, home }: { grade: MatchupGrade; away: string; home: string }) {
   const direction = grade.side ? grade.directions[grade.side] : null;
