@@ -1,10 +1,12 @@
 /** Validate captured spread grades and re-evaluate quotes using saved factors. */
+import { NcaamSelectionReview, ncaamSpreadReviewReasons, validSelectionReview } from "./ncaamSelectionReview";
 export const NCAAM_SPREAD_GRADE_TAB = "ncaam_matchup_spread_grades";
 export type NcaamSpreadPolicy = {
   edge_window: { minimum_inclusive: number; maximum_exclusive: number };
   A_profiles: { id: string; minimum_edge: number; picked_defense_z_maximum?: number;
     maximum_opposing_matchup_tempo_z_exclusive?: number }[];
   B_profile: { minimum_edge: number };
+  selection_review?: NcaamSelectionReview;
 };
 export type NcaamSpreadGrade = {
   policy_version: string; policy_sha256: string; policy: NcaamSpreadPolicy;
@@ -15,11 +17,13 @@ export type NcaamSpreadGrade = {
   role: "Favorite" | "Underdog" | "Pickem"; reason: string; profile_id?: string | null;
   matched_profiles?: string[]; offense_advantage: number; defense_advantage: number; picked_defense_z: number;
   mean_tempo_z: number; tempo_support_z: number; benchmark_observed_at?: string;
+  z?: Record<string, Record<string, number>>;
 };
 type Row = Record<string, any>;
 const time = (v: unknown) => Date.parse(String(v || ""));
 const rounded = (v: number) => Math.round(v * 1e8) / 1e8;
 function validPolicy(p: NcaamSpreadPolicy | undefined): p is NcaamSpreadPolicy {
+  if (!validSelectionReview(p?.selection_review)) return false;
   const low = p?.edge_window?.minimum_inclusive, high = p?.edge_window?.maximum_exclusive;
   if (typeof low !== "number" || typeof high !== "number" || !Number.isFinite(low) || !Number.isFinite(high)
     || !(low > 0 && low < high && high <= 100) || !Array.isArray(p?.A_profiles) || p.A_profiles.length !== 2
@@ -40,6 +44,12 @@ export function ncaamSpreadQuote(g: NcaamSpreadGrade, line: number) {
   const low = policy?.edge_window?.minimum_inclusive, high = policy?.edge_window?.maximum_exclusive;
   if (![line, edge, low, high].every(Number.isFinite) || !(low > 0 && high > low)
     || edge < low || edge >= high) return { grade: "Research", edge, role, reason: `Projected cover edge is outside ${low} to under ${high} points` };
+  // Recheck price-sensitive preferences at the offered quote, using the saved
+  // pregame factors. A line move must not bypass the builder's exclusions.
+  if (policy.selection_review?.enabled) {
+    const reasons = ncaamSpreadReviewReasons(g.z, g.projected_side, line, policy.selection_review);
+    if (reasons.length) return { grade: "Research", edge, role, reason: reasons.join("; ") };
+  }
   const profiles = policy.A_profiles || [];
   const defense = profiles.find(p => p.id === "defense-supported"), confluence = profiles.find(p => p.id === "three-factor-confluence");
   if (defense && edge >= defense.minimum_edge && g.picked_defense_z <= Number(defense.picked_defense_z_maximum)
