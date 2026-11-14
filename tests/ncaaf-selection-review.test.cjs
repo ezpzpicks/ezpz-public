@@ -57,6 +57,24 @@ test('historical v1 captured factors remain readable and separate from v2 record
   assert.equal(factors.ncaafMatchupRecordSummary([{...row,Grade:'B Spread',Result:'Win','Bet Type':'Spread'}], '2026-11-13').overall.totalBets, 0);
 });
 
+test('current candidates use base grades while old decisions keep their captured policy', () => {
+  const c = pick('houston'), row = { ...c.row, 'Grading Policy Version': factors.NCAAF_MATCHUP_POLICY };
+  for (const key of ['Matchup Spread JSON', 'Matchup Total JSON']) {
+    const g = JSON.parse(row[key]); g.policy_version = factors.NCAAF_MATCHUP_POLICY;
+    delete g.selection_review_policy; delete g.selection_review; row[key] = JSON.stringify(g);
+  }
+  const clock = Date.parse(c.spread.kickoff) - 900000;
+  assert.ok(factors.ncaafMatchupContext(row));
+  assert.equal(factors.ncaafMatchupQuoteReview(row, 'Spread', -11.6, 'houston', clock).valid, true);
+  assert.equal(factors.ncaafMatchupQuoteReview(row, 'Spread', -20, 'houston', clock).valid, false);
+  assert.equal(factors.ncaafMatchupQuoteReview(row, 'Spread', -8.5, 'houston', Date.parse(c.spread.kickoff)).valid, false);
+  const records = factors.ncaafMatchupRecordSummary([
+    { ...c.row, Grade: 'B Spread', Result: 'Win', 'Bet Type': 'Spread' },
+    { ...row, 'Game ID': 'new-game', Grade: 'B Spread', Result: 'Loss', 'Bet Type': 'Spread' },
+  ], row.Date);
+  assert.equal(records.overall.record, '1-1-0');
+});
+
 test('the football signals flow cannot bypass the Houston ceiling at a favorable price', () => {
   const signals = load(path.join(__dirname, '../lib/footballSignals.ts'));
   const c = pick('houston'), r = c.row, now = Date.parse(c.spread.kickoff) - 900000;

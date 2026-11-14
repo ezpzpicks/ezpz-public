@@ -3,8 +3,10 @@ import { footballTeamKey } from "./footballTeamTrends";
 import { ncaafSpreadReviewReasons, ncaafTotalReviewReasons, validNcaafSelectionReview,
   type NcaafSelectionReview, type NcaafFactorsZ } from "./ncaafSelectionReview";
 
-export const NCAAF_MATCHUP_POLICY = "ncaaf-sp-matchup-2026-11-13-v2";
-const MATCHUP_POLICIES = new Set(["ncaaf-sp-matchup-2026-11-13-v1", NCAAF_MATCHUP_POLICY]);
+export const NCAAF_MATCHUP_POLICY = "ncaaf-sp-matchup-2026-11-14-v3";
+const REVIEWED_MATCHUP_POLICY = "ncaaf-sp-matchup-2026-11-13-v2";
+const RECORD_POLICIES = new Set([REVIEWED_MATCHUP_POLICY, NCAAF_MATCHUP_POLICY]);
+const MATCHUP_POLICIES = new Set(["ncaaf-sp-matchup-2026-11-13-v1", ...RECORD_POLICIES]);
 type Benchmark = { mean: number; sd: number; teams: number };
 type Rating = { team: string; offense: number; defense: number; tempo: number; plays?: number; possessions?: number };
 type Grade = { grade: "A" | "B" | "Research"; reason: string; as_of: string; kickoff: string;
@@ -74,7 +76,9 @@ export function ncaafMatchupQuoteReview(row: SheetRow, market: "Spread" | "Total
   } else if ((g.side !== "Over" && g.side !== "Under") || g.side !== selection
     || !finite(g.projected_total) || (g.side === "Over" ? g.projected_total <= line : g.projected_total >= line))
     return fail("Point projection does not support this total side");
-  if (g.policy_version === NCAAF_MATCHUP_POLICY) {
+  // Retain historical preference checks only for captures made under that
+  // policy. Current candidates use the underlying SP+ matchup grades.
+  if (g.policy_version === REVIEWED_MATCHUP_POLICY) {
     const p = g.selection_review_policy;
     if (!validNcaafSelectionReview(p)) return fail("Saved NCAAF selection preferences are unavailable");
     const reasons = market === "Spread" ? ncaafSpreadReviewReasons(z, g.side as "home" | "away", line, p)
@@ -88,7 +92,7 @@ export function ncaafMatchupQuoteReview(row: SheetRow, market: "Spread" | "Total
 export function ncaafMatchupRecordSummary(rows: SheetRow[], today: string) {
   const seen = new Set<string>();
   const selected = rows.filter(row => {
-    if (row["Grading Policy Version"] !== NCAAF_MATCHUP_POLICY || !/^[AB] (Spread|Total)$/.test(row.Grade || "")
+    if (!RECORD_POLICIES.has(row["Grading Policy Version"]) || !/^[AB] (Spread|Total)$/.test(row.Grade || "")
       || !/^(Win|Loss|Push|W|L|P)$/i.test(row.Result || "")) return false;
     const market = String(row["Bet Type"] || row.Market || "").toLowerCase();
     if (!["spread", "total"].includes(market) || !row["Game ID"] || !row.Date) return false;
