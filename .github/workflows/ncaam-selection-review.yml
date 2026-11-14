@@ -1,0 +1,22 @@
+name: NCAAM selection review checks
+on:
+  pull_request:
+    paths: ['lib/ncaamSpreadGrades.ts', 'lib/ncaamSelectionReview.ts', 'scripts/test-ncaam-selection-review.cjs', 'tests/fixtures/ncaam_selection_review.json', '.github/workflows/ncaam-selection-review.yml']
+  push:
+    branches: [main]
+    paths: ['lib/ncaamSpreadGrades.ts', 'lib/ncaamSelectionReview.ts', 'scripts/test-ncaam-selection-review.cjs', 'tests/fixtures/ncaam_selection_review.json', '.github/workflows/ncaam-selection-review.yml']
+permissions:
+  contents: read
+jobs:
+  selection-review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run test:ncaam-selection
+      - run: npx tsc --noEmit
