@@ -48,10 +48,16 @@ function Score({ row, game, actual = false }: { row: Row; game: string; actual?:
 function MatchupGrade({ context, market, row }: { context: NcaafMatchupContext; market: Market; row: Row }) {
   const grade = market === "Spread" ? context.spread : context.total;
   const { factors } = context;
+  const pointEdge = grade.grading_basis === "market_point_edge";
+  const prefix = market === "Spread" ? "spread" : "total";
   return <div className="ncaamGradeDetails">
-    <p className="nbaSmall"><strong>{market === "Spread" ? "Spread matchup grade" : "Matchup grade"}</strong> · Saved before kickoff</p>
+    <p className="nbaSmall"><strong>{pointEdge ? "Point-edge grade" : market === "Spread" ? "Spread matchup grade" : "Matchup grade"}</strong> · Saved before kickoff</p>
     <p className="nbaSmall">{grade.reason}</p>
     <details><summary>{market === "Spread" ? "Projection, offense, defense & tempo" : "Offense, defense & tempo factors"}</summary>
+      {pointEdge ? <>
+        <p className="nbaSmall">A ≥ {grade.thresholds?.[`${prefix}_a_points`]} pts · B ≥ {grade.thresholds?.[`${prefix}_b_points`]} pts. Matchup strength is already included in the projection.</p>
+        <p className="nbaSmall">Input confidence flags: {(grade.confidence_flags || []).join(" · ")}</p>
+      </> : null}
       {market === "Spread" ? <p className="nbaSmall">Projected home margin {signed(row["Projected Margin"])} · Cover edge {decimal(row["Spread Edge"])} points.</p> : null}
       {([factors.away, factors.home]).map(team => <section key={team.team}><h5>{team.team}</h5>
         <dl className="nbaMetrics">{(["offense", "defense", "tempo"] as const).map(metric => {
@@ -60,7 +66,7 @@ function MatchupGrade({ context, market, row }: { context: NcaafMatchupContext; 
           return <div key={metric}><dt>{metric === "tempo" ? "Tempo" : `Adjusted ${metric}`}</dt><dd>{label}</dd></div>;
         })}</dl>
       </section>)}
-      <p className="nbaSmall">Compared with the saved FBS national benchmark. Lower adjusted defense means fewer points allowed. A/B matchup grades require projection agreement and a qualifying saved price.</p>
+      <p className="nbaSmall">Compared with the saved FBS national benchmark. Lower adjusted defense means fewer points allowed. {pointEdge ? "Point grades describe the number; qualifying plays also need a valid market and price." : "A/B matchup grades require projection agreement and a qualifying saved price."}</p>
     </details>
   </div>;
 }
@@ -76,7 +82,10 @@ function ForecastCard({ group, qualifiedOnly = false, tracker, today }: { group:
     const selection = qualifiedOnly ? play?.play || row[`${name} Pick`] : row[`${name} Pick`];
     const result = tracker.find(record => record["Game ID"] && record["Game ID"] === row["Game ID"]
       && record["Bet Type"] === name && record.Selection === selection)?.Result;
-    return [{ name, play, selection, result, grade: gradeLabel(qualifiedOnly ? play?.playType : row[`${name} Grade`]),
+    const savedGrade = name === "Spread" ? context?.spread : context?.total;
+    return [{ name, play, selection, result, grade: gradeLabel(qualifiedOnly ? play?.playType
+        : savedGrade?.grading_basis === "market_point_edge" ? savedGrade.edge_grade : row[`${name} Grade`]),
+      held: savedGrade?.grading_basis === "market_point_edge" && savedGrade.eligible === false,
       model: name === "Spread" ? margin == null ? "—" : signed(-margin) : decimal(row["Projected Total"]),
       line: name === "Spread" ? signed(row["Market Home Spread"]) : decimal(row["Market Total"]),
       edge: numeric(row[`${name} Edge`]), odds: row[`${name} Odds`] || play?.marketOdds || play?.oddsLine || "",
@@ -93,6 +102,7 @@ function ForecastCard({ group, qualifiedOnly = false, tracker, today }: { group:
       <Score row={row} game={group.game} />
       <div className="nbaMarkets">{markets.map(market => <section className="nbaMarketCard" key={market.name} aria-label={`${market.name} forecast`}>
         <div className="nbaMarketHeading"><h4>{market.name}</h4><span className="nbaGrade" data-grade={market.grade}>Grade {market.grade}</span></div>
+        {market.held && market.grade !== "Research" ? <p className="nbaSmall">Projection only · Saved eligibility or price check did not qualify.</p> : null}
         <strong className="nbaSelection"><SelectionWithTeamLogo sport="NCAAF" selection={market.selection || "No market line"} game={group.game} /></strong>
         <dl className="nbaMetrics"><div><dt>{market.name === "Spread" ? "Model home spread" : "Model total"}</dt><dd>{market.model}</dd></div>
           <div><dt>{market.name === "Spread" ? "Market home spread" : "Market total"}</dt><dd>{market.line}</dd></div>

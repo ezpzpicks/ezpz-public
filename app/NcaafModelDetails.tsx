@@ -10,7 +10,7 @@ export default function NcaafModelDetails({ row }: { row: Record<string, string>
   const observed = new Date(factors.observed_at).toLocaleString("en-US", { timeZone: "America/New_York",
     month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
   return <details className="nbaLineups ncaamModelDetails">
-    <summary><span>Model factors & personnel impact</span><span className="nbaLineupStatus">Spread {spread.grade} · Total {total.grade}</span><span className="nbaLineupChevron" aria-hidden="true">⌄</span></summary>
+    <summary><span>Model factors & personnel impact</span><span className="nbaLineupStatus">Spread {spread.edge_grade || spread.grade} · Total {total.edge_grade || total.grade}</span><span className="nbaLineupChevron" aria-hidden="true">⌄</span></summary>
     <div className="nbaLineupBody">
       <p className="nbaSmall">{projection
         ? "Each offense faces the opposing defense to set expected scoring. Matchup tempo scales those scoring opportunities before venue, personnel and weather adjustments."
@@ -28,7 +28,7 @@ export default function NcaafModelDetails({ row }: { row: Record<string, string>
       })}</div>
       <p className="nbaSmall">Higher adjusted offense and lower adjusted defense are better. Tempo combines possessions and plays per game, blending current and previous seasons.</p>
       {projection ? <p className="nbaSmall">Matchup pace ×{projection.tempo_scale.toFixed(2)} relative to the FBS average.</p> : null}
-      <p className="nbaSmall">Provisional matchup support · A/B grades require projection agreement and a qualifying saved price.</p>
+      <p className="nbaSmall">{spread.grading_basis === "market_point_edge" ? "Provisional point-edge grades · Input confidence and price eligibility are separate." : "Provisional matchup support · A/B grades require projection agreement and a qualifying saved price."}</p>
       <p className="nbaLineupSource"><a href={factors.source_url} target="_blank" rel="noreferrer">Bill Connelly SP+ · CFB Update</a> · Inputs captured {observed} ET</p>
     </div>
   </details>;

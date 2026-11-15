@@ -15,7 +15,7 @@ import { buildSignalResearchDays, buildSignalResearchReport, mergeSignalResearch
 import { attachComboScores, comboPickPolicy, validComboFinalWindow, type ComboScore } from "./comboScore";
 import { situationMarketQuotes, usesSituationRules, type SituationPolicy, type SituationQuote } from "./situationRules";
 import { quoteImpliedProbability, regradeModelQuote } from "./modelSignalQuote";
-import { ncaafMatchupQuoteReview } from "./ncaafMatchupFactors";
+import { ncaafMatchupContext, ncaafMatchupQuoteReview } from "./ncaafMatchupFactors";
 import { evaluateSignalMovement, type SignalMovement } from "./signalMovement";
 import { nflConsolidatedSignals, nflGroupCategoryMatches } from "./nflConsolidatedTrends";
 import { replayNflConsolidatedSignals } from "./nflConsolidatedResearch";
@@ -53,7 +53,7 @@ export type FootballSignalSide = {
     openingLine: number | null; openingOdds: string; openingAt?: string; publicChange: number | null; moneyChange: number | null;
     movementBasis: string; movementLabel: string; history: AnyRow[]; movement?: SignalMovement };
   modelContext: { play: string; grade: string; version: string; projection: number | null; probability: number | null; line: number | null; reason: string;
-    regraded?: boolean; originalPlay?: string; originalGrade?: string; probabilityEstimated?: boolean };
+    regraded?: boolean; originalPlay?: string; originalGrade?: string; probabilityEstimated?: boolean; confidenceFlags?: string[] };
   sosContext: { sourceUrl: string; capturedAt: string; teams: { team: string; rank: number; elo: number; opponentRecord: string }[]; gap: number | null };
   result: "W" | "L" | "P" | ""; resultUpdated: string;
   policyVersion?: string; oddsAssumed?: boolean;
@@ -125,6 +125,53 @@ function modelFor(play: AnyRow, sport: SignalSport, core: AnyRow, asOf: number) 
     return selectionKey({ ...model, market: model.role, selection: model.play, selectionTeam: model.play, side: model.play }, sport) === selected;
   });
   const slate = (core.slateToday || []).find((row: AnyRow) => footballTeamGameKey(row, sport) === key);
+  if (sport === "NCAAF" && String(slate?.["Grading Policy Version"] || "").startsWith("ncaaf-sp-edge-")) {
+    const current = signalNumber(play.line), context = ncaafMatchupContext(slate || {});
+    const validation = ncaafMatchupQuoteReview(slate || {}, play.market, current ?? NaN, selected, asOf);
+    const builtAt = Date.parse(String(slate?.["Build Captured At"] || slate?.["Build At"] || ""));
+    const kickoff = Date.parse(nflKickoffIso(play.date, play.gameTime));
+    const future = Number.isFinite(builtAt) && (builtAt > asOf || builtAt >= kickoff);
+    const pending = slate?.["Build Phase"] === "early" || /pending pregame/i.test(String(slate?.[`${play.market} Grade`] || ""));
+    if (!context || current == null || future || pending) return { active: false, available: Boolean(slate), edge: null,
+      context: { play: "", grade: "No Play", version: String(slate?.["Model Version"] || ""),
+        projection: null, line: current, probability: null, reason: future ? "This build was not available before the quote decision."
+          : pending ? "The official pregame model build is pending." : validation.reason } };
+    const g = play.market === "Spread" ? context.spread : context.total;
+    const home = selected === footballTeamKey(context.factors.home.team, "NCAAF");
+    const savedLine = play.market === "Spread" ? (home ? g.home_line : -(g.home_line ?? NaN)) : g.line;
+    const projection = play.market === "Spread" ? (home ? -(g.projected_margin ?? NaN) : g.projected_margin) : g.projected_total;
+    const baseEdge = play.market === "Spread" ? (savedLine ?? NaN) - (projection ?? NaN)
+      : ((projection ?? NaN) - (savedLine ?? NaN)) * (selected === "Over" ? 1 : -1);
+    const savedPick = String(slate?.[`${play.market} Pick`] || "");
+    const sameSide = play.market === "Total" ? savedPick.startsWith(selected + " ")
+      : footballTeamKey(savedPick.replace(/\s+[+−–—-]?\d+(?:\.\d+)?\s*$/, ""), "NCAAF") === selected;
+    const sourceP = signalNumber(slate?.[`${play.market} Probability`]);
+    const probability = sourceP != null ? sameSide ? sourceP : 1-sourceP : null;
+    let residualSd = play.market === "Spread" ? signalNumber(slate?.["Margin Residual SD"]) : null;
+    if (play.market === "Total") {
+      try {
+        const snapshot = JSON.parse(slate?.["Research Snapshot JSON"] || "null");
+        if (snapshot?.captureStatus === "PRE_GAME" && snapshot.gameId === slate?.["Game ID"]
+          && Date.parse(snapshot.capturedAt) <= asOf && Date.parse(snapshot.capturedAt) < Date.parse(g.kickoff))
+          residualSd = signalNumber(snapshot.simulation?.totals_sd);
+      } catch { /* A missing simulation width does not change the point grade. */ }
+    }
+    const regraded = regradeModelQuote({ sport: "NCAAF", market: play.market, side: selected,
+      version: String(slate?.["Model Version"] || ""), policy: slate?.["Grading Policy Version"],
+      matchupValidation: validation, savedLine: savedLine ?? NaN, line: current,
+      savedEdge: baseEdge, savedGrade: String(slate?.[`${play.market} Grade`] || "No Play"),
+      probability, residualSd, odds: String(play.odds || "-110") });
+    const name = home ? context.factors.home.team : context.factors.away.team;
+    const currentPlay = play.market === "Total" ? `${selected} ${current}` : `${name} ${signed(current)}`;
+    return { active: regraded?.active === true, available: true, edge: regraded?.edge ?? null,
+      context: { play: currentPlay, grade: regraded?.grade || "No Play", version: String(slate?.["Model Version"] || ""),
+        projection: projection ?? null, line: current, probability: regraded?.probability ?? null,
+        regraded: Math.abs(current-(savedLine ?? current)) > 1e-9,
+        originalPlay: savedPick, originalGrade: String(slate?.[`${play.market} Grade`] || "No Play"),
+        probabilityEstimated: regraded?.estimated === true,
+        confidenceFlags: "confidenceFlags" in validation ? validation.confidenceFlags : [],
+        reason: regraded?.reason || validation.reason } };
+  }
   const homeProjection = signalNumber(slate?.["Projected Home"] ?? slate?.["Projected Home Score"]);
   const awayProjection = signalNumber(slate?.["Projected Away"] ?? slate?.["Projected Away Score"]);
   const totalProjection = signalNumber(slate?.["Projected Total"]);
@@ -149,7 +196,7 @@ function modelFor(play: AnyRow, sport: SignalSport, core: AnyRow, asOf: number) 
   const pending = slate?.["Build Phase"] === "early" || /pending pregame/i.test(grade);
   const delta = modelLine == null || current == null ? 0 : play.market === "Spread" || selected === "Under" ? current - modelLine : modelLine - current;
   const matchupPolicy = sport === "NCAAF" ? String(slate?.["Grading Policy Version"] || "") : "";
-  const matchupValidation = /^ncaaf-sp-(?:matchup|projection)-/.test(matchupPolicy)
+  const matchupValidation = /^ncaaf-sp-(?:matchup|projection|edge)-/.test(matchupPolicy)
     ? ncaafMatchupQuoteReview(slate || {}, play.market, current ?? NaN, selected, asOf) : undefined;
   const regraded = found && !future && !pending && modelLine != null && current != null && edge != null
     ? regradeModelQuote({ sport, market: play.market, side: selected, version, policy: matchupPolicy, matchupValidation, savedLine: modelLine, line: current,
