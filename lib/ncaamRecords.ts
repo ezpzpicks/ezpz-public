@@ -2,7 +2,7 @@ import { ncaamDate, ncaamTeamKey, settleNcaamForecast } from "./ncaamMarketCore"
 import { signalPickThreshold } from "./signalPicks";
 import { ncaamMatchupGrade } from "./ncaamMatchupGrades";
 import { ncaamSpreadGrade } from "./ncaamSpreadGrades";
-import { NCAAM_POINT_MODEL, NCAAM_POINT_POLICY } from "./ncaamPointEdges";
+import { isNcaamPointModel, NCAAM_POINT_POLICY } from "./ncaamPointEdges";
 
 type Row = Record<string, any>;
 export const NCAAM_MODEL_RECORD_POLICY = "ncaam-matchup-total-records-v2";
@@ -68,7 +68,7 @@ export function ncaamModelPlays(forecasts: Row[], schedule: Row[] = [], now = Da
       source: { observed_at: game!["Result Updated"] }, away: { name: f.away_team, score: away }, home: { name: f.home_team, score: home } }, f.gameId, f.lockedAt) : f;
     return (["Spread", "Total"] as const).flatMap(market => {
       const matchup = market === "Total" ? ncaamMatchupGrade(f) : ncaamSpreadGrade(f);
-      if (f.modelVersion === NCAAM_POINT_MODEL && !matchup) return [];
+      if (isNcaamPointModel(f.modelVersion) && !matchup) return [];
       const prefix = market === "Spread" ? "spread" : "total", grade = String(f[`${prefix}_grade`] || "");
       const selection = String(f[`${prefix}_pick`] || ""), saved = number(market === "Spread" ? f.market?.home_spread : f.market?.total);
       const line = number(selection.match(/\s([+-]?\d+(?:\.\d+)?)\s*$/)?.[1]);

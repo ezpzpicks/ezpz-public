@@ -105,7 +105,7 @@ test('model details expose completed-season weight, opposing efficiencies and co
   assert.match(markup,/0 current-season games/);
   assert.match(markup,/Adjusted defense/);
   assert.match(markup,/If Logan Duncomb is out/);
-  assert.match(markup,/research estimates/);
+  assert.doesNotMatch(markup,/research estimates/);
 });
 
 test('current source ratings and missing player metrics display without invented percentages or zeros', () => {

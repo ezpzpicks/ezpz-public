@@ -3,7 +3,9 @@ import { quoteImpliedProbability } from "./modelSignalQuote";
 import type { NcaamMatchupGrade } from "./ncaamMatchupGrades";
 import type { NcaamSpreadGrade } from "./ncaamSpreadGrades";
 
-export const NCAAM_POINT_MODEL = "ncaam-v0.7-matchup-projection-2026-11-14";
+export const LEGACY_NCAAM_POINT_MODEL = "ncaam-v0.7-matchup-projection-2026-11-14";
+export const NCAAM_POINT_MODEL = "ncaam-v0.8-adjusted-tempo-2026-11-15";
+export const isNcaamPointModel = (value: unknown) => value === NCAAM_POINT_MODEL || value === LEGACY_NCAAM_POINT_MODEL;
 export const NCAAM_POINT_POLICY = "ncaam-point-edge-2026-11-14-v1";
 export type NcaamPointPolicy = { version: string; grading_basis: "market_point_edge";
   thresholds: { spread_a_points: number; spread_b_points: number; total_a_points: number; total_b_points: number;
@@ -12,6 +14,7 @@ export type NcaamPointProjection = { model_version: string; status: string; as_o
   ratings_observed_at: string; ratings_source_url: string; sha256: string; benchmark_sha256: string;
   national_benchmark: { season: number; team_count: number; observed_at: string; metrics: Record<string, { mean: number; sd: number }> };
   team_inputs: Record<"away" | "home", { team: string; offense: number; defense: number; tempo: number }>;
+  tempo_model?: { method: string; national_tempo: number; away_ratio: number; home_ratio: number };
   possessions: number; away_points: number; home_points: number; margin: number; total: number;
   pairings: Record<"away" | "home", { expected_efficiency: number; neutral_points: number }>;
   adjustments: Record<"away" | "home", { player_points: number; home_court_points: number }> };
@@ -31,8 +34,8 @@ function validPolicy(policy: NcaamPointPolicy | undefined): policy is NcaamPoint
 
 export function ncaamPointProjection(f: Row): NcaamPointProjection | null {
   const p = f.matchup_projection as NcaamPointProjection | undefined;
-  if (f.modelVersion !== NCAAM_POINT_MODEL || f.projection_engine !== NCAAM_POINT_MODEL || !p
-    || p.model_version !== NCAAM_POINT_MODEL || p.status !== "provisional" || !hash(p.sha256) || !hash(p.benchmark_sha256)
+  if (!isNcaamPointModel(f.modelVersion) || f.projection_engine !== f.modelVersion || !p
+    || p.model_version !== f.modelVersion || p.status !== "provisional" || !hash(p.sha256) || !hash(p.benchmark_sha256)
     || time(p.as_of) !== time(f.lockedAt) || time(p.tipoff) !== time(f.tipoff)
     || !(time(p.ratings_observed_at) <= time(p.as_of) && time(p.as_of) < time(p.tipoff))
     || time(p.as_of) - time(p.ratings_observed_at) > 30 * 3600000
@@ -54,6 +57,16 @@ export function ncaamPointProjection(f: Row): NcaamPointProjection | null {
       || !finite(p.pairings?.[side]?.expected_efficiency) || !finite(p.pairings?.[side]?.neutral_points)
       || !finite(p.adjustments?.[side]?.player_points) || !finite(p.adjustments?.[side]?.home_court_points)) return null;
   }
+  const a = p.team_inputs.away.tempo, h = p.team_inputs.home.tempo, national = b.metrics.tempo.mean;
+  if (!(national > 45 && national < 95)) return null;
+  const pace = p.model_version === LEGACY_NCAAM_POINT_MODEL ? (a+h)/2 : a*h/national;
+  if (Math.abs(p.possessions-pace) > 1e-7) return null;
+  if (p.model_version === NCAAM_POINT_MODEL) {
+    const tempo = p.tempo_model;
+    if (tempo?.method !== "adjusted-tempo-ratios-v1" || tempo.national_tempo !== national
+      || !finite(tempo.away_ratio) || Math.abs(tempo.away_ratio-a/national) > 1e-7
+      || !finite(tempo.home_ratio) || Math.abs(tempo.home_ratio-h/national) > 1e-7) return null;
+  }
   const quote = time(f.market?.as_of);
   return Number.isFinite(quote) && quote <= time(f.lockedAt) && time(f.lockedAt)-quote <= 90 * 60000 ? p : null;
 }
@@ -65,7 +78,7 @@ export function ncaamPointGrade(f: Row, market: "Spread" | "Total") {
   const p = ncaamPointProjection(f), g = f[market === "Spread" ? "matchup_spread" : "matchup_total"];
   if (!p || !g || g.policy_version !== NCAAM_POINT_POLICY || !validPolicy(g.policy) || !hash(g.policy_sha256)
     || g.forecast_record_id !== f.recordId || String(g.game_id) !== String(f.gameId)
-    || g.projection_model_version !== NCAAM_POINT_MODEL || g.projection_sha256 !== p.sha256
+    || g.projection_model_version !== p.model_version || g.projection_sha256 !== p.sha256
     || g.grading_basis !== "market_point_edge" || !["A", "B", "Research"].includes(g.grade)
     || !["A", "B", "Research"].includes(g.edge_grade) || typeof g.eligible !== "boolean"
     || !Array.isArray(g.confidence_flags) || !g.confidence_flags.every((v: unknown) => typeof v === "string")
