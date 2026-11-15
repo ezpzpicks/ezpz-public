@@ -14,9 +14,8 @@ export type NcaamGame = {
 export const ncaamDate = (now = Date.now()) => new Intl.DateTimeFormat("en-CA", {
   timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit",
 }).format(new Date(now));
-export const ncaamTeamKey = (name: string) => name.toLowerCase().normalize("NFD")
-  .replace(/[\u0300-\u036f]/g, "").replace(/&/g, " and ").replace(/\b(?:saint|state)\b/g, "st")
-  .replace(/[^a-z0-9]+/g, " ").trim();
+export { ncaamTeamKey } from "./ncaamTeamKey";
+import { ncaamTeamKey } from "./ncaamTeamKey";
 export const ncaamRowKey = (row: TursoRow) => [row.Date, row["Game Key"], row.Market, row.Selection].join("|");
 const finite = (value: unknown) => value !== "" && value != null && Number.isFinite(Number(value)) ? Number(value) : null;
 

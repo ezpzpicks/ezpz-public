@@ -1,11 +1,13 @@
 import type { CollegeModelImpact } from "../lib/nbaLineupsCore";
 import type { NcaamMatchupGrade } from "../lib/ncaamMatchupGrades";
 import type { NcaamSpreadGrade } from "../lib/ncaamSpreadGrades";
+import type { NcaamPointProjection } from "../lib/ncaamPointEdges";
 
 type Rating = { team: string; offense: number; defense: number; tempo: number; prior_season?: number; prior_weight?: number;
   games_played?: number | null; d1_games_played?: number | null; source_preseason_prior?: boolean;
   prior_record?: string; prior_competition?: { strength_of_schedule: number | null; opponent_offense: number | null; opponent_defense: number | null } | null };
 export type NcaamModelContext = { away_rating?: Rating; home_rating?: Rating; lineup_adjustment?: CollegeModelImpact | null;
+  matchup_projection?: NcaamPointProjection;
   matchup_total?: NcaamMatchupGrade; matchup_spread?: NcaamSpreadGrade; numeric_total_pick?: string;
   lineup_margin_change?: number; lineup_total_change?: number; baseline_away_score?: number; baseline_home_score?: number;
   availability_scenarios?: { player: string; team: string; homeMarginChange: number; totalChange: number }[] };
@@ -18,6 +20,7 @@ export default function NcaamModelDetails({ forecast }: { forecast: NcaamModelCo
   return <details className="nbaLineups ncaamModelDetails"><summary><span>Model factors & player impact</span><span className="nbaLineupStatus">{badges || "Research"}</span><span className="nbaLineupChevron" aria-hidden="true">⌄</span></summary>
     <div className="nbaLineupBody">
       <p className="nbaSmall">Offensive and defensive efficiencies account for opponent strength, schedule and level of competition. Each offense faces the opposing defense; tempo sets expected possessions.</p>
+      {forecast.matchup_projection ? <p className="nbaSmall">Matchup baseline: {forecast.matchup_projection.possessions.toFixed(1)} possessions · {away.team}: {forecast.matchup_projection.pairings.away.expected_efficiency.toFixed(1)} points per 100 · {home.team}: {forecast.matchup_projection.pairings.home.expected_efficiency.toFixed(1)} points per 100. Home court and player impact are applied once.</p> : null}
       <div className="nbaLineupTeams">{([away, home] as Rating[]).map((rating, index) => {
         const teamImpact = impact?.[index === 0 ? "away" : "home"], competition = rating.prior_competition;
         return <section className="nbaLineupTeam" key={rating.team}><h4>{rating.team}</h4>

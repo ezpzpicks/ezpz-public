@@ -25,11 +25,12 @@ const markets = component('app/FootballTrendMarketBoard.tsx');
 const nba = component('app/NbaPublicSplits.tsx', { './FootballTrendMarketBoard': markets });
 const records = component('app/NbaRecords.tsx', { './FootballTrendMarketBoard': markets });
 const ezpz = component('app/NbaEzpzPicks.tsx', { './FootballSignalsBoard': football });
+const ncaamPointGrade = component('app/NcaamPointGrade.tsx');
 const nbaBoard = component('app/NbaBoard.tsx', { 'next/dynamic': { default: loader => String(loader).includes('NbaRecords') ? records.default : () => null },
   './NbaRecords': records, './NbaEzpzPicks': ezpz,
   './NcaamModelDetails': component('app/NcaamModelDetails.tsx'),
-  './NcaamMatchupGrade': component('app/NcaamMatchupGrade.tsx'),
-  './NcaamSpreadGrade': component('app/NcaamSpreadGrade.tsx'),
+  './NcaamMatchupGrade': component('app/NcaamMatchupGrade.tsx', { './NcaamPointGrade': ncaamPointGrade }),
+  './NcaamSpreadGrade': component('app/NcaamSpreadGrade.tsx', { './NcaamPointGrade': ncaamPointGrade }),
   './TeamLogoName': { MatchupWithLogos: props => props.game } });
 const date = '2026-10-22', time = date + 'T23:00:00Z';
 const keys = ['money', 'move', 'system', 'team', 'model'];

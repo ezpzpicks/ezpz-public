@@ -2,7 +2,7 @@ import { loadNcaamSos } from "./ncaamSos";
 import { readTursoDatasetByDateKeys, runTursoSql, type TursoRow } from "./tursoStore";
 import { saveNcaamMarketRows } from "./ncaamMarketStore";
 import { readNcaamForecasts, readNcaamForecastHistory } from "./ncaamForecasts";
-import { NCAAM_MODEL_RECORD_POLICY, updateNcaamModelRecords } from "./ncaamRecords";
+import { NCAAM_POINT_MODEL_RECORD_POLICY as NCAAM_MODEL_RECORD_POLICY, updateNcaamModelRecords } from "./ncaamRecords";
 import { ncaamDate, ncaamRowKey, normalizeNcaamSlate, type NcaamGame } from "./ncaamMarketCore";
 import { buildNcaamSignals, buildNcaamSignalTests, emptyNcaamAnalysis, mergeNcaamTeamHistory, ncaamSeason, settleNcaamTrendRows, ncaamRowsToPlays, NCAAM_ANALYSIS_VERSION, type NcaamAnalysisState } from "./ncaamAnalysisCore";
 import { buildNcaamTrendLeaderboard, NCAAM_ANALYSIS_TAB, NCAAM_SIGNALS_TAB, NCAAM_TREND_RECORDS_TAB, NCAAM_SIGNALS_POLICY } from "./ncaamTrendLeaderboard";
@@ -101,9 +101,9 @@ export async function refreshNcaamAnalysis(date: string, currentSchedule: TursoR
     // installed. Include their saved final scores in the one-time rollup seed.
     const savedSchedule = await readTursoDatasetByDateKeys("NCAAM", "schedule", historyDates);
     const seedSchedule = [...new Map([...savedSchedule, ...schedule].map(row => [row["Game Key"], row])).values()];
-    state.modelRecords = updateNcaamModelRecords(undefined, history, seedSchedule, now);
+    state.modelRecords = updateNcaamModelRecords(undefined, history, seedSchedule, now, undefined, true);
   }
-  state.modelRecords = updateNcaamModelRecords(state.modelRecords, forecasts.flatMap(([, rows]) => rows), schedule, now, dates);
+  state.modelRecords = updateNcaamModelRecords(state.modelRecords, forecasts.flatMap(([, rows]) => rows), schedule, now, dates, true);
   if (seedResearch) state.signalResearch = { version: SIGNAL_RESEARCH_VERSION, days: buildSignalResearchDays(
     signalDates.flatMap(day => readSavedFootballSignalsForDate(storedSignals, day, now, NCAAM_SIGNALS_POLICY)), NCAAM_SIGNALS_POLICY.version, now) };
   if (consolidationRecords && now >= Date.parse(CONSOLIDATED_SPORT_EFFECTIVE_AT)) {
