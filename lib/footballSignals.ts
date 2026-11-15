@@ -202,6 +202,7 @@ function modelFor(play: AnyRow, sport: SignalSport, core: AnyRow, asOf: number) 
     ? regradeModelQuote({ sport, market: play.market, side: selected, version, policy: matchupPolicy, matchupValidation, savedLine: modelLine, line: current,
       savedEdge: signalNumber(slate?.[play.market + " Edge"]) ?? edge - delta, savedGrade: grade,
       probability, reliability: signalNumber(slate?.Reliability), confluence: signalNumber(slate?.[play.market + " Confluence"]),
+      matchupEdges: slate?.[play.market + " Matchup Edges JSON"],
       odds: String(play.odds || "-110") }) : null;
   const currentPrice = quoteImpliedProbability(play.odds || "-110");
   const savedPrice = quoteImpliedProbability(found?.oddsLine || "-110");
