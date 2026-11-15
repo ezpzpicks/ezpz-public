@@ -4,8 +4,15 @@ import type { NcaamMatchupGrade } from "./ncaamMatchupGrades";
 import type { NcaamSpreadGrade } from "./ncaamSpreadGrades";
 
 export const LEGACY_NCAAM_POINT_MODEL = "ncaam-v0.7-matchup-projection-2026-11-14";
-export const NCAAM_POINT_MODEL = "ncaam-v0.8-adjusted-tempo-2026-11-15";
-export const isNcaamPointModel = (value: unknown) => value === NCAAM_POINT_MODEL || value === LEGACY_NCAAM_POINT_MODEL;
+export const ADJUSTED_TEMPO_NCAAM_POINT_MODEL = "ncaam-v0.8-adjusted-tempo-2026-11-15";
+export const NCAAM_POINT_MODEL = "ncaam-v0.9-progressive-offense-2026-11-15";
+export const isNcaamPointModel = (value: unknown) => value === NCAAM_POINT_MODEL
+  || value === ADJUSTED_TEMPO_NCAAM_POINT_MODEL || value === LEGACY_NCAAM_POINT_MODEL;
+const OFFENSE_BONUS_POLICY = "ncaam-very-strong-offense-progressive-2026-11-15-v1";
+const OFFENSE_BONUS_POINTS = {very_strong:1,strong:3,above_average:5,below_average:8,weak:9,very_weak:10} as const;
+type DefenseBand = keyof typeof OFFENSE_BONUS_POINTS;
+type OffenseBonus = { qualified: boolean; offense_z: number; opponent_defense_z: number;
+  opponent_defense_band: DefenseBand; points: number };
 export const NCAAM_POINT_POLICY = "ncaam-point-edge-2026-11-14-v1";
 export type NcaamPointPolicy = { version: string; grading_basis: "market_point_edge";
   thresholds: { spread_a_points: number; spread_b_points: number; total_a_points: number; total_b_points: number;
@@ -15,9 +22,11 @@ export type NcaamPointProjection = { model_version: string; status: string; as_o
   national_benchmark: { season: number; team_count: number; observed_at: string; metrics: Record<string, { mean: number; sd: number }> };
   team_inputs: Record<"away" | "home", { team: string; offense: number; defense: number; tempo: number }>;
   tempo_model?: { method: string; national_tempo: number; away_ratio: number; home_ratio: number };
+  offense_bonus_policy?: { version: string; status: string; qualifying_offense_z: number;
+    points_by_opponent_defense: Record<DefenseBand, number> };
   possessions: number; away_points: number; home_points: number; margin: number; total: number;
   pairings: Record<"away" | "home", { expected_efficiency: number; neutral_points: number }>;
-  adjustments: Record<"away" | "home", { player_points: number; home_court_points: number }> };
+  adjustments: Record<"away" | "home", { player_points: number; home_court_points: number; offense_bonus?: OffenseBonus }> };
 type Row = Record<string, any>;
 const finite = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
 const time = (v: unknown) => typeof v === "string" && /(?:Z|[+-]\d{2}:\d{2})$/.test(v) ? Date.parse(v) : NaN;
@@ -61,11 +70,44 @@ export function ncaamPointProjection(f: Row): NcaamPointProjection | null {
   if (!(national > 45 && national < 95)) return null;
   const pace = p.model_version === LEGACY_NCAAM_POINT_MODEL ? (a+h)/2 : a*h/national;
   if (Math.abs(p.possessions-pace) > 1e-7) return null;
-  if (p.model_version === NCAAM_POINT_MODEL) {
+  if (p.model_version !== LEGACY_NCAAM_POINT_MODEL) {
     const tempo = p.tempo_model;
     if (tempo?.method !== "adjusted-tempo-ratios-v1" || tempo.national_tempo !== national
       || !finite(tempo.away_ratio) || Math.abs(tempo.away_ratio-a/national) > 1e-7
       || !finite(tempo.home_ratio) || Math.abs(tempo.home_ratio-h/national) > 1e-7) return null;
+  }
+  const progressive = p.model_version === NCAAM_POINT_MODEL, policy = p.offense_bonus_policy;
+  if (progressive && (policy?.version !== OFFENSE_BONUS_POLICY || policy.status !== "experimental"
+    || policy.qualifying_offense_z !== 1.5 || !policy.points_by_opponent_defense
+    || Object.keys(policy.points_by_opponent_defense).length !== 6
+    || (Object.keys(OFFENSE_BONUS_POINTS) as DefenseBand[]).some(k => policy.points_by_opponent_defense[k] !== OFFENSE_BONUS_POINTS[k]))) return null;
+  if (!progressive && policy !== undefined) return null;
+  for (const side of ["away", "home"] as const) {
+    const other = side === "away" ? "home" : "away", input = p.team_inputs[side], opponent = p.team_inputs[other];
+    const adj = p.adjustments[side], pair = p.pairings[side];
+    const offenseZ = (input.offense-b.metrics.offense.mean)/b.metrics.offense.sd;
+    const defenseZ = (opponent.defense-b.metrics.defense.mean)/b.metrics.defense.sd;
+    const band: DefenseBand = defenseZ <= -1.5 ? "very_strong" : defenseZ <= -1 ? "strong"
+      : defenseZ < 0 ? "above_average" : defenseZ < 1 ? "below_average" : defenseZ < 1.5 ? "weak" : "very_weak";
+    const bonus = progressive && offenseZ >= 1.5 ? OFFENSE_BONUS_POINTS[band] : 0;
+    if (progressive) {
+      const proof = adj.offense_bonus;
+      if (!proof || proof.qualified !== (offenseZ >= 1.5) || proof.opponent_defense_band !== band
+        || !finite(proof.offense_z) || Math.abs(proof.offense_z-offenseZ) > 1e-7
+        || !finite(proof.opponent_defense_z) || Math.abs(proof.opponent_defense_z-defenseZ) > 1e-7
+        || proof.points !== bonus) return null;
+      const offenseDelta = f.lineup_adjustment?.[side]?.offense_change_per_100 ?? 0;
+      const defenseDelta = f.lineup_adjustment?.[other]?.defense_improvement_per_100 ?? 0;
+      if (![offenseDelta,defenseDelta,f.home_court_points].every(finite) || typeof f.neutral_site !== "boolean"
+        || f.home_court_points < 0 || f.home_court_points > 8 || (f.neutral_site && f.home_court_points !== 0)
+        || Math.abs(adj.player_points-pace*(offenseDelta-defenseDelta)/100) > 1e-7
+        || Math.abs(adj.home_court_points-f.home_court_points/2*(side === "home" ? 1 : -1)) > 1e-7) return null;
+    } else if (adj.offense_bonus !== undefined) return null;
+    const efficiency = (b.metrics.offense.mean+b.metrics.defense.mean)/2
+      +input.offense-b.metrics.offense.mean+opponent.defense-b.metrics.defense.mean;
+    const neutral = pace*efficiency/100;
+    if (Math.abs(pair.expected_efficiency-efficiency) > 1e-7 || Math.abs(pair.neutral_points-neutral) > 1e-7
+      || Math.abs(p[`${side}_points`]-(neutral+adj.player_points+adj.home_court_points+bonus)) > 1e-7) return null;
   }
   const quote = time(f.market?.as_of);
   return Number.isFinite(quote) && quote <= time(f.lockedAt) && time(f.lockedAt)-quote <= 90 * 60000 ? p : null;
