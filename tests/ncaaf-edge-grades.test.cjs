@@ -5,26 +5,26 @@ const prices=load(path.join(__dirname,'../lib/modelSignalQuote.ts'));
 const {fixture,clock}=require('./fixtures/ncaaf-edge-grade.cjs');
 
 test('point grades update at exact boundaries for every market side',()=>{
- const {row}=fixture(api);
- for(const edge of [2.999,3,5.999,6,9]){
-  const expected=edge>=6?'A':edge>=3?'B':'No Play';
-  for(const [market,side,line] of [['Spread','home',edge-10],['Spread','away',edge+10],
+ const {row}=fixture(api,{margin:4,total:60});
+ for(const edge of [3,6,7.999,8,9.999,10,12]){
+  const expected=edge>=10?'A':edge>=8?'B':'No Play';
+  for(const [market,side,line] of [['Spread','home',edge-4],['Spread','away',edge+4],
     ['Total','Over',60-edge],['Total','Under',60+edge]]){
    const g=api.ncaafMatchupQuoteReview(row,market,line,side,clock);
    assert.equal(g.grade,expected==='No Play'?expected:`${expected} ${market}`);
-   assert.equal(g.valid,edge>=3);assert(Math.abs(g.edge-edge)<1e-8);
+   assert.equal(g.valid,edge>=8);assert(Math.abs(g.edge-edge)<1e-8);
   }
  }
 });
 test('previous Research can qualify at a new number and the original side can flip',()=>{
- const {row}=fixture(api,{margin:10,homeLine:-8});
+ const {row}=fixture(api,{margin:4,homeLine:-2});
  assert.equal(JSON.parse(row['Matchup Spread JSON']).grade,'Research');
- assert.equal(api.ncaafMatchupQuoteReview(row,'Spread',-4,'home',clock).grade,'A Spread');
- assert.equal(api.ncaafMatchupQuoteReview(row,'Spread',16,'away',clock).grade,'A Spread');
+ assert.equal(api.ncaafMatchupQuoteReview(row,'Spread',6,'home',clock).grade,'A Spread');
+ assert.equal(api.ncaafMatchupQuoteReview(row,'Spread',14,'away',clock).grade,'A Spread');
  assert.equal(api.ncaafMatchupQuoteReview(row,'Spread',-12,'home',clock).valid,false);
 });
 test('large spreads and clock/source failures remain ineligible independently of edge grade',()=>{
- const {row,p}=fixture(api,{margin:30});
+ const {row,p}=fixture(api,{margin:32});
  const g=api.ncaafMatchupQuoteReview(row,'Spread',-21,'home',clock);
  assert.equal(g.edgeGrade,'A');assert.equal(g.valid,false);
  assert.equal(api.ncaafMatchupQuoteReview(row,'Spread',-4,'other',clock).valid,false);
@@ -35,20 +35,20 @@ test('large spreads and clock/source failures remain ineligible independently of
 test('grade repricing keeps actual odds checks while upgrading/downgrading the numerical tier',()=>{
  const {row}=fixture(api);
  const q={sport:'NCAAF',market:'Spread',side:'home',version:api.NCAAF_PROJECTION_MODEL,policy:api.NCAAF_MATCHUP_POLICY,
-  savedLine:-4,line:-6,savedEdge:6,savedGrade:'A Spread',probability:.65,residualSd:18,odds:'-110'};
+  savedLine:-4,line:-6,savedEdge:10,savedGrade:'A Spread',probability:.75,residualSd:18,odds:'-110'};
  function quote(line,odds='-110'){return prices.regradeModelQuote({...q,line,odds,
   matchupValidation:api.ncaafMatchupQuoteReview(row,'Spread',line,'home',clock)});}
  assert.equal(quote(-6).grade,'B Spread');assert.equal(quote(-6).active,true);
  assert.equal(quote(-8).grade,'No Play');assert.equal(quote(-8).active,false);
  assert.equal(quote(-6,'-500').grade,'B Spread');assert.equal(quote(-6,'-500').active,false);
  assert.equal(prices.regradeModelQuote({...q,matchupValidation:undefined}).active,false);
- assert.equal(prices.regradeModelQuote({...q,version:'old',matchupValidation:{valid:true,grade:'A Spread',edge:6}}).active,false);
+ assert.equal(prices.regradeModelQuote({...q,version:'old',matchupValidation:{valid:true,grade:'A Spread',edge:10}}).active,false);
 });
 test('Research promotions do not require an old A/B pick or invent a price probability',()=>{
- const {row}=fixture(api,{homeLine:-8});
+ const {row}=fixture(api,{homeLine:-12});
  const validation=api.ncaafMatchupQuoteReview(row,'Spread',-4,'home',clock);
  const q={sport:'NCAAF',market:'Spread',side:'home',version:api.NCAAF_PROJECTION_MODEL,policy:api.NCAAF_MATCHUP_POLICY,
-  savedLine:-8,line:-4,savedEdge:2,savedGrade:'No Play',probability:.55,residualSd:18,odds:'-110',matchupValidation:validation};
+  savedLine:-12,line:-4,savedEdge:2,savedGrade:'No Play',probability:.55,residualSd:18,odds:'-110',matchupValidation:validation};
  assert.equal(prices.regradeModelQuote(q).grade,'A Spread');assert.equal(prices.regradeModelQuote(q).active,true);
  assert.equal(prices.regradeModelQuote({...q,probability:null,residualSd:null}).active,false);
 });
@@ -59,11 +59,12 @@ test('confidence flags do not change the numerical point grade; old v4 records s
  assert.equal(g.grade,'A Spread');assert(g.confidenceFlags.includes('Weather unconfirmed'));
  const record={Date:'2026-11-14','Game ID':'1','Bet Type':'Spread',Grade:'A Spread',Result:'Win','Odds/Line':'-110'};
  assert.equal(api.ncaafMatchupRecordSummary([{...record,'Grading Policy Version':'ncaaf-sp-projection-2026-11-14-v4'}],record.Date).overall.totalBets,0);
+ assert.equal(api.ncaafMatchupRecordSummary([{...record,'Grading Policy Version':'ncaaf-sp-edge-2026-11-14-v5'}],record.Date).overall.totalBets,0);
  assert.equal(api.ncaafMatchupRecordSummary([{...record,'Grading Policy Version':api.NCAAF_MATCHUP_POLICY}],record.Date).overall.totalBets,1);
 });
 test('football signals can requalify and flip a side from a saved Research forecast',()=>{
  const signals=load(path.join(__dirname,'../lib/footballSignals.ts'));
- const {row,p}=fixture(api,{homeLine:-8,totalLine:58});
+ const {row,p}=fixture(api,{margin:4,homeLine:-2,totalLine:62});
  function board(homeLine){
   const base={date:row.Date,game:row.Game,gameTime:p.kickoff,awayTeam:'Away',homeTeam:'Home',market:'Spread',odds:'-110',
    snapshotStatus:'LIVE',updatedAt:new Date(clock).toISOString(),betsPct:50,moneyPct:50,openingBetsPct:50,openingMoneyPct:50,movementHistory:[]};
@@ -72,15 +73,15 @@ test('football signals can requalify and flip a side from a saved Research forec
     {...base,selection:'Home',selectionTeam:'Home',side:'Home',line:homeLine,openingLine:homeLine},
     {...base,selection:'Away',selectionTeam:'Away',side:'Away',line:-homeLine,openingLine:-homeLine}]}}).board;
  }
- let sides=board(-4).sides;let home=sides.find(s=>s.side==='home');
+ let sides=board(6).sides;let home=sides.find(s=>s.side==='home');
  assert.equal(home.modelContext.grade,'A Spread');assert.equal(home.signals.find(s=>s.key==='model').active,true);
- sides=board(-16).sides;const away=sides.find(s=>s.side==='away');
+ sides=board(-14).sides;const away=sides.find(s=>s.side==='away');
  assert.equal(away.modelContext.grade,'A Spread');assert.equal(away.signals.find(s=>s.key==='model').active,true);
  assert.equal(sides.find(s=>s.side==='home').signals.find(s=>s.key==='model').active,false);
  row['Build Phase']='early';
- assert.equal(board(-4).sides.find(s=>s.side==='home').signals.find(s=>s.key==='model').active,false);
+ assert.equal(board(6).sides.find(s=>s.side==='home').signals.find(s=>s.key==='model').active,false);
  delete row['Build Phase'];row['Build Captured At']=new Date(clock+60000).toISOString();
- assert.equal(board(-4).sides.find(s=>s.side==='home').signals.find(s=>s.key==='model').active,false);
+ assert.equal(board(6).sides.find(s=>s.side==='home').signals.find(s=>s.key==='model').active,false);
 });
 test('Full Slate shows the numerical edge grade separately from projection-only eligibility and confidence',()=>{
  const fs=require('node:fs'),vm=require('node:vm'),ts=require('typescript'),React=require('react');
@@ -94,7 +95,7 @@ test('Full Slate shows the numerical edge grade separately from projection-only 
    :name.startsWith('../lib/')?load(path.join(__dirname,'../app',name+'.ts')):require(name)});
   return exports;
  }
- const {row,spread}=fixture(api,{margin:30,homeLine:-21});
+ const {row,spread}=fixture(api,{margin:32,homeLine:-21});
  row['Spread Grade']='No Play';row['Matchup Spread JSON']=JSON.stringify({...spread,grade:'Research',eligible:false,
   confidence_flags:['Provisional model','20+ point market spread; projection-only','Weather unconfirmed']});
  const html=render(React.createElement(component('app/NcaafModelBoard.tsx').default,{fullSlate:true,rows:[row],groups:[],tracker:[]}));
@@ -102,4 +103,15 @@ test('Full Slate shows the numerical edge grade separately from projection-only 
  assert(section.includes('Grade A'));assert(section.includes('Projection only'));
  assert(section.includes('Point-edge grade'));assert(section.includes('Weather unconfirmed'));
  assert(html.includes('Matchup strength is already included in the projection.'));
+ assert(html.includes('aria-label="NCAAF play mix"'));assert(html.includes('Full Saturday target: 10–15'));
+ assert(html.includes('1 qualifying play'));assert(html.includes('<dt>Overs</dt><dd>1'));
+ assert(html.includes('<dt>Favorites</dt><dd>0'));
+});
+
+test('archived v5 quotes retain their earlier cutoffs without joining the v6 record',()=>{
+ const {row}=fixture(api,{margin:10,total:60,policy:'ncaaf-sp-edge-2026-11-14-v5',a:6,b:3});
+ assert(api.ncaafMatchupContext(row));
+ assert.equal(api.ncaafMatchupQuoteReview(row,'Spread',-4,'home',clock).grade,'A Spread');
+ assert.equal(api.ncaafMatchupQuoteReview(row,'Spread',-6,'home',clock).grade,'B Spread');
+ assert.equal(api.ncaafModelPlayMix([row],row.Date).capturedGames,0);
 });

@@ -1,7 +1,7 @@
 import { MatchupWithLogos, SelectionWithTeamLogo } from "./TeamLogoName";
 import FootballModelFormBadges from "./FootballModelFormBadges";
 import NcaafModelDetails from "./NcaafModelDetails";
-import { ncaafMatchupContext, NCAAF_PROJECTION_MODEL, type NcaafMatchupContext } from "../lib/ncaafMatchupFactors";
+import { ncaafMatchupContext, ncaafModelPlayMix, NCAAF_PROJECTION_MODEL, type NcaafMatchupContext } from "../lib/ncaafMatchupFactors";
 import { modelFactorLabel } from "../lib/modelFactorLabels";
 
 type Row = Record<string, string>;
@@ -128,8 +128,18 @@ export default function NcaafModelBoard({ fullSlate, rows, groups, tracker = [],
 }) {
   const cards = fullSlate ? rows.map(row => ({ row, game: row.Game || `${row["Away Team"]} @ ${row["Home Team"]}`,
     time: row["Game Time"] || row.Time || row["Start Time"] || row["Game Time ET"] || "", plays: [] })) : groups;
+  const mix = ncaafModelPlayMix(rows, today);
   return <section className="nbaBoard ncaafModelBoard">
     <div className="nbaIntro"><h2>NCAAF {fullSlate ? "Full Slate" : "Model Plays"}</h2></div>
+    {mix.capturedGames > 0 ? <section className="nbaCard ncaafPlayMix" aria-label="NCAAF play mix">
+      <div className="nbaMarketHeading"><h3>Play mix</h3><strong>{mix.total} qualifying {mix.total === 1 ? "play" : "plays"}</strong></div>
+      <p className="nbaSmall">A: {mix.A} · B: {mix.B} · Full Saturday target: 10–15</p>
+      <dl className="nbaMetrics">{([
+        ["Favorites", mix.favorites], ["Underdogs", mix.underdogs], ["Overs", mix.overs], ["Unders", mix.unders],
+      ] as const).map(([label, count]) => <div key={label}><dt>{label}</dt><dd>{count} <small>({mix.total ? Math.round(count / mix.total * 100) : 0}%)</small></dd></div>)}</dl>
+      {mix.pickems || mix.unclassified ? <p className="nbaSmall">Pick’em: {mix.pickems} · Unclassified: {mix.unclassified}</p> : null}
+      <p className="nbaSmall">Forecasts on current tiers: {mix.capturedGames}/{mix.games} games. Categories reflect the qualifying edges.</p>
+    </section> : null}
     {cards.map(group => <ForecastCard key={group.row?.["Game ID"] || group.game} group={group} qualifiedOnly={!fullSlate} tracker={tracker} today={today} />)}
     {!cards.length ? <div className="nbaCard">{fullSlate ? "No NCAAF games have been collected for this date." : "No qualifying A/B Model Plays have been saved for this slate yet."}</div> : null}
   </section>;
