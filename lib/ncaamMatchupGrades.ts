@@ -1,10 +1,13 @@
 /** Read saved factor grades without recomputing them from current ratings. */
+import { ncaamPointGrade, NCAAM_POINT_MODEL, NCAAM_POINT_POLICY, type NcaamPointPolicy } from "./ncaamPointEdges";
 export const NCAAM_MATCHUP_GRADE_TAB = "ncaam_matchup_total_grades";
 export const NCAAM_PROJECTION_AGREEMENT_POLICY = "ncaam-matchup-grades-2026-11-12-v2";
 const PROJECTION_AGREEMENT_GAME_CUTOFF = Date.parse("2026-11-12T05:00:00Z"); // November 12, Eastern time
 export type NcaamMatchupGrade = {
   policy_version: string; policy_sha256: string; forecast_record_id: string; game_id: string;
   grade: "A" | "B" | "Research"; side: "Over" | "Under" | null; line: number; reason: string;
+  grading_basis?: string; edge_grade?: "A" | "B" | "Research"; eligible?: boolean; edge?: number;
+  projected_total?: number; confidence_flags?: string[]; policy?: NcaamPointPolicy;
   record_mode: "live" | "replay"; published_at: string; as_of: string; tipoff: string;
   benchmark_observed_at?: string; benchmark_exact_rating_timestamp?: boolean;
   benchmark_age_hours?: number;
@@ -20,6 +23,8 @@ export type NcaamMatchupGrade = {
 type Row = Record<string, any>;
 const time = (v: unknown) => Date.parse(String(v || ""));
 export function ncaamMatchupGrade(forecast: Row): NcaamMatchupGrade | null {
+  if (forecast.modelVersion === NCAAM_POINT_MODEL || forecast.matchup_total?.policy_version === NCAAM_POINT_POLICY)
+    return ncaamPointGrade(forecast,"Total");
   const g = forecast.matchup_total as NcaamMatchupGrade | undefined;
   if (!g || !String(g.policy_version).startsWith("ncaam-matchup-grades-") || !/^[a-f0-9]{64}$/.test(g.policy_sha256 || "")
     || typeof g.forecast_record_id !== "string" || !g.forecast_record_id || g.forecast_record_id !== forecast.recordId

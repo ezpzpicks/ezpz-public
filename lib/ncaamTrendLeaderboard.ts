@@ -7,6 +7,7 @@ import { buildConsolidatedLeaderboard, visibleConsolidatedBadges } from "./conso
 import { CONSOLIDATED_SPORT_EFFECTIVE_AT } from "./catalog/consolidatedSportCatalog";
 import { ncaamMatchupGrade } from "./ncaamMatchupGrades";
 import { ncaamSpreadGrade, ncaamSpreadQuote, spreadSelection } from "./ncaamSpreadGrades";
+import { ncaamPointQuote, NCAAM_POINT_MODEL } from "./ncaamPointEdges";
 
 type Row = Record<string, any>;
 export const NCAAM_SIGNALS_POLICY = { version: "ncaam-signals-2026-11-01-v1", prefix: "ncaam-signals-", launchAt: "2026-11-01T00:00:00.000Z" };
@@ -44,6 +45,16 @@ export function ncaamModelFor(play: Row, forecasts: Row[], asOf: number) {
     && ncaamTeamKey(f.away_team) === ncaamTeamKey(play.awayTeam) && ncaamTeamKey(f.home_team) === ncaamTeamKey(play.homeTeam)
     && Date.parse(f.tipoff) === Date.parse(play.gameTime)).sort((a, b) => Date.parse(b.lockedAt) - Date.parse(a.lockedAt))[0];
   const line = play.line == null ? null : Number(play.line);
+  if (forecast?.modelVersion === NCAAM_POINT_MODEL) {
+    const quote = ncaamPointQuote(forecast,play.market,selected,line ?? NaN,asOf,String(play.odds || "-110"));
+    const home = selected === ncaamTeamKey(forecast.home_team), key = play.market === "Total" ? "total" : "spread";
+    const currentPlay = line == null ? "" : play.market === "Total" ? `${selected} ${line}`
+      : `${home ? forecast.home_team : forecast.away_team} ${line > 0 ? "+" : ""}${line}`;
+    return {active:quote.active,available:true,edge:quote.edge,context:{play:currentPlay,grade:quote.grade,
+      version:forecast.modelVersion,projection:play.market === "Total" ? forecast.total : home ? forecast.fair_home_spread : -forecast.fair_home_spread,
+      line,probability:null,reason:quote.reason,confidenceFlags:"confidenceFlags" in quote ? quote.confidenceFlags : [],
+      regraded:currentPlay !== forecast[`${key}_pick`],originalPlay:forecast[`${key}_pick`],originalGrade:forecast[`${key}_grade`]}};
+  }
   const spread = forecast && play.market === "Spread" ? ncaamSpreadGrade(forecast) : null;
   if (spread) {
     const published = spread.record_mode === "live" && Date.parse(spread.published_at) <= asOf;

@@ -6,7 +6,7 @@ import { readNcaamForecasts } from "./ncaamForecasts";
 import { ncaamScheduleRows, readNcaamAnalysis, refreshNcaamAnalysis } from "./ncaamAnalysis";
 import { buildNcaamSignals } from "./ncaamAnalysisCore";
 import { NCAAM_SIGNALS_TAB } from "./ncaamTrendLeaderboard";
-import { NCAAM_MODEL_RECORD_POLICY, ncaamEzpzSelections, ncaamModelPlays, ncaamRecordTotals, summarizeNcaamModelRecords, updateNcaamModelRecords } from "./ncaamRecords";
+import { NCAAM_POINT_MODEL_RECORD_POLICY as NCAAM_MODEL_RECORD_POLICY, ncaamEzpzSelections, ncaamModelPlays, ncaamRecordTotals, summarizeNcaamModelRecords, updateNcaamModelRecords } from "./ncaamRecords";
 
 import { loadNcaamSos } from "./ncaamSos";
 
@@ -94,7 +94,7 @@ export async function readNcaamPublicData(date = ncaamDate()) {
     timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit", hour: "numeric", minute: "2-digit", second: "2-digit", timeZoneName: "short",
   }).format(new Date(lastObservation)) : "";
   const savedModels = state.modelRecords?.version === NCAAM_MODEL_RECORD_POLICY ? state.modelRecords : undefined;
-  const modelRecords = summarizeNcaamModelRecords(updateNcaamModelRecords(savedModels, forecasts, games, Date.now(), [date]), date);
+  const modelRecords = summarizeNcaamModelRecords(updateNcaamModelRecords(savedModels, forecasts, games, Date.now(), [date], true), date);
   const modelPlays = ncaamModelPlays(forecasts, games);
   analysis.board = await attachSituationBoard(analysis.board, "NCAAM");
   const official = signalEzpzPayload(analysis.board, "NCAAM", date);
@@ -113,7 +113,7 @@ export async function readNcaamPublicData(date = ncaamDate()) {
     bestPlays: modelPlays, slateToday: games, betTrackerRows: [], trendPlays: analysis.plays, recordSummary: [], last7RecordSummary: [],
     ncaamMarket: { consolidation: state.consolidation, sport: "NCAAM" as const, source: "ScoresAndOdds", date, availableDates: [...new Set([date, ...state.archiveDates])].sort(), games, splits,
       forecasts,
-      modelRecords, modelPlays, ezpzSelections, ezpzRecords, lineups, warrenNolan: sos, modelStatus: "Spread grades combine a 1 to under 4 point cover edge with offense, defense and tempo. Total grades combine matchup factors and market context without a minimum point edge. A/B plays require projection agreement.",
+      modelRecords, modelPlays, ezpzSelections, ezpzRecords, lineups, warrenNolan: sos, modelStatus: "Matchup-led scores; provisional spread tiers A at 7+ and B at 5 to under 7; total tiers A at 10+ and B at 8 to under 10. Confidence flags and price eligibility are separate.",
       trendPlays: analysis.plays, leaderboard: state.leaderboard, signals: analysis.board, stale: analysis.stale,
       refreshPolicy: "30 minutes until 90 minutes before tipoff, then 5 minutes", finalWindow: "10–20 minutes before tipoff" } };
 }

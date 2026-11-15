@@ -1,5 +1,6 @@
 /** Validate captured spread grades and re-evaluate quotes using saved factors. */
 import { NcaamSelectionReview, ncaamSpreadReviewReasons, validSelectionReview } from "./ncaamSelectionReview";
+import { ncaamPointGrade, NCAAM_POINT_MODEL, NCAAM_POINT_POLICY, type NcaamPointPolicy } from "./ncaamPointEdges";
 export const NCAAM_SPREAD_GRADE_TAB = "ncaam_matchup_spread_grades";
 export type NcaamSpreadPolicy = {
   edge_window: { minimum_inclusive: number; maximum_exclusive: number };
@@ -9,9 +10,10 @@ export type NcaamSpreadPolicy = {
   selection_review?: NcaamSelectionReview;
 };
 export type NcaamSpreadGrade = {
-  policy_version: string; policy_sha256: string; policy: NcaamSpreadPolicy;
+  policy_version: string; policy_sha256: string; policy: NcaamSpreadPolicy | NcaamPointPolicy;
   forecast_record_id: string; game_id: string; as_of: string; tipoff: string; published_at: string;
   record_mode: "live" | "replay"; grade: "A" | "B" | "Research";
+  grading_basis?: string; edge_grade?: "A" | "B" | "Research"; eligible?: boolean; confidence_flags?: string[];
   side: "away" | "home" | null; projected_side: "away" | "home" | null; selection_team: string | null;
   line: number; home_line: number; fair_home_spread: number; projected_margin: number; edge: number;
   role: "Favorite" | "Underdog" | "Pickem"; reason: string; profile_id?: string | null;
@@ -22,7 +24,8 @@ export type NcaamSpreadGrade = {
 type Row = Record<string, any>;
 const time = (v: unknown) => Date.parse(String(v || ""));
 const rounded = (v: number) => Math.round(v * 1e8) / 1e8;
-function validPolicy(p: NcaamSpreadPolicy | undefined): p is NcaamSpreadPolicy {
+function validPolicy(p: NcaamSpreadPolicy | NcaamPointPolicy | undefined): p is NcaamSpreadPolicy {
+  if (!p || "grading_basis" in p) return false;
   if (!validSelectionReview(p?.selection_review)) return false;
   const low = p?.edge_window?.minimum_inclusive, high = p?.edge_window?.maximum_exclusive;
   if (typeof low !== "number" || typeof high !== "number" || !Number.isFinite(low) || !Number.isFinite(high)
@@ -39,6 +42,13 @@ export const spreadSelection = (g: NcaamSpreadGrade) => g.selection_team
 export function ncaamSpreadQuote(g: NcaamSpreadGrade, line: number) {
   const edge = rounded(g.projected_margin + line), policy = g.policy;
   const role = line < 0 ? "Favorite" : line > 0 ? "Underdog" : "Pickem";
+  if (g.policy_version === NCAAM_POINT_POLICY && "grading_basis" in policy) {
+    const t = policy.thresholds, valid = Number.isFinite(t.spread_a_points) && Number.isFinite(t.spread_b_points)
+      && t.spread_a_points > t.spread_b_points && t.spread_b_points > 0;
+    const grade = valid && Math.abs(line) < t.spread_max_market_line
+      ? edge >= t.spread_a_points ? "A" : edge >= t.spread_b_points ? "B" : "Research" : "Research";
+    return {grade,edge,role,reason:`${edge.toFixed(2)}-point edge at this number`};
+  }
   if (!validPolicy(policy)) return { grade: "Research", edge, role, reason: "Spread grading policy is unavailable" };
   const tempo = role === "Favorite" ? g.mean_tempo_z : role === "Underdog" ? -g.mean_tempo_z : 0;
   const low = policy?.edge_window?.minimum_inclusive, high = policy?.edge_window?.maximum_exclusive;
@@ -63,6 +73,8 @@ export function ncaamSpreadQuote(g: NcaamSpreadGrade, line: number) {
 }
 
 export function ncaamSpreadGrade(f: Row): NcaamSpreadGrade | null {
+  if (f.modelVersion === NCAAM_POINT_MODEL || f.matchup_spread?.policy_version === NCAAM_POINT_POLICY)
+    return ncaamPointGrade(f,"Spread");
   const g = f.matchup_spread as NcaamSpreadGrade | undefined;
   if (!g || typeof g.policy_version !== "string" || !g.policy_version.startsWith("ncaam-spread-grades-") || !/^[a-f0-9]{64}$/.test(g.policy_sha256 || "")
     || !g.forecast_record_id || g.forecast_record_id !== f.recordId || String(g.game_id) !== String(f.gameId)
