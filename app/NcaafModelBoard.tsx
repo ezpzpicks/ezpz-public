@@ -1,7 +1,7 @@
 import { MatchupWithLogos, SelectionWithTeamLogo } from "./TeamLogoName";
 import FootballModelFormBadges from "./FootballModelFormBadges";
 import NcaafModelDetails from "./NcaafModelDetails";
-import { ncaafMatchupContext, type NcaafMatchupContext } from "../lib/ncaafMatchupFactors";
+import { ncaafMatchupContext, NCAAF_PROJECTION_MODEL, type NcaafMatchupContext } from "../lib/ncaafMatchupFactors";
 import { modelFactorLabel } from "../lib/modelFactorLabels";
 
 type Row = Record<string, string>;
@@ -68,6 +68,7 @@ function ForecastCard({ group, qualifiedOnly = false, tracker, today }: { group:
   const row = group.row || {}, pair = teams(row, group.game);
   const hasForecast = numeric(row["Projected Away"]) != null && numeric(row["Projected Home"]) != null;
   const context = ncaafMatchupContext(row);
+  const matchupDriven = row["Projection Engine"] === NCAAF_PROJECTION_MODEL;
   const markets = (["Spread", "Total"] as const).flatMap(name => {
     const play = group.plays.find(candidate => marketOf(candidate) === name);
     if (qualifiedOnly && !play) return [];
@@ -86,6 +87,8 @@ function ForecastCard({ group, qualifiedOnly = false, tracker, today }: { group:
     <h3><MatchupWithLogos sport="NCAAF" game={`${pair.away} @ ${pair.home}`} /></h3>
     <p className="nbaMeta"><time>{time(group.time)}</time><span>{hasForecast || qualifiedOnly ? "Saved forecast" : "Scheduled"}</span>{gameStatus ? <span>{gameStatus}</span> : null}</p>
     {hasForecast || qualifiedOnly ? <>
+      {matchupDriven ? <p className="nbaSmall">SP+ matchup projection · Provisional</p>
+        : row["Projection Engine"] === "legacy_fallback" ? <p className="nbaSmall">Legacy forecast · Matchup inputs unavailable</p> : null}
       <NcaafModelDetails row={row} />
       <Score row={row} game={group.game} />
       <div className="nbaMarkets">{markets.map(market => <section className="nbaMarketCard" key={market.name} aria-label={`${market.name} forecast`}>
@@ -94,7 +97,7 @@ function ForecastCard({ group, qualifiedOnly = false, tracker, today }: { group:
         <dl className="nbaMetrics"><div><dt>{market.name === "Spread" ? "Model home spread" : "Model total"}</dt><dd>{market.model}</dd></div>
           <div><dt>{market.name === "Spread" ? "Market home spread" : "Market total"}</dt><dd>{market.line}</dd></div>
           <div><dt>Edge</dt><dd>{market.edge == null ? "—" : `${Math.abs(market.edge).toFixed(1)} pts`}</dd></div></dl>
-        {market.odds || market.probability != null ? <p className="nbaSmall">{market.odds ? `Odds ${market.odds}` : ""}{market.odds && market.probability != null ? " · " : ""}{market.probability != null ? `Model probability ${(Math.abs(market.probability) <= 1 ? market.probability * 100 : market.probability).toFixed(1)}%` : ""}</p> : null}
+        {market.odds || market.probability != null ? <p className="nbaSmall">{market.odds ? `Odds ${market.odds}` : ""}{market.odds && market.probability != null ? " · " : ""}{market.probability != null ? `${matchupDriven ? "Uncalibrated simulation" : "Model probability"} ${(Math.abs(market.probability) <= 1 ? market.probability * 100 : market.probability).toFixed(1)}%` : ""}</p> : null}
         {context ? <MatchupGrade context={context} market={market.name} row={row} /> : null}
         {qualifiedOnly && market.play ? <FootballModelFormBadges rows={tracker.filter(record => !market.play?.gradingPolicyVersion || record["Grading Policy Version"] === market.play.gradingPolicyVersion)}
           today={today} grade={market.play.playType} market={market.name} selection={market.selection} /> : null}

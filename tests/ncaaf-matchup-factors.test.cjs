@@ -11,9 +11,14 @@ function fixture() {
     pace_source:'SportsDataverse play-by-play', pace_through_week:11,
     national:{offense:{mean:27,sd:7,teams:138},defense:{mean:27,sd:7,teams:138},tempo:{mean:12,sd:1,teams:138}} };
   const g = {grade:'B',reason:'Matchup support',as_of:'2026-11-13T12:01:00Z',published_at:'2026-11-13T12:01:00Z',
-    kickoff:'2026-11-14T01:00:00Z',policy_version:policy,policy_sha256:'b'.repeat(64),source_population_sha256:'a'.repeat(64),record_mode:'live',status:'provisional'};
+    kickoff:'2026-11-14T01:00:00Z',policy_version:policy,policy_sha256:'b'.repeat(64),source_population_sha256:'a'.repeat(64),record_mode:'live',status:'provisional',
+    projected_margin:1,projected_total:55,projection_model_version:api.NCAAF_PROJECTION_MODEL,projection_sha256:'c'.repeat(64)};
+  const projection={model_version:api.NCAAF_PROJECTION_MODEL,status:'provisional',data_as_of:g.as_of,kickoff:g.kickoff,
+    source_population_sha256:f.population_sha256,sha256:'c'.repeat(64),tempo_scale:1,away_points:27,home_points:28,margin:1,total:55,
+    pairings:{away:{pace_adjusted_points:27},home:{pace_adjusted_points:28}}};
   return { row:{Season:'2026','Away Team':'Away','Home Team':'Home','Grading Policy Version':policy,
-    'Matchup Factors JSON':JSON.stringify(f),'Matchup Spread JSON':JSON.stringify(g),'Matchup Total JSON':JSON.stringify(g)}, f,g };
+    'Model Version':api.NCAAF_PROJECTION_MODEL,'Projection Engine':api.NCAAF_PROJECTION_MODEL,'Matchup Projection JSON':JSON.stringify(projection),
+    'Matchup Factors JSON':JSON.stringify(f),'Matchup Spread JSON':JSON.stringify(g),'Matchup Total JSON':JSON.stringify(g)}, f,g,projection };
 }
 test('only captured published SP+ factors with the same teams, season and pregame source identity display',()=>{
   const {row,f,g}=fixture();assert.equal(api.ncaafMatchupContext(row).factors.away.offense,35);
@@ -40,4 +45,17 @@ test('new policy records exclude legacy outcomes, pending decisions, duplicates 
   assert.equal(result.last7Days.record,'1-1-1');assert.equal(legacy.Result,'Loss');
   assert.equal(api.ncaafMatchupRecordSummary(rows,'2026-11-21').last7Days.totalBets,0);
   assert.equal(api.ncaafMatchupRecordSummary([legacy],'2026-11-13').overall.totalBets,0);
+  assert.equal(api.ncaafMatchupRecordSummary([{...base,'Grading Policy Version':'ncaaf-sp-matchup-2026-11-14-v3'}],'2026-11-13').overall.totalBets,0);
+});
+test('new matchup forecasts require matching score provenance; older captures remain readable',()=>{
+  const {row,g,projection}=fixture();
+  assert(api.ncaafMatchupContext(row).projection);
+  for(const patch of [{model_version:'old'},{margin:99},{total:1},{source_population_sha256:'d'.repeat(64)},
+    {data_as_of:g.kickoff},{tempo_scale:0},{sha256:'e'.repeat(64)}])
+    assert.equal(api.ncaafMatchupContext({...row,'Matchup Projection JSON':JSON.stringify({...projection,...patch})}),null);
+  assert.equal(api.ncaafMatchupContext({...row,'Projection Engine':'legacy_fallback'}),null);
+  const old={...g,policy_version:'ncaaf-sp-matchup-2026-11-14-v3'};
+  const legacy={...row,'Grading Policy Version':old.policy_version,'Projection Engine':'','Matchup Projection JSON':'',
+    'Matchup Spread JSON':JSON.stringify(old),'Matchup Total JSON':JSON.stringify(old)};
+  assert(api.ncaafMatchupContext(legacy));assert.equal(api.ncaafMatchupContext(legacy).projection,undefined);
 });

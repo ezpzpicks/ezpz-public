@@ -149,7 +149,7 @@ function modelFor(play: AnyRow, sport: SignalSport, core: AnyRow, asOf: number) 
   const pending = slate?.["Build Phase"] === "early" || /pending pregame/i.test(grade);
   const delta = modelLine == null || current == null ? 0 : play.market === "Spread" || selected === "Under" ? current - modelLine : modelLine - current;
   const matchupPolicy = sport === "NCAAF" ? String(slate?.["Grading Policy Version"] || "") : "";
-  const matchupValidation = matchupPolicy.startsWith("ncaaf-sp-matchup-")
+  const matchupValidation = /^ncaaf-sp-(?:matchup|projection)-/.test(matchupPolicy)
     ? ncaafMatchupQuoteReview(slate || {}, play.market, current ?? NaN, selected, asOf) : undefined;
   const regraded = found && !future && !pending && modelLine != null && current != null && edge != null
     ? regradeModelQuote({ sport, market: play.market, side: selected, version, policy: matchupPolicy, matchupValidation, savedLine: modelLine, line: current,
