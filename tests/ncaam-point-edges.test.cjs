@@ -5,6 +5,7 @@ const totals=load(path.join(__dirname,'../lib/ncaamMatchupGrades.ts'));
 const spreads=load(path.join(__dirname,'../lib/ncaamSpreadGrades.ts'));
 const source=require('./fixtures/ncaam-point-edge-forecast.json');
 const revised=require('./fixtures/ncaam-v08-point-edge-forecast.json');
+const progressive=require('./fixtures/ncaam-v09-point-edge-forecast.json');
 const clock=Date.parse(source.lockedAt)+60000;
 function fixture({homeLine=source.market.home_spread,totalLine=source.market.total,mode='live',odds=-110}={}) {
  const f=structuredClone(source);f.market={...f.market,home_spread:homeLine,total:totalLine,odds};
@@ -35,7 +36,7 @@ test('Python-generated score proof and both point grades pass the existing reade
 test('revised pace proofs and legacy captures remain readable under their own model versions',()=>{
  assert(api.ncaamPointProjection(revised));assert(totals.ncaamMatchupGrade(revised));assert(spreads.ncaamSpreadGrade(revised));
  assert.equal(api.ncaamPointProjection(source).model_version,api.LEGACY_NCAAM_POINT_MODEL);
- assert.equal(api.ncaamPointProjection(revised).model_version,api.NCAAM_POINT_MODEL);
+ assert.equal(api.ncaamPointProjection(revised).model_version,api.ADJUSTED_TEMPO_NCAAM_POINT_MODEL);
  assert.notEqual(source.modelVersion,revised.modelVersion);
  const bad=structuredClone(revised);bad.matchup_projection.possessions+=1;
  assert.equal(api.ncaamPointProjection(bad),null);
@@ -45,6 +46,42 @@ test('revised pace proofs and legacy captures remain readable under their own mo
  assert.equal(totals.ncaamMatchupGrade(wrongVersion),null);
  const badLegacy=structuredClone(source);badLegacy.matchup_projection.possessions+=1;
  assert.equal(api.ncaamPointProjection(badLegacy),null);
+});
+
+test('progressive offense proof adds Michigan eight points and keeps all three model generations readable',()=>{
+ for(const f of [source,revised,progressive]) {
+  assert(api.ncaamPointProjection(f));assert(totals.ncaamMatchupGrade(f));assert(spreads.ncaamSpreadGrade(f));
+ }
+ const p=api.ncaamPointProjection(progressive);
+ assert.equal(p.model_version,api.NCAAM_POINT_MODEL);
+ assert.equal(p.adjustments.home.offense_bonus.points,8);
+ assert.equal(p.adjustments.away.offense_bonus.points,0);
+ assert(Math.abs(p.home_points-99.97467996663356)<1e-7);
+ assert(Math.abs(p.away_points-70.55830148951375)<1e-7);
+ assert(Math.abs(p.total-170.5329814561473)<1e-7);
+ assert.equal(api.ncaamPointQuote(progressive,'Total','Over',p.total-10,Date.parse(progressive.lockedAt)+60000).grade,'A');
+});
+
+test('missing, inflated and misclassified offense bonuses fail the saved-score proof',()=>{
+ const changes=[
+  p=>delete p.offense_bonus_policy,
+  p=>delete p.adjustments.home.offense_bonus,
+  p=>p.offense_bonus_policy.points_by_opponent_defense.below_average=99,
+  p=>p.adjustments.home.offense_bonus.points=16,
+  p=>p.adjustments.home.offense_bonus.qualified=false,
+  p=>p.adjustments.home.offense_bonus.opponent_defense_band='strong',
+  p=>p.adjustments.home.offense_bonus.offense_z+=.1,
+  p=>p.adjustments.away.offense_bonus.points=8,
+ ];
+ for(const change of changes){const bad=structuredClone(progressive);change(bad.matchup_projection);assert.equal(api.ncaamPointProjection(bad),null);}
+ const doubled=structuredClone(progressive),p=doubled.matchup_projection;
+ p.home_points+=8;p.total+=8;p.margin+=8;doubled.total+=8;doubled.fair_home_spread-=8;
+ assert.equal(api.ncaamPointProjection(doubled),null);
+ const downgraded=structuredClone(progressive);
+ downgraded.modelVersion=downgraded.projection_engine=downgraded.matchup_projection.model_version=api.ADJUSTED_TEMPO_NCAAM_POINT_MODEL;
+ delete downgraded.matchup_projection.offense_bonus_policy;
+ for(const s of ['away','home'])delete downgraded.matchup_projection.adjustments[s].offense_bonus;
+ assert.equal(api.ncaamPointProjection(downgraded),null);
 });
 
 test('spread and total quotes use their own exact boundaries for both sides',()=>{
