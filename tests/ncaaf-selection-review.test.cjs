@@ -45,6 +45,10 @@ test('SP+ repricing keeps factor grades instead of restoring the former point-ed
   assert.equal(prices.regradeModelQuote({ ...q, matchupValidation: undefined }).active, false);
   assert.equal(prices.regradeModelQuote({ ...q, line: -11.6, odds: '+150', matchupValidation: { valid: false, reason: 'Ceiling' } }).active, false);
   assert.equal(prices.regradeModelQuote({ ...q, savedGrade: 'No Play' }), null);
+  const next={...q,version:factors.NCAAF_PROJECTION_MODEL,policy:factors.NCAAF_MATCHUP_POLICY};
+  assert.equal(prices.regradeModelQuote(next).grade,'B Spread');
+  assert.equal(prices.regradeModelQuote({...next,matchupValidation:undefined}).active,false);
+  assert.equal(prices.regradeModelQuote({...next,policy:undefined}).active,false);
 });
 
 test('historical v1 captured factors remain readable and separate from v2 records', () => {
@@ -57,10 +61,18 @@ test('historical v1 captured factors remain readable and separate from v2 record
   assert.equal(factors.ncaafMatchupRecordSummary([{...row,Grade:'B Spread',Result:'Win','Bet Type':'Spread'}], '2026-11-13').overall.totalBets, 0);
 });
 
-test('current candidates use base grades while old decisions keep their captured policy', () => {
+test('new projections retain price checks and start a separate record from older point models', () => {
   const c = pick('houston'), row = { ...c.row, 'Grading Policy Version': factors.NCAAF_MATCHUP_POLICY };
+  const model=factors.NCAAF_PROJECTION_MODEL, sha='d'.repeat(64);
+  const total=c.total.projected_total, margin=c.spread.projected_margin;
+  row['Model Version']=model;row['Projection Engine']=model;
+  row['Matchup Projection JSON']=JSON.stringify({model_version:model,status:'provisional',data_as_of:c.spread.as_of,
+    kickoff:c.spread.kickoff,source_population_sha256:c.spread.source_population_sha256,sha256:sha,tempo_scale:1,
+    away_points:(total-margin)/2,home_points:(total+margin)/2,total,margin,
+    pairings:{away:{pace_adjusted_points:20},home:{pace_adjusted_points:30}}});
   for (const key of ['Matchup Spread JSON', 'Matchup Total JSON']) {
     const g = JSON.parse(row[key]); g.policy_version = factors.NCAAF_MATCHUP_POLICY;
+    g.projection_model_version=model;g.projection_sha256=sha;
     delete g.selection_review_policy; delete g.selection_review; row[key] = JSON.stringify(g);
   }
   const clock = Date.parse(c.spread.kickoff) - 900000;
@@ -72,7 +84,7 @@ test('current candidates use base grades while old decisions keep their captured
     { ...c.row, Grade: 'B Spread', Result: 'Win', 'Bet Type': 'Spread' },
     { ...row, 'Game ID': 'new-game', Grade: 'B Spread', Result: 'Loss', 'Bet Type': 'Spread' },
   ], row.Date);
-  assert.equal(records.overall.record, '1-1-0');
+  assert.equal(records.overall.record, '0-1-0');
 });
 
 test('the football signals flow cannot bypass the Houston ceiling at a favorable price', () => {

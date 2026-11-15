@@ -10,11 +10,11 @@ function side(overrides = {}) {
     market: 'Total', side: 'Over', selection: 'Over 220.5', line: 220.5, odds: '-110', signalCount: 2, sourceCount: 2,
     signals: ['move', 'model'].map(key => ({ key, active: true, available: true })), result: '', ...overrides };
 }
-function loader(stubs) {
+function loader(stubs, clock = now) {
   stubs = { './selectionTrialStore': { captureSelectionTrial: async () => {} },
     './matchupContextStore': { captureMatchupContext: async () => {} }, ...stubs };
   const cache = new Map();
-  class Clock extends Date { constructor(...args) { super(...(args.length ? args : [now])); } static now() { return now; } }
+  class Clock extends Date { constructor(...args) { super(...(args.length ? args : [clock])); } static now() { return clock; } }
   function load(file) {
     const filename = path.resolve(root, file);
     if (cache.has(filename)) return cache.get(filename);
@@ -68,27 +68,32 @@ test('the existing NBA analysis job hands off its saved board once, carrying cad
   assert.equal(payloads.length, 1, 'a failed signal save cannot trigger publication');
 });
 
-test('NBA saved-picks API reads only persisted decisions and fails closed for stale/missing snapshots', async () => {
-  let snapshot, writes = 0;
+test('NBA official-picks API reads only approved manual decisions and cannot prime automatic signals', async () => {
+  const manualDate='2026-11-14',clock=Date.parse(manualDate+'T22:46:00Z');
+  const manifest={picks:[{id:'manual_nba_api_test',sport:'NBA',date:manualDate,game:'CLE @ PHI',
+    gameTime:manualDate+'T23:00:00Z',market:'Total',selection:'Over 220.5',line:220.5,odds:'-110',
+    approvedAt:manualDate+'T22:45:00Z',approvedBy:'ChatGPT',selectedBy:'Ryan',status:'approved'}]};
+  let writes = 0;
   const load = loader({
-    '../../../lib/ezpzCurrentPicks': { readEzpzCurrentPicks: async sport => { assert.equal(sport, 'NBA'); return snapshot; },
+    '../data/manual-ezpz-picks.json':{default:manifest},
+    '../../../lib/ezpzCurrentPicks': { readEzpzCurrentPicks: async () => {throw new Error('automatic signals are not official picks');},
       persistEzpzCurrentPicks: async () => { writes++; } },
     '../public-data-v2/route': { GET: async () => { throw new Error('reader must not collect'); } },
     'next/server': { NextResponse: { json: (body, options = {}) => ({ body, status: options.status || 200, headers: options.headers }) } },
-  });
-  const pick = load('lib/signalPicks.ts').signalPickForFeed(side(), 'NBA');
-  snapshot = { date, updatedAt: new Date(now).toISOString(), picks: [pick] };
+  },clock);
   const api = load('app/api/ezpz-picks/route.ts');
   const request = query => ({ nextUrl: new URL('https://example.test/api/ezpz-picks?sport=NBA' + query) });
   const result = await api.GET(request(''));
   assert.equal(result.status, 200); assert.equal(result.body.pickCount, 1);
-  assert.equal(result.body.picks[0].pickCategory, 'signals'); assert.equal(result.body.picks[0].pickLabel, 'EZPZ Signal Pick');
+  assert.equal(result.body.picks[0].pickCategory, 'manual'); assert.equal(result.body.picks[0].pickLabel, 'EZPZ PICK');
   assert.equal(result.body.picks[0].line, 220.5); assert.equal(result.body.picks[0].eligibleForPosting, true);
   assert.equal((await api.GET(request('&prime=1'))).status, 400);
-  snapshot.updatedAt = new Date(now - 21 * 60_000).toISOString();
-  assert.equal((await api.GET(request(''))).status, 503);
-  snapshot = null;
-  assert.equal((await api.GET(request(''))).status, 503);
+  assert.equal((await api.GET(request('&refresh=1'))).status,400);
+  assert.equal(result.body.selectionPolicy,'manually-approved-only');
+  manifest.picks[0].status='research';
+  assert.equal((await api.GET(request(''))).body.pickCount,0);
+  manifest.picks.length=0;
+  assert.equal((await api.GET(request(''))).body.pickCount,0);
   assert.equal(writes, 0);
 });
 

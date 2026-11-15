@@ -68,7 +68,8 @@ export function regradeModelQuote(q: Quote) {
     const b = probability! >= 0.555 && edge >= minimum && q.reliability >= 62 && confluence >= 3;
     grade = q.market === "Spread" ? a ? "A Spread" : b ? "B Spread" : "Non-Edge Spread"
       : a ? `Strong ${q.side}` : b ? q.side : "Non-Edge Total";
-  } else if (q.sport === "NCAAF" && /^cfb-v2\.8(?:\.1)?[-|]/.test(q.version) && savedP != null && savedP > 0.5 && q.savedEdge > 0) {
+  } else if (q.sport === "NCAAF" && (/^cfb-v2\.8(?:\.1)?[-|]/.test(q.version)
+      || q.version.startsWith("cfb-v3.0-sp-matchup-projection-")) && savedP != null && savedP > 0.5 && q.savedEdge > 0) {
     supported = true;
     if (Math.abs(delta) > 1e-9) {
       // CFB's saved probabilities come from its game simulation. Preserve that
@@ -77,11 +78,14 @@ export function regradeModelQuote(q: Quote) {
       probability = modelNormalCdf(edge / sigma);
       estimated = true;
     }
-    if (q.policy?.startsWith("ncaaf-sp-matchup-")) {
+    if (q.policy && /^ncaaf-sp-(?:matchup|projection)-/.test(q.policy)) {
       grade = q.matchupValidation?.valid && edge > 0 && !(q.market === "Spread" && Math.abs(q.line) >= 20)
         ? q.savedGrade : "No Play";
       policyReason = !q.matchupValidation?.valid ? q.matchupValidation?.reason || "Saved SP+ matchup validation is unavailable"
         : edge <= 0 ? "The point projection no longer supports this side" : undefined;
+    } else if (q.version.startsWith("cfb-v3.0-sp-matchup-projection-")) {
+      grade = "No Play";
+      policyReason = "Saved matchup projection policy is unavailable";
     } else {
       const a = edge >= (q.market === "Spread" ? 10 : 6), b = edge >= (q.market === "Spread" ? 8 : 3);
       grade = q.market === "Spread" && Math.abs(q.line) >= 20 ? "No Play"

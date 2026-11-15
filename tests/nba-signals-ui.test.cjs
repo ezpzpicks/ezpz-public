@@ -75,7 +75,7 @@ test('matchup reviews distinguish preliminary leans from frozen selections and a
   for (const text of ['Final snapshot', 'Selected', 'Awaiting result', 'Review frozen at the final snapshot.']) assert(final.includes(text), text);
   assert.doesNotMatch(final, /Pending final snapshot|Current lean/);
   const missed = markup({ ...payload, pendingGames: 0, missedFinalGames: 1, today: [{ ...review, reviewStatus: 'MISSED_FINAL' }] });
-  for (const text of ['Started · Final snapshot unavailable', 'Last pregame lean:', 'outside the paper record', 'Last pregame review retained']) assert(missed.includes(text), text);
+  for (const text of ['Started · Review not finalized', 'Last pregame lean:', 'outside the paper record', 'Last pregame review retained']) assert(missed.includes(text), text);
   assert.doesNotMatch(missed, /Current lean|Awaiting result|Review frozen|>Selected</);
 });
 
