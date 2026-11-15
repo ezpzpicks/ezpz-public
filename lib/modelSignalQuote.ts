@@ -9,7 +9,8 @@ type Quote = {
   side: string;
   version: string;
   policy?: string;
-  matchupValidation?: { valid: boolean; reason: string };
+  matchupValidation?: { valid: boolean; reason: string; grade?: string; edge?: number };
+  residualSd?: number | null;
   savedLine: number;
   line: number;
   savedEdge: number;
@@ -43,14 +44,36 @@ function normalQuantile(p: number) {
 }
 
 export function regradeModelQuote(q: Quote) {
+  const pointEdge = q.sport === "NCAAF" && q.policy?.startsWith("ncaaf-sp-edge-");
   // Retain the original model's non-price gates (FBS eligibility, availability,
   // completeness, etc.). A quote change cannot promote a forecast on hold.
-  if (!/^(?:A|B)(?: |$)/.test(q.savedGrade) && !/^(?:Strong )?(?:Over|Under)$/.test(q.savedGrade)) return null;
+  if (!pointEdge && !/^(?:A|B)(?: |$)/.test(q.savedGrade) && !/^(?:Strong )?(?:Over|Under)$/.test(q.savedGrade)) return null;
   const delta = q.market === "Spread" || q.side === "Under" ? q.line - q.savedLine : q.savedLine - q.line;
   const edge = q.savedEdge + delta;
   const savedP = q.probability != null && q.probability > 0 && q.probability < 1 ? q.probability : null;
   let probability = savedP, grade = "", supported = false, estimated = false, policyReason: string | undefined;
   if (![q.savedLine, q.line, q.savedEdge].every(Number.isFinite)) return null;
+
+  if (pointEdge) {
+    if (!q.version.startsWith("cfb-v3.0-sp-matchup-projection-")) return { active: false, grade: "No Play", edge,
+      probability: null, estimated: false, reason: "Point-edge grades require the saved matchup projection model" };
+    const actualEdge = q.matchupValidation?.edge;
+    if (!Number.isFinite(actualEdge)) return { active: false, grade: "No Play", edge, probability: null,
+      estimated: false, reason: q.matchupValidation?.reason || "Verified point-edge grading is unavailable" };
+    const derived = savedP != null && Math.abs(q.savedEdge) > 1e-8 && Math.abs(savedP-.5) > 1e-8
+      ? q.savedEdge / normalQuantile(savedP) : null;
+    const sigma = q.residualSd != null && Number.isFinite(q.residualSd) && q.residualSd > 0 ? q.residualSd : derived;
+    const moved = Math.abs(delta) > 1e-9;
+    const currentP = moved ? sigma != null && Number.isFinite(sigma) && sigma > 0 ? modelNormalCdf(actualEdge! / sigma) : null : savedP;
+    const currentGrade = q.matchupValidation?.valid ? q.matchupValidation.grade || "No Play" : "No Play";
+    const implied = quoteImpliedProbability(q.odds);
+    const priceOkay = implied != null && currentP != null && currentP > implied;
+    return { active: q.matchupValidation?.valid === true && /^(A|B) /.test(currentGrade) && priceOkay,
+      grade: currentGrade, edge: actualEdge!, probability: currentP, estimated: moved,
+      reason: !q.matchupValidation?.valid ? q.matchupValidation?.reason || "No qualifying point edge"
+        : !priceOkay ? "The saved simulation estimate cannot establish positive value at this price."
+        : q.matchupValidation.reason };
+  }
 
   if (q.sport === "NFL" && /^nfl-v4\.28-/.test(q.version)
       && q.reliability != null && q.confluence != null && savedP != null) {
@@ -78,7 +101,7 @@ export function regradeModelQuote(q: Quote) {
       probability = modelNormalCdf(edge / sigma);
       estimated = true;
     }
-    if (q.policy && /^ncaaf-sp-(?:matchup|projection)-/.test(q.policy)) {
+    if (q.policy && /^ncaaf-sp-(?:matchup|projection|edge)-/.test(q.policy)) {
       grade = q.matchupValidation?.valid && edge > 0 && !(q.market === "Spread" && Math.abs(q.line) >= 20)
         ? q.savedGrade : "No Play";
       policyReason = !q.matchupValidation?.valid ? q.matchupValidation?.reason || "Saved SP+ matchup validation is unavailable"

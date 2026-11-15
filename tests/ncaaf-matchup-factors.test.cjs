@@ -13,6 +13,8 @@ function fixture() {
   const g = {grade:'B',reason:'Matchup support',as_of:'2026-11-13T12:01:00Z',published_at:'2026-11-13T12:01:00Z',
     kickoff:'2026-11-14T01:00:00Z',policy_version:policy,policy_sha256:'b'.repeat(64),source_population_sha256:'a'.repeat(64),record_mode:'live',status:'provisional',
     projected_margin:1,projected_total:55,projection_model_version:api.NCAAF_PROJECTION_MODEL,projection_sha256:'c'.repeat(64)};
+  Object.assign(g,{grading_basis:'market_point_edge',edge_grade:'B',eligible:true,confidence_flags:['Provisional model'],
+    thresholds:{extreme_z:1,spread_max_market_line:20,spread_a_points:6,spread_b_points:3,total_a_points:6,total_b_points:3}});
   const projection={model_version:api.NCAAF_PROJECTION_MODEL,status:'provisional',data_as_of:g.as_of,kickoff:g.kickoff,
     source_population_sha256:f.population_sha256,sha256:'c'.repeat(64),tempo_scale:1,away_points:27,home_points:28,margin:1,total:55,
     pairings:{away:{pace_adjusted_points:27},home:{pace_adjusted_points:28}}};

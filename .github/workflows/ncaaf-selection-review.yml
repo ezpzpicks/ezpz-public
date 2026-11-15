@@ -1,10 +1,10 @@
 name: NCAAF selection review checks
 on:
   pull_request:
-    paths: ['lib/ncaafSelectionReview.ts', 'lib/ncaafMatchupFactors.ts', 'lib/modelSignalQuote.ts', 'lib/footballSignals.ts', 'tests/ncaaf-selection-review.test.cjs', 'tests/fixtures/ncaaf_selection_review.json', '.github/workflows/ncaaf-selection-review.yml']
+    paths: ['lib/ncaafSelectionReview.ts', 'lib/ncaafMatchupFactors.ts', 'lib/modelSignalQuote.ts', 'lib/footballSignals.ts', 'tests/ncaaf-selection-review.test.cjs', 'tests/ncaaf-edge-grades.test.cjs', 'tests/fixtures/ncaaf-edge-grade.cjs', 'tests/fixtures/ncaaf_selection_review.json', '.github/workflows/ncaaf-selection-review.yml']
   push:
     branches: [main]
-    paths: ['lib/ncaafSelectionReview.ts', 'lib/ncaafMatchupFactors.ts', 'lib/modelSignalQuote.ts', 'lib/footballSignals.ts', 'tests/ncaaf-selection-review.test.cjs', 'tests/fixtures/ncaaf_selection_review.json', '.github/workflows/ncaaf-selection-review.yml']
+    paths: ['lib/ncaafSelectionReview.ts', 'lib/ncaafMatchupFactors.ts', 'lib/modelSignalQuote.ts', 'lib/footballSignals.ts', 'tests/ncaaf-selection-review.test.cjs', 'tests/ncaaf-edge-grades.test.cjs', 'tests/fixtures/ncaaf-edge-grade.cjs', 'tests/fixtures/ncaaf_selection_review.json', '.github/workflows/ncaaf-selection-review.yml']
 permissions:
   contents: read
 jobs:
@@ -18,6 +18,6 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci --no-audit --no-fund
-      - run: node --test tests/ncaaf-selection-review.test.cjs tests/ncaaf-matchup-factors.test.cjs tests/model-signal-quote.test.cjs tests/football-signals.test.cjs tests/football-signals-history.test.cjs tests/ncaaf-ezpz-selection.test.cjs
+      - run: node --test tests/ncaaf-edge-grades.test.cjs tests/ncaaf-selection-review.test.cjs tests/ncaaf-matchup-factors.test.cjs tests/model-signal-quote.test.cjs tests/football-signals.test.cjs tests/football-signals-history.test.cjs tests/ncaaf-ezpz-selection.test.cjs
       - run: npx tsc --noEmit
       - run: npm run build
