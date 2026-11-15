@@ -18,19 +18,8 @@ type Quote = {
   probability: number | null;
   reliability?: number | null;
   confluence?: number | null;
-  matchupEdges?: readonly number[] | string | null;
   odds: string;
 };
-
-const NFL_MATCHUP_GRADING = "nfl-market-relative-confluence-v1-2026-11-15";
-
-function nflMatchupEdges(value: Quote["matchupEdges"]): number[] | null {
-  try {
-    const edges: unknown = typeof value === "string" ? JSON.parse(value) : value;
-    return Array.isArray(edges) && edges.length === 2 && edges.every(edge => typeof edge === "number" && Number.isFinite(edge))
-      ? edges : null;
-  } catch { return null; }
-}
 
 export function quoteImpliedProbability(odds: unknown): number | null {
   const n = Number(String(odds ?? "").replace(/[−–—]/g, "-"));
@@ -95,14 +84,9 @@ export function regradeModelQuote(q: Quote) {
       probability = Math.max(0, Math.min(1, savedP + modelNormalCdf(edge / sigma) - modelNormalCdf(q.savedEdge / sigma)));
       estimated = true;
     }
+    // The only line-dependent confluence check is the minimum model edge.
     const minimum = q.market === "Total" ? 1.75 : 1.5;
-    let confluence = q.confluence - Number(q.savedEdge >= minimum) + Number(edge >= minimum);
-    if (q.version.split("|").includes(NFL_MATCHUP_GRADING)) {
-      const components = nflMatchupEdges(q.matchupEdges);
-      if (!components) return { active: false, grade: `Non-Edge ${q.market}`, edge, probability, estimated,
-        reason: "The saved market-relative matchup inputs are unavailable; no model signal is counted." };
-      confluence += components.reduce((change, component) => change + Number(component + delta > 1e-6) - Number(component > 1e-6), 0);
-    }
+    const confluence = q.confluence - Number(q.savedEdge >= minimum) + Number(edge >= minimum);
     const a = probability! >= 0.585 && edge >= (q.market === "Total" ? 3 : 2.5) && q.reliability >= 70 && confluence >= 4;
     const b = probability! >= 0.555 && edge >= minimum && q.reliability >= 62 && confluence >= 3;
     grade = q.market === "Spread" ? a ? "A Spread" : b ? "B Spread" : "Non-Edge Spread"

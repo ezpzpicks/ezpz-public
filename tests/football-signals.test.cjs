@@ -226,24 +226,6 @@ test('NFL Signals regrades a moved quote, matches full team names and preserves 
   assert.equal(find(api.buildFootballSignalsState(x).board, 'model').active, false);
 });
 
-test('NFL Signals passes frozen matchup edges through current-line grading', () => {
-  const x = nflModelInput();
-  const version = x.core.bestPlays[0].modelVersion + '|nfl-market-relative-confluence-v1-2026-11-15';
-  x.core.bestPlays[0].modelVersion = version;
-  Object.assign(x.core.slateToday[0], { 'Model Version': version, 'Total Matchup Edges JSON': '[0.2,0.3]' });
-  const original = JSON.stringify(x.core);
-  let board = api.buildFootballSignalsState(x).board;
-  assert.equal(find(board, 'model').active, false);
-  assert.equal(board.sides.find(s => s.side === 'Over').modelContext.grade, 'Non-Edge Total');
-  assert.equal(JSON.stringify(x.core), original);
-  x.core.trendPlays = x.core.trendPlays.map(p => ({ ...p, line: 42.5 }));
-  board = api.buildFootballSignalsState(x).board;
-  assert.equal(find(board, 'model').active, true);
-  assert.equal(board.sides.find(s => s.side === 'Over').modelContext.grade, 'Strong Over');
-  delete x.core.slateToday[0]['Total Matchup Edges JSON'];
-  assert.equal(find(api.buildFootballSignalsState(x).board, 'model').active, false);
-});
-
 test('official-build timing and price remain model-vote requirements after current-line repricing', () => {
   const x = nflModelInput();
   x.core.slateToday[0]['Build At'] = iso(lock + 1);
