@@ -3,13 +3,14 @@ import { footballTeamKey } from "./footballTeamTrends";
 import { ncaafSpreadReviewReasons, ncaafTotalReviewReasons, validNcaafSelectionReview,
   type NcaafSelectionReview, type NcaafFactorsZ } from "./ncaafSelectionReview";
 
-export const NCAAF_MATCHUP_POLICY = "ncaaf-sp-edge-2026-11-14-v5";
+export const NCAAF_MATCHUP_POLICY = "ncaaf-sp-edge-2026-11-14-v6";
 export const NCAAF_PROJECTION_MODEL = "cfb-v3.0-sp-matchup-projection-2026-11-14";
 const REVIEWED_MATCHUP_POLICY = "ncaaf-sp-matchup-2026-11-13-v2";
 const RECORD_POLICIES = new Set([NCAAF_MATCHUP_POLICY]);
+const POINT_EDGE_POLICIES = new Set(["ncaaf-sp-edge-2026-11-14-v5", NCAAF_MATCHUP_POLICY]);
 const MATCHUP_POLICIES = new Set(["ncaaf-sp-matchup-2026-11-13-v1", REVIEWED_MATCHUP_POLICY,
-  "ncaaf-sp-matchup-2026-11-14-v3", "ncaaf-sp-projection-2026-11-14-v4", ...RECORD_POLICIES]);
-const PROJECTION_POLICIES = new Set(["ncaaf-sp-projection-2026-11-14-v4", NCAAF_MATCHUP_POLICY]);
+  "ncaaf-sp-matchup-2026-11-14-v3", "ncaaf-sp-projection-2026-11-14-v4", ...POINT_EDGE_POLICIES]);
+const PROJECTION_POLICIES = new Set(["ncaaf-sp-projection-2026-11-14-v4", ...POINT_EDGE_POLICIES]);
 type Benchmark = { mean: number; sd: number; teams: number };
 type Rating = { team: string; offense: number; defense: number; tempo: number; plays?: number; possessions?: number };
 type Grade = { grade: "A" | "B" | "Research"; reason: string; as_of: string; kickoff: string;
@@ -80,7 +81,7 @@ export function ncaafMatchupContext(row: SheetRow): NcaafMatchupContext | null {
       || Math.abs(spread.projected_margin - projection.margin) > 1e-6
       || Math.abs(total.projected_total - projection.total) > 1e-6) return null;
   }
-  if (policyVersion === NCAAF_MATCHUP_POLICY) {
+  if (POINT_EDGE_POLICIES.has(policyVersion)) {
     for (const [g, market] of [[spread, "spread"], [total, "total"]] as const) {
       const a = g.thresholds?.[`${market}_a_points`], b = g.thresholds?.[`${market}_b_points`];
       if (g.grading_basis !== "market_point_edge" || !["A", "B", "Research"].includes(g.edge_grade)
@@ -98,7 +99,7 @@ export function ncaafMatchupQuoteReview(row: SheetRow, market: "Spread" | "Total
   const context = ncaafMatchupContext(row);
   if (!context || !Number.isFinite(line)) return fail("Saved SP+ matchup factors are unavailable for this quote");
   const g = market === "Spread" ? context.spread : context.total;
-  const pointEdge = g.policy_version === NCAAF_MATCHUP_POLICY;
+  const pointEdge = POINT_EDGE_POLICIES.has(g.policy_version);
   if ((!pointEdge && !["A", "B"].includes(g.grade)) || !(instant(g.as_of) <= asOf && asOf < instant(g.kickoff))
     || (g.published_at && !(instant(g.published_at) <= asOf))) return fail("No qualifying SP+ grade was available before this decision");
   if (pointEdge) {
@@ -149,7 +150,42 @@ export function ncaafMatchupQuoteReview(row: SheetRow, market: "Spread" | "Total
   return { valid: true, reason: "Saved SP+ matchup support still qualifies at this quote" };
 }
 
-/** Fresh policy records do not inherit the former edge-only grade history. */
+/** Count each saved, eligible market once; keep older thresholds out of this mix. */
+export function ncaafModelPlayMix(rows: SheetRow[], today?: string) {
+  const latest = new Map<string, SheetRow>();
+  const stamp = (row: SheetRow) => Date.parse(row["Build Captured At"] || row["Build At"] || "") || 0;
+  for (const row of rows) {
+    if (!row.Date || !row["Game ID"] || (today && row.Date.slice(0, 10) !== today)) continue;
+    const key = `${row.Date.slice(0, 10)}|${row["Game ID"]}`;
+    const saved = latest.get(key);
+    if (!saved || stamp(row) >= stamp(saved)) latest.set(key, row);
+  }
+  const mix = { games: latest.size, capturedGames: 0, total: 0, A: 0, B: 0,
+    favorites: 0, underdogs: 0, overs: 0, unders: 0, pickems: 0, unclassified: 0 };
+  for (const row of latest.values()) {
+    if (row["Grading Policy Version"] !== NCAAF_MATCHUP_POLICY) continue;
+    const context = ncaafMatchupContext(row);
+    if (!context) continue;
+    mix.capturedGames++;
+    for (const market of ["Spread", "Total"] as const) {
+      const g = market === "Spread" ? context.spread : context.total;
+      if (g.eligible !== true || (g.grade !== "A" && g.grade !== "B")
+        || row[`${market} Grade`] !== `${g.grade} ${market}`) continue;
+      mix.total++; mix[g.grade]++;
+      if (market === "Spread") {
+        if (!finite(g.line)) mix.unclassified++;
+        else if (g.line < 0) mix.favorites++;
+        else if (g.line > 0) mix.underdogs++;
+        else mix.pickems++;
+      } else if (g.side === "Over") mix.overs++;
+      else if (g.side === "Under") mix.unders++;
+      else mix.unclassified++;
+    }
+  }
+  return mix;
+}
+
+/** Each policy starts its own forward record. */
 export function ncaafMatchupRecordSummary(rows: SheetRow[], today: string) {
   const seen = new Set<string>();
   const selected = rows.filter(row => {
