@@ -39,6 +39,55 @@ test('NFL spread repricing respects favorite and underdog signs and the existing
   assert.equal(api.regradeModelQuote({ ...base, savedLine: -2.5, line: -3.5 }).active, true);
 });
 
+const relativeNfl = changes => nfl({ line: 42.5,
+  version: 'nfl-v4.28-directional-variable-tiers-2026-10-08|nfl-market-relative-confluence-v1-2026-11-15|nfl-auto-rotowire-v1',
+  matchupEdges: '[0.2,0.3]', ...changes });
+
+test('new NFL grading preserves the saved grade at the identical quote', () => {
+  const result = api.regradeModelQuote(relativeNfl());
+  assert.equal(result.grade, 'Strong Over');
+  assert.equal(result.active, true);
+  assert.equal(result.probability, .6091);
+});
+
+test('a moved total can lose both matchup checks while retaining a model point edge', () => {
+  const result = api.regradeModelQuote(relativeNfl({ line: 43.5 }));
+  assert(Math.abs(result.edge - 2.54) < 1e-8);
+  assert(result.probability > .555);
+  assert.equal(result.active, false);
+  assert.equal(result.grade, 'Non-Edge Total');
+  assert.equal(api.regradeModelQuote(nfl()).active, true); // Frozen legacy policy retains its original checks.
+});
+
+test('losing one matchup check can downgrade A to B without changing the selected side', () => {
+  const result = api.regradeModelQuote(relativeNfl({ line: 42.75, matchupEdges: [.2, 2] }));
+  assert.equal(result.grade, 'Over');
+  assert.equal(result.active, true);
+});
+
+test('better underdog and Under quotes restore component support with the correct signs', () => {
+  const spread = api.regradeModelQuote(relativeNfl({ market: 'Spread', side: 'saints', savedGrade: 'B Spread',
+    savedLine: 3.5, line: 4.5, savedEdge: 3.5, probability: .61, confluence: 3, matchupEdges: [-.2, -.3] }));
+  assert.equal(spread.grade, 'A Spread');
+  assert.equal(spread.active, true);
+  const under = api.regradeModelQuote(relativeNfl({ side: 'Under', savedGrade: 'Strong Under', line: 41.5 }));
+  assert.equal(under.active, false);
+  assert.equal(under.grade, 'Non-Edge Total');
+});
+
+test('new NFL policy cannot reuse fixed support when component data is missing or invalid', () => {
+  for (const matchupEdges of [undefined, null, '', 'oops', '[]', '[1,null]', '[1]', [Infinity, 1], ['1', 1]]) {
+    const result = api.regradeModelQuote(relativeNfl({ matchupEdges }));
+    assert.equal(result.active, false, String(matchupEdges));
+    assert.match(result.reason, /matchup inputs are unavailable/);
+  }
+});
+
+test('a component exactly at the market provides no directional support', () => {
+  const result = api.regradeModelQuote(relativeNfl({ line: 42.8, matchupEdges: [.3, .3] }));
+  assert.equal(result.active, false);
+});
+
 test('CFB uses its own point thresholds and keeps FBS/20-point spread and price vetoes', () => {
   const base = nfl({ sport: 'NCAAF', version: 'cfb-v2.8.1-five-game-residual-totals-2026-10-07',
     savedGrade: 'A Total', savedLine: 49.5, line: 50.5, savedEdge: 6.2, probability: .67 });
