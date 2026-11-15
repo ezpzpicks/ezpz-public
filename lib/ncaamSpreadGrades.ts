@@ -1,6 +1,6 @@
 /** Validate captured spread grades and re-evaluate quotes using saved factors. */
 import { NcaamSelectionReview, ncaamSpreadReviewReasons, validSelectionReview } from "./ncaamSelectionReview";
-import { ncaamPointGrade, NCAAM_POINT_MODEL, NCAAM_POINT_POLICY, type NcaamPointPolicy } from "./ncaamPointEdges";
+import { ncaamPointGrade, isNcaamPointModel, NCAAM_POINT_POLICY, type NcaamPointPolicy } from "./ncaamPointEdges";
 export const NCAAM_SPREAD_GRADE_TAB = "ncaam_matchup_spread_grades";
 export type NcaamSpreadPolicy = {
   edge_window: { minimum_inclusive: number; maximum_exclusive: number };
@@ -73,7 +73,7 @@ export function ncaamSpreadQuote(g: NcaamSpreadGrade, line: number) {
 }
 
 export function ncaamSpreadGrade(f: Row): NcaamSpreadGrade | null {
-  if (f.modelVersion === NCAAM_POINT_MODEL || f.matchup_spread?.policy_version === NCAAM_POINT_POLICY)
+  if (isNcaamPointModel(f.modelVersion) || f.matchup_spread?.policy_version === NCAAM_POINT_POLICY)
     return ncaamPointGrade(f,"Spread");
   const g = f.matchup_spread as NcaamSpreadGrade | undefined;
   if (!g || typeof g.policy_version !== "string" || !g.policy_version.startsWith("ncaam-spread-grades-") || !/^[a-f0-9]{64}$/.test(g.policy_sha256 || "")

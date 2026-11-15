@@ -4,6 +4,7 @@ const api=load(path.join(__dirname,'../lib/ncaamPointEdges.ts'));
 const totals=load(path.join(__dirname,'../lib/ncaamMatchupGrades.ts'));
 const spreads=load(path.join(__dirname,'../lib/ncaamSpreadGrades.ts'));
 const source=require('./fixtures/ncaam-point-edge-forecast.json');
+const revised=require('./fixtures/ncaam-v08-point-edge-forecast.json');
 const clock=Date.parse(source.lockedAt)+60000;
 function fixture({homeLine=source.market.home_spread,totalLine=source.market.total,mode='live',odds=-110}={}) {
  const f=structuredClone(source);f.market={...f.market,home_spread:homeLine,total:totalLine,odds};
@@ -29,6 +30,21 @@ test('Python-generated score proof and both point grades pass the existing reade
  assert(api.ncaamPointProjection(source));assert(totals.ncaamMatchupGrade(source));assert(spreads.ncaamSpreadGrade(source));
  assert.equal(source.matchup_spread.policy.thresholds.spread_b_points,5);
  assert.equal(source.matchup_total.policy.thresholds.total_b_points,8);
+});
+
+test('revised pace proofs and legacy captures remain readable under their own model versions',()=>{
+ assert(api.ncaamPointProjection(revised));assert(totals.ncaamMatchupGrade(revised));assert(spreads.ncaamSpreadGrade(revised));
+ assert.equal(api.ncaamPointProjection(source).model_version,api.LEGACY_NCAAM_POINT_MODEL);
+ assert.equal(api.ncaamPointProjection(revised).model_version,api.NCAAM_POINT_MODEL);
+ assert.notEqual(source.modelVersion,revised.modelVersion);
+ const bad=structuredClone(revised);bad.matchup_projection.possessions+=1;
+ assert.equal(api.ncaamPointProjection(bad),null);
+ const badRatio=structuredClone(revised);badRatio.matchup_projection.tempo_model.away_ratio+=.1;
+ assert.equal(api.ncaamPointProjection(badRatio),null);
+ const wrongVersion=structuredClone(revised);wrongVersion.matchup_total.projection_model_version=source.modelVersion;
+ assert.equal(totals.ncaamMatchupGrade(wrongVersion),null);
+ const badLegacy=structuredClone(source);badLegacy.matchup_projection.possessions+=1;
+ assert.equal(api.ncaamPointProjection(badLegacy),null);
 });
 
 test('spread and total quotes use their own exact boundaries for both sides',()=>{

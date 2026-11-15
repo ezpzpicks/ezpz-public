@@ -16,7 +16,7 @@ import { ncaamMatchupGrade } from "../lib/ncaamMatchupGrades";
 import NcaamMatchupGrade from "./NcaamMatchupGrade";
 import { ncaamSpreadGrade } from "../lib/ncaamSpreadGrades";
 import NcaamSpreadGrade from "./NcaamSpreadGrade";
-import { ncaamPointProjection, NCAAM_POINT_MODEL } from "../lib/ncaamPointEdges";
+import { ncaamPointProjection, isNcaamPointModel } from "../lib/ncaamPointEdges";
 
 const PublicSplits = dynamic(() => import("./NbaPublicSplits"), { loading: () => <div className="fs-empty">Loading NBA markets…</div> });
 const Signals = dynamic(() => import("./FootballSignalsBoard"), { loading: () => <div className="fs-empty">Loading signals…</div> });
@@ -61,7 +61,7 @@ function GameScore({ game }: { game?: Row }) {
 function ForecastCard({ forecast, game, qualifiedOnly = false, sport = "NBA" }: { forecast: Forecast; game?: Row; qualifiedOnly?: boolean; sport?: "NBA" | "NCAAM" }) {
   const matchupGrade = sport === "NCAAM" ? ncaamMatchupGrade(forecast) : null;
   const spreadGrade = sport === "NCAAM" ? ncaamSpreadGrade(forecast) : null;
-  const newPointModel = sport === "NCAAM" && forecast.modelVersion === NCAAM_POINT_MODEL;
+  const newPointModel = sport === "NCAAM" && isNcaamPointModel(forecast.modelVersion);
   const point = newPointModel ? ncaamPointProjection(forecast) : null;
   const markets = [
     { name: "Spread", pick: forecast.spread_pick, grade: forecast.spread_grade, model: signed(forecast.fair_home_spread),
@@ -124,7 +124,7 @@ function ModelSlate({ tab, data }: { tab: string; data: NbaMarketPayload }) {
   const sport = data.sport || "NBA";
   const latest = (latestNbaForecasts(data.forecasts) as Forecast[]).sort(byTipoff);
   const latestByGame = new Map(latest.map(forecast => [forecast.gameId, forecast]));
-  const qualified = latest.filter(forecast => sport === "NCAAM" && forecast.modelVersion === NCAAM_POINT_MODEL
+  const qualified = latest.filter(forecast => sport === "NCAAM" && isNcaamPointModel(forecast.modelVersion)
     ? ncaamSpreadGrade(forecast)?.eligible || ncaamMatchupGrade(forecast)?.eligible
     : [forecast.spread_grade, forecast.total_grade].some(grade => grade === "A" || grade === "B"));
   const games = [...data.games].sort((a, b) => Date.parse(a["Game Time"]) - Date.parse(b["Game Time"]));
