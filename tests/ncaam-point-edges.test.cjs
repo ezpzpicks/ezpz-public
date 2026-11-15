@@ -102,7 +102,7 @@ test('play mix counts each eligible market once and preserves an uneven slate',(
  assert.equal(api.ncaamPointPlayMix([a,revised]).total,0,'a revised game time cannot retain an older qualifying capture');
 });
 
-test('NCAAM slate renders numeric edges, separate confidence, and the four play counts',()=>{
+test('basketball slates go straight from the heading to forecast cards and retain numeric edges',()=>{
  const fs=require('node:fs'),vm=require('node:vm'),ts=require('typescript'),React=require('react');
  const {renderToStaticMarkup}=require('react-dom/server');
  function component(file) {
@@ -115,9 +115,16 @@ test('NCAAM slate renders numeric edges, separate confidence, and the four play 
    :name.startsWith('../lib/')?load(path.join(__dirname,'../app',name+'.ts')):require(name)});
   return exports;
  }
- const f=fixture(),html=renderToStaticMarkup(React.createElement(component('app/NbaBoard.tsx').testSlate,
-  {tab:'Full Slate',data:{sport:'NCAAM',forecasts:[f],games:[{'Game ID':f.gameId,'Game Time':f.tipoff}],splits:[],stale:false}}));
- assert(html.includes('NCAAM play mix'));assert(html.includes('2 qualifying plays'));assert(html.includes('<dt>Underdogs</dt><dd>1'));
- assert(html.includes('Point-edge grade'));assert(html.includes('Confidence flags'));assert(html.includes('Matchup strength is already included'));
- assert(html.includes('<dt>Edge</dt>'));assert(!html.includes('<dt>Point-model lean</dt>'));
+ const f=fixture();
+ for(const sport of ['NCAAM','NBA'])for(const tab of ['Full Slate','Today’s Model Plays']) {
+  const html=renderToStaticMarkup(React.createElement(component('app/NbaBoard.tsx').testSlate,
+   {tab,data:{sport,forecasts:[f],games:[{'Game ID':f.gameId,'Game Time':f.tipoff}],splits:[],stale:true}}));
+  const {document}=require('linkedom').parseHTML(html),board=document.querySelector('.nbaBoard');
+  assert.equal(board.children[0].querySelector('h2').textContent,`${sport} ${tab==='Full Slate'?'Full Slate':'Model Plays'}`);
+  assert.equal(board.children[1].tagName,'ARTICLE');
+  assert.equal(board.querySelectorAll(':scope > article').length,1);
+  for(const text of ['Play mix','Spread tiers','Point-edge grade','Confidence flags','Matchup strength is already included','Saved forecasts remain visible'])assert(!html.includes(text),text);
+  assert(html.includes('<dt>Edge</dt>'));assert(!html.includes('<dt>Point-model lean</dt>'));
+  assert(html.includes('Projected score'));assert(html.includes(f.spread_pick));assert(html.includes(f.total_pick));
+ }
 });

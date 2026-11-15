@@ -19,7 +19,6 @@ export default function NcaamModelDetails({ forecast }: { forecast: NcaamModelCo
   const badges = [forecast.matchup_spread?.side ? `Spread ${forecast.matchup_spread.grade}` : "", grade?.side ? `Total ${grade.grade}` : ""].filter(Boolean).join(" · ");
   return <details className="nbaLineups ncaamModelDetails"><summary><span>Model factors & player impact</span><span className="nbaLineupStatus">{badges || "Research"}</span><span className="nbaLineupChevron" aria-hidden="true">⌄</span></summary>
     <div className="nbaLineupBody">
-      <p className="nbaSmall">Offensive and defensive efficiencies account for opponent strength, schedule and level of competition. Each offense faces the opposing defense; tempo sets expected possessions.</p>
       {forecast.matchup_projection ? <p className="nbaSmall">Matchup baseline: {forecast.matchup_projection.possessions.toFixed(1)} possessions · {away.team}: {forecast.matchup_projection.pairings.away.expected_efficiency.toFixed(1)} points per 100 · {home.team}: {forecast.matchup_projection.pairings.home.expected_efficiency.toFixed(1)} points per 100. Home court and player impact are applied once.</p> : null}
       <div className="nbaLineupTeams">{([away, home] as Rating[]).map((rating, index) => {
         const teamImpact = impact?.[index === 0 ? "away" : "home"], competition = rating.prior_competition;
@@ -36,7 +35,6 @@ export default function NcaamModelDetails({ forecast }: { forecast: NcaamModelCo
       {!impact && <p className="nbaSmall">College player impact inputs are unavailable. This forecast retains the team baseline.</p>}
       {forecast.lineup_margin_change != null && <p className="nbaSmall">Roster & availability effect: home margin {signed(forecast.lineup_margin_change)} pts · total {signed(forecast.lineup_total_change || 0)} pts{forecast.baseline_away_score != null && forecast.baseline_home_score != null ? ` · Team-only score ${forecast.baseline_away_score.toFixed(1)}–${forecast.baseline_home_score.toFixed(1)}` : ""}.</p>}
       {forecast.availability_scenarios?.map(s => <p className="nbaSmall" key={`${s.team}|${s.player}`}>If {s.player} is out: home margin {signed(s.homeMarginChange)} pts · total {signed(s.totalChange)} pts versus this forecast.</p>)}
-      <p className="nbaSmall">{away.source_preseason_prior ? "Team ratings retain Torvik’s own preseason adjustments. Player availability is compared with the verified current roster, using completed-season player profiles when current stats are sparse. Player effects remain research estimates." : "Current results gain weight as games are played. Player effects use college OBPM/DBPM and minutes relative to the baseline rotation. The ten-game prior and player effects remain research estimates."}</p>
       {impact && <p className="nbaLineupSource"><a href={impact.ratingsSourceUrl} target="_blank" rel="noreferrer">College player ratings</a> · Forecast inputs {new Date(impact.as_of).toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" })} ET</p>}
     </div>
   </details>;

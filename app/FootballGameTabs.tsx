@@ -461,23 +461,14 @@ export default function FootballGameTabs({ sport, tab, data }: { sport: Sport; t
     return output.sort((a, b) => timeSortValue(a.time) - timeSortValue(b.time) || a.game.localeCompare(b.game));
   }, [plays, slate, sport]);
 
-  const live = data.draftKings?.status === "LIVE" && !data.draftKings?.stale && data.draftKings?.displayMode !== "STALE_FALLBACK";
-  const sourceStatus = data.historicalSlate ? "Saved projections" : data.draftKings?.stale || data.draftKings?.displayMode === "STALE_FALLBACK"
-    ? "ScoresAndOdds stale"
-    : live
-      ? "ScoresAndOdds live"
-      : "ScoresAndOdds pending";
-
   if (sport === "NCAAF") return <NcaafModelBoard fullSlate={tab === "Full Slate"} rows={slate} groups={groups} tracker={data.betTrackerRows} today={data.today} />;
 
   return (
     <section className="footballGameTabs">
       <div className="fgtHead">
         <div>
-          <h2>{sport === "NFL" ? "NFL" : "College Football"} {tab}</h2>
-          <p>{tab === "Full Slate" ? "One matchup tile per game • whole-number score projections" : "Model Plays grouped by matchup so the full Saturday/Sunday board stays easy to scan"}</p>
+          <h2>{sport} {tab === "Full Slate" ? "Full Slate" : "Model Plays"}</h2>
         </div>
-        <div className="fgtHeadBadges"><span>{tab === "Full Slate" ? slate.length : groups.length} games</span><span className={live ? "live" : ""}>{sourceStatus}</span></div>
       </div>
 
       {tab === "Full Slate" ? (

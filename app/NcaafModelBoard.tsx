@@ -1,7 +1,7 @@
 import { MatchupWithLogos, SelectionWithTeamLogo } from "./TeamLogoName";
 import FootballModelFormBadges from "./FootballModelFormBadges";
 import NcaafModelDetails from "./NcaafModelDetails";
-import { ncaafMatchupContext, ncaafModelPlayMix, NCAAF_PROJECTION_MODEL, type NcaafMatchupContext } from "../lib/ncaafMatchupFactors";
+import { ncaafMatchupContext, NCAAF_PROJECTION_MODEL, type NcaafMatchupContext } from "../lib/ncaafMatchupFactors";
 import { modelFactorLabel } from "../lib/modelFactorLabels";
 
 type Row = Record<string, string>;
@@ -46,18 +46,9 @@ function Score({ row, game, actual = false }: { row: Row; game: string; actual?:
   </div>;
 }
 function MatchupGrade({ context, market, row }: { context: NcaafMatchupContext; market: Market; row: Row }) {
-  const grade = market === "Spread" ? context.spread : context.total;
   const { factors } = context;
-  const pointEdge = grade.grading_basis === "market_point_edge";
-  const prefix = market === "Spread" ? "spread" : "total";
   return <div className="ncaamGradeDetails">
-    <p className="nbaSmall"><strong>{pointEdge ? "Point-edge grade" : market === "Spread" ? "Spread matchup grade" : "Matchup grade"}</strong> · Saved before kickoff</p>
-    <p className="nbaSmall">{grade.reason}</p>
     <details><summary>{market === "Spread" ? "Projection, offense, defense & tempo" : "Offense, defense & tempo factors"}</summary>
-      {pointEdge ? <>
-        <p className="nbaSmall">A ≥ {grade.thresholds?.[`${prefix}_a_points`]} pts · B ≥ {grade.thresholds?.[`${prefix}_b_points`]} pts. Matchup strength is already included in the projection.</p>
-        <p className="nbaSmall">Input confidence flags: {(grade.confidence_flags || []).join(" · ")}</p>
-      </> : null}
       {market === "Spread" ? <p className="nbaSmall">Projected home margin {signed(row["Projected Margin"])} · Cover edge {decimal(row["Spread Edge"])} points.</p> : null}
       {([factors.away, factors.home]).map(team => <section key={team.team}><h5>{team.team}</h5>
         <dl className="nbaMetrics">{(["offense", "defense", "tempo"] as const).map(metric => {
@@ -66,7 +57,6 @@ function MatchupGrade({ context, market, row }: { context: NcaafMatchupContext; 
           return <div key={metric}><dt>{metric === "tempo" ? "Tempo" : `Adjusted ${metric}`}</dt><dd>{label}</dd></div>;
         })}</dl>
       </section>)}
-      <p className="nbaSmall">Compared with the saved FBS national benchmark. Lower adjusted defense means fewer points allowed. {pointEdge ? "Point grades describe the number; qualifying plays also need a valid market and price." : "A/B matchup grades require projection agreement and a qualifying saved price."}</p>
     </details>
   </div>;
 }
@@ -96,8 +86,7 @@ function ForecastCard({ group, qualifiedOnly = false, tracker, today }: { group:
     <h3><MatchupWithLogos sport="NCAAF" game={`${pair.away} @ ${pair.home}`} /></h3>
     <p className="nbaMeta"><time>{time(group.time)}</time><span>{hasForecast || qualifiedOnly ? "Saved forecast" : "Scheduled"}</span>{gameStatus ? <span>{gameStatus}</span> : null}</p>
     {hasForecast || qualifiedOnly ? <>
-      {matchupDriven ? <p className="nbaSmall">SP+ matchup projection · Provisional</p>
-        : row["Projection Engine"] === "legacy_fallback" ? <p className="nbaSmall">Legacy forecast · Matchup inputs unavailable</p> : null}
+      {row["Projection Engine"] === "legacy_fallback" ? <p className="nbaSmall">Matchup inputs unavailable</p> : null}
       <NcaafModelDetails row={row} />
       <Score row={row} game={group.game} />
       <div className="nbaMarkets">{markets.map(market => <section className="nbaMarketCard" key={market.name} aria-label={`${market.name} forecast`}>
@@ -119,7 +108,7 @@ function ForecastCard({ group, qualifiedOnly = false, tracker, today }: { group:
         <div><dt>Market total</dt><dd>{decimal(row["Market Total"] || row.Total)}</dd></div></dl>
     </>}
     <Score row={row} game={group.game} actual />
-    {context ? <p className="nbaSmall">SP+ inputs captured {time(context.factors.observed_at)} · Saved pregame factors</p> : null}
+    {context ? <p className="nbaSmall">SP+ inputs captured {time(context.factors.observed_at)}</p> : null}
   </article>;
 }
 
@@ -128,19 +117,9 @@ export default function NcaafModelBoard({ fullSlate, rows, groups, tracker = [],
 }) {
   const cards = fullSlate ? rows.map(row => ({ row, game: row.Game || `${row["Away Team"]} @ ${row["Home Team"]}`,
     time: row["Game Time"] || row.Time || row["Start Time"] || row["Game Time ET"] || "", plays: [] })) : groups;
-  const mix = ncaafModelPlayMix(rows, today);
   return <section className="nbaBoard ncaafModelBoard">
     <div className="nbaIntro"><h2>NCAAF {fullSlate ? "Full Slate" : "Model Plays"}</h2></div>
-    {mix.capturedGames > 0 ? <section className="nbaCard ncaafPlayMix" aria-label="NCAAF play mix">
-      <div className="nbaMarketHeading"><h3>Play mix</h3><strong>{mix.total} qualifying {mix.total === 1 ? "play" : "plays"}</strong></div>
-      <p className="nbaSmall">A: {mix.A} · B: {mix.B} · Full Saturday target: 10–15</p>
-      <dl className="nbaMetrics">{([
-        ["Favorites", mix.favorites], ["Underdogs", mix.underdogs], ["Overs", mix.overs], ["Unders", mix.unders],
-      ] as const).map(([label, count]) => <div key={label}><dt>{label}</dt><dd>{count} <small>({mix.total ? Math.round(count / mix.total * 100) : 0}%)</small></dd></div>)}</dl>
-      {mix.pickems || mix.unclassified ? <p className="nbaSmall">Pick’em: {mix.pickems} · Unclassified: {mix.unclassified}</p> : null}
-      <p className="nbaSmall">Forecasts on current tiers: {mix.capturedGames}/{mix.games} games. Categories reflect the qualifying edges.</p>
-    </section> : null}
     {cards.map(group => <ForecastCard key={group.row?.["Game ID"] || group.game} group={group} qualifiedOnly={!fullSlate} tracker={tracker} today={today} />)}
-    {!cards.length ? <div className="nbaCard">{fullSlate ? "No NCAAF games have been collected for this date." : "No qualifying A/B Model Plays have been saved for this slate yet."}</div> : null}
+    {!cards.length ? <div className="nbaCard">{fullSlate ? "No NCAAF games have been collected for this date." : "No NCAAF model plays for this slate."}</div> : null}
   </section>;
 }

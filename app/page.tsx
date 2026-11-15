@@ -6713,19 +6713,7 @@ function SportDevelopmentContent({
           <span className="countPill">0 plays</span>
         </div>
 
-        <div className="sportDevelopmentCard">
-          <span className="developmentEyebrow">PUBLIC FORMAT READY</span>
-          <h3>No official {meta.shortName} plays posted for {dateLabel}</h3>
-          <p>
-            Model Plays will appear here with the same transparent model score,
-            probability, reliability, line, odds, and matchup context used
-            throughout EZPZ Picks.
-          </p>
-          <div className="developmentStatusRow">
-            <span>Model stage</span>
-            <strong>{meta.status}</strong>
-          </div>
-        </div>
+        <div className="empty">No {meta.shortName} model plays for {dateLabel}.</div>
       </>
     );
   }
@@ -7383,7 +7371,7 @@ export default function Home() {
       return (
         <section>
           <div className="sectionHead">
-            <h2>Today’s Model Plays</h2>
+            <h2>MLB Model Plays</h2>
             <span className="countPill">{orderedPlays.length} plays</span>
           </div>
 

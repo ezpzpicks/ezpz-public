@@ -83,7 +83,7 @@ test('football signals can requalify and flip a side from a saved Research forec
  delete row['Build Phase'];row['Build Captured At']=new Date(clock+60000).toISOString();
  assert.equal(board(6).sides.find(s=>s.side==='home').signals.find(s=>s.key==='model').active,false);
 });
-test('Full Slate shows the numerical edge grade separately from projection-only eligibility and confidence',()=>{
+test('NCAAF Full Slate keeps numerical grades and eligibility with cards directly below the heading',()=>{
  const fs=require('node:fs'),vm=require('node:vm'),ts=require('typescript'),React=require('react');
  const {renderToStaticMarkup:render}=require('react-dom/server');
  function component(file){
@@ -101,11 +101,11 @@ test('Full Slate shows the numerical edge grade separately from projection-only 
  const html=render(React.createElement(component('app/NcaafModelBoard.tsx').default,{fullSlate:true,rows:[row],groups:[],tracker:[]}));
  const section=html.split('aria-label="Spread forecast"')[1].split('aria-label="Total forecast"')[0];
  assert(section.includes('Grade A'));assert(section.includes('Projection only'));
- assert(section.includes('Point-edge grade'));assert(section.includes('Weather unconfirmed'));
- assert(html.includes('Matchup strength is already included in the projection.'));
- assert(html.includes('aria-label="NCAAF play mix"'));assert(html.includes('Full Saturday target: 10–15'));
- assert(html.includes('1 qualifying play'));assert(html.includes('<dt>Overs</dt><dd>1'));
- assert(html.includes('<dt>Favorites</dt><dd>0'));
+ const {document}=require('linkedom').parseHTML(html),board=document.querySelector('.ncaafModelBoard');
+ assert.equal(board.children[0].querySelector('h2').textContent,'NCAAF Full Slate');
+ assert.equal(board.children[1].tagName,'ARTICLE');
+ assert(html.includes('Adjusted offense'));assert(html.includes('Adjusted defense'));assert(html.includes('Tempo'));
+ for(const text of ['Point-edge grade','Matchup strength is already included','NCAAF play mix','Full Saturday target','Input confidence flags'])assert(!html.includes(text),text);
 });
 
 test('archived v5 quotes retain their earlier cutoffs without joining the v6 record',()=>{
