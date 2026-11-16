@@ -671,6 +671,23 @@
       "status": "approved",
       "notes": "Explicitly selected by Ryan in chat on November 16, 2026: EZPZ pick Florida a and m +20.5. Exact approved spread retained; -110 default odds. Publish once through Buffer after confirming eligibility and checking for duplicates.",
       "result": "PENDING"
+    },
+    {
+      "id": "manual_20261116_ncaam_401916317_total_over_154_5",
+      "sport": "NCAAM",
+      "game": "Prairie View A&M @ Ohio State",
+      "gameTime": "2026-11-16T23:30:00.000Z",
+      "market": "Total",
+      "selection": "Over 154.5",
+      "line": 154.5,
+      "odds": "-110",
+      "date": "2026-11-16",
+      "approvedAt": "2026-11-16T21:04:16.714Z",
+      "approvedBy": "ChatGPT",
+      "selectedBy": "Ryan",
+      "status": "approved",
+      "notes": "Explicitly selected by Ryan in chat on November 16, 2026: Ohio State prairie view over 154.5 EZPZ pick. Exact approved total retained; -110 default odds. Publish once through Buffer after confirming eligibility and checking for duplicates.",
+      "result": "PENDING"
     }
   ]
 }
