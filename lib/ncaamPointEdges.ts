@@ -16,7 +16,7 @@ type OffenseBonus = { qualified: boolean; offense_z: number; opponent_defense_z:
 export const NCAAM_POINT_POLICY = "ncaam-point-edge-2026-11-14-v1";
 export type NcaamPointPolicy = { version: string; grading_basis: "market_point_edge";
   thresholds: { spread_a_points: number; spread_b_points: number; total_a_points: number; total_b_points: number;
-    spread_max_market_line: number; max_benchmark_age_hours: number; max_market_age_minutes: number } };
+    spread_max_market_line: number | null; max_benchmark_age_hours: number; max_market_age_minutes: number } };
 export type NcaamPointProjection = { model_version: string; status: string; as_of: string; tipoff: string; season: number;
   ratings_observed_at: string; ratings_source_url: string; sha256: string; benchmark_sha256: string;
   national_benchmark: { season: number; team_count: number; observed_at: string; metrics: Record<string, { mean: number; sd: number }> };
@@ -36,7 +36,8 @@ function validPolicy(policy: NcaamPointPolicy | undefined): policy is NcaamPoint
   const t = policy.thresholds;
   return t && (["spread", "total"] as const).every(m => finite(t[`${m}_a_points`]) && finite(t[`${m}_b_points`])
     && t[`${m}_a_points`] > t[`${m}_b_points`] && t[`${m}_b_points`] > 0)
-    && finite(t.spread_max_market_line) && t.spread_max_market_line > 0 && t.spread_max_market_line <= 20
+    && (t.spread_max_market_line === null || (finite(t.spread_max_market_line)
+      && t.spread_max_market_line > 0 && t.spread_max_market_line <= 20))
     && finite(t.max_benchmark_age_hours) && t.max_benchmark_age_hours > 0
     && finite(t.max_market_age_minutes) && t.max_market_age_minutes > 0;
 }
@@ -135,7 +136,8 @@ export function ncaamPointGrade(f: Row, market: "Spread" | "Total") {
   const side = gap > 0 ? market === "Spread" ? "home" : "Over" : gap < 0 ? market === "Spread" ? "away" : "Under" : null;
   if (!finite(g.edge) || Math.abs(g.edge-edge) > 1e-7 || g.edge_grade !== tier || g.projected_side !== side
     || (g.eligible ? g.grade !== tier || !["A", "B"].includes(tier) || g.side !== side : g.grade !== "Research" || g.side !== null)
-    || (market === "Spread" && Math.abs(line) >= t.spread_max_market_line && g.eligible)) return null;
+    || (market === "Spread" && t.spread_max_market_line !== null
+      && Math.abs(line) >= t.spread_max_market_line && g.eligible)) return null;
   return g;
 }
 
@@ -155,10 +157,9 @@ export function ncaamPointQuote(f: Row, market: "Spread" | "Total", selection: s
   }
   const t = (g.policy as NcaamPointPolicy).thresholds, prefix = market === "Spread" ? "spread" : "total";
   const tier = edge >= t[`${prefix}_a_points`] ? "A" : edge >= t[`${prefix}_b_points`] ? "B" : "Research";
-  const large = market === "Spread" && Math.abs(line) >= t.spread_max_market_line;
   const price = quoteImpliedProbability(odds), priceOkay = price != null && price <= 110/210+1e-12;
-  return { active: tier !== "Research" && !large && priceOkay, grade: large ? "Research" : tier, edge,
-    reason: large ? "20+ point spreads remain projection-only." : !priceOkay
+  return { active: tier !== "Research" && priceOkay, grade: tier, edge,
+    reason: !priceOkay
       ? "A price worse than -110 requires separate probability evidence." : `${edge.toFixed(2)}-point edge at this number.`,
     confidenceFlags: g.confidence_flags || [] };
 }

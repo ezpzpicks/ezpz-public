@@ -11,11 +11,11 @@ function fixture({homeLine=source.market.home_spread,totalLine=source.market.tot
  const f=structuredClone(source);f.market={...f.market,home_spread:homeLine,total:totalLine,odds};
  for(const market of ['spread','total']) {
   const g=f[`matchup_${market}`],p=f.matchup_projection,t=g.policy.thresholds;
+  t.spread_max_market_line=null;
   const gap=market==='spread'?p.margin+homeLine:p.total-totalLine;
   g.edge=Math.abs(gap);g.edge_grade=g.edge>=t[`${market}_a_points`]?'A':g.edge>=t[`${market}_b_points`]?'B':'Research';
   g.projected_side=gap>0?market==='spread'?'home':'Over':gap<0?market==='spread'?'away':'Under':null;
-  const large=market==='spread'&&Math.abs(homeLine)>=20;
-  g.grade=large||odds<-110?'Research':g.edge_grade;g.eligible=['A','B'].includes(g.grade);g.side=g.eligible?g.projected_side:null;
+  g.grade=odds<-110?'Research':g.edge_grade;g.eligible=['A','B'].includes(g.grade);g.side=g.eligible?g.projected_side:null;
   g.record_mode=mode;if(mode==='replay')g.published_at='2026-11-15T01:00:00Z';
   if(market==='spread') {
    const sign=g.projected_side==='home'?1:-1;g.home_line=homeLine;g.line=sign*homeLine;g.projected_margin=sign*p.margin;
@@ -108,12 +108,20 @@ test('line changes can promote Research, downgrade A, and switch the qualifying 
  const result=trend.ncaamModelFor(play,[f],clock);assert.equal(result.active,true);assert.equal(result.context.grade,'A');
 });
 
-test('price and large-line holds preserve numerical grades without manufacturing probabilities',()=>{
+test('large spreads qualify by edge while price holds remain in force',()=>{
  const f=fixture();
  assert.equal(api.ncaamPointQuote(f,'Total','Over',f.total-10,clock,'-500').active,false);
- const large=fixture({homeLine:-25});assert.equal(large.matchup_spread.edge_grade,'A');
- assert.equal(spreads.ncaamSpreadGrade(large).eligible,false);
- assert.equal(api.ncaamPointQuote(f,'Spread','away',25,clock).active,false);
+ for(const homeLine of [-35.5,-25,-20,20,25,35.5]) {
+  const large=fixture({homeLine}),g=spreads.ncaamSpreadGrade(large);
+  assert.equal(g.grade,'A');assert.equal(g.eligible,true);
+  const quote=api.ncaamPointQuote(large,'Spread',g.projected_side,g.line,clock);
+  assert.equal(quote.active,true);assert.equal(quote.grade,'A');
+  assert.equal(spreads.ncaamSpreadQuote(g,g.line).grade,'A');
+  for(const line of [NaN,Infinity,-Infinity])assert.equal(spreads.ncaamSpreadQuote(g,line).grade,'Research');
+  assert.equal(api.ncaamPointQuote(large,'Spread',g.projected_side,g.line,clock,'-500').active,false);
+ }
+ assert.equal(spreads.ncaamSpreadGrade(progressive).eligible,false,'archived held grades stay readable');
+ assert.equal(api.ncaamPointQuote(f,'Spread','away',25,clock).active,true);
  const flags=structuredClone(f);flags.matchup_total.confidence_flags.push('Weather unconfirmed');
  assert.equal(api.ncaamPointQuote(flags,'Total','Over',f.total-10,clock).grade,'A');
 });
@@ -144,7 +152,7 @@ test('new records exclude old policies and keep replay outcomes separate',()=>{
 });
 
 test('play mix counts each eligible market once and preserves an uneven slate',()=>{
- const a=fixture(),b={...fixture({homeLine:-25,totalLine:source.total+10}),'gameId':'other','recordId':'other'};
+ const a=fixture(),b={...fixture({homeLine:-source.matchup_projection.margin,totalLine:source.total+10}),'gameId':'other','recordId':'other'};
  b.matchup_total.forecast_record_id=b.recordId;b.matchup_total.game_id=b.gameId;
  b.matchup_spread.forecast_record_id=b.recordId;b.matchup_spread.game_id=b.gameId;
  const mix=api.ncaamPointPlayMix([a,a,b]);
