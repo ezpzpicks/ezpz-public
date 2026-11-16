@@ -43,9 +43,10 @@ export function ncaamSpreadQuote(g: NcaamSpreadGrade, line: number) {
   const edge = rounded(g.projected_margin + line), policy = g.policy;
   const role = line < 0 ? "Favorite" : line > 0 ? "Underdog" : "Pickem";
   if (g.policy_version === NCAAM_POINT_POLICY && "grading_basis" in policy) {
-    const t = policy.thresholds, valid = Number.isFinite(t.spread_a_points) && Number.isFinite(t.spread_b_points)
+    const t = policy.thresholds, valid = Number.isFinite(line) && Number.isFinite(g.projected_margin)
+      && Number.isFinite(t.spread_a_points) && Number.isFinite(t.spread_b_points)
       && t.spread_a_points > t.spread_b_points && t.spread_b_points > 0;
-    const grade = valid && Math.abs(line) < t.spread_max_market_line
+    const grade = valid
       ? edge >= t.spread_a_points ? "A" : edge >= t.spread_b_points ? "B" : "Research" : "Research";
     return {grade,edge,role,reason:`${edge.toFixed(2)}-point edge at this number`};
   }
