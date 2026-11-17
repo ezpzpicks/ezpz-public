@@ -1,0 +1,612 @@
+{
+  "away_team": "Akron Zips",
+  "home_team": "Bucknell Bison",
+  "away_score": 81.6,
+  "home_score": 60.7,
+  "possessions": 68.32223819467403,
+  "fair_home_spread": 20.84133580136335,
+  "total": 142.27816464390898,
+  "home_spread_edge": -28.736117934668044,
+  "total_edge": -4.22183535609102,
+  "spread_pick": "Akron Zips -14.5",
+  "total_pick": "Under 146.5",
+  "spread_grade": "B",
+  "total_grade": "Research",
+  "grade_policy": "ncaam-point-edge-2026-11-14-v1",
+  "neutral_site": false,
+  "home_court_points": 2.2053,
+  "home_court": {
+    "policy": "ncaam-team-home-court-2026-11-03-v1",
+    "team_key": "bucknell",
+    "season": 2027,
+    "value": 2.2053,
+    "league_points": 2.9426,
+    "venue_adjustment": -0.7373,
+    "actual_home_games": 44,
+    "effective_home_games": 42.36,
+    "sample_support": 0.4056,
+    "cutoff_date": "2026-11-17",
+    "last_game_date": "2026-11-16",
+    "observed_at": "2026-11-17T11:07:10.791203+00:00",
+    "history_games": 17258,
+    "seasons": [
+      2024,
+      2025,
+      2026,
+      2027
+    ],
+    "source": "Team home-court ridge model",
+    "fallback": false
+  },
+  "margin_calibration": {
+    "policy": "direct-matchup-points-v1",
+    "active": false,
+    "neutral_margin_scale": 1,
+    "home_court_points": 2.2053,
+    "calibrated_home_margin": -43.236117934668044,
+    "reason": "Direct matchup scoring plus the captured home-court adjustment"
+  },
+  "baseline_away_score": 92.75714128928851,
+  "baseline_home_score": 49.52102335462047,
+  "lineup_margin_change": 0,
+  "lineup_total_change": 0,
+  "market": {
+    "home_spread": 14.5,
+    "total": 146.5,
+    "as_of": "2026-11-17T11:07:06+00:00",
+    "source": "ESPN",
+    "source_url": "https://www.espn.com/mens-college-basketball/game/_/gameId/401924941",
+    "provider_id": "100",
+    "provider": "Draft Kings",
+    "quote_kind": "current_pregame",
+    "odds": -110
+  },
+  "ratings_observed_at": "2026-11-17T11:05:06+00:00",
+  "ratings_source": "Bart Torvik adjusted ratings",
+  "ratings_source_url": "https://barttorvik.com/2027_team_results.csv",
+  "away_rating": {
+    "team": "Akron",
+    "offense": 110.25591379622432,
+    "defense": 100.69123305624247,
+    "tempo": 69.37995576975256,
+    "record": "3-0",
+    "conference": "MAC",
+    "strength_of_schedule": 0.2555696986894586,
+    "opponent_offense": 104.82995613068854,
+    "opponent_defense": 109.25379126411778,
+    "games_played": 2,
+    "d1_games_played": 2,
+    "game_count_basis": "Verified D1 game logs",
+    "current_weight": 1,
+    "prior_weight": 0,
+    "opponent_adjusted": true,
+    "source_preseason_prior": true,
+    "prior_season": 2026,
+    "prior_available": true,
+    "prior_record": "29-6",
+    "rebounding": {
+      "policy": "ncaam-d1-rebound-inputs-2026-11-16-v1",
+      "season": 2027,
+      "observed_at": "2026-11-17T11:04:47+00:00",
+      "cutoff_date": "2026-11-17",
+      "source_url": "https://barttorvik.com/getgamestats.php?year=2027&csv=1",
+      "source_sha256": "d54cf537fca160381a04fdea9c27419d1a0a3e11abf7ef049749c703d7cb9f45",
+      "team": "Akron",
+      "d1_games": 2,
+      "last_game_date": "2026-11-14",
+      "orb": 27,
+      "drb": 64,
+      "opp_orb": 19,
+      "opp_drb": 45
+    },
+    "prior_competition": {
+      "strength_of_schedule": 0.4074843867534982,
+      "opponent_offense": 109.07774699928247,
+      "opponent_defense": 111.3199723325619
+    },
+    "current_offense": 110.25591379622432,
+    "prior_offense": 117.91295364422864,
+    "current_defense": 100.69123305624247,
+    "prior_defense": 106.4419537145732,
+    "current_tempo": 69.37995576975256,
+    "prior_tempo": 70.2390095790503
+  },
+  "home_rating": {
+    "team": "Bucknell",
+    "offense": 95.76598873534249,
+    "defense": 114.07895999366431,
+    "tempo": 68.84221056203428,
+    "record": "0-4",
+    "conference": "Pat",
+    "strength_of_schedule": 0.6485748007109086,
+    "opponent_offense": 112.86098502127865,
+    "opponent_defense": 102.81796344379885,
+    "games_played": 4,
+    "d1_games_played": 4,
+    "game_count_basis": "Verified D1 game logs",
+    "current_weight": 1,
+    "prior_weight": 0,
+    "opponent_adjusted": true,
+    "source_preseason_prior": true,
+    "prior_season": 2026,
+    "prior_available": true,
+    "prior_record": "10-23",
+    "rebounding": {
+      "policy": "ncaam-d1-rebound-inputs-2026-11-16-v1",
+      "season": 2027,
+      "observed_at": "2026-11-17T11:04:47+00:00",
+      "cutoff_date": "2026-11-17",
+      "source_url": "https://barttorvik.com/getgamestats.php?year=2027&csv=1",
+      "source_sha256": "d54cf537fca160381a04fdea9c27419d1a0a3e11abf7ef049749c703d7cb9f45",
+      "team": "Bucknell",
+      "d1_games": 4,
+      "last_game_date": "2026-11-13",
+      "orb": 34,
+      "drb": 65,
+      "opp_orb": 74,
+      "opp_drb": 110
+    },
+    "prior_competition": {
+      "strength_of_schedule": 0.37402487136957746,
+      "opponent_offense": 107.15206863818025,
+      "opponent_defense": 112.62875049470273
+    },
+    "current_offense": 95.76598873534249,
+    "prior_offense": 99.05739443609795,
+    "current_defense": 114.07895999366431,
+    "prior_defense": 114.03902638412383,
+    "current_tempo": 68.84221056203428,
+    "prior_tempo": 67.15653889569867
+  },
+  "league_efficiency": 106.27316744941325,
+  "prior_policy": "torvik-source-preseason-prior-v1",
+  "prior_source_url": "https://barttorvik.com/2026_team_results.csv",
+  "lineup_adjustment": {
+    "policy": "ncaam-torvik-roster-verified-minute-deltas-v2",
+    "as_of": "2026-11-17T11:07:19.393177+00:00",
+    "ratingsSource": "Bart Torvik player profiles with completed-season fallback",
+    "ratingsSourceUrl": "https://barttorvik.com/getadvstats.php?year=2026&csv=1",
+    "reference": "Availability deltas from the verified current roster; 200 regulation minutes",
+    "scenarios": [],
+    "away": {
+      "applied": false,
+      "offense_change_per_100": 0,
+      "defense_improvement_per_100": 0,
+      "players": [],
+      "flags": [
+        "RotoWire unavailable; availability unchecked. Team baseline retained."
+      ]
+    },
+    "home": {
+      "applied": false,
+      "offense_change_per_100": 0,
+      "defense_improvement_per_100": 0,
+      "players": [],
+      "flags": [
+        "RotoWire unavailable; availability unchecked. Team baseline retained."
+      ]
+    }
+  },
+  "availability_mode": "expected_rotation",
+  "injury_verified": false,
+  "model_status": "Provisional matchup-led scores; point-edge grades and input confidence are separate",
+  "legacy_forecast": {
+    "away_score": 80.7,
+    "home_score": 63.8,
+    "fair_home_spread": 16.88,
+    "total": 144.5,
+    "margin_calibration": {
+      "policy": "ncaam-opening-margin-team-court-2026-11-03-v2",
+      "active": false,
+      "reason": "Outside the strength-scaling window; source strength margin plus separate home court",
+      "game_date": "2026-11-17",
+      "neutral_margin_scale": 1,
+      "home_court_points": 2.2053,
+      "source_home_margin": -15.88730802383935,
+      "calibrated_home_margin": -16.882008023839347,
+      "margin_change": -0.9946999999999981,
+      "training_season": 2024,
+      "training_games": 600,
+      "replay_sha256": "d5eee52cd17f4de52fb2601a3478c9a6729781ef775b6c3c3893574478eb5524",
+      "betting_policy": "Research; betting advantage has not been established"
+    }
+  },
+  "projection_engine": "ncaam-v0.11-rebound-transfer-2026-11-16",
+  "matchup_projection": {
+    "model_version": "ncaam-v0.11-rebound-transfer-2026-11-16",
+    "status": "provisional",
+    "as_of": "2026-11-17T11:07:19.393177+00:00",
+    "tipoff": "2026-11-18T00:00:00+00:00",
+    "season": 2027,
+    "ratings_source_url": "https://barttorvik.com/2027_team_results.csv",
+    "ratings_observed_at": "2026-11-17T11:05:06+00:00",
+    "benchmark_sha256": "9dc8a8aa6398d84c18baa000bef67b9c3121d236f24cbad4813dccb1c4464c6f",
+    "national_benchmark": {
+      "observed_at": "2026-11-17T11:05:06+00:00",
+      "season": 2027,
+      "team_count": 365,
+      "metrics": {
+        "offense": {
+          "mean": 106.26145028339701,
+          "sd": 7.100094635518435
+        },
+        "defense": {
+          "mean": 106.28488461542948,
+          "sd": 5.678384367898368
+        },
+        "tempo": {
+          "mean": 69.90797798919677,
+          "sd": 2.278236607285612
+        }
+      }
+    },
+    "team_inputs": {
+      "away": {
+        "team": "Akron",
+        "offense": 110.25591379622432,
+        "defense": 100.69123305624247,
+        "tempo": 69.37995576975256
+      },
+      "home": {
+        "team": "Bucknell",
+        "offense": 95.76598873534249,
+        "defense": 114.07895999366431,
+        "tempo": 68.84221056203428
+      }
+    },
+    "possessions": 68.32223819467403,
+    "pairings": {
+      "away": {
+        "baseline_efficiency": 106.27316744941325,
+        "offense_deviation": 3.994463512827309,
+        "opponent_defense_deviation": 7.794075378234837,
+        "expected_efficiency": 118.0617063404754,
+        "neutral_points": 80.66240022263617
+      },
+      "home": {
+        "baseline_efficiency": 106.27316744941325,
+        "offense_deviation": -10.495461548054521,
+        "opponent_defense_deviation": -5.593651559187009,
+        "expected_efficiency": 90.18405434217172,
+        "neutral_points": 61.61576442127282
+      }
+    },
+    "adjustments": {
+      "away": {
+        "player_offense_per_100": 0.0,
+        "opponent_defense_per_100": -0.0,
+        "player_points": 0.0,
+        "home_court_points": -1.10265,
+        "offense_bonus": {
+          "qualified": false,
+          "offense_z": 0.5625929959926008,
+          "opponent_defense_z": 1.3725867911121186,
+          "opponent_defense_band": "weak",
+          "points": 0.0
+        },
+        "rebounding_points": 2.0
+      },
+      "home": {
+        "player_offense_per_100": 0.0,
+        "opponent_defense_per_100": -0.0,
+        "player_points": 0.0,
+        "home_court_points": 1.10265,
+        "offense_bonus": {
+          "qualified": false,
+          "offense_z": -1.478214317813549,
+          "opponent_defense_z": -0.985078007542008,
+          "opponent_defense_band": "above_average",
+          "points": 0.0
+        },
+        "rebounding_points": -2.0
+      }
+    },
+    "away_points": 81.55975022263617,
+    "home_points": 60.71841442127282,
+    "margin": -20.84133580136335,
+    "total": 142.27816464390898,
+    "calibrated_probabilities": false,
+    "tempo_model": {
+      "method": "adjusted-tempo-ratios-v1",
+      "national_tempo": 69.90797798919677,
+      "away_ratio": 0.9924468961249915,
+      "home_ratio": 0.9847547095793961
+    },
+    "offense_bonus_policy": {
+      "version": "ncaam-very-strong-offense-progressive-2026-11-16-v2",
+      "status": "experimental",
+      "qualifying_offense_z": 1.5,
+      "points_by_opponent_defense": {
+        "very_strong": 1.0,
+        "strong": 3.0,
+        "above_average": 5.0,
+        "below_average": 5.0,
+        "weak": 8.0,
+        "very_weak": 15.0
+      }
+    },
+    "rebounding_adjustment": {
+      "policy": "ncaam-rebound-zero-sum-2026-11-16-v1",
+      "status": "applied",
+      "experimental": true,
+      "points_per_edge_pp": 0.2,
+      "max_transfer_points": 3.0,
+      "full_weight_games": 3,
+      "away_points": 2.0,
+      "home_points": -2.0,
+      "sample_weight": 0.6666666666666666,
+      "home_edge_pp": -22.117366347885547,
+      "inputs": {
+        "away": {
+          "policy": "ncaam-d1-rebound-inputs-2026-11-16-v1",
+          "season": 2027,
+          "observed_at": "2026-11-17T11:04:47+00:00",
+          "cutoff_date": "2026-11-17",
+          "source_url": "https://barttorvik.com/getgamestats.php?year=2027&csv=1",
+          "source_sha256": "d54cf537fca160381a04fdea9c27419d1a0a3e11abf7ef049749c703d7cb9f45",
+          "team": "Akron",
+          "d1_games": 2,
+          "last_game_date": "2026-11-14",
+          "orb": 27,
+          "drb": 64,
+          "opp_orb": 19,
+          "opp_drb": 45,
+          "orb_pct": 0.375,
+          "allowed_pct": 0.2289156626506024
+        },
+        "home": {
+          "policy": "ncaam-d1-rebound-inputs-2026-11-16-v1",
+          "season": 2027,
+          "observed_at": "2026-11-17T11:04:47+00:00",
+          "cutoff_date": "2026-11-17",
+          "source_url": "https://barttorvik.com/getgamestats.php?year=2027&csv=1",
+          "source_sha256": "d54cf537fca160381a04fdea9c27419d1a0a3e11abf7ef049749c703d7cb9f45",
+          "team": "Bucknell",
+          "d1_games": 4,
+          "last_game_date": "2026-11-13",
+          "orb": 34,
+          "drb": 65,
+          "opp_orb": 74,
+          "opp_drb": 110,
+          "orb_pct": 0.2361111111111111,
+          "allowed_pct": 0.5323741007194245
+        }
+      },
+      "away_matchup_score": 0.45368705035971224,
+      "home_matchup_score": 0.23251338688085676,
+      "uncapped_home_points": -4.4234732695771095,
+      "capped_home_points": -3.0,
+      "before_away_points": 79.55975022263617,
+      "before_home_points": 62.71841442127282
+    },
+    "sha256": "27fb3c7df340f3150689319721b052f5f985100b4b4a8b26177ed6426cd97c11"
+  },
+  "availability_scenarios": [],
+  "lineup": null,
+  "starters_confirmed": false,
+  "player_profile_mode": "prior_fallback",
+  "availability_as_of": "",
+  "availability_source": "",
+  "recordId": "401924941|ncaam-v0.11-rebound-transfer-2026-11-16|fixture",
+  "gameId": "401924941",
+  "modelVersion": "ncaam-v0.11-rebound-transfer-2026-11-16",
+  "lockedAt": "2026-11-17T11:07:19.393177+00:00",
+  "tipoff": "2026-11-18T00:00:00+00:00",
+  "phase": "early",
+  "inputDigest": "43c826c663a77470",
+  "matchup_spread": {
+    "policy_version": "ncaam-point-edge-2026-11-14-v1",
+    "policy_sha256": "c19630cadd4f482e6292ff3ee0c03249343dc0227359d400936d1d77ed77f044",
+    "policy": {
+      "version": "ncaam-point-edge-2026-11-14-v1",
+      "status": "provisional",
+      "grading_basis": "market_point_edge",
+      "thresholds": {
+        "spread_a_points": 7.0,
+        "spread_b_points": 5.0,
+        "total_a_points": 10.0,
+        "total_b_points": 8.0,
+        "spread_max_market_line": null,
+        "max_benchmark_age_hours": 30.0,
+        "max_market_age_minutes": 90.0,
+        "extreme_z": 1.0,
+        "very_extreme_z": 1.5
+      },
+      "price_basis": "Retain the NCAAM quote policy: assumed -110; a worse price needs separate probability evidence",
+      "full_saturday_target": {
+        "minimum": 10,
+        "maximum": 15
+      },
+      "category_policy": "Report actual favorites, underdogs, Overs and Unders; grades do not fill quotas"
+    },
+    "grading_basis": "market_point_edge",
+    "grade": "B",
+    "edge_grade": "B",
+    "eligible": true,
+    "side": "away",
+    "projected_side": "away",
+    "edge": 6.34133580136335,
+    "reason": "6.34-point edge; A >= 7, B >= 5",
+    "confidence_flags": [
+      "Provisional point model and edge thresholds",
+      "Cover probabilities are not calibrated",
+      "Player availability unchecked",
+      "Starting fives unconfirmed"
+    ],
+    "forecast_record_id": "401924941|ncaam-v0.11-rebound-transfer-2026-11-16|fixture",
+    "game_id": "401924941",
+    "as_of": "2026-11-17T11:07:19.393177+00:00",
+    "tipoff": "2026-11-18T00:00:00+00:00",
+    "published_at": "2026-11-17T11:07:19.393177+00:00",
+    "record_mode": "live",
+    "projection_model_version": "ncaam-v0.11-rebound-transfer-2026-11-16",
+    "projection_sha256": "27fb3c7df340f3150689319721b052f5f985100b4b4a8b26177ed6426cd97c11",
+    "thresholds": {
+      "spread_a_points": 7.0,
+      "spread_b_points": 5.0,
+      "total_a_points": 10.0,
+      "total_b_points": 8.0,
+      "spread_max_market_line": null,
+      "max_benchmark_age_hours": 30.0,
+      "max_market_age_minutes": 90.0,
+      "extreme_z": 1.0,
+      "very_extreme_z": 1.5
+    },
+    "national_benchmark": {
+      "observed_at": "2026-11-17T11:05:06+00:00",
+      "season": 2027,
+      "team_count": 365,
+      "metrics": {
+        "offense": {
+          "mean": 106.26145028339701,
+          "sd": 7.100094635518435
+        },
+        "defense": {
+          "mean": 106.28488461542948,
+          "sd": 5.678384367898368
+        },
+        "tempo": {
+          "mean": 69.90797798919677,
+          "sd": 2.278236607285612
+        }
+      }
+    },
+    "benchmark_observed_at": "2026-11-17T11:05:06+00:00",
+    "benchmark_exact_rating_timestamp": true,
+    "z": {
+      "away": {
+        "offense": 0.5625929959926008,
+        "defense": -0.985078007542008,
+        "tempo": -0.23176794620700897
+      },
+      "home": {
+        "offense": -1.478214317813549,
+        "defense": 1.3725867911121186,
+        "tempo": -0.46780366172426874
+      }
+    },
+    "home_line": 14.5,
+    "line": -14.5,
+    "fair_home_spread": 20.84133580136335,
+    "projected_margin": 20.84133580136335,
+    "selection_team": "Akron Zips",
+    "role": "Favorite",
+    "offense_advantage": 14.48992506088183,
+    "defense_advantage": 13.387726937421846,
+    "picked_defense_z": -0.985078007542008,
+    "mean_tempo_z": -0.34978580396563885,
+    "tempo_support_z": 0.0
+  },
+  "matchup_total": {
+    "policy_version": "ncaam-point-edge-2026-11-14-v1",
+    "policy_sha256": "c19630cadd4f482e6292ff3ee0c03249343dc0227359d400936d1d77ed77f044",
+    "policy": {
+      "version": "ncaam-point-edge-2026-11-14-v1",
+      "status": "provisional",
+      "grading_basis": "market_point_edge",
+      "thresholds": {
+        "spread_a_points": 7.0,
+        "spread_b_points": 5.0,
+        "total_a_points": 10.0,
+        "total_b_points": 8.0,
+        "spread_max_market_line": null,
+        "max_benchmark_age_hours": 30.0,
+        "max_market_age_minutes": 90.0,
+        "extreme_z": 1.0,
+        "very_extreme_z": 1.5
+      },
+      "price_basis": "Retain the NCAAM quote policy: assumed -110; a worse price needs separate probability evidence",
+      "full_saturday_target": {
+        "minimum": 10,
+        "maximum": 15
+      },
+      "category_policy": "Report actual favorites, underdogs, Overs and Unders; grades do not fill quotas"
+    },
+    "grading_basis": "market_point_edge",
+    "grade": "Research",
+    "edge_grade": "Research",
+    "eligible": false,
+    "side": null,
+    "projected_side": "Under",
+    "edge": 4.22183535609102,
+    "reason": "4.22-point edge; A >= 10, B >= 8",
+    "confidence_flags": [
+      "Provisional point model and edge thresholds",
+      "Cover probabilities are not calibrated",
+      "Player availability unchecked",
+      "Starting fives unconfirmed"
+    ],
+    "forecast_record_id": "401924941|ncaam-v0.11-rebound-transfer-2026-11-16|fixture",
+    "game_id": "401924941",
+    "as_of": "2026-11-17T11:07:19.393177+00:00",
+    "tipoff": "2026-11-18T00:00:00+00:00",
+    "published_at": "2026-11-17T11:07:19.393177+00:00",
+    "record_mode": "live",
+    "projection_model_version": "ncaam-v0.11-rebound-transfer-2026-11-16",
+    "projection_sha256": "27fb3c7df340f3150689319721b052f5f985100b4b4a8b26177ed6426cd97c11",
+    "thresholds": {
+      "spread_a_points": 7.0,
+      "spread_b_points": 5.0,
+      "total_a_points": 10.0,
+      "total_b_points": 8.0,
+      "spread_max_market_line": null,
+      "max_benchmark_age_hours": 30.0,
+      "max_market_age_minutes": 90.0,
+      "extreme_z": 1.0,
+      "very_extreme_z": 1.5
+    },
+    "national_benchmark": {
+      "observed_at": "2026-11-17T11:05:06+00:00",
+      "season": 2027,
+      "team_count": 365,
+      "metrics": {
+        "offense": {
+          "mean": 106.26145028339701,
+          "sd": 7.100094635518435
+        },
+        "defense": {
+          "mean": 106.28488461542948,
+          "sd": 5.678384367898368
+        },
+        "tempo": {
+          "mean": 69.90797798919677,
+          "sd": 2.278236607285612
+        }
+      }
+    },
+    "benchmark_observed_at": "2026-11-17T11:05:06+00:00",
+    "benchmark_exact_rating_timestamp": true,
+    "z": {
+      "away": {
+        "offense": 0.5625929959926008,
+        "defense": -0.985078007542008,
+        "tempo": -0.23176794620700897
+      },
+      "home": {
+        "offense": -1.478214317813549,
+        "defense": 1.3725867911121186,
+        "tempo": -0.46780366172426874
+      }
+    },
+    "line": 146.5,
+    "projected_total": 142.27816464390898,
+    "directions": {
+      "Over": {
+        "grade": "Research",
+        "base_grade": "Research",
+        "profile_id": null,
+        "profile_label": "Projected point edge",
+        "matched_profiles": [],
+        "conflicts": []
+      },
+      "Under": {
+        "grade": "Research",
+        "base_grade": "Research",
+        "profile_id": null,
+        "profile_label": "Projected point edge",
+        "matched_profiles": [],
+        "conflicts": []
+      }
+    }
+  }
+}
