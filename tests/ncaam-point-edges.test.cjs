@@ -6,6 +6,9 @@ const spreads=load(path.join(__dirname,'../lib/ncaamSpreadGrades.ts'));
 const source=require('./fixtures/ncaam-point-edge-forecast.json');
 const revised=require('./fixtures/ncaam-v08-point-edge-forecast.json');
 const progressive=require('./fixtures/ncaam-v09-point-edge-forecast.json');
+const offenseV2=require('./fixtures/ncaam-v10-point-edge-forecast.json');
+const cappedRebounds=require('./fixtures/ncaam-v11-point-edge-forecast.json');
+const percentageRebounds=require('./fixtures/ncaam-v12-point-edge-forecast.json');
 const clock=Date.parse(source.lockedAt)+60000;
 function fixture({homeLine=source.market.home_spread,totalLine=source.market.total,mode='live',odds=-110}={}) {
  const f=structuredClone(source);f.market={...f.market,home_spread:homeLine,total:totalLine,odds};
@@ -53,7 +56,7 @@ test('progressive offense proof adds Michigan eight points and keeps all three m
   assert(api.ncaamPointProjection(f));assert(totals.ncaamMatchupGrade(f));assert(spreads.ncaamSpreadGrade(f));
  }
  const p=api.ncaamPointProjection(progressive);
- assert.equal(p.model_version,api.NCAAM_POINT_MODEL);
+ assert.equal(p.model_version,api.INITIAL_OFFENSE_NCAAM_POINT_MODEL);
  assert.equal(p.adjustments.home.offense_bonus.points,8);
  assert.equal(p.adjustments.away.offense_bonus.points,0);
  assert(Math.abs(p.home_points-99.97467996663356)<1e-7);
@@ -82,6 +85,65 @@ test('missing, inflated and misclassified offense bonuses fail the saved-score p
  delete downgraded.matchup_projection.offense_bonus_policy;
  for(const s of ['away','home'])delete downgraded.matchup_projection.adjustments[s].offense_bonus;
  assert.equal(api.ncaamPointProjection(downgraded),null);
+});
+
+test('current offense and both rebound generations validate their own saved scoring rules',()=>{
+ for(const f of [offenseV2,cappedRebounds,percentageRebounds]) {
+  assert(api.isNcaamPointModel(f.modelVersion));
+  assert(api.ncaamPointProjection(f),f.modelVersion);
+  assert(totals.ncaamMatchupGrade(f),f.modelVersion);
+  assert(spreads.ncaamSpreadGrade(f),f.modelVersion);
+ }
+ assert.equal(api.NCAAM_POINT_MODEL,percentageRebounds.modelVersion);
+ assert.equal(offenseV2.matchup_projection.total,cappedRebounds.matchup_projection.total);
+ assert.equal(offenseV2.matchup_projection.total,percentageRebounds.matchup_projection.total);
+ assert.equal(cappedRebounds.matchup_projection.rebounding_adjustment.home_points,-2);
+ assert(Math.abs(percentageRebounds.matchup_projection.rebounding_adjustment.home_points)>13);
+ assert.equal(spreads.ncaamSpreadGrade(cappedRebounds).grade,'B');
+ assert.equal(spreads.ncaamSpreadGrade(percentageRebounds).grade,'A');
+ assert.equal(api.isNcaamPointModel('ncaam-v0.13-unknown'),false);
+});
+
+test('rebound proof rejects changed source counts, stale inputs, altered curves and reversed transfers',()=>{
+ for(const source of [cappedRebounds,percentageRebounds]) {
+  const changes=[
+   f=>delete f.matchup_projection.rebounding_adjustment,
+   f=>f.away_rating.rebounding.orb++,
+   f=>f.away_rating.rebounding.last_game_date=f.away_rating.rebounding.cutoff_date,
+   f=>f.away_rating.rebounding.observed_at='2026-01-01T00:00:00Z',
+   f=>f.matchup_projection.rebounding_adjustment.inputs.away.orb++,
+   f=>f.matchup_projection.adjustments.home.rebounding_points++,
+   f=>f.matchup_projection.rebounding_adjustment.home_edge_pp++,
+   f=>f.matchup_projection.offense_bonus_policy.points_by_opponent_defense.very_weak=10,
+   f=>{
+    const p=f.matchup_projection,r=p.rebounding_adjustment;
+    for(const side of ['away','home']) {
+     p[`${side}_points`]-=2*r[`${side}_points`];
+     p.adjustments[side].rebounding_points=r[`${side}_points`]=-r[`${side}_points`];
+    }
+    p.margin=p.home_points-p.away_points;f.fair_home_spread=-p.margin;
+   },
+  ];
+  if(source===percentageRebounds)changes.push(f=>f.matchup_projection.rebounding_adjustment.boost_fraction_per_edge_pp=.02);
+  else changes.push(f=>f.matchup_projection.rebounding_adjustment.max_transfer_points=10);
+  for(const change of changes) {
+   const bad=structuredClone(source);change(bad);assert.equal(api.ncaamPointProjection(bad),null,change.toString());
+  }
+ }
+});
+
+test('separate saved grade rows restore current model plays and keep only the latest forecast',()=>{
+ const records=load(path.join(__dirname,'../lib/ncaamRecords.ts'));
+ const raw=[cappedRebounds,percentageRebounds].map((f,i)=>{
+  const copy=structuredClone(f);copy.lockedAt=f.lockedAt;
+  delete copy.matchup_spread;delete copy.matchup_total;
+  copy.spread_grade=copy.total_grade='Research';return copy;
+ });
+ const gradeRows=market=>[cappedRebounds,percentageRebounds].map(f=>({'Details JSON':JSON.stringify(f[`matchup_${market}`])}));
+ const attached=spreads.attachNcaamSpreadGrades(totals.attachNcaamMatchupGrades(raw,gradeRows('total')),gradeRows('spread'));
+ const plays=records.ncaamModelPlays(attached,[],Date.parse(percentageRebounds.lockedAt)+1000);
+ assert.equal(plays.length,1);assert.equal(plays[0].market,'Spread');assert.equal(plays[0].grade,'A');
+ assert.equal(plays[0].selection,percentageRebounds.spread_pick);
 });
 
 test('spread and total quotes use their own exact boundaries for both sides',()=>{

@@ -2,15 +2,27 @@ import { ncaamTeamKey } from "./ncaamTeamKey";
 import { quoteImpliedProbability } from "./modelSignalQuote";
 import type { NcaamMatchupGrade } from "./ncaamMatchupGrades";
 import type { NcaamSpreadGrade } from "./ncaamSpreadGrades";
+import { ncaamReboundPoints } from "./ncaamRebounding";
 
 export const LEGACY_NCAAM_POINT_MODEL = "ncaam-v0.7-matchup-projection-2026-11-14";
 export const ADJUSTED_TEMPO_NCAAM_POINT_MODEL = "ncaam-v0.8-adjusted-tempo-2026-11-15";
-export const NCAAM_POINT_MODEL = "ncaam-v0.9-progressive-offense-2026-11-15";
-export const isNcaamPointModel = (value: unknown) => value === NCAAM_POINT_MODEL
-  || value === ADJUSTED_TEMPO_NCAAM_POINT_MODEL || value === LEGACY_NCAAM_POINT_MODEL;
-const OFFENSE_BONUS_POLICY = "ncaam-very-strong-offense-progressive-2026-11-15-v1";
-const OFFENSE_BONUS_POINTS = {very_strong:1,strong:3,above_average:5,below_average:8,weak:9,very_weak:10} as const;
+export const INITIAL_OFFENSE_NCAAM_POINT_MODEL = "ncaam-v0.9-progressive-offense-2026-11-15";
+export const PRE_REBOUND_NCAAM_POINT_MODEL = "ncaam-v0.10-progressive-offense-2026-11-16";
+export const CAPPED_REBOUND_NCAAM_POINT_MODEL = "ncaam-v0.11-rebound-transfer-2026-11-16";
+export const NCAAM_POINT_MODEL = "ncaam-v0.12-rebound-percentage-2026-11-17";
+const POINT_MODELS = [LEGACY_NCAAM_POINT_MODEL, ADJUSTED_TEMPO_NCAAM_POINT_MODEL,
+  INITIAL_OFFENSE_NCAAM_POINT_MODEL, PRE_REBOUND_NCAAM_POINT_MODEL, CAPPED_REBOUND_NCAAM_POINT_MODEL, NCAAM_POINT_MODEL];
+export const isNcaamPointModel = (value: unknown) => typeof value === "string" && POINT_MODELS.includes(value);
+const OFFENSE_BONUS_POINTS = {very_strong:1,strong:3,above_average:5,below_average:5,weak:8,very_weak:15} as const;
 type DefenseBand = keyof typeof OFFENSE_BONUS_POINTS;
+const REVISED_OFFENSE_POLICY = { version: "ncaam-very-strong-offense-progressive-2026-11-16-v2", points: OFFENSE_BONUS_POINTS };
+const OFFENSE_POLICIES: Record<string, { version: string; points: Record<DefenseBand, number> }> = {
+  [INITIAL_OFFENSE_NCAAM_POINT_MODEL]: { version: "ncaam-very-strong-offense-progressive-2026-11-15-v1",
+    points: {very_strong:1,strong:3,above_average:5,below_average:8,weak:9,very_weak:10} },
+  [PRE_REBOUND_NCAAM_POINT_MODEL]: REVISED_OFFENSE_POLICY,
+  [CAPPED_REBOUND_NCAAM_POINT_MODEL]: REVISED_OFFENSE_POLICY,
+  [NCAAM_POINT_MODEL]: REVISED_OFFENSE_POLICY,
+};
 type OffenseBonus = { qualified: boolean; offense_z: number; opponent_defense_z: number;
   opponent_defense_band: DefenseBand; points: number };
 export const NCAAM_POINT_POLICY = "ncaam-point-edge-2026-11-14-v1";
@@ -26,7 +38,8 @@ export type NcaamPointProjection = { model_version: string; status: string; as_o
     points_by_opponent_defense: Record<DefenseBand, number> };
   possessions: number; away_points: number; home_points: number; margin: number; total: number;
   pairings: Record<"away" | "home", { expected_efficiency: number; neutral_points: number }>;
-  adjustments: Record<"away" | "home", { player_points: number; home_court_points: number; offense_bonus?: OffenseBonus }> };
+  adjustments: Record<"away" | "home", { player_points: number; home_court_points: number; offense_bonus?: OffenseBonus;
+    rebounding_points?: number }>; rebounding_adjustment?: Record<string, any> };
 type Row = Record<string, any>;
 const finite = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
 const time = (v: unknown) => typeof v === "string" && /(?:Z|[+-]\d{2}:\d{2})$/.test(v) ? Date.parse(v) : NaN;
@@ -52,7 +65,8 @@ export function ncaamPointProjection(f: Row): NcaamPointProjection | null {
     || p.ratings_source_url !== `https://barttorvik.com/${p.season}_team_results.csv`
     || f.ratings_source_url !== p.ratings_source_url || time(f.ratings_observed_at) !== time(p.ratings_observed_at)
     || ![p.away_points, p.home_points, p.margin, p.total, p.possessions, f.total, f.fair_home_spread].every(finite)
-    || p.away_points <= 0 || p.home_points <= 0 || p.possessions <= 45 || p.possessions >= 95
+    || (p.model_version === NCAAM_POINT_MODEL ? p.away_points < 0 || p.home_points < 0 : p.away_points <= 0 || p.home_points <= 0)
+    || p.possessions <= 45 || p.possessions >= 95
     || Math.abs(p.total-p.away_points-p.home_points) > 1e-7 || Math.abs(p.margin-p.home_points+p.away_points) > 1e-7
     || Math.abs(f.total-p.total) > 1e-7 || Math.abs(f.fair_home_spread+p.margin) > 1e-7) return null;
   const b = p.national_benchmark;
@@ -77,12 +91,13 @@ export function ncaamPointProjection(f: Row): NcaamPointProjection | null {
       || !finite(tempo.away_ratio) || Math.abs(tempo.away_ratio-a/national) > 1e-7
       || !finite(tempo.home_ratio) || Math.abs(tempo.home_ratio-h/national) > 1e-7) return null;
   }
-  const progressive = p.model_version === NCAAM_POINT_MODEL, policy = p.offense_bonus_policy;
-  if (progressive && (policy?.version !== OFFENSE_BONUS_POLICY || policy.status !== "experimental"
+  const offensePolicy = OFFENSE_POLICIES[p.model_version], progressive = Boolean(offensePolicy), policy = p.offense_bonus_policy;
+  if (progressive && (policy?.version !== offensePolicy.version || policy.status !== "experimental"
     || policy.qualifying_offense_z !== 1.5 || !policy.points_by_opponent_defense
     || Object.keys(policy.points_by_opponent_defense).length !== 6
-    || (Object.keys(OFFENSE_BONUS_POINTS) as DefenseBand[]).some(k => policy.points_by_opponent_defense[k] !== OFFENSE_BONUS_POINTS[k]))) return null;
+    || (Object.keys(OFFENSE_BONUS_POINTS) as DefenseBand[]).some(k => policy.points_by_opponent_defense[k] !== offensePolicy.points[k]))) return null;
   if (!progressive && policy !== undefined) return null;
+  const baseline = { away: 0, home: 0 };
   for (const side of ["away", "home"] as const) {
     const other = side === "away" ? "home" : "away", input = p.team_inputs[side], opponent = p.team_inputs[other];
     const adj = p.adjustments[side], pair = p.pairings[side];
@@ -90,7 +105,7 @@ export function ncaamPointProjection(f: Row): NcaamPointProjection | null {
     const defenseZ = (opponent.defense-b.metrics.defense.mean)/b.metrics.defense.sd;
     const band: DefenseBand = defenseZ <= -1.5 ? "very_strong" : defenseZ <= -1 ? "strong"
       : defenseZ < 0 ? "above_average" : defenseZ < 1 ? "below_average" : defenseZ < 1.5 ? "weak" : "very_weak";
-    const bonus = progressive && offenseZ >= 1.5 ? OFFENSE_BONUS_POINTS[band] : 0;
+    const bonus = progressive && offenseZ >= 1.5 ? offensePolicy.points[band] : 0;
     if (progressive) {
       const proof = adj.offense_bonus;
       if (!proof || proof.qualified !== (offenseZ >= 1.5) || proof.opponent_defense_band !== band
@@ -107,9 +122,17 @@ export function ncaamPointProjection(f: Row): NcaamPointProjection | null {
     const efficiency = (b.metrics.offense.mean+b.metrics.defense.mean)/2
       +input.offense-b.metrics.offense.mean+opponent.defense-b.metrics.defense.mean;
     const neutral = pace*efficiency/100;
-    if (Math.abs(pair.expected_efficiency-efficiency) > 1e-7 || Math.abs(pair.neutral_points-neutral) > 1e-7
-      || Math.abs(p[`${side}_points`]-(neutral+adj.player_points+adj.home_court_points+bonus)) > 1e-7) return null;
+    if (Math.abs(pair.expected_efficiency-efficiency) > 1e-7 || Math.abs(pair.neutral_points-neutral) > 1e-7) return null;
+    baseline[side] = neutral+adj.player_points+adj.home_court_points+bonus;
+    if (baseline[side] <= 0 || baseline[side] >= 200) return null;
   }
+  const hasRebounds = p.model_version === CAPPED_REBOUND_NCAAM_POINT_MODEL || p.model_version === NCAAM_POINT_MODEL;
+  const rebounds = hasRebounds ? ncaamReboundPoints(f, baseline, p.model_version === NCAAM_POINT_MODEL) : {away:0,home:0};
+  if (!rebounds || (!hasRebounds && (p.rebounding_adjustment !== undefined
+    || p.adjustments.away.rebounding_points !== undefined || p.adjustments.home.rebounding_points !== undefined))
+    || Math.abs(p.total-baseline.away-baseline.home) > 1e-7) return null;
+  for (const side of ["away", "home"] as const)
+    if (Math.abs(p[`${side}_points`]-baseline[side]-rebounds[side]) > 1e-7) return null;
   const quote = time(f.market?.as_of);
   return Number.isFinite(quote) && quote <= time(f.lockedAt) && time(f.lockedAt)-quote <= 90 * 60000 ? p : null;
 }
