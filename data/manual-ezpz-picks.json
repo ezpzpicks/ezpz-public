@@ -875,6 +875,57 @@
       "status": "approved",
       "notes": "Explicitly selected by Ryan as today's official EZPZ Picks in the 19468.jpg screenshot on November 17, 2026. Exact screenshot selection, line and odds retained; 1 unit per play. Matchup and ET tipoff verified against the saved November 17 Full Slate. Publish together once as one X thread through Buffer; check for an existing November 17 card before any repost.",
       "result": "PENDING"
+    },
+    {
+      "id": "manual_20261118_ncaam_401920751_total_under_153_5",
+      "sport": "NCAAM",
+      "game": "Youngstown State @ Cincinnati",
+      "gameTime": "2026-11-19T00:30:00.000Z",
+      "market": "Total",
+      "selection": "Under 153.5",
+      "line": 153.5,
+      "odds": "-112",
+      "date": "2026-11-18",
+      "approvedAt": "2026-11-18T16:46:53.000Z",
+      "approvedBy": "ChatGPT",
+      "selectedBy": "Ryan",
+      "status": "approved",
+      "notes": "Explicitly selected by Ryan as today's official EZPZ Picks in the 19488.jpg screenshot on November 18, 2026. Exact screenshot selection, line and odds retained; 1 unit per play. Matchup and ET tipoff verified against the saved November 18 Full Slate. Publish together once in a single X post through Buffer after checking eligibility and duplicates.",
+      "result": "PENDING"
+    },
+    {
+      "id": "manual_20261118_ncaam_401926064_total_over_155_5",
+      "sport": "NCAAM",
+      "game": "South Dakota @ Nebraska",
+      "gameTime": "2026-11-19T01:30:00.000Z",
+      "market": "Total",
+      "selection": "Over 155.5",
+      "line": 155.5,
+      "odds": "-110",
+      "date": "2026-11-18",
+      "approvedAt": "2026-11-18T16:46:53.000Z",
+      "approvedBy": "ChatGPT",
+      "selectedBy": "Ryan",
+      "status": "approved",
+      "notes": "Explicitly selected by Ryan as today's official EZPZ Picks in the 19488.jpg screenshot on November 18, 2026. Exact screenshot selection, line and odds retained; 1 unit per play. Matchup and ET tipoff verified against the saved November 18 Full Slate. Publish together once in a single X post through Buffer after checking eligibility and duplicates.",
+      "result": "PENDING"
+    },
+    {
+      "id": "manual_20261118_ncaam_401921816_total_over_153_5",
+      "sport": "NCAAM",
+      "game": "Alcorn State @ Missouri",
+      "gameTime": "2026-11-19T02:00:00.000Z",
+      "market": "Total",
+      "selection": "Over 153.5",
+      "line": 153.5,
+      "odds": "-115",
+      "date": "2026-11-18",
+      "approvedAt": "2026-11-18T16:46:53.000Z",
+      "approvedBy": "ChatGPT",
+      "selectedBy": "Ryan",
+      "status": "approved",
+      "notes": "Explicitly selected by Ryan as today's official EZPZ Picks in the 19488.jpg screenshot on November 18, 2026. Exact screenshot selection, line and odds retained; 1 unit per play. Matchup and ET tipoff verified against the saved November 18 Full Slate. Publish together once in a single X post through Buffer after checking eligibility and duplicates.",
+      "result": "PENDING"
     }
   ]
 }
