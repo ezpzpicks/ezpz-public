@@ -10,24 +10,29 @@ export const INITIAL_OFFENSE_NCAAM_POINT_MODEL = "ncaam-v0.9-progressive-offense
 export const PRE_REBOUND_NCAAM_POINT_MODEL = "ncaam-v0.10-progressive-offense-2026-11-16";
 export const CAPPED_REBOUND_NCAAM_POINT_MODEL = "ncaam-v0.11-rebound-transfer-2026-11-16";
 export const PERCENTAGE_REBOUND_NCAAM_POINT_MODEL = "ncaam-v0.12-rebound-percentage-2026-11-17";
-export const NCAAM_POINT_MODEL = "ncaam-v0.13-offense-only-2026-11-17";
+export const OFFENSE_ONLY_NCAAM_POINT_MODEL = "ncaam-v0.13-offense-only-2026-11-17";
+export const NCAAM_POINT_MODEL = "ncaam-v0.14-mirrored-defense-2026-11-18";
 const POINT_MODELS = [LEGACY_NCAAM_POINT_MODEL, ADJUSTED_TEMPO_NCAAM_POINT_MODEL,
   INITIAL_OFFENSE_NCAAM_POINT_MODEL, PRE_REBOUND_NCAAM_POINT_MODEL, CAPPED_REBOUND_NCAAM_POINT_MODEL,
-  PERCENTAGE_REBOUND_NCAAM_POINT_MODEL, NCAAM_POINT_MODEL];
+  PERCENTAGE_REBOUND_NCAAM_POINT_MODEL, OFFENSE_ONLY_NCAAM_POINT_MODEL, NCAAM_POINT_MODEL];
 export const isNcaamPointModel = (value: unknown) => typeof value === "string" && POINT_MODELS.includes(value);
 const OFFENSE_BONUS_POINTS = {very_strong:1,strong:3,above_average:5,below_average:5,weak:8,very_weak:15} as const;
 type DefenseBand = keyof typeof OFFENSE_BONUS_POINTS;
 const REVISED_OFFENSE_POLICY = { version: "ncaam-very-strong-offense-progressive-2026-11-16-v2", points: OFFENSE_BONUS_POINTS };
+const DEFENSE_DEDUCTION_POLICY = "ncaam-very-strong-defense-mirrored-2026-11-18-v1";
 const OFFENSE_POLICIES: Record<string, { version: string; points: Record<DefenseBand, number> }> = {
   [INITIAL_OFFENSE_NCAAM_POINT_MODEL]: { version: "ncaam-very-strong-offense-progressive-2026-11-15-v1",
     points: {very_strong:1,strong:3,above_average:5,below_average:8,weak:9,very_weak:10} },
   [PRE_REBOUND_NCAAM_POINT_MODEL]: REVISED_OFFENSE_POLICY,
   [CAPPED_REBOUND_NCAAM_POINT_MODEL]: REVISED_OFFENSE_POLICY,
   [PERCENTAGE_REBOUND_NCAAM_POINT_MODEL]: REVISED_OFFENSE_POLICY,
+  [OFFENSE_ONLY_NCAAM_POINT_MODEL]: REVISED_OFFENSE_POLICY,
   [NCAAM_POINT_MODEL]: REVISED_OFFENSE_POLICY,
 };
 type OffenseBonus = { qualified: boolean; offense_z: number; opponent_defense_z: number;
   opponent_defense_band: DefenseBand; points: number };
+type DefenseDeduction = { qualified: boolean; defense_z: number; opponent_offense_z: number;
+  opponent_offense_band: DefenseBand; points: number };
 export const NCAAM_POINT_POLICY = "ncaam-point-edge-2026-11-14-v1";
 export type NcaamPointPolicy = { version: string; grading_basis: "market_point_edge";
   thresholds: { spread_a_points: number; spread_b_points: number; total_a_points: number; total_b_points: number;
@@ -39,10 +44,13 @@ export type NcaamPointProjection = { model_version: string; status: string; as_o
   tempo_model?: { method: string; national_tempo: number; away_ratio: number; home_ratio: number };
   offense_bonus_policy?: { version: string; status: string; qualifying_offense_z: number;
     points_by_opponent_defense: Record<DefenseBand, number> };
+  defense_deduction_policy?: { version: string; status: string; qualifying_defense_z: number;
+    points_by_opponent_offense: Record<DefenseBand, number> };
   possessions: number; away_points: number; home_points: number; margin: number; total: number;
   pairings: Record<"away" | "home", { expected_efficiency: number; neutral_points: number }>;
   adjustments: Record<"away" | "home", { player_points: number; home_court_points: number; offense_bonus?: OffenseBonus;
-    rebounding_points?: number }>; rebounding_adjustment?: Record<string, any> };
+    opponent_defense_deduction?: DefenseDeduction; rebounding_points?: number }>;
+  rebounding_adjustment?: Record<string, any> };
 type Row = Record<string, any>;
 const finite = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
 const time = (v: unknown) => typeof v === "string" && /(?:Z|[+-]\d{2}:\d{2})$/.test(v) ? Date.parse(v) : NaN;
@@ -100,6 +108,12 @@ export function ncaamPointProjection(f: Row): NcaamPointProjection | null {
     || Object.keys(policy.points_by_opponent_defense).length !== 6
     || (Object.keys(OFFENSE_BONUS_POINTS) as DefenseBand[]).some(k => policy.points_by_opponent_defense[k] !== offensePolicy.points[k]))) return null;
   if (!progressive && policy !== undefined) return null;
+  const defenseAdjusted = p.model_version === NCAAM_POINT_MODEL, defensePolicy = p.defense_deduction_policy;
+  if (defenseAdjusted ? defensePolicy?.version !== DEFENSE_DEDUCTION_POLICY || defensePolicy.status !== "experimental"
+    || defensePolicy.qualifying_defense_z !== -1.5 || !defensePolicy.points_by_opponent_offense
+    || Object.keys(defensePolicy.points_by_opponent_offense).length !== 6
+    || (Object.keys(OFFENSE_BONUS_POINTS) as DefenseBand[]).some(k => defensePolicy.points_by_opponent_offense[k] !== OFFENSE_BONUS_POINTS[k])
+    : defensePolicy !== undefined) return null;
   const baseline = { away: 0, home: 0 };
   for (const side of ["away", "home"] as const) {
     const other = side === "away" ? "home" : "away", input = p.team_inputs[side], opponent = p.team_inputs[other];
@@ -109,6 +123,16 @@ export function ncaamPointProjection(f: Row): NcaamPointProjection | null {
     const band: DefenseBand = defenseZ <= -1.5 ? "very_strong" : defenseZ <= -1 ? "strong"
       : defenseZ < 0 ? "above_average" : defenseZ < 1 ? "below_average" : defenseZ < 1.5 ? "weak" : "very_weak";
     const bonus = progressive && offenseZ >= 1.5 ? offensePolicy.points[band] : 0;
+    const offenseBand: DefenseBand = offenseZ >= 1.5 ? "very_strong" : offenseZ >= 1 ? "strong"
+      : offenseZ > 0 ? "above_average" : offenseZ > -1 ? "below_average" : offenseZ > -1.5 ? "weak" : "very_weak";
+    const deduction = defenseAdjusted && defenseZ <= -1.5 ? OFFENSE_BONUS_POINTS[offenseBand] : 0;
+    if (defenseAdjusted) {
+      const proof = adj.opponent_defense_deduction;
+      if (!proof || proof.qualified !== (defenseZ <= -1.5) || proof.opponent_offense_band !== offenseBand
+        || !finite(proof.defense_z) || Math.abs(proof.defense_z-defenseZ) > 1e-7
+        || !finite(proof.opponent_offense_z) || Math.abs(proof.opponent_offense_z-offenseZ) > 1e-7
+        || proof.points !== deduction) return null;
+    } else if (adj.opponent_defense_deduction !== undefined) return null;
     if (progressive) {
       const proof = adj.offense_bonus;
       if (!proof || proof.qualified !== (offenseZ >= 1.5) || proof.opponent_defense_band !== band
@@ -126,7 +150,7 @@ export function ncaamPointProjection(f: Row): NcaamPointProjection | null {
       +input.offense-b.metrics.offense.mean+opponent.defense-b.metrics.defense.mean;
     const neutral = pace*efficiency/100;
     if (Math.abs(pair.expected_efficiency-efficiency) > 1e-7 || Math.abs(pair.neutral_points-neutral) > 1e-7) return null;
-    baseline[side] = neutral+adj.player_points+adj.home_court_points+bonus;
+    baseline[side] = neutral+adj.player_points+adj.home_court_points+bonus-deduction;
     if (baseline[side] <= 0 || baseline[side] >= 200) return null;
   }
   const hasRebounds = p.model_version === CAPPED_REBOUND_NCAAM_POINT_MODEL || p.model_version === PERCENTAGE_REBOUND_NCAAM_POINT_MODEL;
