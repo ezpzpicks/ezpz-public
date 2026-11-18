@@ -9,6 +9,7 @@ const progressive=require('./fixtures/ncaam-v09-point-edge-forecast.json');
 const offenseV2=require('./fixtures/ncaam-v10-point-edge-forecast.json');
 const cappedRebounds=require('./fixtures/ncaam-v11-point-edge-forecast.json');
 const percentageRebounds=require('./fixtures/ncaam-v12-point-edge-forecast.json');
+const offenseOnly=require('./fixtures/ncaam-v13-point-edge-forecast.json');
 const clock=Date.parse(source.lockedAt)+60000;
 function fixture({homeLine=source.market.home_spread,totalLine=source.market.total,mode='live',odds=-110}={}) {
  const f=structuredClone(source);f.market={...f.market,home_spread:homeLine,total:totalLine,odds};
@@ -94,7 +95,7 @@ test('current offense and both rebound generations validate their own saved scor
   assert(totals.ncaamMatchupGrade(f),f.modelVersion);
   assert(spreads.ncaamSpreadGrade(f),f.modelVersion);
  }
- assert.equal(api.NCAAM_POINT_MODEL,percentageRebounds.modelVersion);
+ assert.equal(api.PERCENTAGE_REBOUND_NCAAM_POINT_MODEL,percentageRebounds.modelVersion);
  assert.equal(offenseV2.matchup_projection.total,cappedRebounds.matchup_projection.total);
  assert.equal(offenseV2.matchup_projection.total,percentageRebounds.matchup_projection.total);
  assert.equal(cappedRebounds.matchup_projection.rebounding_adjustment.home_points,-2);
@@ -130,6 +131,25 @@ test('rebound proof rejects changed source counts, stale inputs, altered curves 
    const bad=structuredClone(source);change(bad);assert.equal(api.ncaamPointProjection(bad),null,change.toString());
   }
  }
+});
+
+test('current offense-only scores preserve offense policy and total grades without applying rebound points',()=>{
+ const p=api.ncaamPointProjection(offenseOnly);
+ assert(p);assert.equal(p.model_version,api.NCAAM_POINT_MODEL);
+ assert(totals.ncaamMatchupGrade(offenseOnly));assert(spreads.ncaamSpreadGrade(offenseOnly));
+ assert.equal(p.rebounding_adjustment,undefined);
+ assert.equal(p.away_points,offenseV2.matchup_projection.away_points);
+ assert.equal(p.home_points,offenseV2.matchup_projection.home_points);
+ assert.equal(p.total,percentageRebounds.matchup_projection.total);
+ assert.deepEqual(p.offense_bonus_policy,offenseV2.matchup_projection.offense_bonus_policy);
+ for(const side of ['away','home'])assert.equal(p.adjustments[side].rebounding_points,undefined);
+ for(const field of ['edge','grade','projected_side','projected_total','line'])
+  assert.equal(offenseOnly.matchup_total[field],percentageRebounds.matchup_total[field]);
+ const mislabeled=structuredClone(percentageRebounds);
+ mislabeled.modelVersion=mislabeled.projection_engine=mislabeled.matchup_projection.model_version=api.NCAAM_POINT_MODEL;
+ assert.equal(api.ncaamPointProjection(mislabeled),null);
+ const added=structuredClone(offenseOnly);added.matchup_projection.adjustments.home.rebounding_points=0;
+ assert.equal(api.ncaamPointProjection(added),null);
 });
 
 test('separate saved grade rows restore current model plays and keep only the latest forecast',()=>{

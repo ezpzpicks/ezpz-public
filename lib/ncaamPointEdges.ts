@@ -9,9 +9,11 @@ export const ADJUSTED_TEMPO_NCAAM_POINT_MODEL = "ncaam-v0.8-adjusted-tempo-2026-
 export const INITIAL_OFFENSE_NCAAM_POINT_MODEL = "ncaam-v0.9-progressive-offense-2026-11-15";
 export const PRE_REBOUND_NCAAM_POINT_MODEL = "ncaam-v0.10-progressive-offense-2026-11-16";
 export const CAPPED_REBOUND_NCAAM_POINT_MODEL = "ncaam-v0.11-rebound-transfer-2026-11-16";
-export const NCAAM_POINT_MODEL = "ncaam-v0.12-rebound-percentage-2026-11-17";
+export const PERCENTAGE_REBOUND_NCAAM_POINT_MODEL = "ncaam-v0.12-rebound-percentage-2026-11-17";
+export const NCAAM_POINT_MODEL = "ncaam-v0.13-offense-only-2026-11-17";
 const POINT_MODELS = [LEGACY_NCAAM_POINT_MODEL, ADJUSTED_TEMPO_NCAAM_POINT_MODEL,
-  INITIAL_OFFENSE_NCAAM_POINT_MODEL, PRE_REBOUND_NCAAM_POINT_MODEL, CAPPED_REBOUND_NCAAM_POINT_MODEL, NCAAM_POINT_MODEL];
+  INITIAL_OFFENSE_NCAAM_POINT_MODEL, PRE_REBOUND_NCAAM_POINT_MODEL, CAPPED_REBOUND_NCAAM_POINT_MODEL,
+  PERCENTAGE_REBOUND_NCAAM_POINT_MODEL, NCAAM_POINT_MODEL];
 export const isNcaamPointModel = (value: unknown) => typeof value === "string" && POINT_MODELS.includes(value);
 const OFFENSE_BONUS_POINTS = {very_strong:1,strong:3,above_average:5,below_average:5,weak:8,very_weak:15} as const;
 type DefenseBand = keyof typeof OFFENSE_BONUS_POINTS;
@@ -21,6 +23,7 @@ const OFFENSE_POLICIES: Record<string, { version: string; points: Record<Defense
     points: {very_strong:1,strong:3,above_average:5,below_average:8,weak:9,very_weak:10} },
   [PRE_REBOUND_NCAAM_POINT_MODEL]: REVISED_OFFENSE_POLICY,
   [CAPPED_REBOUND_NCAAM_POINT_MODEL]: REVISED_OFFENSE_POLICY,
+  [PERCENTAGE_REBOUND_NCAAM_POINT_MODEL]: REVISED_OFFENSE_POLICY,
   [NCAAM_POINT_MODEL]: REVISED_OFFENSE_POLICY,
 };
 type OffenseBonus = { qualified: boolean; offense_z: number; opponent_defense_z: number;
@@ -65,7 +68,7 @@ export function ncaamPointProjection(f: Row): NcaamPointProjection | null {
     || p.ratings_source_url !== `https://barttorvik.com/${p.season}_team_results.csv`
     || f.ratings_source_url !== p.ratings_source_url || time(f.ratings_observed_at) !== time(p.ratings_observed_at)
     || ![p.away_points, p.home_points, p.margin, p.total, p.possessions, f.total, f.fair_home_spread].every(finite)
-    || (p.model_version === NCAAM_POINT_MODEL ? p.away_points < 0 || p.home_points < 0 : p.away_points <= 0 || p.home_points <= 0)
+    || (p.model_version === PERCENTAGE_REBOUND_NCAAM_POINT_MODEL ? p.away_points < 0 || p.home_points < 0 : p.away_points <= 0 || p.home_points <= 0)
     || p.possessions <= 45 || p.possessions >= 95
     || Math.abs(p.total-p.away_points-p.home_points) > 1e-7 || Math.abs(p.margin-p.home_points+p.away_points) > 1e-7
     || Math.abs(f.total-p.total) > 1e-7 || Math.abs(f.fair_home_spread+p.margin) > 1e-7) return null;
@@ -126,8 +129,8 @@ export function ncaamPointProjection(f: Row): NcaamPointProjection | null {
     baseline[side] = neutral+adj.player_points+adj.home_court_points+bonus;
     if (baseline[side] <= 0 || baseline[side] >= 200) return null;
   }
-  const hasRebounds = p.model_version === CAPPED_REBOUND_NCAAM_POINT_MODEL || p.model_version === NCAAM_POINT_MODEL;
-  const rebounds = hasRebounds ? ncaamReboundPoints(f, baseline, p.model_version === NCAAM_POINT_MODEL) : {away:0,home:0};
+  const hasRebounds = p.model_version === CAPPED_REBOUND_NCAAM_POINT_MODEL || p.model_version === PERCENTAGE_REBOUND_NCAAM_POINT_MODEL;
+  const rebounds = hasRebounds ? ncaamReboundPoints(f, baseline, p.model_version === PERCENTAGE_REBOUND_NCAAM_POINT_MODEL) : {away:0,home:0};
   if (!rebounds || (!hasRebounds && (p.rebounding_adjustment !== undefined
     || p.adjustments.away.rebounding_points !== undefined || p.adjustments.home.rebounding_points !== undefined))
     || Math.abs(p.total-baseline.away-baseline.home) > 1e-7) return null;
