@@ -6,12 +6,12 @@ import { BarChart3, ChevronDown, MoreHorizontal, Radio, RefreshCw, Zap } from "l
 export type BoardTab = "Today’s Model Plays" | "Public Betting Splits" | "EZPZ Picks" | "Full Slate" | "Records" | "Signals";
 export type BoardSport = "MLB" | "NFL" | "NCAAF" | "NCAAM" | "NBA";
 const primary = [
-  { label: "EZPZ Picks", Icon: Zap },
-  { label: "Signals", Icon: Radio },
-  { label: "Records", Icon: BarChart3 },
+  { tab: "EZPZ Picks", label: "EZPZ Picks", Icon: Zap },
+  { tab: "Signals", label: "Signals", Icon: Radio },
+  { tab: "Today’s Model Plays", label: "Model Plays", Icon: BarChart3 },
 ] as const;
 const supporting: { tab: BoardTab; label: string }[] = [
-  { tab: "Today’s Model Plays", label: "Model Plays" },
+  { tab: "Records", label: "Records" },
   { tab: "Public Betting Splits", label: "Public Betting Splits" },
   { tab: "Full Slate", label: "Full Slate" },
 ];
@@ -52,7 +52,7 @@ export default function SiteNavigation({ active, onChange }: { active: BoardTab;
   }, [moreOpen]);
   const navigate = (tab: BoardTab) => { setMoreOpen(false); onChange(tab); };
   return <nav className="ez-nav" aria-label="Main navigation">
-    {primary.map(({ label, Icon }) => <button type="button" key={label} className={active === label ? "ez-nav-active" : ""} aria-current={active === label ? "page" : undefined} onClick={() => navigate(label)}>
+    {primary.map(({ tab, label, Icon }) => <button type="button" key={tab} className={active === tab ? "ez-nav-active" : ""} aria-current={active === tab ? "page" : undefined} onClick={() => navigate(tab)}>
       <Icon size={22} aria-hidden="true" /><span>{label}</span>
     </button>)}
     <div className="ez-more" ref={menu}>
