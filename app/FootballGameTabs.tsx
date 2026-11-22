@@ -5,13 +5,16 @@ import { MatchupWithLogos, SelectionWithTeamLogo, TeamLogoName } from "./TeamLog
 import FootballModelFormBadges from "./FootballModelFormBadges";
 import NcaafModelDetails from "./NcaafModelDetails";
 import NcaafModelBoard from "./NcaafModelBoard";
+import { mergeNflPendingModelPlays, type NflModelPlay } from "../lib/nflModelPlayDisplay";
+import type { NflPendingGame } from "../lib/nflPendingGames";
+import { nflPropsDate, type NflPlayerProp } from "../lib/nflPlayerProps";
 
 type Sport = "NFL" | "NCAAF";
 type Tab = "Today’s Model Plays" | "Full Slate";
 type SheetRow = Record<string, string>;
 type FormStatus = "HOT" | "COLD" | "NEUTRAL" | "SAMPLE";
 
-type Play = {
+type Play = NflModelPlay & {
   playType?: string;
   game?: string;
   play?: string;
@@ -307,7 +310,7 @@ function mergeSlateRows(data: FootballData, weekly: WeeklyData | null, sport: Sp
 
 
 
-function GameSummary({ sport, game, time, count, noun = "plays" }: { sport: Sport; game: string; time: string; count?: number; noun?: string }) {
+function GameSummary({ sport, game, time, count, pending, noun = "plays" }: { sport: Sport; game: string; time: string; count?: number; pending?: boolean; noun?: string }) {
   return (
     <summary className="fgtSummary">
       <span className="fgtChevron">›</span>
@@ -315,7 +318,10 @@ function GameSummary({ sport, game, time, count, noun = "plays" }: { sport: Spor
         <strong><MatchupWithLogos sport={sport} game={game} compact /></strong>
         <small>{displayTime(time)}</small>
       </span>
-      {typeof count === "number" ? <span className="fgtCount">{count} {noun}</span> : null}
+      <span className="fgtSummaryBadges">
+        {pending ? <span className="fgtPending">Pending</span> : null}
+        {typeof count === "number" ? <span className="fgtCount">{count} {noun}</span> : null}
+      </span>
     </summary>
   );
 }
@@ -374,9 +380,12 @@ function ModelPlayRow({ play, sport, data }: { play: Play; sport: Sport; data: F
   return (
     <article className={`fgtPlayRow ${isProp ? "prop" : "game"} ${play.formStatus === "HOT" ? "hot" : ""}`}>
       <div className="fgtPlayMain">
+        <div className="fgtPlayLabel">
+          <span className="fgtEyebrow">{isProp ? `${play.playType || "PROP"} • ${play.propMarket || "Player Prop"}${play.propSide ? ` • ${play.propSide}` : ""}` : play.playType || play.role || "MODEL PLAY"}</span>
+          {play.pending ? <span className="fgtPending">Pending</span> : null}
+        </div>
         {isProp ? (
           <>
-            <span className="fgtEyebrow">{play.playType || "PROP"} • {play.propMarket || "Player Prop"}{play.propSide ? ` • ${play.propSide}` : ""}</span>
             <div className="fgtPlayerNameRow">
               {headshot ? (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -394,7 +403,6 @@ function ModelPlayRow({ play, sport, data }: { play: Play; sport: Sport; data: F
           </>
         ) : (
           <>
-            <span className="fgtEyebrow">{play.playType || play.role || "MODEL PLAY"}</span>
             <strong><SelectionWithTeamLogo sport={sport} selection={play.play || ""} game={play.game || ""} /></strong>
             <small>{play.role || "Game market"}</small>
           </>
@@ -403,7 +411,11 @@ function ModelPlayRow({ play, sport, data }: { play: Play; sport: Sport; data: F
       <div className="fgtPlayMetrics">
         {isProp ? <span>PROJ <b>{projection(play.propProjection)}</b></span> : null}
         {isProp ? <span>LINE <b>{String(play.propLine ?? "—")}</b></span> : null}
-        <span>MODEL <b>{probability(play.score)}</b></span>
+        {play.modelProjection != null ? <>
+          <span>PROJ <b>{projection(play.modelProjection)}</b></span>
+          <span>LINE <b>{projection(play.marketLine)}</b></span>
+          <span>EDGE <b>{projection(play.modelEdge)}</b></span>
+        </> : <span>MODEL <b>{probability(play.score)}</b></span>}
         <span>ODDS <b>{odds(play)}</b></span>
       </div>
       {sport === "NCAAF" && !isProp ? (
@@ -427,6 +439,42 @@ function ModelPlayRow({ play, sport, data }: { play: Play; sport: Sport; data: F
 
 export default function FootballGameTabs({ sport, tab, data }: { sport: Sport; tab: Tab; data: FootballData }) {
   const [weekly, setWeekly] = useState<WeeklyData | null>(data.footballWeeklyMarket || null);
+  const [previews, setPreviews] = useState<{ date: string; games: NflPendingGame[]; props: NflPlayerProp[] }>({ date: "", games: [], props: [] });
+  const [now, setNow] = useState(Date.now());
+  const [previewError, setPreviewError] = useState("");
+  const [previewsLoading, setPreviewsLoading] = useState(sport === "NFL" && tab === "Today’s Model Plays");
+  const previewDate = data.today || nflPropsDate();
+
+  useEffect(() => {
+    if (sport !== "NFL" || tab !== "Today’s Model Plays") return;
+    let controller: AbortController;
+    let active = true;
+    setPreviewsLoading(true);
+    const refresh = async () => {
+      controller?.abort();
+      controller = new AbortController();
+      const signal = controller.signal;
+      setNow(Date.now());
+      const results = await Promise.allSettled([
+        fetch(`/api/nfl-pending-game-plays?date=${encodeURIComponent(previewDate)}`, { cache: "no-store", signal })
+          .then(async response => { const result = await response.json(); if (!response.ok || !result.ok) throw new Error(); return result.plays as NflPendingGame[]; }),
+        fetch(`/api/nfl-player-props?date=${encodeURIComponent(previewDate)}`, { cache: "no-store", signal })
+          .then(async response => { const result = await response.json(); if (!response.ok || !result.ok) throw new Error(); return result.props as NflPlayerProp[]; }),
+      ]);
+      if (!active || signal.aborted) return;
+      const [games, props] = results;
+      setPreviews(previous => ({
+        date: previewDate,
+        games: games.status === "fulfilled" ? games.value : previous.date === previewDate ? previous.games : [],
+        props: props.status === "fulfilled" ? props.value : previous.date === previewDate ? previous.props : [],
+      }));
+      setPreviewError(results.some(result => result.status === "rejected") ? "Could not refresh pending plays." : "");
+      setPreviewsLoading(false);
+    };
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 60_000);
+    return () => { active = false; controller?.abort(); window.clearInterval(timer); };
+  }, [sport, tab, previewDate, data.lastUpdated]);
 
   useEffect(() => {
     if (data.footballWeeklyMarket) {
@@ -443,7 +491,9 @@ export default function FootballGameTabs({ sport, tab, data }: { sport: Sport; t
   }, [sport, data.lastUpdated, data.footballWeeklyMarket]);
 
   const slate = useMemo(() => mergeSlateRows(data, weekly, sport), [data, weekly, sport]);
-  const plays = data.bestPlays || [];
+  const plays = useMemo(() => sport === "NFL" && tab === "Today’s Model Plays" && previews.date === previewDate
+    ? mergeNflPendingModelPlays(data.bestPlays || [], previews.games, previews.props, slate, now)
+    : data.bestPlays || [], [sport, tab, data.bestPlays, previews, previewDate, slate, now]);
 
   const groups = useMemo(() => {
     const output: { game: string; time: string; row: SheetRow | null; plays: Play[] }[] = [];
@@ -456,7 +506,7 @@ export default function FootballGameTabs({ sport, tab, data }: { sport: Sport; t
         return Boolean(b && sameTeam(a.away, b.away, sport) && sameTeam(a.home, b.home, sport));
       });
       if (existing) existing.plays.push(play);
-      else output.push({ game: row ? rowGame(row) : String(play.game || "Unknown matchup"), time: rowGameTime(row), row, plays: [play] });
+      else output.push({ game: row ? rowGame(row) : String(play.game || "Unknown matchup"), time: rowGameTime(row) || play.gameTime || "", row, plays: [play] });
     }
     return output.sort((a, b) => timeSortValue(a.time) - timeSortValue(b.time) || a.game.localeCompare(b.game));
   }, [plays, slate, sport]);
@@ -470,6 +520,7 @@ export default function FootballGameTabs({ sport, tab, data }: { sport: Sport; t
           <h2>{sport} {tab === "Full Slate" ? "Full Slate" : "Model Plays"}</h2>
         </div>
       </div>
+      {sport === "NFL" && tab === "Today’s Model Plays" && previewError ? <p className="fgtRefreshError" role="status">{previewError}</p> : null}
 
       {tab === "Full Slate" ? (
         slate.length ? <div className="fgtStack">{slate.map((row, index) => {
@@ -481,13 +532,14 @@ export default function FootballGameTabs({ sport, tab, data }: { sport: Sport; t
           </details>;
         })}</div> : <div className="fgtEmpty">No {sport} games are posted for {data.today || "today"} yet.</div>
       ) : (
-        groups.length ? <div className="fgtStack">{groups.map((group, groupIndex) => <details className="fgtGame fgtModelGame" key={`${teamKey(playTeams(group.plays[0]).away, sport)}-${teamKey(playTeams(group.plays[0]).home, sport)}-${groupIndex}`}>
-          <GameSummary sport={sport} game={group.game} time={group.time} count={group.plays.length} noun={group.plays.length === 1 ? "play" : "plays"} />
+        groups.length ? <div className="fgtStack">{groups.map(group => <details className="fgtGame fgtModelGame" key={`${teamKey(playTeams(group.plays[0]).away, sport)}-${teamKey(playTeams(group.plays[0]).home, sport)}`}>
+          <GameSummary sport={sport} game={group.game} time={group.time} count={group.plays.length} pending={group.plays.some(play => play.pending)} noun={group.plays.length === 1 ? "play" : "plays"} />
           <div className="fgtModelBody">{group.plays.map((play, index) => <ModelPlayRow key={`${play.play}-${play.playerName}-${play.propMarket}-${index}`} play={play} sport={sport} data={data} />)}</div>
-        </details>)}</div> : <div className="fgtEmpty">No graded {sport} Model Plays are saved for {data.today || "today"}.</div>
+        </details>)}</div> : <div className="fgtEmpty">{sport === "NFL" && previewsLoading ? "Loading model plays…" : `No graded ${sport} Model Plays are saved for ${data.today || "today"}.`}</div>
       )}
 
       <style jsx global>{`
+        .fgtSummaryBadges{display:flex;align-items:center;justify-content:flex-end;gap:6px;flex-wrap:wrap;max-width:150px}.fgtPending{display:inline-flex;width:max-content;border:1px solid rgba(247,200,92,.3);border-radius:999px;padding:4px 7px;color:#f4d482;background:rgba(155,115,30,.13);font-size:12px;font-weight:750;line-height:1.2;white-space:nowrap}.fgtPlayLabel{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.fgtRefreshError{margin:0;color:var(--ez-muted);font-size:.82rem}@media(max-width:700px){.fgtSummaryBadges{max-width:112px}}
         .footballGameTabs{display:grid;gap:18px}.fgtHead{display:flex;align-items:flex-end;justify-content:space-between;gap:16px}.fgtHead h2{margin:0 0 5px;font-size:clamp(1.35rem,4vw,2.25rem);letter-spacing:-.04em}.fgtHead p{margin:0;max-width:760px;color:var(--ez-muted);font-size:.82rem;line-height:1.45}.fgtHeadBadges{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}.fgtHeadBadges span{border:1px solid var(--ez-border);border-radius:999px;padding:7px 11px;color:var(--ez-muted);font-size:.76rem;font-weight:850}.fgtHeadBadges span.live{color:var(--ez-green);border-color:rgba(43,216,117,.35)}
         .fgtStack{display:grid;gap:12px}.fgtGame{overflow:hidden;border:1px solid rgba(68,151,248,.2);border-radius:22px;background:linear-gradient(145deg,rgba(8,17,31,.94),rgba(4,10,20,.92));box-shadow:0 18px 48px rgba(0,0,0,.28)}.fgtSummary{cursor:pointer;list-style:none;display:grid;grid-template-columns:20px minmax(0,1fr) auto;align-items:center;gap:10px;padding:16px 18px;user-select:none}.fgtSummary::-webkit-details-marker{display:none}.fgtChevron{color:#78b9ff;font-size:25px;font-weight:800;line-height:1;transition:transform .18s ease}.fgtGame[open] .fgtChevron{transform:rotate(90deg)}.fgtGame[open] .fgtSummary{border-bottom:1px solid rgba(78,153,241,.13);background:linear-gradient(90deg,rgba(31,110,216,.1),transparent)}.fgtSummaryMain{display:grid;gap:4px;min-width:0}.fgtSummaryMain strong{color:#f7fbff;font-size:16px;line-height:1.25;font-weight:920}.fgtSummaryMain small{color:rgba(151,175,205,.76);font-size:11px;font-weight:700}.fgtCount{border:1px solid rgba(76,163,255,.24);border-radius:999px;padding:7px 10px;background:rgba(32,105,210,.13);color:#d9edff;font-size:10px;font-weight:900;letter-spacing:.04em;text-transform:uppercase;white-space:nowrap}
         .fgtSlateBody{display:grid;gap:10px;padding:10px}.fgtScoreboard{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.fgtTeamScore{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px;border:1px solid rgba(98,139,191,.15);border-radius:16px;padding:13px;background:rgba(7,16,30,.66)}.fgtTeamScore>div{min-width:0}.fgtTeamScore span{display:block;color:var(--ez-muted);font-size:9px;font-weight:900;letter-spacing:.07em}.fgtTeamScore strong{display:block;margin-top:4px;color:#f2f7ff;font-size:15px;overflow-wrap:anywhere}.fgtTeamScore>b{color:#8bc5ff;font-size:32px;line-height:1;letter-spacing:-.04em}.fgtMetrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.fgtMetrics>div{border:1px solid rgba(98,139,191,.14);border-radius:14px;padding:11px 12px;background:rgba(8,17,31,.62)}.fgtMetrics span{display:block;color:var(--ez-muted);font-size:9px}.fgtMetrics strong{display:block;margin-top:4px}.fgtMarkets{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.fgtMarketCard{min-width:0;border:1px solid rgba(93,137,192,.16);border-radius:16px;padding:12px 13px;background:linear-gradient(145deg,rgba(10,22,40,.72),rgba(6,14,26,.82))}.fgtMarketCard>div{display:flex;align-items:center;justify-content:space-between;gap:8px}.fgtMarketCard>div span{color:#78b9ff;font-size:10px;font-weight:950;letter-spacing:.07em}.fgtMarketCard>div b{border:1px solid rgba(93,137,192,.18);border-radius:999px;padding:4px 7px;color:#cfe6ff;font-size:9px}.fgtMarketCard>strong{display:block;margin-top:9px;color:#f4f8ff;font-size:17px;line-height:1.2;overflow-wrap:anywhere}.fgtMarketCard>small{display:block;margin-top:5px;color:var(--ez-muted);font-size:10px}
