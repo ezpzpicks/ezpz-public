@@ -156,7 +156,7 @@ test('archived offense-only scores preserve offense policy and total grades with
 test('mirrored defense reads Python scores and grades with independent deductions on either side',()=>{
  for(const {name,forecast:f,before} of mirroredDefense.cases) {
   const p=api.ncaamPointProjection(f);
-  assert(p,name);assert.equal(p.model_version,api.NCAAM_POINT_MODEL);
+  assert(p,name);assert.equal(p.model_version,api.MIRRORED_DEFENSE_NCAAM_POINT_MODEL);
   assert(totals.ncaamMatchupGrade(f),name);assert(spreads.ncaamSpreadGrade(f),name);
   assert.deepEqual(p.offense_bonus_policy,before.offense_bonus_policy);
   assert.equal(p.possessions,before.possessions);

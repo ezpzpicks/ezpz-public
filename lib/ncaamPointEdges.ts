@@ -3,6 +3,7 @@ import { quoteImpliedProbability } from "./modelSignalQuote";
 import type { NcaamMatchupGrade } from "./ncaamMatchupGrades";
 import type { NcaamSpreadGrade } from "./ncaamSpreadGrades";
 import { ncaamReboundPoints } from "./ncaamRebounding";
+import { ncaamExpectedOvertime, NCAAM_OVERTIME_PARAMETERS } from "./ncaamOvertime";
 
 export const LEGACY_NCAAM_POINT_MODEL = "ncaam-v0.7-matchup-projection-2026-11-14";
 export const ADJUSTED_TEMPO_NCAAM_POINT_MODEL = "ncaam-v0.8-adjusted-tempo-2026-11-15";
@@ -11,10 +12,13 @@ export const PRE_REBOUND_NCAAM_POINT_MODEL = "ncaam-v0.10-progressive-offense-20
 export const CAPPED_REBOUND_NCAAM_POINT_MODEL = "ncaam-v0.11-rebound-transfer-2026-11-16";
 export const PERCENTAGE_REBOUND_NCAAM_POINT_MODEL = "ncaam-v0.12-rebound-percentage-2026-11-17";
 export const OFFENSE_ONLY_NCAAM_POINT_MODEL = "ncaam-v0.13-offense-only-2026-11-17";
-export const NCAAM_POINT_MODEL = "ncaam-v0.14-mirrored-defense-2026-11-18";
+export const MIRRORED_DEFENSE_NCAAM_POINT_MODEL = "ncaam-v0.14-mirrored-defense-2026-11-18";
+export const NCAAM_POINT_MODEL = "ncaam-v0.15-independent-markets-2026-11-21";
+export const NCAAM_INDEPENDENT_MARKET_POLICY = "ncaam-independent-total-spread-2026-11-21-v1";
+export const NCAAM_TOTAL_MODEL = "ncaam-total-core-overtime-2026-11-21-v1";
 const POINT_MODELS = [LEGACY_NCAAM_POINT_MODEL, ADJUSTED_TEMPO_NCAAM_POINT_MODEL,
   INITIAL_OFFENSE_NCAAM_POINT_MODEL, PRE_REBOUND_NCAAM_POINT_MODEL, CAPPED_REBOUND_NCAAM_POINT_MODEL,
-  PERCENTAGE_REBOUND_NCAAM_POINT_MODEL, OFFENSE_ONLY_NCAAM_POINT_MODEL, NCAAM_POINT_MODEL];
+  PERCENTAGE_REBOUND_NCAAM_POINT_MODEL, OFFENSE_ONLY_NCAAM_POINT_MODEL, MIRRORED_DEFENSE_NCAAM_POINT_MODEL, NCAAM_POINT_MODEL];
 export const isNcaamPointModel = (value: unknown) => typeof value === "string" && POINT_MODELS.includes(value);
 const OFFENSE_BONUS_POINTS = {very_strong:1,strong:3,above_average:5,below_average:5,weak:8,very_weak:15} as const;
 type DefenseBand = keyof typeof OFFENSE_BONUS_POINTS;
@@ -27,6 +31,7 @@ const OFFENSE_POLICIES: Record<string, { version: string; points: Record<Defense
   [CAPPED_REBOUND_NCAAM_POINT_MODEL]: REVISED_OFFENSE_POLICY,
   [PERCENTAGE_REBOUND_NCAAM_POINT_MODEL]: REVISED_OFFENSE_POLICY,
   [OFFENSE_ONLY_NCAAM_POINT_MODEL]: REVISED_OFFENSE_POLICY,
+  [MIRRORED_DEFENSE_NCAAM_POINT_MODEL]: REVISED_OFFENSE_POLICY,
   [NCAAM_POINT_MODEL]: REVISED_OFFENSE_POLICY,
 };
 type OffenseBonus = { qualified: boolean; offense_z: number; opponent_defense_z: number;
@@ -46,6 +51,10 @@ export type NcaamPointProjection = { model_version: string; status: string; as_o
     points_by_opponent_defense: Record<DefenseBand, number> };
   defense_deduction_policy?: { version: string; status: string; qualifying_defense_z: number;
     points_by_opponent_offense: Record<DefenseBand, number> };
+  market_models?: { policy: string; spread: { model_version: string; margin: number; away_points: number; home_points: number };
+    total: { model_version: string; regulation_total: number; base_home_margin: number;
+      offense_extras_applied: boolean; defense_extras_applied: boolean;
+      overtime: NonNullable<ReturnType<typeof ncaamExpectedOvertime>>; total: number } };
   possessions: number; away_points: number; home_points: number; margin: number; total: number;
   pairings: Record<"away" | "home", { expected_efficiency: number; neutral_points: number }>;
   adjustments: Record<"away" | "home", { player_points: number; home_court_points: number; offense_bonus?: OffenseBonus;
@@ -108,13 +117,15 @@ export function ncaamPointProjection(f: Row): NcaamPointProjection | null {
     || Object.keys(policy.points_by_opponent_defense).length !== 6
     || (Object.keys(OFFENSE_BONUS_POINTS) as DefenseBand[]).some(k => policy.points_by_opponent_defense[k] !== offensePolicy.points[k]))) return null;
   if (!progressive && policy !== undefined) return null;
-  const defenseAdjusted = p.model_version === NCAAM_POINT_MODEL, defensePolicy = p.defense_deduction_policy;
+  const independent = p.model_version === NCAAM_POINT_MODEL;
+  const defenseAdjusted = independent || p.model_version === MIRRORED_DEFENSE_NCAAM_POINT_MODEL, defensePolicy = p.defense_deduction_policy;
   if (defenseAdjusted ? defensePolicy?.version !== DEFENSE_DEDUCTION_POLICY || defensePolicy.status !== "experimental"
     || defensePolicy.qualifying_defense_z !== -1.5 || !defensePolicy.points_by_opponent_offense
     || Object.keys(defensePolicy.points_by_opponent_offense).length !== 6
     || (Object.keys(OFFENSE_BONUS_POINTS) as DefenseBand[]).some(k => defensePolicy.points_by_opponent_offense[k] !== OFFENSE_BONUS_POINTS[k])
     : defensePolicy !== undefined) return null;
   const baseline = { away: 0, home: 0 };
+  const core = { away: 0, home: 0 };
   for (const side of ["away", "home"] as const) {
     const other = side === "away" ? "home" : "away", input = p.team_inputs[side], opponent = p.team_inputs[other];
     const adj = p.adjustments[side], pair = p.pairings[side];
@@ -150,16 +161,37 @@ export function ncaamPointProjection(f: Row): NcaamPointProjection | null {
       +input.offense-b.metrics.offense.mean+opponent.defense-b.metrics.defense.mean;
     const neutral = pace*efficiency/100;
     if (Math.abs(pair.expected_efficiency-efficiency) > 1e-7 || Math.abs(pair.neutral_points-neutral) > 1e-7) return null;
-    baseline[side] = neutral+adj.player_points+adj.home_court_points+bonus-deduction;
+    core[side] = neutral+adj.player_points+adj.home_court_points;
+    baseline[side] = core[side]+bonus-deduction;
     if (baseline[side] <= 0 || baseline[side] >= 200) return null;
   }
   const hasRebounds = p.model_version === CAPPED_REBOUND_NCAAM_POINT_MODEL || p.model_version === PERCENTAGE_REBOUND_NCAAM_POINT_MODEL;
   const rebounds = hasRebounds ? ncaamReboundPoints(f, baseline, p.model_version === PERCENTAGE_REBOUND_NCAAM_POINT_MODEL) : {away:0,home:0};
   if (!rebounds || (!hasRebounds && (p.rebounding_adjustment !== undefined
-    || p.adjustments.away.rebounding_points !== undefined || p.adjustments.home.rebounding_points !== undefined))
-    || Math.abs(p.total-baseline.away-baseline.home) > 1e-7) return null;
-  for (const side of ["away", "home"] as const)
-    if (Math.abs(p[`${side}_points`]-baseline[side]-rebounds[side]) > 1e-7) return null;
+    || p.adjustments.away.rebounding_points !== undefined || p.adjustments.home.rebounding_points !== undefined))) return null;
+  if (independent) {
+    const models = p.market_models, spread = models?.spread, total = models?.total;
+    const expected = ncaamExpectedOvertime(core.away+core.home,core.home-core.away,f.home_court_points,f.neutral_site);
+    if (!expected || models?.policy !== NCAAM_INDEPENDENT_MARKET_POLICY
+      || spread?.model_version !== MIRRORED_DEFENSE_NCAAM_POINT_MODEL || total?.model_version !== NCAAM_TOTAL_MODEL
+      || total.offense_extras_applied !== false || total.defense_extras_applied !== false
+      || ![spread.away_points,spread.home_points,spread.margin,total.regulation_total,total.base_home_margin,total.total].every(finite)
+      || Math.abs(spread.away_points-baseline.away)>1e-7 || Math.abs(spread.home_points-baseline.home)>1e-7
+      || Math.abs(spread.margin-baseline.home+baseline.away)>1e-7 || Math.abs(p.margin-spread.margin)>1e-7
+      || Math.abs(total.regulation_total-core.home-core.away)>1e-7 || Math.abs(total.base_home_margin-core.home+core.away)>1e-7
+      || Math.abs(total.total-expected.total_including_expected_overtime)>1e-7 || Math.abs(p.total-total.total)>1e-7) return null;
+    const overtime = total.overtime;
+    if (!overtime || overtime.policy !== expected.policy || !overtime.parameters
+      || Object.keys(overtime.parameters).length !== Object.keys(NCAAM_OVERTIME_PARAMETERS).length
+      || Object.entries(NCAAM_OVERTIME_PARAMETERS).some(([key,value]) => overtime.parameters[key as keyof typeof overtime.parameters] !== value)
+      || (["estimated_overtime_probability","expected_extra_total_points","regulation_total","total_including_expected_overtime"] as const)
+        .some(key => !finite(overtime[key]) || Math.abs(overtime[key]-expected[key])>1e-7)
+      || Math.abs(p.away_points-(p.total-p.margin)/2)>1e-7 || Math.abs(p.home_points-(p.total+p.margin)/2)>1e-7) return null;
+  } else {
+    if (p.market_models !== undefined || Math.abs(p.total-baseline.away-baseline.home)>1e-7) return null;
+    for (const side of ["away", "home"] as const)
+      if (Math.abs(p[`${side}_points`]-baseline[side]-rebounds[side]) > 1e-7) return null;
+  }
   const quote = time(f.market?.as_of);
   return Number.isFinite(quote) && quote <= time(f.lockedAt) && time(f.lockedAt)-quote <= 90 * 60000 ? p : null;
 }
