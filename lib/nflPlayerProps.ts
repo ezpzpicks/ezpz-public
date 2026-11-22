@@ -72,7 +72,8 @@ export function buildNflPlayerProps(locked: NflPropRow[], previews: NflPropRow[]
       overOdds: number(row["Over Odds"]), underOdds: number(row["Under Odds"]),
       pick: row.Pick || "Projection only", pickOdds: number(row["Pick Odds"]),
       probability: number(row["Model Probability"]), grade,
-      qualified: /^(A Prop|B Prop|Strong|Regular|Lean)$/i.test(grade),
+      qualified: ["passing yards", "rushing yards", "receiving yards"].includes(row.Market.toLowerCase())
+        ? /^(Strong|Regular|Lean)$/i.test(grade) : /^(A Prop|B Prop)$/i.test(grade),
       phase: row["Build Phase"] === "early" ? "early" : row["Build Phase"] === "pregame" ? "pregame" : "saved",
       builtAt: row["Build At"] || "", quoteObservedAt: row["Quote Observed At"] || "",
       lineSource: row["Line Source"] || "",
