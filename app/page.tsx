@@ -9,6 +9,7 @@ const SignalResearch = dynamic(() => import("./FootballSignalsBoard").then(modul
 const SignalEzpzPicks = dynamic(() => import("./FootballSignalsBoard"), { loading: () => <div className="empty">Loading EZPZ Picks…</div> });
 const ManualEzpzPicks = dynamic(() => import("./ManualEzpzPicks"), { loading: () => <div className="empty">Loading official picks…</div> });
 const ManualEzpzRecords = dynamic(() => import("./ManualEzpzRecords"), { loading: () => <div className="empty">Loading official records…</div> });
+const NflPlayerProps = dynamic(() => import("./NflPlayerProps"), { loading: () => <div className="empty">Loading player props…</div> });
 import NbaBoard, { type NbaMarketPayload } from "./NbaBoard";
 import { buildNflEzpzRecords } from "../lib/nflEzpzRecords";
 import { restoreFootballPublicDisplay } from "../lib/footballPublicDisplay";
@@ -416,7 +417,7 @@ type MlbDailyMarketData = {
 };
 
 type Sport = "MLB" | "NFL" | "NCAAF" | "NCAAM" | "NBA";
-type Tab = "Today’s Model Plays" | "Public Betting Splits" | "EZPZ Picks" | "Full Slate" | "Records" | "Signals";
+type Tab = "Today’s Model Plays" | "Public Betting Splits" | "EZPZ Picks" | "Full Slate" | "Records" | "Signals" | "Player Props";
 
 type SportMeta = {
   name: string;
@@ -426,7 +427,7 @@ type SportMeta = {
 };
 
 const SPORTS: Sport[] = ["MLB", "NFL", "NCAAF", "NCAAM", "NBA"];
-const TABS: Tab[] = ["Today’s Model Plays", "Public Betting Splits", "Signals", "EZPZ Picks", "Full Slate", "Records"];
+const TABS: Tab[] = ["Today’s Model Plays", "Public Betting Splits", "Signals", "EZPZ Picks", "Full Slate", "Records", "Player Props"];
 
 const SPORT_META: Record<Sport, SportMeta> = {
   NBA: { name: "NBA", shortName: "NBA", status: "Live model",
@@ -7157,6 +7158,7 @@ export default function Home() {
     setError("");
     setRefreshing(false);
     setActiveSport(sport);
+    if (active === "Player Props" && sport !== "NFL") setActive("Today’s Model Plays");
     window.scrollTo({ top: 0, behavior: "instant" });
   };
 
@@ -7165,6 +7167,11 @@ export default function Home() {
     // Official selections are independent of the model/signal feed. An outage
     // in projections must never cause automatic candidates to appear as picks.
     if (active === "EZPZ Picks") return <ManualEzpzPicks sport={activeSport} />;
+    if (active === "Player Props") return activeSport === "NFL" ? <NflPlayerProps /> : <div className="empty">Choose NFL to view player props.</div>;
+    if (activeSport === "NFL" && active === "Today’s Model Plays") return <div style={{ display: "grid", gap: 28 }}>
+      <NflPlayerProps pendingOnly />
+      {data ? <FootballBoard sport="NFL" tab="Today’s Model Plays" data={data as any} /> : <LoadingState />}
+    </div>;
     if (error && !data) {
       return (
         <div className="error">
@@ -7192,7 +7199,7 @@ export default function Home() {
       return (
         <FootballBoard
           sport={activeSport}
-          tab={active as Exclude<Tab, "Signals">}
+          tab={active as Exclude<Tab, "Signals" | "Player Props">}
           data={data as any}
         />
       );
@@ -7677,7 +7684,7 @@ export default function Home() {
   return (
     <main className="shell ez-mobile-shell">
       <SiteHeader sport={activeSport} onSportChange={changeSport} dates={signalPage ? signalDates : []} date={signalDate} onDateChange={setSelectedSignalDate} refreshing={refreshing} onRefresh={() => void loadData(false, true)} />
-      <SiteNavigation active={active} onChange={changeTab} />
+      <SiteNavigation active={active} onChange={changeTab} sport={activeSport} />
 
       {error && data ? (
         <div className="staleBanner">
@@ -7691,7 +7698,7 @@ export default function Home() {
         </div>
       ) : null}
 
-      {data && active !== "Signals" && active !== "EZPZ Picks" && active !== "Records" ? (
+      {data && active !== "Signals" && active !== "EZPZ Picks" && active !== "Records" && active !== "Player Props" ? (
         <section className="tileGrid">
           {activeSport === "MLB" ? (
             <>

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { BarChart3, ChevronDown, MoreHorizontal, Radio, RefreshCw, Zap } from "lucide-react";
 
-export type BoardTab = "Today’s Model Plays" | "Public Betting Splits" | "EZPZ Picks" | "Full Slate" | "Records" | "Signals";
+export type BoardTab = "Today’s Model Plays" | "Public Betting Splits" | "EZPZ Picks" | "Full Slate" | "Records" | "Signals" | "Player Props";
 export type BoardSport = "MLB" | "NFL" | "NCAAF" | "NCAAM" | "NBA";
 const primary = [
   { tab: "EZPZ Picks", label: "EZPZ Picks", Icon: Zap },
@@ -38,7 +38,7 @@ export function SiteHeader({ sport, onSportChange, dates, date, onDateChange, re
   </>;
 }
 
-export default function SiteNavigation({ active, onChange }: { active: BoardTab; onChange: (tab: BoardTab) => void }) {
+export default function SiteNavigation({ active, onChange, sport }: { active: BoardTab; onChange: (tab: BoardTab) => void; sport: BoardSport }) {
   const [moreOpen, setMoreOpen] = useState(false);
   const menu = useRef<HTMLDivElement>(null);
   const moreButton = useRef<HTMLButtonElement>(null);
@@ -51,16 +51,17 @@ export default function SiteNavigation({ active, onChange }: { active: BoardTab;
     return () => { document.removeEventListener("pointerdown", outside); document.removeEventListener("keydown", escape); };
   }, [moreOpen]);
   const navigate = (tab: BoardTab) => { setMoreOpen(false); onChange(tab); };
+  const pages = sport === "NFL" ? [{ tab: "Player Props" as const, label: "Player Props" }, ...supporting] : supporting;
   return <nav className="ez-nav" aria-label="Main navigation">
     {primary.map(({ tab, label, Icon }) => <button type="button" key={tab} className={active === tab ? "ez-nav-active" : ""} aria-current={active === tab ? "page" : undefined} onClick={() => navigate(tab)}>
       <Icon size={22} aria-hidden="true" /><span>{label}</span>
     </button>)}
     <div className="ez-more" ref={menu}>
-      <button type="button" ref={moreButton} className={supporting.some(item => item.tab === active) ? "ez-nav-active" : ""} aria-expanded={moreOpen} aria-controls="ez-more-menu" onClick={() => setMoreOpen(value => !value)}>
+      <button type="button" ref={moreButton} className={pages.some(item => item.tab === active) ? "ez-nav-active" : ""} aria-expanded={moreOpen} aria-controls="ez-more-menu" onClick={() => setMoreOpen(value => !value)}>
         <MoreHorizontal size={24} aria-hidden="true" /><span>More</span>
       </button>
       {moreOpen ? <div id="ez-more-menu" className="ez-more-menu" aria-label="More pages">
-        {supporting.map(item => <button type="button" key={item.tab} aria-current={active === item.tab ? "page" : undefined} onClick={() => navigate(item.tab)}>{item.label}</button>)}
+        {pages.map(item => <button type="button" key={item.tab} aria-current={active === item.tab ? "page" : undefined} onClick={() => navigate(item.tab)}>{item.label}</button>)}
       </div> : null}
     </div>
   </nav>;
