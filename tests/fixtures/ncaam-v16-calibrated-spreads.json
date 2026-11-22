@@ -1,0 +1,1426 @@
+{
+  "cases": [
+    {
+      "name": "neutral_B",
+      "forecast": {
+        "recordId": "neutral_B|ncaam-v0.16-calibrated-b-spreads-2026-11-22|fixture",
+        "gameId": "neutral_B",
+        "modelVersion": "ncaam-v0.16-calibrated-b-spreads-2026-11-22",
+        "projection_engine": "ncaam-v0.16-calibrated-b-spreads-2026-11-22",
+        "lockedAt": "2026-11-14T12:00:00+00:00",
+        "tipoff": "2026-11-14T23:00:00+00:00",
+        "phase": "pregame",
+        "away_team": "Away",
+        "home_team": "Home",
+        "away_rating": {
+          "team": "Away",
+          "offense": 110.0,
+          "defense": 108.0,
+          "tempo": 70.0
+        },
+        "home_rating": {
+          "team": "Home",
+          "offense": 115.0,
+          "defense": 105.0,
+          "tempo": 70.0
+        },
+        "ratings_source_url": "https://barttorvik.com/2027_team_results.csv",
+        "ratings_observed_at": "2026-11-14T11:00:00+00:00",
+        "home_court": {
+          "season": 2027,
+          "fallback": false
+        },
+        "home_court_points": 0.0,
+        "neutral_site": true,
+        "matchup_projection": {
+          "model_version": "ncaam-v0.16-calibrated-b-spreads-2026-11-22",
+          "status": "provisional",
+          "as_of": "2026-11-14T12:00:00+00:00",
+          "tipoff": "2026-11-14T23:00:00+00:00",
+          "season": 2027,
+          "ratings_source_url": "https://barttorvik.com/2027_team_results.csv",
+          "ratings_observed_at": "2026-11-14T11:00:00+00:00",
+          "benchmark_sha256": "7cc250a7ee924d42360a88399cece7ee9783062f67b256625d80154f76b9423f",
+          "national_benchmark": {
+            "season": 2027,
+            "team_count": 365,
+            "observed_at": "2026-11-14T11:00:00+00:00",
+            "metrics": {
+              "offense": {
+                "mean": 105.0,
+                "sd": 8.0
+              },
+              "defense": {
+                "mean": 105.0,
+                "sd": 8.0
+              },
+              "tempo": {
+                "mean": 70.0,
+                "sd": 3.0
+              }
+            }
+          },
+          "team_inputs": {
+            "away": {
+              "team": "Away",
+              "offense": 110.0,
+              "defense": 108.0,
+              "tempo": 70.0
+            },
+            "home": {
+              "team": "Home",
+              "offense": 115.0,
+              "defense": 105.0,
+              "tempo": 70.0
+            }
+          },
+          "possessions": 70.0,
+          "pairings": {
+            "away": {
+              "baseline_efficiency": 105.0,
+              "offense_deviation": 5.0,
+              "opponent_defense_deviation": 0.0,
+              "expected_efficiency": 110.0,
+              "neutral_points": 77.0
+            },
+            "home": {
+              "baseline_efficiency": 105.0,
+              "offense_deviation": 10.0,
+              "opponent_defense_deviation": 3.0,
+              "expected_efficiency": 118.0,
+              "neutral_points": 82.6
+            }
+          },
+          "adjustments": {
+            "away": {
+              "player_offense_per_100": 0.0,
+              "opponent_defense_per_100": -0.0,
+              "player_points": 0.0,
+              "home_court_points": -0.0,
+              "offense_bonus": {
+                "qualified": false,
+                "offense_z": 0.625,
+                "opponent_defense_z": 0.0,
+                "opponent_defense_band": "below_average",
+                "points": 0.0
+              },
+              "opponent_defense_deduction": {
+                "qualified": false,
+                "defense_z": 0.0,
+                "opponent_offense_z": 0.625,
+                "opponent_offense_band": "above_average",
+                "points": 0.0
+              }
+            },
+            "home": {
+              "player_offense_per_100": 0.0,
+              "opponent_defense_per_100": -0.0,
+              "player_points": 0.0,
+              "home_court_points": 0.0,
+              "offense_bonus": {
+                "qualified": false,
+                "offense_z": 1.25,
+                "opponent_defense_z": 0.375,
+                "opponent_defense_band": "below_average",
+                "points": 0.0
+              },
+              "opponent_defense_deduction": {
+                "qualified": false,
+                "defense_z": 0.375,
+                "opponent_offense_z": 1.25,
+                "opponent_offense_band": "strong",
+                "points": 0.0
+              }
+            }
+          },
+          "away_points": 78.31460935294672,
+          "home_points": 82.96716924011076,
+          "margin": 4.6525598871640454,
+          "total": 161.28177859305748,
+          "calibrated_probabilities": false,
+          "tempo_model": {
+            "method": "adjusted-tempo-ratios-v1",
+            "national_tempo": 70.0,
+            "away_ratio": 1.0,
+            "home_ratio": 1.0
+          },
+          "offense_bonus_policy": {
+            "version": "ncaam-very-strong-offense-progressive-2026-11-16-v2",
+            "status": "experimental",
+            "qualifying_offense_z": 1.5,
+            "points_by_opponent_defense": {
+              "very_strong": 1.0,
+              "strong": 3.0,
+              "above_average": 5.0,
+              "below_average": 5.0,
+              "weak": 8.0,
+              "very_weak": 15.0
+            }
+          },
+          "defense_deduction_policy": {
+            "version": "ncaam-very-strong-defense-mirrored-2026-11-18-v1",
+            "status": "experimental",
+            "qualifying_defense_z": -1.5,
+            "points_by_opponent_offense": {
+              "very_strong": 1.0,
+              "strong": 3.0,
+              "above_average": 5.0,
+              "below_average": 5.0,
+              "weak": 8.0,
+              "very_weak": 15.0
+            }
+          },
+          "sha256": "4aa3476a76ac59e96331580861ed2b997e22995ad97ebc62cb5f99285fb6e09a",
+          "market_models": {
+            "policy": "ncaam-independent-total-spread-2026-11-21-v1",
+            "spread": {
+              "model_version": "ncaam-spread-prior-calibration-b-2026-11-22-v1",
+              "margin": 4.6525598871640454,
+              "away_points": 77.47372005641797,
+              "home_points": 82.12627994358202,
+              "calibration": {
+                "parameters": {
+                  "version": "ncaam-spread-prior-calibration-b-2026-11-22-v1",
+                  "scale": 0.8308142655650089,
+                  "training_games": 5714,
+                  "training_through": "2025-11-30",
+                  "frozen_at": "2026-11-22T04:19:41.409352+00:00"
+                },
+                "source_model_version": "ncaam-v0.14-mirrored-defense-2026-11-18",
+                "source_margin": 5.599999999999994,
+                "home_court_points": 0.0,
+                "player_margin": 0.0,
+                "neutral_margin": 5.599999999999994
+              }
+            },
+            "total": {
+              "model_version": "ncaam-total-core-overtime-2026-11-21-v1",
+              "regulation_total": 159.6,
+              "base_home_margin": 5.599999999999994,
+              "offense_extras_applied": false,
+              "defense_extras_applied": false,
+              "overtime": {
+                "policy": "ncaam-prior-november-overtime-2026-11-21-v1",
+                "parameters": {
+                  "intercept": -2.49259655302214,
+                  "squared_margin_coefficient": -0.41691748228307984,
+                  "neutral_coefficient": 0.04107807768514364,
+                  "margin_scale": 10.0,
+                  "conditional_mean_periods": 1.1993355481727574,
+                  "training_home_court": 3.2,
+                  "regulation_minutes": 40.0,
+                  "overtime_minutes": 5.0,
+                  "training_games": 5714,
+                  "training_through": "2025-11-30"
+                },
+                "estimated_overtime_probability": 0.07028865189432106,
+                "expected_extra_total_points": 1.6817785930574933,
+                "regulation_total": 159.6,
+                "total_including_expected_overtime": 161.28177859305748
+              },
+              "total": 161.28177859305748
+            }
+          }
+        },
+        "lineup_adjustment": {},
+        "away_score": 78.3,
+        "home_score": 83.0,
+        "fair_home_spread": -4.6525598871640454,
+        "total": 161.28177859305748,
+        "market": {
+          "home_spread": 1.3474401128359546,
+          "total": 150.28177859305748,
+          "as_of": "2026-11-14T12:00:00+00:00",
+          "source": "ScoresAndOdds",
+          "odds": -110
+        },
+        "home_spread_edge": 6.0,
+        "total_edge": 11.0,
+        "spread_pick": "Home +1.34744",
+        "total_pick": "Over 150.282",
+        "matchup_spread": {
+          "policy_version": "ncaam-point-edge-2026-11-14-v1",
+          "policy_sha256": "7d4a416b8d6395070c54416e1d49cdede9461e20fdaabfe7206b78080d4263f8",
+          "policy": {
+            "version": "ncaam-point-edge-2026-11-14-v1",
+            "status": "provisional",
+            "grading_basis": "market_point_edge",
+            "thresholds": {
+              "spread_a_points": 7.0,
+              "spread_b_points": 5.0,
+              "total_a_points": 10.0,
+              "total_b_points": 8.0,
+              "spread_max_market_line": null,
+              "max_benchmark_age_hours": 30.0,
+              "max_market_age_minutes": 90.0,
+              "extreme_z": 1.0,
+              "very_extreme_z": 1.5
+            },
+            "price_basis": "Retain the NCAAM quote policy: assumed -110; a worse price needs separate probability evidence",
+            "full_saturday_target": {
+              "minimum": 10,
+              "maximum": 15
+            },
+            "category_policy": "Report actual favorites, underdogs, Overs and Unders; grades do not fill quotas",
+            "spread_selection": {
+              "version": "ncaam-spread-b-only-2026-11-22-v1",
+              "minimum_point_edge": 5.0,
+              "maximum_point_edge_exclusive": 7.0
+            }
+          },
+          "grading_basis": "market_point_edge",
+          "grade": "B",
+          "edge_grade": "B",
+          "eligible": true,
+          "side": "home",
+          "projected_side": "home",
+          "edge": 6.0,
+          "reason": "6.00-point edge; B-only spread range 5 to under 7",
+          "confidence_flags": [
+            "Provisional point model and edge thresholds",
+            "Cover probabilities are not calibrated",
+            "Player availability unchecked",
+            "Starting fives unconfirmed"
+          ],
+          "forecast_record_id": "neutral_B|ncaam-v0.16-calibrated-b-spreads-2026-11-22|fixture",
+          "game_id": "neutral_B",
+          "as_of": "2026-11-14T12:00:00+00:00",
+          "tipoff": "2026-11-14T23:00:00+00:00",
+          "published_at": "2026-11-14T12:00:00+00:00",
+          "record_mode": "live",
+          "projection_model_version": "ncaam-v0.16-calibrated-b-spreads-2026-11-22",
+          "projection_sha256": "4aa3476a76ac59e96331580861ed2b997e22995ad97ebc62cb5f99285fb6e09a",
+          "thresholds": {
+            "spread_a_points": 7.0,
+            "spread_b_points": 5.0,
+            "total_a_points": 10.0,
+            "total_b_points": 8.0,
+            "spread_max_market_line": null,
+            "max_benchmark_age_hours": 30.0,
+            "max_market_age_minutes": 90.0,
+            "extreme_z": 1.0,
+            "very_extreme_z": 1.5
+          },
+          "national_benchmark": {
+            "season": 2027,
+            "team_count": 365,
+            "observed_at": "2026-11-14T11:00:00+00:00",
+            "metrics": {
+              "offense": {
+                "mean": 105.0,
+                "sd": 8.0
+              },
+              "defense": {
+                "mean": 105.0,
+                "sd": 8.0
+              },
+              "tempo": {
+                "mean": 70.0,
+                "sd": 3.0
+              }
+            }
+          },
+          "benchmark_observed_at": "2026-11-14T11:00:00+00:00",
+          "benchmark_exact_rating_timestamp": true,
+          "z": {
+            "away": {
+              "offense": 0.625,
+              "defense": 0.375,
+              "tempo": 0.0
+            },
+            "home": {
+              "offense": 1.25,
+              "defense": 0.0,
+              "tempo": 0.0
+            }
+          },
+          "home_line": 1.3474401128359546,
+          "line": 1.3474401128359546,
+          "fair_home_spread": -4.6525598871640454,
+          "projected_margin": 4.6525598871640454,
+          "selection_team": "Home",
+          "role": "Underdog",
+          "offense_advantage": 5.0,
+          "defense_advantage": 3.0,
+          "picked_defense_z": 0.0,
+          "mean_tempo_z": 0.0,
+          "tempo_support_z": 0.0
+        },
+        "spread_grade": "B",
+        "matchup_total": {
+          "policy_version": "ncaam-point-edge-2026-11-14-v1",
+          "policy_sha256": "7d4a416b8d6395070c54416e1d49cdede9461e20fdaabfe7206b78080d4263f8",
+          "policy": {
+            "version": "ncaam-point-edge-2026-11-14-v1",
+            "status": "provisional",
+            "grading_basis": "market_point_edge",
+            "thresholds": {
+              "spread_a_points": 7.0,
+              "spread_b_points": 5.0,
+              "total_a_points": 10.0,
+              "total_b_points": 8.0,
+              "spread_max_market_line": null,
+              "max_benchmark_age_hours": 30.0,
+              "max_market_age_minutes": 90.0,
+              "extreme_z": 1.0,
+              "very_extreme_z": 1.5
+            },
+            "price_basis": "Retain the NCAAM quote policy: assumed -110; a worse price needs separate probability evidence",
+            "full_saturday_target": {
+              "minimum": 10,
+              "maximum": 15
+            },
+            "category_policy": "Report actual favorites, underdogs, Overs and Unders; grades do not fill quotas",
+            "spread_selection": {
+              "version": "ncaam-spread-b-only-2026-11-22-v1",
+              "minimum_point_edge": 5.0,
+              "maximum_point_edge_exclusive": 7.0
+            }
+          },
+          "grading_basis": "market_point_edge",
+          "grade": "A",
+          "edge_grade": "A",
+          "eligible": true,
+          "side": "Over",
+          "projected_side": "Over",
+          "edge": 11.0,
+          "reason": "11.00-point edge; A >= 10, B >= 8",
+          "confidence_flags": [
+            "Provisional point model and edge thresholds",
+            "Cover probabilities are not calibrated",
+            "Player availability unchecked",
+            "Starting fives unconfirmed"
+          ],
+          "forecast_record_id": "neutral_B|ncaam-v0.16-calibrated-b-spreads-2026-11-22|fixture",
+          "game_id": "neutral_B",
+          "as_of": "2026-11-14T12:00:00+00:00",
+          "tipoff": "2026-11-14T23:00:00+00:00",
+          "published_at": "2026-11-14T12:00:00+00:00",
+          "record_mode": "live",
+          "projection_model_version": "ncaam-v0.16-calibrated-b-spreads-2026-11-22",
+          "projection_sha256": "4aa3476a76ac59e96331580861ed2b997e22995ad97ebc62cb5f99285fb6e09a",
+          "thresholds": {
+            "spread_a_points": 7.0,
+            "spread_b_points": 5.0,
+            "total_a_points": 10.0,
+            "total_b_points": 8.0,
+            "spread_max_market_line": null,
+            "max_benchmark_age_hours": 30.0,
+            "max_market_age_minutes": 90.0,
+            "extreme_z": 1.0,
+            "very_extreme_z": 1.5
+          },
+          "national_benchmark": {
+            "season": 2027,
+            "team_count": 365,
+            "observed_at": "2026-11-14T11:00:00+00:00",
+            "metrics": {
+              "offense": {
+                "mean": 105.0,
+                "sd": 8.0
+              },
+              "defense": {
+                "mean": 105.0,
+                "sd": 8.0
+              },
+              "tempo": {
+                "mean": 70.0,
+                "sd": 3.0
+              }
+            }
+          },
+          "benchmark_observed_at": "2026-11-14T11:00:00+00:00",
+          "benchmark_exact_rating_timestamp": true,
+          "z": {
+            "away": {
+              "offense": 0.625,
+              "defense": 0.375,
+              "tempo": 0.0
+            },
+            "home": {
+              "offense": 1.25,
+              "defense": 0.0,
+              "tempo": 0.0
+            }
+          },
+          "line": 150.28177859305748,
+          "projected_total": 161.28177859305748,
+          "directions": {
+            "Over": {
+              "grade": "A",
+              "base_grade": "A",
+              "profile_id": null,
+              "profile_label": "Projected point edge",
+              "matched_profiles": [],
+              "conflicts": []
+            },
+            "Under": {
+              "grade": "Research",
+              "base_grade": "Research",
+              "profile_id": null,
+              "profile_label": "Projected point edge",
+              "matched_profiles": [],
+              "conflicts": []
+            }
+          }
+        },
+        "total_grade": "A"
+      },
+      "before": {
+        "margin": 5.599999999999994,
+        "total": 161.28177859305748
+      }
+    },
+    {
+      "name": "personnel_B",
+      "forecast": {
+        "recordId": "personnel_B|ncaam-v0.16-calibrated-b-spreads-2026-11-22|fixture",
+        "gameId": "personnel_B",
+        "modelVersion": "ncaam-v0.16-calibrated-b-spreads-2026-11-22",
+        "projection_engine": "ncaam-v0.16-calibrated-b-spreads-2026-11-22",
+        "lockedAt": "2026-11-14T12:00:00+00:00",
+        "tipoff": "2026-11-14T23:00:00+00:00",
+        "phase": "pregame",
+        "away_team": "Away",
+        "home_team": "Home",
+        "away_rating": {
+          "team": "Away",
+          "offense": 110.0,
+          "defense": 108.0,
+          "tempo": 70.0
+        },
+        "home_rating": {
+          "team": "Home",
+          "offense": 115.0,
+          "defense": 105.0,
+          "tempo": 70.0
+        },
+        "ratings_source_url": "https://barttorvik.com/2027_team_results.csv",
+        "ratings_observed_at": "2026-11-14T11:00:00+00:00",
+        "home_court": {
+          "season": 2027,
+          "fallback": false
+        },
+        "home_court_points": 3.2,
+        "neutral_site": false,
+        "matchup_projection": {
+          "model_version": "ncaam-v0.16-calibrated-b-spreads-2026-11-22",
+          "status": "provisional",
+          "as_of": "2026-11-14T12:00:00+00:00",
+          "tipoff": "2026-11-14T23:00:00+00:00",
+          "season": 2027,
+          "ratings_source_url": "https://barttorvik.com/2027_team_results.csv",
+          "ratings_observed_at": "2026-11-14T11:00:00+00:00",
+          "benchmark_sha256": "7cc250a7ee924d42360a88399cece7ee9783062f67b256625d80154f76b9423f",
+          "national_benchmark": {
+            "season": 2027,
+            "team_count": 365,
+            "observed_at": "2026-11-14T11:00:00+00:00",
+            "metrics": {
+              "offense": {
+                "mean": 105.0,
+                "sd": 8.0
+              },
+              "defense": {
+                "mean": 105.0,
+                "sd": 8.0
+              },
+              "tempo": {
+                "mean": 70.0,
+                "sd": 3.0
+              }
+            }
+          },
+          "team_inputs": {
+            "away": {
+              "team": "Away",
+              "offense": 110.0,
+              "defense": 108.0,
+              "tempo": 70.0
+            },
+            "home": {
+              "team": "Home",
+              "offense": 115.0,
+              "defense": 105.0,
+              "tempo": 70.0
+            }
+          },
+          "possessions": 70.0,
+          "pairings": {
+            "away": {
+              "baseline_efficiency": 105.0,
+              "offense_deviation": 5.0,
+              "opponent_defense_deviation": 0.0,
+              "expected_efficiency": 110.0,
+              "neutral_points": 77.0
+            },
+            "home": {
+              "baseline_efficiency": 105.0,
+              "offense_deviation": 10.0,
+              "opponent_defense_deviation": 3.0,
+              "expected_efficiency": 118.0,
+              "neutral_points": 82.6
+            }
+          },
+          "adjustments": {
+            "away": {
+              "player_offense_per_100": -2.0,
+              "opponent_defense_per_100": -0.0,
+              "player_points": -1.4,
+              "home_court_points": -1.6,
+              "offense_bonus": {
+                "qualified": false,
+                "offense_z": 0.625,
+                "opponent_defense_z": 0.0,
+                "opponent_defense_band": "below_average",
+                "points": 0.0
+              },
+              "opponent_defense_deduction": {
+                "qualified": false,
+                "defense_z": 0.0,
+                "opponent_offense_z": 0.625,
+                "opponent_offense_band": "above_average",
+                "points": 0.0
+              }
+            },
+            "home": {
+              "player_offense_per_100": 1.0,
+              "opponent_defense_per_100": -1.0,
+              "player_points": 0.0,
+              "home_court_points": 1.6,
+              "offense_bonus": {
+                "qualified": false,
+                "offense_z": 1.25,
+                "opponent_defense_z": 0.375,
+                "opponent_defense_band": "below_average",
+                "points": 0.0
+              },
+              "opponent_defense_deduction": {
+                "qualified": false,
+                "defense_z": 0.375,
+                "opponent_offense_z": 1.25,
+                "opponent_offense_band": "strong",
+                "points": 0.0
+              }
+            }
+          },
+          "away_points": 75.07690968871628,
+          "home_points": 84.32946957588032,
+          "margin": 9.252559887164042,
+          "total": 159.4063792645966,
+          "calibrated_probabilities": false,
+          "tempo_model": {
+            "method": "adjusted-tempo-ratios-v1",
+            "national_tempo": 70.0,
+            "away_ratio": 1.0,
+            "home_ratio": 1.0
+          },
+          "offense_bonus_policy": {
+            "version": "ncaam-very-strong-offense-progressive-2026-11-16-v2",
+            "status": "experimental",
+            "qualifying_offense_z": 1.5,
+            "points_by_opponent_defense": {
+              "very_strong": 1.0,
+              "strong": 3.0,
+              "above_average": 5.0,
+              "below_average": 5.0,
+              "weak": 8.0,
+              "very_weak": 15.0
+            }
+          },
+          "defense_deduction_policy": {
+            "version": "ncaam-very-strong-defense-mirrored-2026-11-18-v1",
+            "status": "experimental",
+            "qualifying_defense_z": -1.5,
+            "points_by_opponent_offense": {
+              "very_strong": 1.0,
+              "strong": 3.0,
+              "above_average": 5.0,
+              "below_average": 5.0,
+              "weak": 8.0,
+              "very_weak": 15.0
+            }
+          },
+          "sha256": "2d505b01bf27d12ea9638ac2af8764d1ebc7dfaf50d0be7877bdf561aeb8e713",
+          "market_models": {
+            "policy": "ncaam-independent-total-spread-2026-11-21-v1",
+            "spread": {
+              "model_version": "ncaam-spread-prior-calibration-b-2026-11-22-v1",
+              "margin": 9.252559887164042,
+              "away_points": 74.47372005641797,
+              "home_points": 83.72627994358201,
+              "calibration": {
+                "parameters": {
+                  "version": "ncaam-spread-prior-calibration-b-2026-11-22-v1",
+                  "scale": 0.8308142655650089,
+                  "training_games": 5714,
+                  "training_through": "2025-11-30",
+                  "frozen_at": "2026-11-22T04:19:41.409352+00:00"
+                },
+                "source_model_version": "ncaam-v0.14-mirrored-defense-2026-11-18",
+                "source_margin": 10.199999999999989,
+                "home_court_points": 3.2,
+                "player_margin": 1.4,
+                "neutral_margin": 5.599999999999989
+              }
+            },
+            "total": {
+              "model_version": "ncaam-total-core-overtime-2026-11-21-v1",
+              "regulation_total": 158.2,
+              "base_home_margin": 10.199999999999989,
+              "offense_extras_applied": false,
+              "defense_extras_applied": false,
+              "overtime": {
+                "policy": "ncaam-prior-november-overtime-2026-11-21-v1",
+                "parameters": {
+                  "intercept": -2.49259655302214,
+                  "squared_margin_coefficient": -0.41691748228307984,
+                  "neutral_coefficient": 0.04107807768514364,
+                  "margin_scale": 10.0,
+                  "conditional_mean_periods": 1.1993355481727574,
+                  "training_home_court": 3.2,
+                  "regulation_minutes": 40.0,
+                  "overtime_minutes": 5.0,
+                  "training_games": 5714,
+                  "training_through": "2025-11-30"
+                },
+                "estimated_overtime_probability": 0.05086589206741864,
+                "expected_extra_total_points": 1.206379264596633,
+                "regulation_total": 158.2,
+                "total_including_expected_overtime": 159.4063792645966
+              },
+              "total": 159.4063792645966
+            }
+          }
+        },
+        "lineup_adjustment": {
+          "away": {
+            "offense_change_per_100": -2.0,
+            "defense_improvement_per_100": 1.0
+          },
+          "home": {
+            "offense_change_per_100": 1.0,
+            "defense_improvement_per_100": 0.0
+          }
+        },
+        "away_score": 75.1,
+        "home_score": 84.3,
+        "fair_home_spread": -9.252559887164042,
+        "total": 159.4063792645966,
+        "market": {
+          "home_spread": -15.252559887164042,
+          "total": 148.4063792645966,
+          "as_of": "2026-11-14T12:00:00+00:00",
+          "source": "ScoresAndOdds",
+          "odds": -110
+        },
+        "home_spread_edge": -6.0,
+        "total_edge": 11.0,
+        "spread_pick": "Away +15.2526",
+        "total_pick": "Over 148.406",
+        "matchup_spread": {
+          "policy_version": "ncaam-point-edge-2026-11-14-v1",
+          "policy_sha256": "7d4a416b8d6395070c54416e1d49cdede9461e20fdaabfe7206b78080d4263f8",
+          "policy": {
+            "version": "ncaam-point-edge-2026-11-14-v1",
+            "status": "provisional",
+            "grading_basis": "market_point_edge",
+            "thresholds": {
+              "spread_a_points": 7.0,
+              "spread_b_points": 5.0,
+              "total_a_points": 10.0,
+              "total_b_points": 8.0,
+              "spread_max_market_line": null,
+              "max_benchmark_age_hours": 30.0,
+              "max_market_age_minutes": 90.0,
+              "extreme_z": 1.0,
+              "very_extreme_z": 1.5
+            },
+            "price_basis": "Retain the NCAAM quote policy: assumed -110; a worse price needs separate probability evidence",
+            "full_saturday_target": {
+              "minimum": 10,
+              "maximum": 15
+            },
+            "category_policy": "Report actual favorites, underdogs, Overs and Unders; grades do not fill quotas",
+            "spread_selection": {
+              "version": "ncaam-spread-b-only-2026-11-22-v1",
+              "minimum_point_edge": 5.0,
+              "maximum_point_edge_exclusive": 7.0
+            }
+          },
+          "grading_basis": "market_point_edge",
+          "grade": "B",
+          "edge_grade": "B",
+          "eligible": true,
+          "side": "away",
+          "projected_side": "away",
+          "edge": 6.0,
+          "reason": "6.00-point edge; B-only spread range 5 to under 7",
+          "confidence_flags": [
+            "Provisional point model and edge thresholds",
+            "Cover probabilities are not calibrated",
+            "Player availability unchecked",
+            "Starting fives unconfirmed"
+          ],
+          "forecast_record_id": "personnel_B|ncaam-v0.16-calibrated-b-spreads-2026-11-22|fixture",
+          "game_id": "personnel_B",
+          "as_of": "2026-11-14T12:00:00+00:00",
+          "tipoff": "2026-11-14T23:00:00+00:00",
+          "published_at": "2026-11-14T12:00:00+00:00",
+          "record_mode": "live",
+          "projection_model_version": "ncaam-v0.16-calibrated-b-spreads-2026-11-22",
+          "projection_sha256": "2d505b01bf27d12ea9638ac2af8764d1ebc7dfaf50d0be7877bdf561aeb8e713",
+          "thresholds": {
+            "spread_a_points": 7.0,
+            "spread_b_points": 5.0,
+            "total_a_points": 10.0,
+            "total_b_points": 8.0,
+            "spread_max_market_line": null,
+            "max_benchmark_age_hours": 30.0,
+            "max_market_age_minutes": 90.0,
+            "extreme_z": 1.0,
+            "very_extreme_z": 1.5
+          },
+          "national_benchmark": {
+            "season": 2027,
+            "team_count": 365,
+            "observed_at": "2026-11-14T11:00:00+00:00",
+            "metrics": {
+              "offense": {
+                "mean": 105.0,
+                "sd": 8.0
+              },
+              "defense": {
+                "mean": 105.0,
+                "sd": 8.0
+              },
+              "tempo": {
+                "mean": 70.0,
+                "sd": 3.0
+              }
+            }
+          },
+          "benchmark_observed_at": "2026-11-14T11:00:00+00:00",
+          "benchmark_exact_rating_timestamp": true,
+          "z": {
+            "away": {
+              "offense": 0.625,
+              "defense": 0.375,
+              "tempo": 0.0
+            },
+            "home": {
+              "offense": 1.25,
+              "defense": 0.0,
+              "tempo": 0.0
+            }
+          },
+          "home_line": -15.252559887164042,
+          "line": 15.252559887164042,
+          "fair_home_spread": -9.252559887164042,
+          "projected_margin": -9.252559887164042,
+          "selection_team": "Away",
+          "role": "Underdog",
+          "offense_advantage": -5.0,
+          "defense_advantage": -3.0,
+          "picked_defense_z": 0.375,
+          "mean_tempo_z": 0.0,
+          "tempo_support_z": 0.0
+        },
+        "spread_grade": "B",
+        "matchup_total": {
+          "policy_version": "ncaam-point-edge-2026-11-14-v1",
+          "policy_sha256": "7d4a416b8d6395070c54416e1d49cdede9461e20fdaabfe7206b78080d4263f8",
+          "policy": {
+            "version": "ncaam-point-edge-2026-11-14-v1",
+            "status": "provisional",
+            "grading_basis": "market_point_edge",
+            "thresholds": {
+              "spread_a_points": 7.0,
+              "spread_b_points": 5.0,
+              "total_a_points": 10.0,
+              "total_b_points": 8.0,
+              "spread_max_market_line": null,
+              "max_benchmark_age_hours": 30.0,
+              "max_market_age_minutes": 90.0,
+              "extreme_z": 1.0,
+              "very_extreme_z": 1.5
+            },
+            "price_basis": "Retain the NCAAM quote policy: assumed -110; a worse price needs separate probability evidence",
+            "full_saturday_target": {
+              "minimum": 10,
+              "maximum": 15
+            },
+            "category_policy": "Report actual favorites, underdogs, Overs and Unders; grades do not fill quotas",
+            "spread_selection": {
+              "version": "ncaam-spread-b-only-2026-11-22-v1",
+              "minimum_point_edge": 5.0,
+              "maximum_point_edge_exclusive": 7.0
+            }
+          },
+          "grading_basis": "market_point_edge",
+          "grade": "A",
+          "edge_grade": "A",
+          "eligible": true,
+          "side": "Over",
+          "projected_side": "Over",
+          "edge": 11.0,
+          "reason": "11.00-point edge; A >= 10, B >= 8",
+          "confidence_flags": [
+            "Provisional point model and edge thresholds",
+            "Cover probabilities are not calibrated",
+            "Player availability unchecked",
+            "Starting fives unconfirmed"
+          ],
+          "forecast_record_id": "personnel_B|ncaam-v0.16-calibrated-b-spreads-2026-11-22|fixture",
+          "game_id": "personnel_B",
+          "as_of": "2026-11-14T12:00:00+00:00",
+          "tipoff": "2026-11-14T23:00:00+00:00",
+          "published_at": "2026-11-14T12:00:00+00:00",
+          "record_mode": "live",
+          "projection_model_version": "ncaam-v0.16-calibrated-b-spreads-2026-11-22",
+          "projection_sha256": "2d505b01bf27d12ea9638ac2af8764d1ebc7dfaf50d0be7877bdf561aeb8e713",
+          "thresholds": {
+            "spread_a_points": 7.0,
+            "spread_b_points": 5.0,
+            "total_a_points": 10.0,
+            "total_b_points": 8.0,
+            "spread_max_market_line": null,
+            "max_benchmark_age_hours": 30.0,
+            "max_market_age_minutes": 90.0,
+            "extreme_z": 1.0,
+            "very_extreme_z": 1.5
+          },
+          "national_benchmark": {
+            "season": 2027,
+            "team_count": 365,
+            "observed_at": "2026-11-14T11:00:00+00:00",
+            "metrics": {
+              "offense": {
+                "mean": 105.0,
+                "sd": 8.0
+              },
+              "defense": {
+                "mean": 105.0,
+                "sd": 8.0
+              },
+              "tempo": {
+                "mean": 70.0,
+                "sd": 3.0
+              }
+            }
+          },
+          "benchmark_observed_at": "2026-11-14T11:00:00+00:00",
+          "benchmark_exact_rating_timestamp": true,
+          "z": {
+            "away": {
+              "offense": 0.625,
+              "defense": 0.375,
+              "tempo": 0.0
+            },
+            "home": {
+              "offense": 1.25,
+              "defense": 0.0,
+              "tempo": 0.0
+            }
+          },
+          "line": 148.4063792645966,
+          "projected_total": 159.4063792645966,
+          "directions": {
+            "Over": {
+              "grade": "A",
+              "base_grade": "A",
+              "profile_id": null,
+              "profile_label": "Projected point edge",
+              "matched_profiles": [],
+              "conflicts": []
+            },
+            "Under": {
+              "grade": "Research",
+              "base_grade": "Research",
+              "profile_id": null,
+              "profile_label": "Projected point edge",
+              "matched_profiles": [],
+              "conflicts": []
+            }
+          }
+        },
+        "total_grade": "A"
+      },
+      "before": {
+        "margin": 10.199999999999989,
+        "total": 159.4063792645966
+      }
+    },
+    {
+      "name": "elite_7_research",
+      "forecast": {
+        "recordId": "elite_7_research|ncaam-v0.16-calibrated-b-spreads-2026-11-22|fixture",
+        "gameId": "elite_7_research",
+        "modelVersion": "ncaam-v0.16-calibrated-b-spreads-2026-11-22",
+        "projection_engine": "ncaam-v0.16-calibrated-b-spreads-2026-11-22",
+        "lockedAt": "2026-11-14T12:00:00+00:00",
+        "tipoff": "2026-11-14T23:00:00+00:00",
+        "phase": "pregame",
+        "away_team": "Away",
+        "home_team": "Home",
+        "away_rating": {
+          "team": "Away",
+          "offense": 117.0,
+          "defense": 93.0,
+          "tempo": 70.0
+        },
+        "home_rating": {
+          "team": "Home",
+          "offense": 105.0,
+          "defense": 108.0,
+          "tempo": 70.0
+        },
+        "ratings_source_url": "https://barttorvik.com/2027_team_results.csv",
+        "ratings_observed_at": "2026-11-14T11:00:00+00:00",
+        "home_court": {
+          "season": 2027,
+          "fallback": false
+        },
+        "home_court_points": 0.0,
+        "neutral_site": true,
+        "matchup_projection": {
+          "model_version": "ncaam-v0.16-calibrated-b-spreads-2026-11-22",
+          "status": "provisional",
+          "as_of": "2026-11-14T12:00:00+00:00",
+          "tipoff": "2026-11-14T23:00:00+00:00",
+          "season": 2027,
+          "ratings_source_url": "https://barttorvik.com/2027_team_results.csv",
+          "ratings_observed_at": "2026-11-14T11:00:00+00:00",
+          "benchmark_sha256": "7cc250a7ee924d42360a88399cece7ee9783062f67b256625d80154f76b9423f",
+          "national_benchmark": {
+            "season": 2027,
+            "team_count": 365,
+            "observed_at": "2026-11-14T11:00:00+00:00",
+            "metrics": {
+              "offense": {
+                "mean": 105.0,
+                "sd": 8.0
+              },
+              "defense": {
+                "mean": 105.0,
+                "sd": 8.0
+              },
+              "tempo": {
+                "mean": 70.0,
+                "sd": 3.0
+              }
+            }
+          },
+          "team_inputs": {
+            "away": {
+              "team": "Away",
+              "offense": 117.0,
+              "defense": 93.0,
+              "tempo": 70.0
+            },
+            "home": {
+              "team": "Home",
+              "offense": 105.0,
+              "defense": 108.0,
+              "tempo": 70.0
+            }
+          },
+          "possessions": 70.0,
+          "pairings": {
+            "away": {
+              "baseline_efficiency": 105.0,
+              "offense_deviation": 12.0,
+              "opponent_defense_deviation": 3.0,
+              "expected_efficiency": 120.0,
+              "neutral_points": 84.0
+            },
+            "home": {
+              "baseline_efficiency": 105.0,
+              "offense_deviation": 0.0,
+              "opponent_defense_deviation": -12.0,
+              "expected_efficiency": 93.0,
+              "neutral_points": 65.1
+            }
+          },
+          "adjustments": {
+            "away": {
+              "player_offense_per_100": 0.0,
+              "opponent_defense_per_100": -0.0,
+              "player_points": 0.0,
+              "home_court_points": -0.0,
+              "offense_bonus": {
+                "qualified": true,
+                "offense_z": 1.5,
+                "opponent_defense_z": 0.375,
+                "opponent_defense_band": "below_average",
+                "points": 5.0
+              },
+              "opponent_defense_deduction": {
+                "qualified": false,
+                "defense_z": 0.375,
+                "opponent_offense_z": 1.5,
+                "opponent_offense_band": "very_strong",
+                "points": 0.0
+              }
+            },
+            "home": {
+              "player_offense_per_100": 0.0,
+              "opponent_defense_per_100": -0.0,
+              "player_points": 0.0,
+              "home_court_points": 0.0,
+              "offense_bonus": {
+                "qualified": false,
+                "offense_z": 0.0,
+                "opponent_defense_z": -1.5,
+                "opponent_defense_band": "very_strong",
+                "points": 0.0
+              },
+              "opponent_defense_deduction": {
+                "qualified": true,
+                "defense_z": -1.5,
+                "opponent_offense_z": 0.0,
+                "opponent_offense_band": "below_average",
+                "points": 5.0
+              }
+            }
+          },
+          "away_points": 86.76831373365698,
+          "home_points": 62.75778145882822,
+          "margin": -24.010532274828762,
+          "total": 149.5260951924852,
+          "calibrated_probabilities": false,
+          "tempo_model": {
+            "method": "adjusted-tempo-ratios-v1",
+            "national_tempo": 70.0,
+            "away_ratio": 1.0,
+            "home_ratio": 1.0
+          },
+          "offense_bonus_policy": {
+            "version": "ncaam-very-strong-offense-progressive-2026-11-16-v2",
+            "status": "experimental",
+            "qualifying_offense_z": 1.5,
+            "points_by_opponent_defense": {
+              "very_strong": 1.0,
+              "strong": 3.0,
+              "above_average": 5.0,
+              "below_average": 5.0,
+              "weak": 8.0,
+              "very_weak": 15.0
+            }
+          },
+          "defense_deduction_policy": {
+            "version": "ncaam-very-strong-defense-mirrored-2026-11-18-v1",
+            "status": "experimental",
+            "qualifying_defense_z": -1.5,
+            "points_by_opponent_offense": {
+              "very_strong": 1.0,
+              "strong": 3.0,
+              "above_average": 5.0,
+              "below_average": 5.0,
+              "weak": 8.0,
+              "very_weak": 15.0
+            }
+          },
+          "sha256": "e406e4f75646f2e52c0324a333b9063558ea8c871bd1cb49ae14194c5f63c640",
+          "market_models": {
+            "policy": "ncaam-independent-total-spread-2026-11-21-v1",
+            "spread": {
+              "model_version": "ncaam-spread-prior-calibration-b-2026-11-22-v1",
+              "margin": -24.010532274828762,
+              "away_points": 86.55526613741438,
+              "home_points": 62.544733862585616,
+              "calibration": {
+                "parameters": {
+                  "version": "ncaam-spread-prior-calibration-b-2026-11-22-v1",
+                  "scale": 0.8308142655650089,
+                  "training_games": 5714,
+                  "training_through": "2025-11-30",
+                  "frozen_at": "2026-11-22T04:19:41.409352+00:00"
+                },
+                "source_model_version": "ncaam-v0.14-mirrored-defense-2026-11-18",
+                "source_margin": -28.900000000000006,
+                "home_court_points": 0.0,
+                "player_margin": 0.0,
+                "neutral_margin": -28.900000000000006
+              }
+            },
+            "total": {
+              "model_version": "ncaam-total-core-overtime-2026-11-21-v1",
+              "regulation_total": 149.1,
+              "base_home_margin": -18.900000000000006,
+              "offense_extras_applied": false,
+              "defense_extras_applied": false,
+              "overtime": {
+                "policy": "ncaam-prior-november-overtime-2026-11-21-v1",
+                "parameters": {
+                  "intercept": -2.49259655302214,
+                  "squared_margin_coefficient": -0.41691748228307984,
+                  "neutral_coefficient": 0.04107807768514364,
+                  "margin_scale": 10.0,
+                  "conditional_mean_periods": 1.1993355481727574,
+                  "training_home_court": 3.2,
+                  "regulation_minutes": 40.0,
+                  "overtime_minutes": 5.0,
+                  "training_games": 5714,
+                  "training_through": "2025-11-30"
+                },
+                "estimated_overtime_probability": 0.019062430418231434,
+                "expected_extra_total_points": 0.4260951924851946,
+                "regulation_total": 149.1,
+                "total_including_expected_overtime": 149.5260951924852
+              },
+              "total": 149.5260951924852
+            }
+          }
+        },
+        "lineup_adjustment": {},
+        "away_score": 86.8,
+        "home_score": 62.8,
+        "fair_home_spread": 24.010532274828762,
+        "total": 149.5260951924852,
+        "market": {
+          "home_spread": 31.010532274828762,
+          "total": 138.5260951924852,
+          "as_of": "2026-11-14T12:00:00+00:00",
+          "source": "ScoresAndOdds",
+          "odds": -110
+        },
+        "home_spread_edge": 7.0,
+        "total_edge": 11.0,
+        "spread_pick": "Home +31.0105",
+        "total_pick": "Over 138.526",
+        "matchup_spread": {
+          "policy_version": "ncaam-point-edge-2026-11-14-v1",
+          "policy_sha256": "7d4a416b8d6395070c54416e1d49cdede9461e20fdaabfe7206b78080d4263f8",
+          "policy": {
+            "version": "ncaam-point-edge-2026-11-14-v1",
+            "status": "provisional",
+            "grading_basis": "market_point_edge",
+            "thresholds": {
+              "spread_a_points": 7.0,
+              "spread_b_points": 5.0,
+              "total_a_points": 10.0,
+              "total_b_points": 8.0,
+              "spread_max_market_line": null,
+              "max_benchmark_age_hours": 30.0,
+              "max_market_age_minutes": 90.0,
+              "extreme_z": 1.0,
+              "very_extreme_z": 1.5
+            },
+            "price_basis": "Retain the NCAAM quote policy: assumed -110; a worse price needs separate probability evidence",
+            "full_saturday_target": {
+              "minimum": 10,
+              "maximum": 15
+            },
+            "category_policy": "Report actual favorites, underdogs, Overs and Unders; grades do not fill quotas",
+            "spread_selection": {
+              "version": "ncaam-spread-b-only-2026-11-22-v1",
+              "minimum_point_edge": 5.0,
+              "maximum_point_edge_exclusive": 7.0
+            }
+          },
+          "grading_basis": "market_point_edge",
+          "grade": "Research",
+          "edge_grade": "A",
+          "eligible": false,
+          "side": null,
+          "projected_side": "home",
+          "edge": 7.0,
+          "reason": "7.00-point edge; outside B-only spread range 5 to under 7",
+          "confidence_flags": [
+            "Provisional point model and edge thresholds",
+            "Cover probabilities are not calibrated",
+            "Player availability unchecked",
+            "Starting fives unconfirmed"
+          ],
+          "forecast_record_id": "elite_7_research|ncaam-v0.16-calibrated-b-spreads-2026-11-22|fixture",
+          "game_id": "elite_7_research",
+          "as_of": "2026-11-14T12:00:00+00:00",
+          "tipoff": "2026-11-14T23:00:00+00:00",
+          "published_at": "2026-11-14T12:00:00+00:00",
+          "record_mode": "live",
+          "projection_model_version": "ncaam-v0.16-calibrated-b-spreads-2026-11-22",
+          "projection_sha256": "e406e4f75646f2e52c0324a333b9063558ea8c871bd1cb49ae14194c5f63c640",
+          "thresholds": {
+            "spread_a_points": 7.0,
+            "spread_b_points": 5.0,
+            "total_a_points": 10.0,
+            "total_b_points": 8.0,
+            "spread_max_market_line": null,
+            "max_benchmark_age_hours": 30.0,
+            "max_market_age_minutes": 90.0,
+            "extreme_z": 1.0,
+            "very_extreme_z": 1.5
+          },
+          "national_benchmark": {
+            "season": 2027,
+            "team_count": 365,
+            "observed_at": "2026-11-14T11:00:00+00:00",
+            "metrics": {
+              "offense": {
+                "mean": 105.0,
+                "sd": 8.0
+              },
+              "defense": {
+                "mean": 105.0,
+                "sd": 8.0
+              },
+              "tempo": {
+                "mean": 70.0,
+                "sd": 3.0
+              }
+            }
+          },
+          "benchmark_observed_at": "2026-11-14T11:00:00+00:00",
+          "benchmark_exact_rating_timestamp": true,
+          "z": {
+            "away": {
+              "offense": 1.5,
+              "defense": -1.5,
+              "tempo": 0.0
+            },
+            "home": {
+              "offense": 0.0,
+              "defense": 0.375,
+              "tempo": 0.0
+            }
+          },
+          "home_line": 31.010532274828762,
+          "line": 31.010532274828762,
+          "fair_home_spread": 24.010532274828762,
+          "projected_margin": -24.010532274828762,
+          "selection_team": "Home",
+          "role": "Underdog",
+          "offense_advantage": -12.0,
+          "defense_advantage": -15.0,
+          "picked_defense_z": 0.375,
+          "mean_tempo_z": 0.0,
+          "tempo_support_z": 0.0
+        },
+        "spread_grade": "Research",
+        "matchup_total": {
+          "policy_version": "ncaam-point-edge-2026-11-14-v1",
+          "policy_sha256": "7d4a416b8d6395070c54416e1d49cdede9461e20fdaabfe7206b78080d4263f8",
+          "policy": {
+            "version": "ncaam-point-edge-2026-11-14-v1",
+            "status": "provisional",
+            "grading_basis": "market_point_edge",
+            "thresholds": {
+              "spread_a_points": 7.0,
+              "spread_b_points": 5.0,
+              "total_a_points": 10.0,
+              "total_b_points": 8.0,
+              "spread_max_market_line": null,
+              "max_benchmark_age_hours": 30.0,
+              "max_market_age_minutes": 90.0,
+              "extreme_z": 1.0,
+              "very_extreme_z": 1.5
+            },
+            "price_basis": "Retain the NCAAM quote policy: assumed -110; a worse price needs separate probability evidence",
+            "full_saturday_target": {
+              "minimum": 10,
+              "maximum": 15
+            },
+            "category_policy": "Report actual favorites, underdogs, Overs and Unders; grades do not fill quotas",
+            "spread_selection": {
+              "version": "ncaam-spread-b-only-2026-11-22-v1",
+              "minimum_point_edge": 5.0,
+              "maximum_point_edge_exclusive": 7.0
+            }
+          },
+          "grading_basis": "market_point_edge",
+          "grade": "A",
+          "edge_grade": "A",
+          "eligible": true,
+          "side": "Over",
+          "projected_side": "Over",
+          "edge": 11.0,
+          "reason": "11.00-point edge; A >= 10, B >= 8",
+          "confidence_flags": [
+            "Provisional point model and edge thresholds",
+            "Cover probabilities are not calibrated",
+            "Player availability unchecked",
+            "Starting fives unconfirmed"
+          ],
+          "forecast_record_id": "elite_7_research|ncaam-v0.16-calibrated-b-spreads-2026-11-22|fixture",
+          "game_id": "elite_7_research",
+          "as_of": "2026-11-14T12:00:00+00:00",
+          "tipoff": "2026-11-14T23:00:00+00:00",
+          "published_at": "2026-11-14T12:00:00+00:00",
+          "record_mode": "live",
+          "projection_model_version": "ncaam-v0.16-calibrated-b-spreads-2026-11-22",
+          "projection_sha256": "e406e4f75646f2e52c0324a333b9063558ea8c871bd1cb49ae14194c5f63c640",
+          "thresholds": {
+            "spread_a_points": 7.0,
+            "spread_b_points": 5.0,
+            "total_a_points": 10.0,
+            "total_b_points": 8.0,
+            "spread_max_market_line": null,
+            "max_benchmark_age_hours": 30.0,
+            "max_market_age_minutes": 90.0,
+            "extreme_z": 1.0,
+            "very_extreme_z": 1.5
+          },
+          "national_benchmark": {
+            "season": 2027,
+            "team_count": 365,
+            "observed_at": "2026-11-14T11:00:00+00:00",
+            "metrics": {
+              "offense": {
+                "mean": 105.0,
+                "sd": 8.0
+              },
+              "defense": {
+                "mean": 105.0,
+                "sd": 8.0
+              },
+              "tempo": {
+                "mean": 70.0,
+                "sd": 3.0
+              }
+            }
+          },
+          "benchmark_observed_at": "2026-11-14T11:00:00+00:00",
+          "benchmark_exact_rating_timestamp": true,
+          "z": {
+            "away": {
+              "offense": 1.5,
+              "defense": -1.5,
+              "tempo": 0.0
+            },
+            "home": {
+              "offense": 0.0,
+              "defense": 0.375,
+              "tempo": 0.0
+            }
+          },
+          "line": 138.5260951924852,
+          "projected_total": 149.5260951924852,
+          "directions": {
+            "Over": {
+              "grade": "A",
+              "base_grade": "A",
+              "profile_id": null,
+              "profile_label": "Projected point edge",
+              "matched_profiles": [],
+              "conflicts": []
+            },
+            "Under": {
+              "grade": "Research",
+              "base_grade": "Research",
+              "profile_id": null,
+              "profile_label": "Projected point edge",
+              "matched_profiles": [],
+              "conflicts": []
+            }
+          }
+        },
+        "total_grade": "A"
+      },
+      "before": {
+        "margin": -28.900000000000006,
+        "total": 149.5260951924852
+      }
+    }
+  ]
+}

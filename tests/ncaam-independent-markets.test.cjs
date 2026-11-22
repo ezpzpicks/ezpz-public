@@ -10,7 +10,7 @@ const fixture=require('./fixtures/ncaam-v15-independent-markets.json');
 test('Python-generated independent totals and spread margins validate under the new version',()=>{
  for(const {forecast:f,before} of fixture.cases){
   const p=api.ncaamPointProjection(f);
-  assert(p);assert.equal(p.model_version,api.NCAAM_POINT_MODEL);
+  assert(p);assert.equal(p.model_version,api.INDEPENDENT_NCAAM_POINT_MODEL);
   assert(totals.ncaamMatchupGrade(f));assert(spreads.ncaamSpreadGrade(f));
   assert.equal(p.margin,before.margin);
   assert(Math.abs(p.home_points+p.away_points-p.total)<1e-9);

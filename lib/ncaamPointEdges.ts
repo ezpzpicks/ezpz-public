@@ -4,6 +4,7 @@ import type { NcaamMatchupGrade } from "./ncaamMatchupGrades";
 import type { NcaamSpreadGrade } from "./ncaamSpreadGrades";
 import { ncaamReboundPoints } from "./ncaamRebounding";
 import { ncaamExpectedOvertime, NCAAM_OVERTIME_PARAMETERS } from "./ncaamOvertime";
+import { NCAAM_SPREAD_MODEL, NCAAM_SPREAD_CALIBRATION, validNcaamSpreadBSelection } from "./ncaamSpreadCalibration";
 
 export const LEGACY_NCAAM_POINT_MODEL = "ncaam-v0.7-matchup-projection-2026-11-14";
 export const ADJUSTED_TEMPO_NCAAM_POINT_MODEL = "ncaam-v0.8-adjusted-tempo-2026-11-15";
@@ -13,12 +14,14 @@ export const CAPPED_REBOUND_NCAAM_POINT_MODEL = "ncaam-v0.11-rebound-transfer-20
 export const PERCENTAGE_REBOUND_NCAAM_POINT_MODEL = "ncaam-v0.12-rebound-percentage-2026-11-17";
 export const OFFENSE_ONLY_NCAAM_POINT_MODEL = "ncaam-v0.13-offense-only-2026-11-17";
 export const MIRRORED_DEFENSE_NCAAM_POINT_MODEL = "ncaam-v0.14-mirrored-defense-2026-11-18";
-export const NCAAM_POINT_MODEL = "ncaam-v0.15-independent-markets-2026-11-21";
+export const INDEPENDENT_NCAAM_POINT_MODEL = "ncaam-v0.15-independent-markets-2026-11-21";
+export const NCAAM_POINT_MODEL = "ncaam-v0.16-calibrated-b-spreads-2026-11-22";
 export const NCAAM_INDEPENDENT_MARKET_POLICY = "ncaam-independent-total-spread-2026-11-21-v1";
 export const NCAAM_TOTAL_MODEL = "ncaam-total-core-overtime-2026-11-21-v1";
 const POINT_MODELS = [LEGACY_NCAAM_POINT_MODEL, ADJUSTED_TEMPO_NCAAM_POINT_MODEL,
   INITIAL_OFFENSE_NCAAM_POINT_MODEL, PRE_REBOUND_NCAAM_POINT_MODEL, CAPPED_REBOUND_NCAAM_POINT_MODEL,
-  PERCENTAGE_REBOUND_NCAAM_POINT_MODEL, OFFENSE_ONLY_NCAAM_POINT_MODEL, MIRRORED_DEFENSE_NCAAM_POINT_MODEL, NCAAM_POINT_MODEL];
+  PERCENTAGE_REBOUND_NCAAM_POINT_MODEL, OFFENSE_ONLY_NCAAM_POINT_MODEL, MIRRORED_DEFENSE_NCAAM_POINT_MODEL,
+  INDEPENDENT_NCAAM_POINT_MODEL, NCAAM_POINT_MODEL];
 export const isNcaamPointModel = (value: unknown) => typeof value === "string" && POINT_MODELS.includes(value);
 const OFFENSE_BONUS_POINTS = {very_strong:1,strong:3,above_average:5,below_average:5,weak:8,very_weak:15} as const;
 type DefenseBand = keyof typeof OFFENSE_BONUS_POINTS;
@@ -32,6 +35,7 @@ const OFFENSE_POLICIES: Record<string, { version: string; points: Record<Defense
   [PERCENTAGE_REBOUND_NCAAM_POINT_MODEL]: REVISED_OFFENSE_POLICY,
   [OFFENSE_ONLY_NCAAM_POINT_MODEL]: REVISED_OFFENSE_POLICY,
   [MIRRORED_DEFENSE_NCAAM_POINT_MODEL]: REVISED_OFFENSE_POLICY,
+  [INDEPENDENT_NCAAM_POINT_MODEL]: REVISED_OFFENSE_POLICY,
   [NCAAM_POINT_MODEL]: REVISED_OFFENSE_POLICY,
 };
 type OffenseBonus = { qualified: boolean; offense_z: number; opponent_defense_z: number;
@@ -40,6 +44,7 @@ type DefenseDeduction = { qualified: boolean; defense_z: number; opponent_offens
   opponent_offense_band: DefenseBand; points: number };
 export const NCAAM_POINT_POLICY = "ncaam-point-edge-2026-11-14-v1";
 export type NcaamPointPolicy = { version: string; grading_basis: "market_point_edge";
+  spread_selection?: { version: string; minimum_point_edge: number; maximum_point_edge_exclusive: number };
   thresholds: { spread_a_points: number; spread_b_points: number; total_a_points: number; total_b_points: number;
     spread_max_market_line: number | null; max_benchmark_age_hours: number; max_market_age_minutes: number } };
 export type NcaamPointProjection = { model_version: string; status: string; as_of: string; tipoff: string; season: number;
@@ -51,7 +56,9 @@ export type NcaamPointProjection = { model_version: string; status: string; as_o
     points_by_opponent_defense: Record<DefenseBand, number> };
   defense_deduction_policy?: { version: string; status: string; qualifying_defense_z: number;
     points_by_opponent_offense: Record<DefenseBand, number> };
-  market_models?: { policy: string; spread: { model_version: string; margin: number; away_points: number; home_points: number };
+  market_models?: { policy: string; spread: { model_version: string; margin: number; away_points: number; home_points: number;
+      calibration?: { parameters: Record<string, unknown>; source_model_version: string; source_margin: number;
+        home_court_points: number; player_margin: number; neutral_margin: number } };
     total: { model_version: string; regulation_total: number; base_home_margin: number;
       offense_extras_applied: boolean; defense_extras_applied: boolean;
       overtime: NonNullable<ReturnType<typeof ncaamExpectedOvertime>>; total: number } };
@@ -66,6 +73,7 @@ const time = (v: unknown) => typeof v === "string" && /(?:Z|[+-]\d{2}:\d{2})$/.t
 const hash = (v: unknown) => typeof v === "string" && /^[a-f0-9]{64}$/.test(v);
 function validPolicy(policy: NcaamPointPolicy | undefined): policy is NcaamPointPolicy {
   if (policy?.version !== NCAAM_POINT_POLICY || policy.grading_basis !== "market_point_edge") return false;
+  if (policy.spread_selection !== undefined && !validNcaamSpreadBSelection(policy.spread_selection)) return false;
   const t = policy.thresholds;
   return t && (["spread", "total"] as const).every(m => finite(t[`${m}_a_points`]) && finite(t[`${m}_b_points`])
     && t[`${m}_a_points`] > t[`${m}_b_points`] && t[`${m}_b_points`] > 0)
@@ -117,7 +125,8 @@ export function ncaamPointProjection(f: Row): NcaamPointProjection | null {
     || Object.keys(policy.points_by_opponent_defense).length !== 6
     || (Object.keys(OFFENSE_BONUS_POINTS) as DefenseBand[]).some(k => policy.points_by_opponent_defense[k] !== offensePolicy.points[k]))) return null;
   if (!progressive && policy !== undefined) return null;
-  const independent = p.model_version === NCAAM_POINT_MODEL;
+  const calibrated = p.model_version === NCAAM_POINT_MODEL;
+  const independent = calibrated || p.model_version === INDEPENDENT_NCAAM_POINT_MODEL;
   const defenseAdjusted = independent || p.model_version === MIRRORED_DEFENSE_NCAAM_POINT_MODEL, defensePolicy = p.defense_deduction_policy;
   if (defenseAdjusted ? defensePolicy?.version !== DEFENSE_DEDUCTION_POLICY || defensePolicy.status !== "experimental"
     || defensePolicy.qualifying_defense_z !== -1.5 || !defensePolicy.points_by_opponent_offense
@@ -172,14 +181,29 @@ export function ncaamPointProjection(f: Row): NcaamPointProjection | null {
   if (independent) {
     const models = p.market_models, spread = models?.spread, total = models?.total;
     const expected = ncaamExpectedOvertime(core.away+core.home,core.home-core.away,f.home_court_points,f.neutral_site);
+    const rawMargin = baseline.home-baseline.away;
+    const playerMargin = p.adjustments.home.player_points-p.adjustments.away.player_points;
+    const neutralMargin = rawMargin-f.home_court_points-playerMargin;
+    const margin = calibrated ? NCAAM_SPREAD_CALIBRATION.scale*neutralMargin+f.home_court_points+playerMargin : rawMargin;
+    const awayPoints = calibrated ? (baseline.away+baseline.home-margin)/2 : baseline.away;
+    const homePoints = calibrated ? (baseline.away+baseline.home+margin)/2 : baseline.home;
     if (!expected || models?.policy !== NCAAM_INDEPENDENT_MARKET_POLICY
-      || spread?.model_version !== MIRRORED_DEFENSE_NCAAM_POINT_MODEL || total?.model_version !== NCAAM_TOTAL_MODEL
+      || spread?.model_version !== (calibrated ? NCAAM_SPREAD_MODEL : MIRRORED_DEFENSE_NCAAM_POINT_MODEL) || total?.model_version !== NCAAM_TOTAL_MODEL
       || total.offense_extras_applied !== false || total.defense_extras_applied !== false
       || ![spread.away_points,spread.home_points,spread.margin,total.regulation_total,total.base_home_margin,total.total].every(finite)
-      || Math.abs(spread.away_points-baseline.away)>1e-7 || Math.abs(spread.home_points-baseline.home)>1e-7
-      || Math.abs(spread.margin-baseline.home+baseline.away)>1e-7 || Math.abs(p.margin-spread.margin)>1e-7
+      || Math.abs(spread.away_points-awayPoints)>1e-7 || Math.abs(spread.home_points-homePoints)>1e-7
+      || Math.abs(spread.margin-margin)>1e-7 || Math.abs(p.margin-spread.margin)>1e-7
       || Math.abs(total.regulation_total-core.home-core.away)>1e-7 || Math.abs(total.base_home_margin-core.home+core.away)>1e-7
       || Math.abs(total.total-expected.total_including_expected_overtime)>1e-7 || Math.abs(p.total-total.total)>1e-7) return null;
+    const proof = spread.calibration;
+    if (calibrated) {
+      if (!proof || proof.source_model_version !== MIRRORED_DEFENSE_NCAAM_POINT_MODEL || !proof.parameters
+        || Object.keys(proof.parameters).length !== Object.keys(NCAAM_SPREAD_CALIBRATION).length
+        || Object.entries(NCAAM_SPREAD_CALIBRATION).some(([key, value]) => proof.parameters[key] !== value)
+        || ![proof.source_margin, proof.home_court_points, proof.player_margin, proof.neutral_margin].every(finite)
+        || Math.abs(proof.source_margin-rawMargin)>1e-7 || proof.home_court_points !== f.home_court_points
+        || Math.abs(proof.player_margin-playerMargin)>1e-7 || Math.abs(proof.neutral_margin-neutralMargin)>1e-7) return null;
+    } else if (proof !== undefined) return null;
     const overtime = total.overtime;
     if (!overtime || overtime.policy !== expected.policy || !overtime.parameters
       || Object.keys(overtime.parameters).length !== Object.keys(NCAAM_OVERTIME_PARAMETERS).length
@@ -214,13 +238,29 @@ export function ncaamPointGrade(f: Row, market: "Spread" | "Total") {
     : g.line !== line || g.projected_total !== p.total)) return null;
   const gap = market === "Spread" ? p.margin+line : p.total-line, prefix = market === "Spread" ? "spread" : "total";
   const t = (g.policy as NcaamPointPolicy).thresholds, edge = Math.abs(gap);
-  const tier = edge >= t[`${prefix}_a_points`] ? "A" : edge >= t[`${prefix}_b_points`] ? "B" : "Research";
+  const selection = (g.policy as NcaamPointPolicy).spread_selection;
+  const calibrated = p.model_version === NCAAM_POINT_MODEL;
+  if (calibrated ? !validNcaamSpreadBSelection(selection) || t.spread_b_points !== 5 || t.spread_a_points !== 7
+    : selection !== undefined) return null;
+  const tierEdge = market === "Spread" && calibrated ? Math.round(edge*1e8)/1e8 : edge;
+  const tier = tierEdge >= t[`${prefix}_a_points`] ? "A" : tierEdge >= t[`${prefix}_b_points`] ? "B" : "Research";
   const side = gap > 0 ? market === "Spread" ? "home" : "Over" : gap < 0 ? market === "Spread" ? "away" : "Under" : null;
   if (!finite(g.edge) || Math.abs(g.edge-edge) > 1e-7 || g.edge_grade !== tier || g.projected_side !== side
-    || (g.eligible ? g.grade !== tier || !["A", "B"].includes(tier) || g.side !== side : g.grade !== "Research" || g.side !== null)
+    || (g.eligible ? g.grade !== tier || !["A", "B"].includes(tier) || g.side !== side
+      || (market === "Spread" && calibrated && tier !== "B") : g.grade !== "Research" || g.side !== null)
     || (market === "Spread" && t.spread_max_market_line !== null
       && Math.abs(line) >= t.spread_max_market_line && g.eligible)) return null;
   return g;
+}
+
+/** Reprice only the selected side; the B-only maximum is exclusive. */
+export function ncaamPointSpreadTier(edge: number, policy: NcaamPointPolicy): "A" | "B" | "Research" {
+  if (!finite(edge) || !validPolicy(policy)) return "Research";
+  if (policy.spread_selection) {
+    const normalized = Math.round(edge*1e8)/1e8;
+    return normalized >= 5 && normalized < 7 ? "B" : "Research";
+  }
+  return edge >= policy.thresholds.spread_a_points ? "A" : edge >= policy.thresholds.spread_b_points ? "B" : "Research";
 }
 
 export function ncaamPointQuote(f: Row, market: "Spread" | "Total", selection: string, line: number, asOf: number, odds = "-110") {
@@ -238,7 +278,8 @@ export function ncaamPointQuote(f: Row, market: "Spread" | "Total", selection: s
     edge = (p.total-line)*(selection === "Over" ? 1 : -1);
   }
   const t = (g.policy as NcaamPointPolicy).thresholds, prefix = market === "Spread" ? "spread" : "total";
-  const tier = edge >= t[`${prefix}_a_points`] ? "A" : edge >= t[`${prefix}_b_points`] ? "B" : "Research";
+  const tier = market === "Spread" ? ncaamPointSpreadTier(edge, g.policy as NcaamPointPolicy)
+    : edge >= t.total_a_points ? "A" : edge >= t.total_b_points ? "B" : "Research";
   const price = quoteImpliedProbability(odds), priceOkay = price != null && price <= 110/210+1e-12;
   return { active: tier !== "Research" && priceOkay, grade: tier, edge,
     reason: !priceOkay
