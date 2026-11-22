@@ -19,6 +19,7 @@ type Quote = {
   reliability?: number | null;
   confluence?: number | null;
   odds: string;
+  pairedMarketsMatch?: boolean;
 };
 
 export function quoteImpliedProbability(odds: unknown): number | null {
@@ -53,6 +54,39 @@ export function regradeModelQuote(q: Quote) {
   const savedP = q.probability != null && q.probability > 0 && q.probability < 1 ? q.probability : null;
   let probability = savedP, grade = "", supported = false, estimated = false, policyReason: string | undefined;
   if (![q.savedLine, q.line, q.savedEdge].every(Number.isFinite)) return null;
+
+  if (q.sport === "NFL" && q.market === "Spread" && q.version.includes("|nfl-independent-spread-v1-2026-11-22")) {
+    // This forecast uses the market line as an input. A changed handicap needs
+    // a new model run; shifting the old point gap would change its policy.
+    const sameQuote = Math.abs(delta) <= 1e-9 && q.pairedMarketsMatch === true;
+    const qualifying = q.savedGrade === "B Spread" && q.savedEdge >= 3.5;
+    const implied = quoteImpliedProbability(q.odds);
+    const priceOkay = implied != null && savedP != null && savedP > implied;
+    return { active: sameQuote && qualifying && priceOkay,
+      grade: qualifying ? "B Spread" : "Non-Edge Spread", edge: q.savedEdge,
+      probability: savedP, estimated: false,
+      reason: !sameQuote ? "This spread model uses both paired market lines as inputs; a fresh model run is required when either quote changes or is unavailable."
+        : !qualifying ? "The selective spread profile requires a saved B Spread with at least 3.5 points of disagreement."
+        : !priceOkay ? "The saved simulation estimate cannot establish positive value at this price."
+        : "The saved selective spread profile meets its 3.5-point requirement." };
+  }
+
+  if (q.sport === "NFL" && q.market === "Total" && q.version.includes("|nfl-total-tree4-unit-agreement-v1-2026-11-22")) {
+    const sameQuote = Math.abs(delta) <= 1e-9 && q.pairedMarketsMatch === true;
+    // The saved grade already requires tree/regression agreement. Neither a
+    // changed total nor the legacy Strong threshold can manufacture that proof.
+    const qualifying = (q.savedGrade === "Over" || q.savedGrade === "Under")
+      && q.savedGrade === q.side && q.savedEdge >= 4;
+    const implied = quoteImpliedProbability(q.odds);
+    const priceOkay = implied != null && savedP != null && savedP > implied;
+    return { active: sameQuote && qualifying && priceOkay,
+      grade: qualifying ? q.savedGrade : "Non-Edge Total", edge: q.savedEdge,
+      probability: savedP, estimated: false,
+      reason: !sameQuote ? "The totals agreement models use both paired market lines as inputs; a fresh model run is required when either quote changes or is unavailable."
+        : !qualifying ? "The selective total requires a saved Over/Under agreement grade with at least 4 points of disagreement."
+        : !priceOkay ? "The saved simulation estimate cannot establish positive value at this price."
+        : "The saved total meets its 4-point gap and regression-agreement requirements." };
+  }
 
   if (pointEdge) {
     if (!q.version.startsWith("cfb-v3.0-sp-matchup-projection-")) return { active: false, grade: "No Play", edge,

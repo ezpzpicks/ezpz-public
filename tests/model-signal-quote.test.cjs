@@ -39,6 +39,39 @@ test('NFL spread repricing respects favorite and underdog signs and the existing
   assert.equal(api.regradeModelQuote({ ...base, savedLine: -2.5, line: -3.5 }).active, true);
 });
 
+test('independent NFL spreads use one B grade at 3.5 with no A promotion', () => {
+  const q = nfl({ market:'Spread', side:'team', version:'nfl-v4.28-directional-variable-tiers-2026-10-08|nfl-independent-spread-v1-2026-11-22|nfl-auto-rotowire-v1',
+    savedLine:-7.5, line:-7.5, savedEdge:3.5, savedGrade:'B Spread', probability:.65, reliability:50, confluence:1,pairedMarketsMatch:true });
+  assert.equal(api.regradeModelQuote(q).active, true);
+  assert.equal(api.regradeModelQuote({...q,savedEdge:12}).grade, 'B Spread');
+  assert.equal(api.regradeModelQuote({...q,savedEdge:3.4999}).active, false);
+  assert.equal(api.regradeModelQuote({...q,savedGrade:'A Spread'}).active, false);
+  assert.equal(api.regradeModelQuote({...q,odds:'-300'}).active, false);
+  assert.equal(api.regradeModelQuote({...q,pairedMarketsMatch:false}).active, false);
+  for(const line of [-7,-8]) {
+    const changed=api.regradeModelQuote({...q,line});
+    assert.equal(changed.active,false);assert.match(changed.reason,/fresh model run/);
+  }
+  assert.equal(api.regradeModelQuote(nfl({version:q.version,line:42.5})).grade,'Strong Over');
+});
+
+test('independent NFL totals preserve agreement grades and require fresh changed-total forecasts', () => {
+  const version='nfl-v4.28-directional-variable-tiers-2026-10-08|nfl-independent-spread-v1-2026-11-22|nfl-total-tree4-unit-agreement-v1-2026-11-22|nfl-auto-rotowire-v1';
+  const q=nfl({version,savedLine:44.5,line:44.5,savedGrade:'Over',savedEdge:4,probability:.64,reliability:50,confluence:1,pairedMarketsMatch:true});
+  assert.equal(api.regradeModelQuote(q).active,true);
+  assert.equal(api.regradeModelQuote({...q,savedEdge:12}).grade,'Over');
+  assert.equal(api.regradeModelQuote({...q,side:'Under',savedGrade:'Under'}).active,true);
+  assert.equal(api.regradeModelQuote({...q,savedEdge:3.999999}).active,false);
+  assert.equal(api.regradeModelQuote({...q,savedGrade:'Strong Over'}).active,false);
+  assert.equal(api.regradeModelQuote({...q,side:'Under'}).active,false);
+  assert.equal(api.regradeModelQuote({...q,odds:'-300'}).active,false);
+  assert.equal(api.regradeModelQuote({...q,pairedMarketsMatch:false}).active,false);
+  for(const line of [44,45]) {
+    const changed=api.regradeModelQuote({...q,line});
+    assert.equal(changed.active,false);assert.match(changed.reason,/fresh model run/);
+  }
+});
+
 test('CFB uses its own point thresholds and keeps FBS/20-point spread and price vetoes', () => {
   const base = nfl({ sport: 'NCAAF', version: 'cfb-v2.8.1-five-game-residual-totals-2026-10-07',
     savedGrade: 'A Total', savedLine: 49.5, line: 50.5, savedEdge: 6.2, probability: .67 });

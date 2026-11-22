@@ -226,6 +226,23 @@ test('NFL Signals regrades a moved quote, matches full team names and preserves 
   assert.equal(find(api.buildFootballSignalsState(x).board, 'model').active, false);
 });
 
+test('independent NFL totals require both paired model input quotes to remain current', () => {
+  const x=nflModelInput(),version='nfl-v4.28-directional-variable-tiers-2026-10-08|nfl-independent-spread-v1-2026-11-22|nfl-total-tree4-unit-agreement-v1-2026-11-22|nfl-auto-rotowire-v1';
+  x.core.bestPlays[0]={...x.core.bestPlays[0],play:'Over 44.5',playType:'Over',modelVersion:version,selectedProbability:'.64'};
+  x.core.slateToday[0]={...x.core.slateToday[0],'Market Home Spread':'-3.5','Market Total':'44.5',
+    'Projected Away':'25.7','Projected Home':'22.8','Projected Total':'48.5',
+    'Total Pick':'Over 44.5','Total Grade':'Over','Total Edge':'4','Total Probability':'.64','Model Version':version};
+  const base={...x.core.trendPlays[0],market:'Spread',selectionTeam:'NO',selection:'NO',side:'NO',line:-3.5};
+  x.core.trendPlays=x.core.trendPlays.map(p=>({...p,line:44.5})).concat([base,{...base,selectionTeam:'PIT',selection:'PIT',side:'PIT',line:3.5}]);
+  let board=api.buildFootballSignalsState(x).board;
+  assert.equal(board.sides.find(s=>s.market==='Total'&&s.side==='Over').signals.find(s=>s.key==='model').active,true);
+  x.core.trendPlays=x.core.trendPlays.map(p=>p.market==='Spread'?{...p,line:p.line<0?-4.5:4.5}:p);
+  board=api.buildFootballSignalsState(x).board;
+  const over=board.sides.find(s=>s.market==='Total'&&s.side==='Over');
+  assert.equal(over.signals.find(s=>s.key==='model').active,false);
+  assert.match(over.modelContext.reason,/paired market/);
+});
+
 test('official-build timing and price remain model-vote requirements after current-line repricing', () => {
   const x = nflModelInput();
   x.core.slateToday[0]['Build At'] = iso(lock + 1);

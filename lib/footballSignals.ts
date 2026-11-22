@@ -116,7 +116,25 @@ function matchRules(subtype: NcaafEzpzSubtype, sport: SignalSport) {
     .map(id => { const filter = config.filters.find(filter => filter.id === id); return filter ? `${filter.label}: ${filter.condition}` : id; })],
     selectionDescription: rule?.selections[Number(direction)] || subtype.category };
 }
-function modelFor(play: AnyRow, sport: SignalSport, core: AnyRow, asOf: number) {
+function pairedNflModelMarketsMatch(play: AnyRow, slate: AnyRow | undefined, siblings: AnyRow[], asOf: number) {
+  if (!slate) return false;
+  const key = footballTeamGameKey(play, "NFL"), home = footballTeamKey(play.homeTeam, "NFL");
+  const spread = signalNumber(slate["Market Home Spread"]), total = signalNumber(slate["Market Total"]);
+  if (spread == null || total == null) return false;
+  const spreads = new Set<number>(), totals = new Set<number>();
+  for (const row of siblings) {
+    if (footballTeamGameKey(row, "NFL") !== key || !["LIVE", "FINAL_PREGAME"].includes(row.snapshotStatus)) continue;
+    const stamp = Date.parse(String(row.frozenAt || row.lockedAt || row.updatedAt || "").replace(/ EDT$/, " -0400").replace(/ EST$/, " -0500"));
+    if (!Number.isFinite(stamp) || stamp > asOf || asOf - stamp > 90 * 60_000) continue;
+    const line = signalNumber(row.line);
+    if (line == null) continue;
+    if (row.market === "Total") totals.add(line);
+    if (row.market === "Spread") spreads.add(selectionKey(row, "NFL") === home ? line : -line);
+  }
+  return spreads.size === 1 && totals.size === 1
+    && Math.abs([...spreads][0] - spread) <= 1e-9 && Math.abs([...totals][0] - total) <= 1e-9;
+}
+function modelFor(play: AnyRow, sport: SignalSport, core: AnyRow, asOf: number, siblings: AnyRow[] = []) {
   if (sport === "NCAAM") return ncaamModelFor(play, core.ncaamForecasts || [], asOf);
   if (sport === "NBA") return nbaModelFor(play, core.nbaForecasts || [], asOf);
   const key = footballTeamGameKey(play, sport), selected = selectionKey(play, sport);
@@ -198,11 +216,14 @@ function modelFor(play: AnyRow, sport: SignalSport, core: AnyRow, asOf: number) 
   const matchupPolicy = sport === "NCAAF" ? String(slate?.["Grading Policy Version"] || "") : "";
   const matchupValidation = /^ncaaf-sp-(?:matchup|projection|edge)-/.test(matchupPolicy)
     ? ncaafMatchupQuoteReview(slate || {}, play.market, current ?? NaN, selected, asOf) : undefined;
+  const pairedMarketsMatch = sport === "NFL" && (version.includes("|nfl-independent-spread-v1-2026-11-22")
+    || version.includes("|nfl-total-tree4-unit-agreement-v1-2026-11-22"))
+    ? pairedNflModelMarketsMatch(play, slate, siblings, asOf) : undefined;
   const regraded = found && !future && !pending && modelLine != null && current != null && edge != null
     ? regradeModelQuote({ sport, market: play.market, side: selected, version, policy: matchupPolicy, matchupValidation, savedLine: modelLine, line: current,
       savedEdge: signalNumber(slate?.[play.market + " Edge"]) ?? edge - delta, savedGrade: grade,
       probability, reliability: signalNumber(slate?.Reliability), confluence: signalNumber(slate?.[play.market + " Confluence"]),
-      odds: String(play.odds || "-110") }) : null;
+      odds: String(play.odds || "-110"), pairedMarketsMatch }) : null;
   const currentPrice = quoteImpliedProbability(play.odds || "-110");
   const savedPrice = quoteImpliedProbability(found?.oddsLine || "-110");
   const priceOkay = currentPrice != null && (probability != null ? probability > currentPrice : savedPrice != null && currentPrice <= savedPrice);
@@ -222,7 +243,7 @@ function modelFor(play: AnyRow, sport: SignalSport, core: AnyRow, asOf: number) 
         : "The changed line needs a supported model re-evaluation; the saved grade is not carried forward automatically."
         : hasModel ? "No existing qualifying model play on this side." : "No model run is available for this matchup." } };
 }
-function evaluateSide(play: AnyRow, siblings: AnyRow[], input: SignalsInput, ranking: NcaafEzpzSubtype[]): FootballSignalSide {
+function evaluateSide(play: AnyRow, siblings: AnyRow[], input: SignalsInput, ranking: NcaafEzpzSubtype[], pairedMarkets: AnyRow[] = siblings): FootballSignalSide {
   const { sport, core, history, sos, now = Date.now() } = input, asOf = decisionAt(play, now);
   const kickoff = Date.parse(nflKickoffIso(play.date, play.gameTime));
   const finalStamp = Date.parse(String(play.frozenAt || play.lockedAt || play.updatedAt || "").replace(/ EDT$/, " -0400").replace(/ EST$/, " -0500"));
@@ -254,7 +275,7 @@ function evaluateSide(play: AnyRow, siblings: AnyRow[], input: SignalsInput, ran
     return [{ team: team.team, date: game.date, opponent: home ? game.away : game.home, venue: game.neutral ? "Neutral" : home ? "Home" : "Away",
       line: play.market === "Spread" && game.spread ? (home ? game.spread.homeLine : -game.spread.homeLine) : null, result: result || "" }];
   }));
-  const model = modelFor(play, sport, core, asOf);
+  const model = modelFor(play, sport, core, asOf, pairedMarkets);
   const schedule = [play.awayTeam, play.homeTeam].map(team => sport === "NCAAM" ? ncaamSosForTeam(sos || null, team, asOf) : sport === "NBA" ? null : sosForTeam(sos || null, team, asOf));
   const completeSos = schedule.every(Boolean) && (sport !== "NCAAM" || schedule.every(team => !/^0-0(?:-0)?$/.test(team!.opponentRecord)));
   const selectedIndex = footballTeamKey(play.selectionTeam || play.selection, sport) === footballTeamKey(play.homeTeam, sport) ? 1 : 0;
@@ -436,6 +457,7 @@ export function buildFootballSignalsState(input: SignalsInput): { board: Footbal
     const key = footballTeamGameKey(row, sport);
     if (footballTeamPair(row) && kickoff && !scheduledTimes.has(key)) scheduledTimes.set(key, kickoff);
   }
+  const resolvedMarketPlays = [...marketPlays.values()];
   for (const plays of groups.values()) {
     const gameStale = stale || (core.staleGameKeys || []).includes(footballTeamGameKey(plays[0], sport));
     const evaluated = plays.map(play => {
@@ -462,7 +484,7 @@ export function buildFootballSignalsState(input: SignalsInput): { board: Footbal
         : sport === "NBA" ? buildNbaTrendLeaderboard((core.trendRecordRows || []).filter((row: AnyRow) => footballTeamGameKey(row, sport) !== footballTeamGameKey(play, sport)), at)
         : sport === "NFL" ? buildNflEzpzLeaderboard(core.trendRecordRows || [], at, play)
         : buildNcaafEzpzLeaderboard(core.trendRecordRows || [], at, play, input.buildSubtypes);
-      const side = evaluateSide(play, plays, { ...input, history }, ranking);
+      const side = evaluateSide(play, plays, { ...input, history }, ranking, resolvedMarketPlays);
       if (gameStale) side.marketStale = true;
       if (retrospective) {
         const publicSignal = side.signals.find(s => s.key === "system")!;
