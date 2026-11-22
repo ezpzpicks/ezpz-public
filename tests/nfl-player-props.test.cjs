@@ -43,3 +43,12 @@ test('date partitions and current yardage tiers remain strict', () => {
     Projection: '100', 'Market Line': '50', 'Probability Edge': '.40' })), 'Injury hold');
   assert.equal(api.validNflPropsDate('2026-02-30'), false); assert.equal(api.validNflPropsDate(date), true);
 });
+
+test('pending visibility does not promote touchdown leans or other unqualified markets', () => {
+  const props = api.buildNflPlayerProps([], [row({ Market: 'Anytime TD', Grade: 'Lean' }),
+    row({ Player: 'Qualified TD', Market: 'Anytime TD', Grade: 'B Prop' }),
+    row({ Player: 'Yardage Lean', Market: 'Rushing Yards', Grade: 'B Prop', Projection: '80',
+      'Market Line': '50', 'Probability Edge': '.13', 'Projection Edge': '30' })], date);
+  const upcoming = api.upcomingNflProps(props, Date.parse(date + 'T16:00:00Z'), true);
+  assert.deepEqual(Array.from(upcoming, p => p.player).sort(), ['Qualified TD', 'Yardage Lean']);
+});
