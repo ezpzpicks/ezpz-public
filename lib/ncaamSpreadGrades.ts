@@ -1,6 +1,7 @@
 /** Validate captured spread grades and re-evaluate quotes using saved factors. */
 import { NcaamSelectionReview, ncaamSpreadReviewReasons, validSelectionReview } from "./ncaamSelectionReview";
-import { ncaamPointGrade, isNcaamPointModel, NCAAM_POINT_POLICY, type NcaamPointPolicy } from "./ncaamPointEdges";
+import { ncaamPointGrade, ncaamPointSpreadTier, isNcaamPointModel, NCAAM_POINT_POLICY, NCAAM_POINT_MODEL, type NcaamPointPolicy } from "./ncaamPointEdges";
+import { validNcaamSpreadBSelection } from "./ncaamSpreadCalibration";
 export const NCAAM_SPREAD_GRADE_TAB = "ncaam_matchup_spread_grades";
 export type NcaamSpreadPolicy = {
   edge_window: { minimum_inclusive: number; maximum_exclusive: number };
@@ -14,6 +15,7 @@ export type NcaamSpreadGrade = {
   forecast_record_id: string; game_id: string; as_of: string; tipoff: string; published_at: string;
   record_mode: "live" | "replay"; grade: "A" | "B" | "Research";
   grading_basis?: string; edge_grade?: "A" | "B" | "Research"; eligible?: boolean; confidence_flags?: string[];
+  projection_model_version?: string;
   side: "away" | "home" | null; projected_side: "away" | "home" | null; selection_team: string | null;
   line: number; home_line: number; fair_home_spread: number; projected_margin: number; edge: number;
   role: "Favorite" | "Underdog" | "Pickem"; reason: string; profile_id?: string | null;
@@ -46,8 +48,9 @@ export function ncaamSpreadQuote(g: NcaamSpreadGrade, line: number) {
     const t = policy.thresholds, valid = Number.isFinite(line) && Number.isFinite(g.projected_margin)
       && Number.isFinite(t.spread_a_points) && Number.isFinite(t.spread_b_points)
       && t.spread_a_points > t.spread_b_points && t.spread_b_points > 0;
-    const grade = valid
-      ? edge >= t.spread_a_points ? "A" : edge >= t.spread_b_points ? "B" : "Research" : "Research";
+    const versionOkay = g.projection_model_version === NCAAM_POINT_MODEL
+      ? validNcaamSpreadBSelection(policy.spread_selection) : policy.spread_selection === undefined;
+    const grade = valid && versionOkay ? ncaamPointSpreadTier(g.projected_margin+line,policy) : "Research";
     return {grade,edge,role,reason:`${edge.toFixed(2)}-point edge at this number`};
   }
   if (!validPolicy(policy)) return { grade: "Research", edge, role, reason: "Spread grading policy is unavailable" };

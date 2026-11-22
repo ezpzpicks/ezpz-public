@@ -12,7 +12,8 @@ export type NcaamRecordTotals = { wins: number; losses: number; pushes: number; 
   record: string; winPct: number | null; unitsWon: number; roiPct: number | null };
 export type NcaamModelPlay = { id: string; date: string; gameId: string; game: string; gameTime: string;
   market: "Spread" | "Total"; selection: string; grade: string; line: number; odds: string;
-  result: string; lockedAt: string; modelVersion: string; recordMode?: "live" | "replay"; gradeReason?: string; spreadRole?: "Favorite" | "Underdog" | "Pickem" };
+  result: string; lockedAt: string; modelVersion: string; projectionModelVersion?: string; marketModelVersion?: string;
+  recordMode?: "live" | "replay"; gradeReason?: string; spreadRole?: "Favorite" | "Underdog" | "Pickem" };
 type ModelDay = { totals: NcaamRecordTotals; byType: Record<string, NcaamRecordTotals> };
 export type NcaamModelRecordState = { version: string; days: Record<string, ModelDay>; recent: NcaamModelPlay[];
   replayDays?: Record<string, ModelDay>; replayRecent?: NcaamModelPlay[] };
@@ -68,7 +69,7 @@ export function ncaamModelPlays(forecasts: Row[], schedule: Row[] = [], now = Da
       source: { observed_at: game!["Result Updated"] }, away: { name: f.away_team, score: away }, home: { name: f.home_team, score: home } }, f.gameId, f.lockedAt) : f;
     return (["Spread", "Total"] as const).flatMap(market => {
       const matchup = market === "Total" ? ncaamMatchupGrade(f) : ncaamSpreadGrade(f);
-      if (isNcaamPointModel(f.modelVersion) && !matchup) return [];
+      if (isNcaamPointModel(f.modelVersion) && (!matchup || !matchup.eligible)) return [];
       const prefix = market === "Spread" ? "spread" : "total", grade = String(f[`${prefix}_grade`] || "");
       const selection = String(f[`${prefix}_pick`] || ""), saved = number(market === "Spread" ? f.market?.home_spread : f.market?.total);
       const line = number(selection.match(/\s([+-]?\d+(?:\.\d+)?)\s*$/)?.[1]);
@@ -82,6 +83,7 @@ export function ncaamModelPlays(forecasts: Row[], schedule: Row[] = [], now = Da
       return [{ id: `${ncaamDate(Date.parse(f.tipoff))}|${f.gameId}|${market}`, date: ncaamDate(Date.parse(f.tipoff)), gameId: f.gameId,
         game: `${f.away_team} @ ${f.home_team}`, gameTime: f.tipoff, market, selection, grade, line, odds: "-110",
         result: code(result), lockedAt: f.lockedAt, modelVersion: matchup?.policy_version || f.modelVersion,
+        projectionModelVersion: f.modelVersion, marketModelVersion: f.matchup_projection?.market_models?.[prefix]?.model_version || f.modelVersion,
         ...(matchup ? { recordMode: matchup.record_mode, gradeReason: matchup.reason } : {}),
         ...(market === "Spread" && matchup && "role" in matchup ? { spreadRole: matchup.role } : {}) }];
     });
