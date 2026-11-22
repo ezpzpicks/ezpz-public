@@ -10,6 +10,7 @@ const SignalEzpzPicks = dynamic(() => import("./FootballSignalsBoard"), { loadin
 const ManualEzpzPicks = dynamic(() => import("./ManualEzpzPicks"), { loading: () => <div className="empty">Loading official picks…</div> });
 const ManualEzpzRecords = dynamic(() => import("./ManualEzpzRecords"), { loading: () => <div className="empty">Loading official records…</div> });
 const NflPlayerProps = dynamic(() => import("./NflPlayerProps"), { loading: () => <div className="empty">Loading player props…</div> });
+const NflPendingGamePlays = dynamic(() => import("./NflPendingGamePlays"), { loading: () => <div className="empty">Loading pending spreads and totals…</div> });
 import NbaBoard, { type NbaMarketPayload } from "./NbaBoard";
 import { buildNflEzpzRecords } from "../lib/nflEzpzRecords";
 import { restoreFootballPublicDisplay } from "../lib/footballPublicDisplay";
@@ -7169,6 +7170,7 @@ export default function Home() {
     if (active === "EZPZ Picks") return <ManualEzpzPicks sport={activeSport} />;
     if (active === "Player Props") return activeSport === "NFL" ? <NflPlayerProps /> : <div className="empty">Choose NFL to view player props.</div>;
     if (activeSport === "NFL" && active === "Today’s Model Plays") return <div style={{ display: "grid", gap: 28 }}>
+      <NflPendingGamePlays />
       <NflPlayerProps pendingOnly />
       {data ? <FootballBoard sport="NFL" tab="Today’s Model Plays" data={data as any} /> : <LoadingState />}
     </div>;
