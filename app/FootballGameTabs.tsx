@@ -1,14 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { MatchupWithLogos, SelectionWithTeamLogo, TeamLogoName } from "./TeamLogoName";
+import { MatchupWithLogos, SelectionWithTeamLogo } from "./TeamLogoName";
 import FootballModelFormBadges from "./FootballModelFormBadges";
-import NcaafModelDetails from "./NcaafModelDetails";
 import NcaafModelBoard from "./NcaafModelBoard";
 import { mergeNflPendingModelPlays, type NflModelPlay } from "../lib/nflModelPlayDisplay";
 import type { NflPendingGame } from "../lib/nflPendingGames";
 import { nflPropsDate, type NflPlayerProp } from "../lib/nflPlayerProps";
-import { marketProjectionPending, projectionAdjustments } from "../lib/marketProjectionPolicy";
 import ProjectionAdjustment from "./ProjectionAdjustment";
 
 type Sport = "NFL" | "NCAAF";
@@ -243,16 +241,6 @@ function timeSortValue(value: unknown) {
   return hour * 60 + minute;
 }
 
-function whole(value: unknown) {
-  const n = Number(value);
-  return Number.isFinite(n) ? String(Math.round(n)) : "—";
-}
-
-function oneDecimal(value: unknown) {
-  const n = Number(value);
-  return Number.isFinite(n) ? n.toFixed(1) : "—";
-}
-
 function probability(value: unknown) {
   const n = Number(value);
   if (!Number.isFinite(n)) return "—";
@@ -329,52 +317,6 @@ function GameSummary({ sport, game, time, count, pending, noun = "plays" }: { sp
 }
 
 
-
-function FullSlateCard({ row, sport }: { row: SheetRow; sport: Sport }) {
-  const game = rowGame(row);
-  const teams = rowTeams(row);
-  const spreadGrade = row["Spread Grade"] || "No Play";
-  const totalGrade = row["Total Grade"] || "No Play";
-  const adjustments = projectionAdjustments(row), pending = marketProjectionPending(row);
-  const signedProjection = (value: unknown) => {const n=Number(value);return Number.isFinite(n)?`${n>0?"+":""}${n.toFixed(1)}`:"—";};
-
-  return (
-    <div className="fgtSlateBody">
-      <div className="fgtScoreboard">
-        <div className="fgtTeamScore">
-          <div><span>AWAY</span><strong><TeamLogoName sport={sport} team={teams.away} text={teams.away || "Away"} /></strong></div>
-          <b>{whole(row["Projected Away"])}<ProjectionAdjustment points={adjustments?.awayScore} label={`${teams.away} score`} /></b>
-        </div>
-        <div className="fgtTeamScore">
-          <div><span>HOME</span><strong><TeamLogoName sport={sport} team={teams.home} text={teams.home || "Home"} /></strong></div>
-          <b>{whole(row["Projected Home"])}<ProjectionAdjustment points={adjustments?.homeScore} label={`${teams.home} score`} /></b>
-        </div>
-      </div>
-
-      <div className="fgtMetrics">
-        <div><span>Projected home margin</span><strong>{oneDecimal(row["Projected Margin"])}<ProjectionAdjustment points={adjustments?.homeSpread} label={`${teams.home} strength`} /></strong></div>
-        <div><span>Projected total</span><strong>{oneDecimal(row["Projected Total"])}<ProjectionAdjustment points={adjustments?.total} label="total" /></strong></div>
-        <div><span>Reliability</span><strong>{row.Reliability || "—"}</strong></div>
-        {adjustments ? <><div><span>Model home spread · {teams.home}</span><strong>{signedProjection(-Number(row["Projected Margin"]))}<ProjectionAdjustment points={adjustments.homeSpread} label={`${teams.home} strength`} /></strong></div>
-          <div><span>Model away spread · {teams.away}</span><strong>{signedProjection(row["Projected Margin"])}<ProjectionAdjustment points={adjustments.awaySpread} label={`${teams.away} strength`} /></strong></div></> : null}
-      </div>
-
-      <div className="fgtMarkets">
-        <div className="fgtMarketCard">
-          <div><span>SPREAD</span><b>{spreadGrade}</b></div>
-          <strong><SelectionWithTeamLogo sport={sport} selection={row["Spread Pick"] || "No model play"} game={game} /></strong>
-          <small>{pending ? "New grades pending" : `Model probability ${probability(row["Spread Probability"])}`}</small>
-        </div>
-        <div className="fgtMarketCard">
-          <div><span>TOTAL</span><b>{totalGrade}</b></div>
-          <strong>{row["Total Pick"] || "No model play"}</strong>
-          <small>{pending ? "New grades pending" : `Model probability ${probability(row["Total Probability"])}`}</small>
-        </div>
-      </div>
-      {sport === "NCAAF" ? <NcaafModelDetails row={row} /> : null}
-    </div>
-  );
-}
 
 function ModelPlayRow({ play, sport, data }: { play: Play; sport: Sport; data: FootballData }) {
   const isProp = textKey(play.role).includes("player prop");
@@ -517,32 +459,23 @@ export default function FootballGameTabs({ sport, tab, data }: { sport: Sport; t
     return output.sort((a, b) => timeSortValue(a.time) - timeSortValue(b.time) || a.game.localeCompare(b.game));
   }, [plays, slate, sport]);
 
-  if (sport === "NCAAF") return <NcaafModelBoard fullSlate={tab === "Full Slate"} rows={slate} groups={groups} tracker={data.betTrackerRows} today={data.today} />;
+  if (sport === "NCAAF" || tab === "Full Slate") return <NcaafModelBoard sport={sport} fullSlate={tab === "Full Slate"} rows={slate} groups={groups} tracker={data.betTrackerRows} today={data.today} />;
 
   return (
     <section className="footballGameTabs">
       <div className="fgtHead">
         <div>
-          <h2>{sport} {tab === "Full Slate" ? "Full Slate" : "Model Plays"}</h2>
+          <h2>{sport} Model Plays</h2>
         </div>
       </div>
       {sport === "NFL" && tab === "Today’s Model Plays" && previewError ? <p className="fgtRefreshError" role="status">{previewError}</p> : null}
 
-      {tab === "Full Slate" ? (
-        slate.length ? <div className="fgtStack">{slate.map((row, index) => {
-          const game = rowGame(row);
-          const time = rowGameTime(row);
-          return <details className="fgtGame" key={stableGameId(row) || `${teamKey(rowTeams(row).away, sport)}-${teamKey(rowTeams(row).home, sport)}-${index}`} open={slate.length === 1}>
-            <GameSummary sport={sport} game={game} time={time} />
-            <FullSlateCard row={row} sport={sport} />
-          </details>;
-        })}</div> : <div className="fgtEmpty">No {sport} games are posted for {data.today || "today"} yet.</div>
-      ) : (
+      {
         groups.length ? <div className="fgtStack">{groups.map(group => <details className="fgtGame fgtModelGame" key={`${teamKey(playTeams(group.plays[0]).away, sport)}-${teamKey(playTeams(group.plays[0]).home, sport)}`}>
           <GameSummary sport={sport} game={group.game} time={group.time} count={group.plays.length} pending={group.plays.some(play => play.pending)} noun={group.plays.length === 1 ? "play" : "plays"} />
           <div className="fgtModelBody">{group.plays.map((play, index) => <ModelPlayRow key={`${play.play}-${play.playerName}-${play.propMarket}-${index}`} play={play} sport={sport} data={data} />)}</div>
         </details>)}</div> : <div className="fgtEmpty">{sport === "NFL" && previewsLoading ? "Loading model plays…" : `No graded ${sport} Model Plays are saved for ${data.today || "today"}.`}</div>
-      )}
+      }
 
       <style jsx global>{`
         .fgtSummaryBadges{display:flex;align-items:center;justify-content:flex-end;gap:6px;flex-wrap:wrap;max-width:150px}.fgtPending{display:inline-flex;width:max-content;border:1px solid rgba(247,200,92,.3);border-radius:999px;padding:4px 7px;color:#f4d482;background:rgba(155,115,30,.13);font-size:12px;font-weight:750;line-height:1.2;white-space:nowrap}.fgtPlayLabel{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.fgtRefreshError{margin:0;color:var(--ez-muted);font-size:.82rem}@media(max-width:700px){.fgtSummaryBadges{max-width:112px}}
