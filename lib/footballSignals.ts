@@ -53,6 +53,7 @@ export type FootballSignalSide = {
     openingLine: number | null; openingOdds: string; openingAt?: string; publicChange: number | null; moneyChange: number | null;
     movementBasis: string; movementLabel: string; history: AnyRow[]; movement?: SignalMovement };
   modelContext: { play: string; grade: string; version: string; projection: number | null; probability: number | null; line: number | null; reason: string;
+    projectionAdjustment?: number | null;
     regraded?: boolean; originalPlay?: string; originalGrade?: string; probabilityEstimated?: boolean; confidenceFlags?: string[] };
   sosContext: { sourceUrl: string; capturedAt: string; teams: { team: string; rank: number; elo: number; opponentRecord: string }[]; gap: number | null };
   result: "W" | "L" | "P" | ""; resultUpdated: string;

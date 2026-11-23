@@ -313,7 +313,7 @@ test('basketball slates go straight from the heading to forecast cards and retai
   const exports={};let code=ts.transpileModule(fs.readFileSync(path.join(__dirname,'..',file),'utf8'),
    {compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText;
   if(file==='app/NbaBoard.tsx')code+='\nexports.testSlate=ModelSlate;';
-  vm.runInNewContext(code,{exports,Date,Intl,console,require:name=>name==='next/dynamic'?{default:()=>()=>null}
+  vm.runInNewContext(code,{exports,Date,Intl,console,require:name=>name==='./ProjectionAdjustment'?component('app/ProjectionAdjustment.tsx'):name==='next/dynamic'?{default:()=>()=>null}
    :name==='./TeamLogoName'?{MatchupWithLogos:p=>p.game}:name==='./NbaGameLineups'?{default:()=>null}
    :name==='./NbaEzpzPicks'?{default:()=>null}:name.startsWith('./Ncaam')?component(`app/${name.slice(2)}.tsx`)
    :name.startsWith('../lib/')?load(path.join(__dirname,'../app',name+'.ts')):require(name)});

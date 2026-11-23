@@ -12,7 +12,7 @@ export type ContextModel = TrialModel & { modelForms: Record<string, ModelForm> 
 export type ContextEvidence = { label: string; value: string; direction: "Supports" | "Opposes" | "Neutral"; sample: number | null };
 export type ContextCase = { id: string; selection: string; evidence: ContextEvidence[]; disagreements: string[]; missing: string[];
   metrics?: { tickets: number | null; money: number | null; moneyGap: number | null; openingLine: number | null;
-    teamScore: number | null; modelEdge: number | null; modelProjection: number | null; activeSignals: string[] } };
+    teamScore: number | null; modelEdge: number | null; modelProjection: number | null; modelProjectionAdjustment?: number | null; activeSignals: string[] } };
 export type ContextDecision = TrialDecision & { cases: ContextCase[] };
 export type ContextReview = ContextDecision & { reviewStatus: "PENDING" | "FINAL" | "MISSED_FINAL" };
 
@@ -203,6 +203,7 @@ export function contextCase(side: ContextSide, sport: ContextSport): ContextCase
       teamScore: capturedTeams(side).length && finite(side.teamTrend?.score) ? side.teamTrend!.score : null,
       modelEdge: modelAvailable(side) ? side.signals.find(signal => signal.key === "model")?.value ?? null : null,
       modelProjection: modelAvailable(side) ? side.modelContext!.projection : null,
+      modelProjectionAdjustment: modelAvailable(side) ? side.modelContext!.projectionAdjustment ?? null : null,
       activeSignals: side.signals.filter(signal => signal.active && signal.available).map(signal => signal.key) } };
 }
 

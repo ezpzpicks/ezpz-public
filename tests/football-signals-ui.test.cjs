@@ -4,6 +4,7 @@ const fs = require('node:fs'), path = require('node:path'), vm = require('node:v
 const ts = require('typescript'), React = require('react');
 const { renderToStaticMarkup } = require('react-dom/server');
 const root = path.resolve(__dirname, '..');
+const projectionAdjustment = require('./load-tsx-component.cjs')(path.join(root, 'app/ProjectionAdjustment.tsx'));
 const exportsObject = {};
 const fadePanel = {};
 vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(root, 'app/FadeTrialPanel.tsx'), 'utf8'), {
@@ -17,10 +18,10 @@ vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(root, 'app/Selec
 const contextPanel = {};
 vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(root, 'app/MatchupContextPanel.tsx'), 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
-}).outputText, { exports: contextPanel, require });
+}).outputText, { exports: contextPanel, require: name => name === './ProjectionAdjustment' ? projectionAdjustment : require(name) });
 const source = fs.readFileSync(path.join(root, 'app/FootballSignalsBoard.tsx'), 'utf8') + '\nexport const detailTest = SignalDetail; export const researchTest = CombinationResearch; export const comboTest = CombinationRecord; export const pickTileTest = MatchupCard;';
 vm.runInNewContext(ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } }).outputText,
-  { exports: exportsObject, Date, Intl, console, require: name => name === './TeamLogoName' ? { TeamLogoName: p => p.team }
+  { exports: exportsObject, Date, Intl, console, require: name => name === './ProjectionAdjustment' ? projectionAdjustment : name === './TeamLogoName' ? { TeamLogoName: p => p.team }
     : name === './NbaGameLineups' ? { __esModule: true, default: () => null }
     : name === './SelectionTrial' ? trial
     : name === './MatchupContextPanel' ? contextPanel

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { ContextCase, ContextEvidence, ContextReview, ContextSport } from "../lib/matchupContext";
+import ProjectionAdjustment from "./ProjectionAdjustment";
 
 type Payload = { ok: boolean; available: boolean; capturedGames: number; passedGames: number; pendingGames: number; missedFinalGames?: number;
   record: { record: string; pending: number; netUnits: number; roiPct: number | null; assumedPrices: number; unverifiedPrices: number };
@@ -23,7 +24,7 @@ function metrics(context?: ContextCase) {
   const opening = context?.evidence.find(item => item.label === "Tracked line")?.value.split("→")[0].trim();
   return { tickets: split ? Number(split[1]) : null, money: split ? Number(split[2]) : null,
     moneyGap: split ? Number(split[2]) - Number(split[1]) : null, teamScore: null,
-    modelEdge: edge ? Number(edge[1]) : null, modelProjection: null,
+    modelEdge: edge ? Number(edge[1]) : null, modelProjection: null, modelProjectionAdjustment: null,
     openingLine: opening && Number.isFinite(Number(opening)) ? Number(opening) : null, activeSignals: [] as string[] };
 }
 
@@ -54,7 +55,8 @@ function CaseEvidence({ context, line, market: marketType }: { context?: Context
     </div></section> : null}
     {market.length ? <section className="mc-evidence-section"><h5>Betting splits &amp; line movement</h5><EvidenceRows items={market} /></section> : null}
     {model.length ? <section className="mc-evidence-section"><h5>Model evidence</h5>
-      {context.metrics?.modelProjection != null ? <p className="mc-snapshot-note">Projection <strong>{number(context.metrics.modelProjection, marketType === "Spread")}</strong> · Line {number(line, marketType === "Spread")}</p> : null}
+      {context.metrics?.modelProjection != null ? <p className="mc-snapshot-note">Projection <strong>{number(context.metrics.modelProjection, marketType === "Spread")}
+        <ProjectionAdjustment points={context.metrics.modelProjectionAdjustment} label={marketType === "Spread" ? "team strength" : "total"} /></strong> · Line {number(line, marketType === "Spread")}</p> : null}
       <EvidenceRows items={model} /></section> : null}
     {schedule.length ? <section className="mc-evidence-section"><h5>Schedule strength</h5><EvidenceRows items={schedule} /></section> : null}
     {context.missing.length ? <p className="mc-missing">Missing information: {context.missing.join(" · ")}</p> : null}
@@ -108,7 +110,8 @@ function MatchupGame({ game }: { game: ContextReview }) {
         <CaseEvidence context={context} line={choice.line} market={choice.market as "Spread" | "Total"} />
         <details className="mc-estimate-details"><summary>Review estimate &amp; contributing factors</summary>
           <p>{choice.priceBasis} · Estimated return {percent(choice.expectedRoi)} · After uncertainty {percent(choice.conservativeRoi)}</p>
-          {current.modelProjection != null ? <p>Model projection {number(current.modelProjection, choice.market === "Spread")} · Quoted line {number(choice.line, choice.market === "Spread")}</p> : null}
+          {current.modelProjection != null ? <p>Model projection {number(current.modelProjection, choice.market === "Spread")}
+            <ProjectionAdjustment points={current.modelProjectionAdjustment} label={choice.market === "Spread" ? "team strength" : "total"} /> · Quoted line {number(choice.line, choice.market === "Spread")}</p> : null}
           {choice.reasons.length ? <p>{choice.reasons.join(" · ")}</p> : null}
           {choice.contributions.length ? <ul>{choice.contributions.map(factor => <li key={factor.feature}>{factor.feature} · {factor.value > 0 ? "Raises" : "Lowers"} the estimate</li>)}</ul> : null}
         </details>
