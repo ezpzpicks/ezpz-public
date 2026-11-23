@@ -4,6 +4,7 @@ import FootballBoard from "./FootballBoard";
 import SiteNavigation, { SiteHeader } from "./SiteNavigation";
 import type { FootballSignalsBoard } from "../lib/footballSignals";
 import FullSlateHistory from "./FullSlateHistory";
+import MlbSlateCard, { MlbMarketPanel as MarketPanel } from "./MlbSlateCard";
 import dynamic from "next/dynamic";
 const SignalResearch = dynamic(() => import("./FootballSignalsBoard").then(module => module.SignalResearch));
 const SignalEzpzPicks = dynamic(() => import("./FootballSignalsBoard"), { loading: () => <div className="empty">Loading EZPZ Picks…</div> });
@@ -5050,40 +5051,6 @@ function KBubbleGroup({
   );
 }
 
-function MarketPanel({
-  title,
-  grade,
-  isGreen,
-  metrics,
-  children,
-}: {
-  title: string;
-  grade: string;
-  isGreen: boolean;
-  metrics: Array<{ label: string; value: string | number }>;
-  children?: ReactNode;
-}) {
-  return (
-    <section className={`marketPanel ${isGreen ? "green" : ""}`}>
-      <div className="compactMarketRow">
-        <span className="marketPanelTitle">{title}</span>
-        <div className="compactMarketMetrics">
-          {metrics.map((metric) => (
-            <span className="compactMarketMetric" key={metric.label}>
-              <small>{metric.label}</small>
-              <strong>{metric.value || "—"}</strong>
-            </span>
-          ))}
-        </div>
-        <span className={`chip ${isGreen ? "green" : "yellow"}`}>
-          {grade || "PASS"}
-        </span>
-      </div>
-      {children}
-    </section>
-  );
-}
-
 function aiExternalReviewLabel(status: AiPickExternalStatus) {
 // NO_FINAL_AI_REVIEW_V1
   if (status === "NOT_REQUIRED") return "Locked from the 15-minute qualification snapshot";
@@ -5574,9 +5541,6 @@ function SlateCard({
   row: SheetRow;
   draftKings?: DraftKingsData | null;
 }) {
-  const game =
-    row["Game Label"] || `${row["Away Team"]} at ${row["Home Team"]}`;
-
   const awayK = row["Away Pitcher K + Grade"] || "";
   const homeK = row["Home Pitcher K + Grade"] || "";
   const awayBulkK = row["Away Bulk Pitcher K + Grade"] || "";
@@ -5620,34 +5584,8 @@ function SlateCard({
       ? "NRFI"
       : "First Inning";
 
-  const hasGreen =
-    awayGreen ||
-    homeGreen ||
-    awayBulkGreen ||
-    homeBulkGreen ||
-    mlGreen ||
-    firstInningGreen ||
-    totalGreen;
-
   return (
-    <article className={`card slateCard ${hasGreen ? "green" : ""}`}>
-      <div className="slateCardHeader">
-        <div className="cardTitle">{game}</div>
-      </div>
-
-      <TeamRow
-        awayTeam={row["Away Team"] || ""}
-        homeTeam={row["Home Team"] || ""}
-      />
-
-      {!modelBuilt ? (
-        <div className="marketTrackingNotice">
-          <strong>Market tracking active</strong>
-          <span>EZPZ model has not been built for this matchup yet.</span>
-        </div>
-      ) : null}
-
-      <div className="marketPanelGrid">
+    <MlbSlateCard row={row} time={displayPublicSlateTime(row, draftKings)} modelBuilt={modelBuilt} markets={<>
         {trackingMoneylineAvailable ? (
           <MarketPanel
             title="Moneyline"
@@ -5708,7 +5646,7 @@ function SlateCard({
             <LiveMarketSplits row={row} market="Total" draftKings={draftKings} />
           </MarketPanel>
         ) : null}
-      </div>
+      </>}>
 
       <div className="pitcherGrid">
         <PitcherSlateBox
@@ -5765,7 +5703,7 @@ function SlateCard({
           />
         ) : null}
       </div>
-    </article>
+    </MlbSlateCard>
   );
 }
 
@@ -7508,54 +7446,19 @@ export default function Home() {
     if (active === "Full Slate") {
       return <FullSlateHistory sport="MLB" data={data}>{(slateData, historical) => {
         const slateMarket = historical ? null : draftKings;
-        return (
-        <>
-          <div className="sectionHead">
-            <div>
-              <h2>Full Slate</h2>
-            </div>
-          </div>
-
-          {slateData.slateToday.length ? (
-            <div className="slateDropdownStack">
-              {[...slateData.slateToday]
-      .sort((a, b) => {
-        const aTime = publicSlateTimeSortValue(a, slateMarket);
-        const bTime = publicSlateTimeSortValue(b, slateMarket);
-        if (aTime !== bTime) return aTime - bTime;
-        const aGame = a["Game Label"] || `${a["Away Team"]} at ${a["Home Team"]}`;
-        const bGame = b["Game Label"] || `${b["Away Team"]} at ${b["Home Team"]}`;
-        return aGame.localeCompare(bGame);
-      })
-      .map((row, index) => {
-                const game =
-                  row["Game Label"] || `${row["Away Team"]} at ${row["Home Team"]}`;
-
-                return (
-                  <details
-                    className="slateDropdown"
-                    key={`${row["Game ID"]}-${index}`}
-                    open={slateData.slateToday.length === 1}
-                  >
-                    <summary className="slateDropdownSummary">
-                      <div>
-                        <div className="slateDropdownTitle">{game}</div>
-                        {displayPublicSlateTime(row, slateMarket) ? <div className="slateDropdownSub">{displayPublicSlateTime(row, slateMarket)}</div> : null}
-                      </div>
-                      <span className="slateDropdownAction">View matchup</span>
-                    </summary>
-                    <div className="slateDropdownBody">
-                      <SlateCard row={row} draftKings={slateMarket} />
-                    </div>
-                  </details>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="empty">No games saved for {slateData.today}.</div>
-          )}
-        </>
-      );
+        const rows = [...slateData.slateToday].sort((a, b) => {
+          const aTime = publicSlateTimeSortValue(a, slateMarket);
+          const bTime = publicSlateTimeSortValue(b, slateMarket);
+          if (aTime !== bTime) return aTime - bTime;
+          const aGame = a["Game Label"] || `${a["Away Team"]} at ${a["Home Team"]}`;
+          const bGame = b["Game Label"] || `${b["Away Team"]} at ${b["Home Team"]}`;
+          return aGame.localeCompare(bGame);
+        });
+        return <section className="nbaBoard mlbModelBoard">
+          <div className="nbaIntro"><h2>MLB Full Slate</h2></div>
+          {rows.map((row, index) => <SlateCard key={`${row["Game ID"] || row["Game Key"] || row["Game Label"]}-${index}`} row={row} draftKings={slateMarket} />)}
+          {!rows.length ? <div className="nbaCard">No games saved for {slateData.today}.</div> : null}
+        </section>;
       }}</FullSlateHistory>;
     }
 

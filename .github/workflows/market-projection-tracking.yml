@@ -1,10 +1,10 @@
 name: Multi-sport market projection checks
 on:
   pull_request:
-    paths: ['lib/marketProjection*.ts', 'lib/footballMarketProjection.ts', 'lib/footballPublicDataHistory.ts', 'lib/footballSignals.ts', 'lib/nbaForecasts.ts', 'lib/nbaMarket*.ts', 'lib/nbaRecords.ts', 'lib/nbaTrendLeaderboard.ts', 'lib/nflModelPlayDisplay.ts', 'app/NbaBoard.tsx', 'app/NcaafModelBoard.tsx', 'app/FootballGameTabs.tsx', 'app/api/nfl-pending-game-plays/**', 'app/api/cron/football-market-discovery/**', 'tests/market-projection*.cjs', '.github/workflows/market-projection-tracking.yml']
+    paths: ['lib/marketProjection*.ts', 'lib/footballMarketProjection.ts', 'lib/footballPublicDataHistory.ts', 'lib/footballSignals.ts', 'lib/nbaForecasts.ts', 'lib/nbaMarket*.ts', 'lib/nbaRecords.ts', 'lib/nbaTrendLeaderboard.ts', 'lib/nflModelPlayDisplay.ts', 'app/NbaBoard.tsx', 'app/NcaafModelBoard.tsx', 'app/FootballGameTabs.tsx', 'app/MlbSlateCard.tsx', 'app/page.tsx', 'app/api/nfl-pending-game-plays/**', 'app/api/cron/football-market-discovery/**', 'tests/market-projection*.cjs', '.github/workflows/market-projection-tracking.yml']
   push:
     branches: [main]
-    paths: ['lib/marketProjection*.ts', 'lib/footballMarketProjection.ts', 'lib/footballPublicDataHistory.ts', 'lib/footballSignals.ts', 'lib/nbaForecasts.ts', 'lib/nbaMarket*.ts', 'lib/nbaRecords.ts', 'lib/nbaTrendLeaderboard.ts', 'app/NbaBoard.tsx', 'app/NcaafModelBoard.tsx', 'app/FootballGameTabs.tsx', 'tests/market-projection*.cjs', '.github/workflows/market-projection-tracking.yml']
+    paths: ['lib/marketProjection*.ts', 'lib/footballMarketProjection.ts', 'lib/footballPublicDataHistory.ts', 'lib/footballSignals.ts', 'lib/nbaForecasts.ts', 'lib/nbaMarket*.ts', 'lib/nbaRecords.ts', 'lib/nbaTrendLeaderboard.ts', 'app/NbaBoard.tsx', 'app/NcaafModelBoard.tsx', 'app/FootballGameTabs.tsx', 'app/MlbSlateCard.tsx', 'app/page.tsx', 'tests/market-projection*.cjs', '.github/workflows/market-projection-tracking.yml']
 permissions:
   contents: read
 jobs:
