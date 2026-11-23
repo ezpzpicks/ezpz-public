@@ -9,13 +9,18 @@ const root = path.resolve(__dirname, '..');
 const today = '2026-10-18';
 const now = Date.parse(`${today}T16:50:00Z`);
 class FixedDate extends Date { constructor(...args) { super(...(args.length ? args : [now])); } static now() { return now; } }
+const dependencyCache = new Map();
+function dependency(file) { if (!dependencyCache.has(file)) dependencyCache.set(file, load(file)); return dependencyCache.get(file); }
 function withStubs(file, imports) {
   const exports = {};
   const code = ts.transpileModule(fs.readFileSync(path.join(root, file), 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText;
   vm.runInNewContext(code, { exports, Date: FixedDate, Intl, console, process,
-    require: name => imports[name] || (name.startsWith('.') ? load(path.resolve(root, path.dirname(file), `${name}.ts`)) : require(name)),
+    require: name => imports[name] || (name === './footballMarketProjection' ? {applyFootballMarketProjections:async(_,core)=>core,refreshFootballMarketProjections:async()=>({captured:0})} : null)
+      || (name === './footballSos' ? {loadFootballSos:async()=>null} : null)
+      || (name === './situationStore' ? {attachSituationBoard:async board=>board} : null)
+      || (name.startsWith('.') ? dependency(path.resolve(root, path.dirname(file), `${name}.ts`)) : require(name)),
   });
   return exports;
 }

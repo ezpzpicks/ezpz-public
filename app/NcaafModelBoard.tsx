@@ -3,6 +3,8 @@ import FootballModelFormBadges from "./FootballModelFormBadges";
 import NcaafModelDetails from "./NcaafModelDetails";
 import { ncaafMatchupContext, NCAAF_PROJECTION_MODEL, type NcaafMatchupContext } from "../lib/ncaafMatchupFactors";
 import { modelFactorLabel } from "../lib/modelFactorLabels";
+import { marketProjectionPending, projectionAdjustments } from "../lib/marketProjectionPolicy";
+import ProjectionAdjustment from "./ProjectionAdjustment";
 
 type Row = Record<string, string>;
 type Play = { playType?: string; play?: string; role?: string; marketOdds?: string; oddsLine?: string;
@@ -37,12 +39,13 @@ function status(row: Row) {
 }
 function Score({ row, game, actual = false }: { row: Row; game: string; actual?: boolean }) {
   const pair = teams(row, game);
+  const adjustment = actual ? null : projectionAdjustments(row);
   const away = actual ? numeric(row["Away Score"]) ?? numeric(row["Actual Away"]) : numeric(row["Projected Away"]);
   const home = actual ? numeric(row["Home Score"]) ?? numeric(row["Actual Home"]) : numeric(row["Projected Home"]);
   if (actual && (away == null || home == null)) return null;
   return <div className="nbaScoreBlock"><p className="nbaSmall">{actual ? status(row) === "Final" ? "Final score" : "Current score" : "Projected score"}</p>
-    <div className="nbaScore"><div><span>{pair.away}</span><strong>{away == null ? "—" : actual ? String(away) : away.toFixed(1)}</strong></div>
-      <div><span>{pair.home}</span><strong>{home == null ? "—" : actual ? String(home) : home.toFixed(1)}</strong></div></div>
+    <div className="nbaScore"><div><span>{pair.away}</span><strong>{away == null ? "—" : actual ? String(away) : away.toFixed(1)}<ProjectionAdjustment points={adjustment?.awayScore} label={`${pair.away} score`} /></strong></div>
+      <div><span>{pair.home}</span><strong>{home == null ? "—" : actual ? String(home) : home.toFixed(1)}<ProjectionAdjustment points={adjustment?.homeScore} label={`${pair.home} score`} /></strong></div></div>
   </div>;
 }
 function MatchupGrade({ context, market, row }: { context: NcaafMatchupContext; market: Market; row: Row }) {
@@ -62,8 +65,9 @@ function MatchupGrade({ context, market, row }: { context: NcaafMatchupContext; 
 }
 function ForecastCard({ group, qualifiedOnly = false, tracker, today }: { group: Group; qualifiedOnly?: boolean; tracker: Row[]; today?: string }) {
   const row = group.row || {}, pair = teams(row, group.game);
+  const pending = marketProjectionPending(row), adjustments = projectionAdjustments(row);
   const hasForecast = numeric(row["Projected Away"]) != null && numeric(row["Projected Home"]) != null;
-  const context = ncaafMatchupContext(row);
+  const context = pending ? null : ncaafMatchupContext(row);
   const matchupDriven = row["Projection Engine"] === NCAAF_PROJECTION_MODEL;
   const markets = (["Spread", "Total"] as const).flatMap(name => {
     const play = group.plays.find(candidate => marketOf(candidate) === name);
@@ -73,7 +77,7 @@ function ForecastCard({ group, qualifiedOnly = false, tracker, today }: { group:
     const result = tracker.find(record => record["Game ID"] && record["Game ID"] === row["Game ID"]
       && record["Bet Type"] === name && record.Selection === selection)?.Result;
     const savedGrade = name === "Spread" ? context?.spread : context?.total;
-    return [{ name, play, selection, result, grade: gradeLabel(qualifiedOnly ? play?.playType
+    return [{ name, play, selection, result, grade: pending ? "Ungraded" : gradeLabel(qualifiedOnly ? play?.playType
         : savedGrade?.grading_basis === "market_point_edge" ? savedGrade.edge_grade : row[`${name} Grade`]),
       held: savedGrade?.grading_basis === "market_point_edge" && savedGrade.eligible === false,
       model: name === "Spread" ? margin == null ? "—" : signed(-margin) : decimal(row["Projected Total"]),
@@ -90,10 +94,12 @@ function ForecastCard({ group, qualifiedOnly = false, tracker, today }: { group:
       <NcaafModelDetails row={row} />
       <Score row={row} game={group.game} />
       <div className="nbaMarkets">{markets.map(market => <section className="nbaMarketCard" key={market.name} aria-label={`${market.name} forecast`}>
-        <div className="nbaMarketHeading"><h4>{market.name}</h4><span className="nbaGrade" data-grade={market.grade}>Grade {market.grade}</span></div>
+        <div className="nbaMarketHeading"><h4>{market.name}</h4><span className="nbaGrade" data-grade={market.grade}>{pending ? "Ungraded" : `Grade ${market.grade}`}</span></div>
         {market.held && market.grade !== "Research" ? <p className="nbaSmall">Projection only · Saved eligibility or price check did not qualify.</p> : null}
         <strong className="nbaSelection"><SelectionWithTeamLogo sport="NCAAF" selection={market.selection || "No market line"} game={group.game} /></strong>
-        <dl className="nbaMetrics"><div><dt>{market.name === "Spread" ? "Model home spread" : "Model total"}</dt><dd>{market.model}</dd></div>
+        <dl className="nbaMetrics"><div><dt>{market.name === "Spread" ? "Model home spread" : "Model total"}</dt><dd>{market.model}
+          <ProjectionAdjustment points={market.name === "Spread" ? adjustments?.homeSpread : adjustments?.total} label={market.name === "Spread" ? `${pair.home} strength` : "total"} /></dd>
+          {market.name === "Spread" && adjustments ? <><dt className="nbaAwayProjection">Model away spread</dt><dd>{signed(row["Projected Margin"])}<ProjectionAdjustment points={adjustments.awaySpread} label={`${pair.away} strength`} /></dd></> : null}</div>
           <div><dt>{market.name === "Spread" ? "Market home spread" : "Market total"}</dt><dd>{market.line}</dd></div>
           <div><dt>Edge</dt><dd>{market.edge == null ? "—" : `${Math.abs(market.edge).toFixed(1)} pts`}</dd></div></dl>
         {market.odds || market.probability != null ? <p className="nbaSmall">{market.odds ? `Odds ${market.odds}` : ""}{market.odds && market.probability != null ? " · " : ""}{market.probability != null ? `${matchupDriven ? "Uncalibrated simulation" : "Model probability"} ${(Math.abs(market.probability) <= 1 ? market.probability * 100 : market.probability).toFixed(1)}%` : ""}</p> : null}
@@ -120,6 +126,7 @@ export default function NcaafModelBoard({ fullSlate, rows, groups, tracker = [],
   return <section className="nbaBoard ncaafModelBoard">
     <div className="nbaIntro"><h2>NCAAF {fullSlate ? "Full Slate" : "Model Plays"}</h2></div>
     {cards.map(group => <ForecastCard key={group.row?.["Game ID"] || group.game} group={group} qualifiedOnly={!fullSlate} tracker={tracker} today={today} />)}
-    {!cards.length ? <div className="nbaCard">{fullSlate ? "No NCAAF games have been collected for this date." : "No NCAAF model plays for this slate."}</div> : null}
+    {!cards.length ? <div className="nbaCard">{fullSlate ? "No NCAAF games have been collected for this date." : rows.some(marketProjectionPending)
+      ? "New NCAAF grades are pending. Updated projections are available in Full Slate." : "No NCAAF model plays for this slate."}</div> : null}
   </section>;
 }

@@ -5,6 +5,7 @@ import { NBA_MARKET_POLICY, nbaTeamKey } from "./nbaMarketCore";
 import { quoteImpliedProbability, regradeModelQuote } from "./modelSignalQuote";
 import { buildConsolidatedLeaderboard, visibleConsolidatedBadges } from "./consolidatedSportTrends";
 import { CONSOLIDATED_SPORT_EFFECTIVE_AT } from "./catalog/consolidatedSportCatalog";
+import { marketProjectionPending, projectionAdjustments } from "./marketProjectionPolicy";
 
 type Row = Record<string, any>;
 export const NBA_SIGNALS_POLICY = { version: "nba-signals-2026-10-22-v1", prefix: "nba-signals-", launchAt: "2026-10-22T23:15:00.000Z" };
@@ -42,6 +43,14 @@ export function nbaModelFor(play: Row, forecasts: Row[], asOf: number) {
     && nbaTeamKey(f.away_team) === nbaTeamKey(play.awayTeam) && nbaTeamKey(f.home_team) === nbaTeamKey(play.homeTeam)
     && Date.parse(f.tipoff) === Date.parse(play.gameTime)).sort((a, b) => Date.parse(b.lockedAt) - Date.parse(a.lockedAt))[0];
   const line = play.line == null ? null : Number(play.line);
+  if (forecast && marketProjectionPending(forecast) && asOf >= Date.parse(forecast.market_tracking_effective_at || forecast.lockedAt)) {
+    const home = selected === nbaTeamKey(forecast.home_team), a = projectionAdjustments(forecast);
+    const projection = play.market === "Total" ? forecast.total : home ? forecast.fair_home_spread : -forecast.fair_home_spread;
+    return { active:false, available:true, edge:line == null ? null : play.market === "Spread" ? line-projection : (projection-line)*(selected === "Over" ? 1 : -1),
+      context:{play:forecast[play.market === "Total" ? "total_pick" : "spread_pick"],grade:"Ungraded",version:forecast.modelVersion,projection,line,probability:null,
+        projectionAdjustment:play.market === "Total" ? a?.total : home ? a?.homeSpread : a?.awaySpread,
+        reason:"Market-tracked projection; new grading rules are pending."} };
+  }
   let projection: number | null = null, savedLine: number | null = null, pick = "", grade = "";
   if (forecast) {
     const away = selected === nbaTeamKey(play.awayTeam);

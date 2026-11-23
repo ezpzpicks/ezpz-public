@@ -27,6 +27,8 @@ let clock = Date.parse(`${today}T16:50:00Z`);
 class FixedDate extends Date { constructor(...args) { super(...(args.length ? args : [clock])); } static now() { return clock; } }
 
 const historyDependencies = {
+  './situationStore':{attachSituationBoard:async board=>board},
+  './footballMarketProjection':{applyFootballMarketProjections:async(_,core)=>core,refreshFootballMarketProjections:async()=>({captured:0})},
   './ezpzMcpPicks': load(path.join(root, 'lib/ezpzMcpPicks.ts')),
   './footballTeamTrends': load(path.join(root, 'lib/footballTeamTrends.ts')),
   './footballTeamTrendPlays': load(path.join(root, 'lib/footballTeamTrendPlays.ts')),

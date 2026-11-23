@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { readTursoDatasetByDateKeys, withTursoReadCache } from "../../../lib/tursoStore";
 import { nflPropsDate, validNflPropsDate } from "../../../lib/nflPlayerProps";
 import { buildNflPendingGames } from "../../../lib/nflPendingGames";
+import { readMarketProjectionActivation } from "../../../lib/marketProjectionStore";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,11 +13,13 @@ export async function GET(request: NextRequest) {
   if (!validNflPropsDate(date)) return NextResponse.json({ ok: false, error: "Choose a valid game date." }, { status: 400 });
   try {
     return await withTursoReadCache(async () => {
-      const [previews, slate] = await Promise.all([
+      const [previews, slate, activation] = await Promise.all([
         readTursoDatasetByDateKeys("NFL", "game_previews", [date]),
         readTursoDatasetByDateKeys("NFL", "daily_slate", [date]),
+        readMarketProjectionActivation("NFL"),
       ]);
-      return NextResponse.json({ ok: true, date, plays: buildNflPendingGames(previews, slate, date) },
+      return NextResponse.json({ ok: true, date, plays: activation ? [] : buildNflPendingGames(previews, slate, date),
+        ...(activation ? { gradingStatus:"ungraded",modelStatus:"Market-tracked spread and total grades are pending." } : {}) },
         { headers: { "Cache-Control": "public, s-maxage=30, stale-while-revalidate=30" } });
     });
   } catch {

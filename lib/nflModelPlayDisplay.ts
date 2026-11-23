@@ -18,6 +18,7 @@ export type NflModelPlay = {
   marketOdds?: string;
   pending?: boolean;
   modelProjection?: number;
+  modelProjectionAdjustment?: number;
   marketLine?: number;
   modelEdge?: number;
 };

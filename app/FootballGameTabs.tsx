@@ -8,6 +8,8 @@ import NcaafModelBoard from "./NcaafModelBoard";
 import { mergeNflPendingModelPlays, type NflModelPlay } from "../lib/nflModelPlayDisplay";
 import type { NflPendingGame } from "../lib/nflPendingGames";
 import { nflPropsDate, type NflPlayerProp } from "../lib/nflPlayerProps";
+import { marketProjectionPending, projectionAdjustments } from "../lib/marketProjectionPolicy";
+import ProjectionAdjustment from "./ProjectionAdjustment";
 
 type Sport = "NFL" | "NCAAF";
 type Tab = "Today’s Model Plays" | "Full Slate";
@@ -333,36 +335,40 @@ function FullSlateCard({ row, sport }: { row: SheetRow; sport: Sport }) {
   const teams = rowTeams(row);
   const spreadGrade = row["Spread Grade"] || "No Play";
   const totalGrade = row["Total Grade"] || "No Play";
+  const adjustments = projectionAdjustments(row), pending = marketProjectionPending(row);
+  const signedProjection = (value: unknown) => {const n=Number(value);return Number.isFinite(n)?`${n>0?"+":""}${n.toFixed(1)}`:"—";};
 
   return (
     <div className="fgtSlateBody">
       <div className="fgtScoreboard">
         <div className="fgtTeamScore">
           <div><span>AWAY</span><strong><TeamLogoName sport={sport} team={teams.away} text={teams.away || "Away"} /></strong></div>
-          <b>{whole(row["Projected Away"])}</b>
+          <b>{whole(row["Projected Away"])}<ProjectionAdjustment points={adjustments?.awayScore} label={`${teams.away} score`} /></b>
         </div>
         <div className="fgtTeamScore">
           <div><span>HOME</span><strong><TeamLogoName sport={sport} team={teams.home} text={teams.home || "Home"} /></strong></div>
-          <b>{whole(row["Projected Home"])}</b>
+          <b>{whole(row["Projected Home"])}<ProjectionAdjustment points={adjustments?.homeScore} label={`${teams.home} score`} /></b>
         </div>
       </div>
 
       <div className="fgtMetrics">
-        <div><span>Projected margin</span><strong>{oneDecimal(row["Projected Margin"])}</strong></div>
-        <div><span>Projected total</span><strong>{oneDecimal(row["Projected Total"])}</strong></div>
+        <div><span>Projected home margin</span><strong>{oneDecimal(row["Projected Margin"])}<ProjectionAdjustment points={adjustments?.homeSpread} label={`${teams.home} strength`} /></strong></div>
+        <div><span>Projected total</span><strong>{oneDecimal(row["Projected Total"])}<ProjectionAdjustment points={adjustments?.total} label="total" /></strong></div>
         <div><span>Reliability</span><strong>{row.Reliability || "—"}</strong></div>
+        {adjustments ? <><div><span>Model home spread · {teams.home}</span><strong>{signedProjection(-Number(row["Projected Margin"]))}<ProjectionAdjustment points={adjustments.homeSpread} label={`${teams.home} strength`} /></strong></div>
+          <div><span>Model away spread · {teams.away}</span><strong>{signedProjection(row["Projected Margin"])}<ProjectionAdjustment points={adjustments.awaySpread} label={`${teams.away} strength`} /></strong></div></> : null}
       </div>
 
       <div className="fgtMarkets">
         <div className="fgtMarketCard">
           <div><span>SPREAD</span><b>{spreadGrade}</b></div>
           <strong><SelectionWithTeamLogo sport={sport} selection={row["Spread Pick"] || "No model play"} game={game} /></strong>
-          <small>Model probability {probability(row["Spread Probability"])}</small>
+          <small>{pending ? "New grades pending" : `Model probability ${probability(row["Spread Probability"])}`}</small>
         </div>
         <div className="fgtMarketCard">
           <div><span>TOTAL</span><b>{totalGrade}</b></div>
           <strong>{row["Total Pick"] || "No model play"}</strong>
-          <small>Model probability {probability(row["Total Probability"])}</small>
+          <small>{pending ? "New grades pending" : `Model probability ${probability(row["Total Probability"])}`}</small>
         </div>
       </div>
       {sport === "NCAAF" ? <NcaafModelDetails row={row} /> : null}
@@ -412,7 +418,7 @@ function ModelPlayRow({ play, sport, data }: { play: Play; sport: Sport; data: F
         {isProp ? <span>PROJ <b>{projection(play.propProjection)}</b></span> : null}
         {isProp ? <span>LINE <b>{String(play.propLine ?? "—")}</b></span> : null}
         {play.modelProjection != null ? <>
-          <span>PROJ <b>{projection(play.modelProjection)}</b></span>
+          <span>PROJ <b>{projection(play.modelProjection)}<ProjectionAdjustment points={play.modelProjectionAdjustment} label={/spread/i.test(play.role || "") ? "team strength" : "total"} /></b></span>
           <span>LINE <b>{projection(play.marketLine)}</b></span>
           <span>EDGE <b>{projection(play.modelEdge)}</b></span>
         </> : <span>MODEL <b>{probability(play.score)}</b></span>}

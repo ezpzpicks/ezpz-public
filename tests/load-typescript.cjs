@@ -6,11 +6,11 @@ const ts = require("typescript");
 module.exports = function loadTypeScript(file) {
   const api = {};
   vm.runInNewContext(ts.transpileModule(fs.readFileSync(file, "utf8"), {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
   }).outputText, {
     exports: api,
     require: name => name.startsWith(".")
-      ? module.exports(path.resolve(path.dirname(file), `${name}.ts`))
+      ? name.endsWith('.json') ? require(path.resolve(path.dirname(file), name)) : module.exports(path.resolve(path.dirname(file), `${name}.ts`))
       : require(name),
   });
   return api;
