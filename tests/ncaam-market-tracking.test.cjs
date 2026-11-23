@@ -154,6 +154,9 @@ else:
   const t=clock+600_000;
   await replaceSplits(splitRows({now:t,total:[point(lock+120_000,150),point(clock,152,60,70),point(t,153,60,75)]}));
   const changed=await store.refreshNcaamMarketTracking(game.Date,[game],t);assert.equal(changed.captured,1);
+  await replaceSplits([]);
+  const stale=await store.refreshNcaamMarketTracking(game.Date,[game],clock+2*3600_000);
+  assert.equal(stale.captured,0);assert.equal(stale.waitingForFreshMarket,1);assert.deepEqual(stale.errors,[],'old backup quotes wait without failing the source refresh');
   const finalTime=Date.parse(source.tipoff)-15*60_000;
   await replaceSplits(splitRows({now:finalTime,final:true}));
   const final=await store.refreshNcaamMarketTracking(game.Date,[game],finalTime);assert.equal(final.captured,1);

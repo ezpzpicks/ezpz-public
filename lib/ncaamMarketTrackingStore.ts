@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { readTursoDatasetByDateKeys, runTursoSql, runTursoAtomicSql, invalidateTursoDatasetReadCache, type TursoRow } from "./tursoStore";
 import { ncaamDate, ncaamTeamKey } from "./ncaamMarketCore";
-import { ncaamTrackingInputs, ncaamBaselineTrackingInputs, ncaamTrackingFingerprint, buildNcaamTrackedForecast, validNcaamTrackingForecast } from "./ncaamMarketTracking";
+import { ncaamTrackingInputs, ncaamBaselineTrackingInputs, ncaamTrackingFingerprint, buildNcaamTrackedForecast, validNcaamTrackingForecast, NcaamTrackingDataPending } from "./ncaamMarketTracking";
 import { NCAAM_MARKET_TRACKING as P, NCAAM_TRACKING_ACTIVATION_TAB, NCAAM_TRACKING_FORECAST_TAB,
   type NcaamTrackingActivation } from "./ncaamMarketTrackingPolicy";
 import { marketTime } from "./ncaamMarketFlow";
@@ -59,6 +59,7 @@ export async function refreshNcaamMarketTracking(date: string, schedule: TursoRo
   const valid = saved.filter(f=>byId.has(f.market_tracking?.baseline_forecast_record_id)
     && validNcaamTrackingForecast(f,byId.get(f.market_tracking.baseline_forecast_record_id),activation,now));
   const identities = new Set(valid.map(f=>f.recordId)), newRows: TursoRow[] = [], errors: {gameId:string;reason:string}[] = [];
+  let waitingForBaseline = 0, waitingForFreshMarket = 0;
   for (const game of schedule.filter(g=>g.Date===date && g.Status==="STATUS_SCHEDULED" && Date.parse(g["Game Time"])>now)) {
     const gid = String(game["Game ID"]);
     if (valid.some(f=>f.gameId===gid && f.market_tracking.final_pregame)) continue;
@@ -70,10 +71,11 @@ export async function refreshNcaamMarketTracking(date: string, schedule: TursoRo
         && ncaamTeamKey(f.home_team)===ncaamTeamKey(game["Home Team"]) && ncaamTeamKey(f.away_team)===ncaamTeamKey(game["Away Team"]))
         .sort((a,b)=>Date.parse(b.lockedAt)-Date.parse(a.lockedAt)||String(b.recordId).localeCompare(String(a.recordId)));
       const base = candidates[0];
-      if (!base) continue;
+      if (!base) { waitingForBaseline++; continue; }
       if (!inputs) {
         inputs = ncaamBaselineTrackingInputs(base,candidates,now);
       }
+      if (now-marketTime(inputs.observedAt)>P.maximum_market_age_minutes*60_000) { waitingForFreshMarket++; continue; }
       // Leave the established final window intact if the collector missed it.
       if (marketTime(game["Game Time"])-now<10*60_000 && !inputs.finalPregame) continue;
       const digest = ncaamTrackingDigest(ncaamTrackingFingerprint(base,inputs));
@@ -81,9 +83,12 @@ export async function refreshNcaamMarketTracking(date: string, schedule: TursoRo
       if (identities.has(id)) continue;
       const forecast = buildNcaamTrackedForecast(base,inputs,activation,now,digest);
       newRows.push({ Date:date,"Game Key":`${date}|ncaam|${gid}`,"Game ID":gid,Game:`${base.away_team} @ ${base.home_team}`,Market:"Forecast",Selection:forecast.recordId,"Snapshot Time ET":forecast.lockedAt,"Updated At":forecast.lockedAt,"Details JSON":JSON.stringify(forecast) });
-    } catch (error) { errors.push({gameId:gid,reason:error instanceof Error?error.message:String(error)}); }
+    } catch (error) {
+      if (error instanceof NcaamTrackingDataPending) waitingForFreshMarket++;
+      else errors.push({gameId:gid,reason:error instanceof Error?error.message:String(error)});
+    }
   }
   await appendNcaamTrackingRows(NCAAM_TRACKING_FORECAST_TAB,newRows);
-  console.info("[ncaam-market-projection]",JSON.stringify({date,model:P.model_version,captured:newRows.length,errors}));
-  return { modelVersion:P.model_version,activatedAt:activation.activatedAt,gradingStatus:"ungraded",captured:newRows.length,errors };
+  console.info("[ncaam-market-projection]",JSON.stringify({date,model:P.model_version,captured:newRows.length,waitingForBaseline,waitingForFreshMarket,errors}));
+  return { modelVersion:P.model_version,activatedAt:activation.activatedAt,gradingStatus:"ungraded",captured:newRows.length,waitingForBaseline,waitingForFreshMarket,errors };
 }

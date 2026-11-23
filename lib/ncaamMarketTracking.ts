@@ -7,6 +7,7 @@ import { NCAAM_MARKET_TRACKING as P, NCAAM_MARKET_TRACKING_MODEL, isNcaamMarketT
 type Row = Record<string, any>;
 export type TrackingInputs = { histories: Record<MarketName, MarketPoint[]>; observedAt: string; finalPregame: boolean; source: string; sourceUrl?: string };
 const pct = (value: unknown) => value == null || String(value).trim() === "" ? null : marketNumber(value);
+export class NcaamTrackingDataPending extends Error {}
 const canonical = (point: MarketPoint) => JSON.stringify([point.line, point.betsPct, point.moneyPct]);
 export const materialNcaamHistory = (history: MarketPoint[]) => history.filter((point, i) => !i || canonical(point) !== canonical(history[i-1]));
 export function ncaamTrackingInputs(game: Row, splits: Row[], now: number): TrackingInputs | null {
@@ -27,7 +28,8 @@ export function ncaamTrackingInputs(game: Row, splits: Row[], now: number): Trac
         || marketTime(r["Game Time"]) !== tip || ncaamTeamKey(r["Home Team"]) !== ncaamTeamKey(game["Home Team"])
         || ncaamTeamKey(r["Away Team"]) !== ncaamTeamKey(game["Away Team"])) throw new Error("Unverified market identity.");
       const t = marketTime(r["Updated At"]);
-      if (t > now || t >= tip || now-t > P.maximum_market_age_minutes*60_000) throw new Error("Market observation is stale or unavailable at capture.");
+      if (t > now || t >= tip) throw new Error("Market observation was unavailable at capture.");
+      if (now-t > P.maximum_market_age_minutes*60_000) throw new NcaamTrackingDataPending("Waiting for a fresh paired market observation.");
       observed.add(new Date(t).toISOString());
       finalPregame &&= r["Snapshot Status"] === "FINAL_PREGAME";
     }
