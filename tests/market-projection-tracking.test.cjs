@@ -82,6 +82,11 @@ test('NBA original A/B records survive while adjusted forecasts and later baseli
  const later={...b,recordId:'later',lockedAt:iso(clock+1000)};
  const merged=store.mergeTrackedBasketballForecasts([b,later],[f],a,clock+1000);
  assert.deepEqual(nbaRecords.nbaModelPlays(merged,[],clock+1000),old);
+ assert.equal(nbaRecords.currentNbaModelPlays(merged,[],clock+1000).length,0,'the current tile and plays cannot inherit the older grade');
+ assert.deepEqual(nbaRecords.currentNbaModelPlays([b],[],clock),old,'a legacy slate keeps its original current plays');
+ const waiting=store.mergeTrackedBasketballForecasts([b],[],a,clock);
+ assert.equal(nbaRecords.currentNbaModelPlays(waiting,[],clock).length,0,'grades are held even before the first complete market pair');
+ assert.deepEqual(nbaRecords.nbaModelPlays(waiting,[],clock),old,'waiting does not rewrite the record ledger');
  const play={market:'Total',side:'Over',line:100,gameTime:iso(tip),awayTeam:'Away',homeTeam:'Home'};
  const vote=nbaModel.nbaModelFor(play,merged,clock+1000);assert.equal(vote.active,false);assert.equal(vote.context.grade,'Ungraded');assert(vote.context.projectionAdjustment>0);
 });

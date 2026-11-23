@@ -9,7 +9,7 @@ import { trackingModelVersion } from "./marketProjectionPolicy";
 import { nbaScheduleRows, readNbaAnalysis, refreshNbaAnalysis } from "./nbaAnalysis";
 import { buildNbaSignals } from "./nbaAnalysisCore";
 import { NBA_SIGNALS_TAB } from "./nbaTrendLeaderboard";
-import { NBA_MODEL_RECORD_POLICY, nbaEzpzSelections, nbaModelPlays, nbaRecordTotals, summarizeNbaModelRecords, updateNbaModelRecords } from "./nbaRecords";
+import { NBA_MODEL_RECORD_POLICY, nbaEzpzSelections, currentNbaModelPlays, nbaRecordTotals, summarizeNbaModelRecords, updateNbaModelRecords } from "./nbaRecords";
 import { readNbaModelRecordSeed } from "./nbaModelRecordStore";
 import { readNbaSavedLineups, refreshNbaLineups } from "./nbaLineups";
 import { mergeNbaLineups, type NbaGameLineup } from "./nbaLineupsCore";
@@ -84,7 +84,7 @@ export async function readNbaPublicData(date = nbaDate()) {
   }).format(new Date(lastObservation)) : "";
   const savedModels = state.modelRecords?.version === NBA_MODEL_RECORD_POLICY ? state.modelRecords : await readNbaModelRecordSeed(date);
   const modelRecords = summarizeNbaModelRecords(updateNbaModelRecords(savedModels, forecasts, games, Date.now(), [date]), date);
-  const modelPlays = nbaModelPlays(forecasts, games);
+  const modelPlays = currentNbaModelPlays(forecasts, games);
   analysis.board = await attachSituationBoard(analysis.board, "NBA");
   const official = signalEzpzPayload(analysis.board, "NBA", date);
   const situation = usesSituationRules("NBA", date);
