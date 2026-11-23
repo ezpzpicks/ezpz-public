@@ -2,7 +2,9 @@ import { loadScoresAndOddsConsensus } from "./scoresAndOddsBettingSplits";
 import { readTursoDatasetByDateKeys } from "./tursoStore";
 import { advanceNcaamMarkets, bindNcaamSplits, NCAAM_MARKET_POLICY, ncaamDate, normalizeNcaamSlate, settleNcaamForecast } from "./ncaamMarketCore";
 import { saveNcaamMarketRows } from "./ncaamMarketStore";
-import { readNcaamForecasts } from "./ncaamForecasts";
+import { readNcaamForecastBundle } from "./ncaamForecasts";
+import { refreshNcaamMarketTracking } from "./ncaamMarketTrackingStore";
+import { NCAAM_MARKET_TRACKING } from "./ncaamMarketTrackingPolicy";
 import { ncaamScheduleRows, readNcaamAnalysis, refreshNcaamAnalysis } from "./ncaamAnalysis";
 import { buildNcaamSignals } from "./ncaamAnalysisCore";
 import { NCAAM_SIGNALS_TAB } from "./ncaamTrendLeaderboard";
@@ -45,11 +47,12 @@ export async function collectNcaamMarket({ persist = true, now = Date.now(), ref
 
   const previous = await readTursoDatasetByDateKeys("NCAAM", "weekly_market_trends", [date]);
   const advanced = advanceNcaamMarkets(bound.rows, previous, capturedAt);
-  let analysis, lineups;
+  let analysis, lineups, marketTracking;
   if (persist) {
     await saveNcaamMarketRows("weekly_market_trends", advanced.latest);
     await saveNcaamMarketRows("odds_snapshot", advanced.history, true);
     await saveNcaamMarketRows("public_split_snapshots", advanced.finals);
+    marketTracking = await refreshNcaamMarketTracking(date, schedule, capturedAt);
     analysis = await refreshNcaamAnalysis(date, schedule, capturedAt, refresh);
     lineups = await refreshNcaamLineups(date, games, persist, capturedAt);
   }
@@ -57,17 +60,17 @@ export async function collectNcaamMarket({ persist = true, now = Date.now(), ref
     policy: NCAAM_MARKET_POLICY, capturedAt: new Date(capturedAt).toISOString(), dryRun: !persist,
     games: games.length, matchedGames: bound.rows.length / 4, updatedSides: advanced.latest.length,
     finalSides: advanced.finals.length, historySides: advanced.history.length,
-    missingMarkets: bound.missing, errors: [...bound.errors, ...(sourceError ? [sourceError] : [])], partial: Boolean(sourceError) || bound.missing.length > 0,
-    refreshCompleted: !sourceError && bound.missing.length === 0, analysis, lineups };
+    missingMarkets: bound.missing, errors: [...bound.errors, ...(sourceError ? [sourceError] : []), ...(marketTracking?.errors.map(e=>`Projection ${e.gameId}: ${e.reason}`) || [])], partial: Boolean(sourceError) || bound.missing.length > 0 || Boolean(marketTracking?.errors.length),
+    refreshCompleted: !sourceError && bound.missing.length === 0 && !marketTracking?.errors.length, analysis, lineups, marketTracking };
 }
 
 export async function readNcaamPublicData(date = ncaamDate()) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(`${date}T12:00:00Z`))
     || new Date(`${date}T12:00:00Z`).toISOString().slice(0,10) !== date) throw new Error("Choose a valid NCAAM slate date.");
-  const [savedGames, savedSplits, rawForecasts, state, storedRows, sos, savedLineups] = await Promise.all([
+  const [savedGames, savedSplits, forecastBundle, state, storedRows, sos, savedLineups] = await Promise.all([
     readTursoDatasetByDateKeys("NCAAM", "schedule", [date]),
     readTursoDatasetByDateKeys("NCAAM", "weekly_market_trends", [date]),
-    readNcaamForecasts(date), readNcaamAnalysis(date), readTursoDatasetByDateKeys("NCAAM", NCAAM_SIGNALS_TAB, [date]),
+    readNcaamForecastBundle(date), readNcaamAnalysis(date), readTursoDatasetByDateKeys("NCAAM", NCAAM_SIGNALS_TAB, [date]),
     loadNcaamSos(Number(date.slice(0,4)) + (Number(date.slice(5,7)) >= 7 ? 1 : 0)),
     readNcaamSavedLineups(date),
   ]);
@@ -76,7 +79,7 @@ export async function readNcaamPublicData(date = ncaamDate()) {
   const gameIds = new Set(games.map(game => game["Game ID"]));
   const splits = savedSplits.filter(row => gameKeys.has(row["Game Key"]));
   const now = Date.now();
-  const forecasts = rawForecasts.filter(forecast => gameIds.has(forecast.gameId)).map(forecast => {
+  const forecasts = forecastBundle.forecasts.filter(forecast => gameIds.has(forecast.gameId)).map(forecast => {
     const game = games.find(game => game["Game ID"] === forecast.gameId && Date.parse(game["Game Time"]) === Date.parse(forecast.tipoff)
       && game["Away Team"] === forecast.away_team && game["Home Team"] === forecast.home_team);
     const observed = Date.parse(game?.["Result Updated"] || "");
@@ -96,6 +99,10 @@ export async function readNcaamPublicData(date = ncaamDate()) {
   const savedModels = state.modelRecords?.version === NCAAM_MODEL_RECORD_POLICY ? state.modelRecords : undefined;
   const modelRecords = summarizeNcaamModelRecords(updateNcaamModelRecords(savedModels, forecasts, games, Date.now(), [date], true), date);
   const modelPlays = ncaamModelPlays(forecasts, games);
+  // Audit histories stay in storage; the board needs just the latest scores
+  // and visible adjustment summary, not a growing copy of every market tick.
+  const publicForecasts = forecasts.map(f=>!f.market_tracking ? f : { ...f, market_tracking:Object.fromEntries(
+    Object.entries(f.market_tracking).filter(([key])=>!["histories","parameters"].includes(key))) });
   analysis.board = await attachSituationBoard(analysis.board, "NCAAM");
   const official = signalEzpzPayload(analysis.board, "NCAAM", date);
   const situation = usesSituationRules("NCAAM", date);
@@ -112,8 +119,11 @@ export async function readNcaamPublicData(date = ncaamDate()) {
       pendingGreen: modelPlays.filter(row => !row.result).length, bestPlaysToday: modelPlays.length },
     bestPlays: modelPlays, slateToday: games, betTrackerRows: [], trendPlays: analysis.plays, recordSummary: [], last7RecordSummary: [],
     ncaamMarket: { consolidation: state.consolidation, sport: "NCAAM" as const, source: "ScoresAndOdds", date, availableDates: [...new Set([date, ...state.archiveDates])].sort(), games, splits,
-      forecasts,
-      modelRecords, modelPlays, ezpzSelections, ezpzRecords, lineups, warrenNolan: sos, modelStatus: "Prior-calibrated spreads: B only at 5 to under 7 points; larger edges remain Research. Totals: A at 10+ and B at 8 to under 10. Archived forecasts retain their original policies.",
+      forecasts: publicForecasts,
+      modelRecords, modelPlays, ezpzSelections, ezpzRecords, lineups, warrenNolan: sos,
+      marketTracking: { modelVersion:NCAAM_MARKET_TRACKING.model_version, profile:NCAAM_MARKET_TRACKING.profile,
+        activatedAt:forecastBundle.activation?.activatedAt || null, gradingStatus:"ungraded", historicalRecordsRegraded:false },
+      modelStatus: forecastBundle.activation ? "Market-tracked projections active. New grades pending; earlier recorded plays retain their original grades." : "Market tracking will activate on the next scheduled collection. New grades pending.",
       trendPlays: analysis.plays, leaderboard: state.leaderboard, signals: analysis.board, stale: analysis.stale,
       refreshPolicy: "30 minutes until 90 minutes before tipoff, then 5 minutes", finalWindow: "10–20 minutes before tipoff" } };
 }

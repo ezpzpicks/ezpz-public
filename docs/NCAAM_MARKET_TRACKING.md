@@ -1,0 +1,13 @@
+# NCAAM market tracking
+
+The v0.17 projection layer applies the approved balanced v3 market-flow rules to the captured v0.16 team baseline. Ordinary split pressure starts at 25% weight with a flat line, increases continuously to 62.5% at one supporting point and full weight at two points. Money/ticket divergence retains its 75% starting weight. Line movement remains independent. The one-point nonzero floor and four-point spread / six-point total caps remain fixed.
+
+The existing authenticated basketball collector saves each changed forecast as an immutable row in `ncaam_market_projection_updates` after saving its paired line/split observations. No separate schedule or resource is added. Public reads remain read-only. A scoped cache is invalidated after dataset writes so the model uses this tick's observations immediately.
+
+The first deployed collector tick inserts one immutable activation timestamp in `ncaam_market_projection_activation`. The graded ledger preserves every pre-activation A/B forecast at its captured side and quote. Later underlying-baseline A/B fields cannot become new graded bets. The new projection layer is always Ungraded; it cannot cast an A/B model signal. Full Slate displays the adjusted score, fair spread, total and market adjustment summary.
+
+Each update saves its baseline record ID, original scoring proof, quote/split histories, parameters, contributions, input digest and publication time. Clock-only refreshes are idempotent. Histories are recomputed from the unadjusted baseline rather than compounding prior corrections. Paired observations must agree and precede tipoff. Missing splits are never invented: saved quotes from the same provider can supply line-only history, while a single observation leaves the baseline unchanged. The existing final pregame capture stops further revisions; no new forecast is created after tipoff.
+
+The board and collector query only the latest tracked payload per game. Full earlier snapshots remain in storage for later grading analysis; they are not all shipped to the browser. Existing forecast rows, grade rows, manual EZPZ selections and historical betting results are not rewritten. No historical betting backtest or grading recalibration is performed by this rollout.
+
+`lib/config/ncaam-market-tracking.json` mirrors the approved Python repository's `config/ncaam_market_tracking_live.json`. `lib/ncaamMarketTrackingPolicy.ts` is checked against those fixed parameters and 90 Python-generated rule examples. The test suite also executes the actual insert-only SQL against SQLite and checks duplicates, revisions, final capture, ledger preservation and model-vote suppression.

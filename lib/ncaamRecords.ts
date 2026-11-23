@@ -3,6 +3,7 @@ import { signalPickThreshold } from "./signalPicks";
 import { ncaamMatchupGrade } from "./ncaamMatchupGrades";
 import { ncaamSpreadGrade } from "./ncaamSpreadGrades";
 import { isNcaamPointModel, NCAAM_POINT_POLICY } from "./ncaamPointEdges";
+import { isNcaamMarketTracked } from "./ncaamMarketTrackingPolicy";
 
 type Row = Record<string, any>;
 export const NCAAM_MODEL_RECORD_POLICY = "ncaam-matchup-total-records-v2";
@@ -59,7 +60,9 @@ export function latestNcaamForecasts(forecasts: Row[], now = Date.now()): Row[] 
 }
 
 export function ncaamModelPlays(forecasts: Row[], schedule: Row[] = [], now = Date.now()): NcaamModelPlay[] {
-  return latestNcaamForecasts(forecasts, now).flatMap(f => {
+  // Freeze the old ledger at rollout; forward ungraded updates never replace
+  // an earlier recorded A/B bet or create a new one under old thresholds.
+  return latestNcaamForecasts(forecasts.filter(f=>!isNcaamMarketTracked(f) && f.legacy_grade_eligible!==false), now).flatMap(f => {
     const game = schedule.find(g => g["Game ID"] === f.gameId && Date.parse(g["Game Time"]) === Date.parse(f.tipoff)
       && ncaamTeamKey(g["Away Team"]) === ncaamTeamKey(f.away_team) && ncaamTeamKey(g["Home Team"]) === ncaamTeamKey(f.home_team));
     const away = number(game?.["Away Score"]), home = number(game?.["Home Score"]), observed = Date.parse(game?.["Result Updated"] || "");

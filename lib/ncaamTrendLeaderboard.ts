@@ -2,6 +2,7 @@ import { catalogEvaluationFor, catalogSignals } from "./footballTrendCatalog";
 import { buildNcaafTrendSubtypes, ncaafTrendCategory, type NcaafPublicTrendSubtype } from "./ncaafPublicTrendLeaderboard";
 import { ncaafRowsBeforeDecision, rankNcaafEzpzSubtypes, type NcaafEzpzSubtype } from "./ncaafEzpzWilson";
 import { NCAAM_MARKET_POLICY, ncaamTeamKey } from "./ncaamMarketCore";
+import { ncaamTrackingGradesPending } from "./ncaamMarketTrackingPolicy";
 import { quoteImpliedProbability, regradeModelQuote } from "./modelSignalQuote";
 import { buildConsolidatedLeaderboard, visibleConsolidatedBadges } from "./consolidatedSportTrends";
 import { CONSOLIDATED_SPORT_EFFECTIVE_AT } from "./catalog/consolidatedSportCatalog";
@@ -45,6 +46,14 @@ export function ncaamModelFor(play: Row, forecasts: Row[], asOf: number) {
     && ncaamTeamKey(f.away_team) === ncaamTeamKey(play.awayTeam) && ncaamTeamKey(f.home_team) === ncaamTeamKey(play.homeTeam)
     && Date.parse(f.tipoff) === Date.parse(play.gameTime)).sort((a, b) => Date.parse(b.lockedAt) - Date.parse(a.lockedAt))[0];
   const line = play.line == null ? null : Number(play.line);
+  if (forecast && ncaamTrackingGradesPending(forecast) && asOf>=Date.parse(forecast.market_tracking_effective_at || forecast.lockedAt)) {
+    const home = selected===ncaamTeamKey(forecast.home_team);
+    const projection = play.market==="Total" ? forecast.total : home ? forecast.fair_home_spread : -forecast.fair_home_spread;
+    const edge = line==null ? null : play.market==="Spread" ? line-projection : selected==="Over" ? projection-line : line-projection;
+    return { active:false, available:true, edge, context:{ play:forecast[play.market==="Total"?"total_pick":"spread_pick"],
+      grade:"Ungraded", version:forecast.modelVersion, projection, line, probability:null,
+      reason:"Market-tracked projection; new grading rules are pending.", regraded:false, originalGrade:"Ungraded" } };
+  }
   if (isNcaamPointModel(forecast?.modelVersion)) {
     const quote = ncaamPointQuote(forecast,play.market,selected,line ?? NaN,asOf,String(play.odds || "-110"));
     const home = selected === ncaamTeamKey(forecast.home_team), key = play.market === "Total" ? "total" : "spread";
