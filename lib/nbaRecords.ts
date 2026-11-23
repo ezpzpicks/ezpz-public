@@ -1,5 +1,6 @@
 import { nbaDate, nbaTeamKey, settleNbaForecast } from "./nbaMarketCore";
 import { signalPickThreshold } from "./signalPicks";
+import { marketProjectionPending } from "./marketProjectionPolicy";
 
 type Row = Record<string, any>;
 export const NBA_MODEL_RECORD_POLICY = "nba-latest-pregame-ab-v1";
@@ -75,6 +76,11 @@ export function nbaModelPlays(forecasts: Row[], schedule: Row[] = [], now = Date
         result: code(result), lockedAt: f.lockedAt, modelVersion: f.modelVersion }];
     });
   });
+}
+
+/** Current cards and counters follow the latest forecast, without falling back to an earlier grade. */
+export function currentNbaModelPlays(forecasts: Row[], schedule: Row[] = [], now = Date.now()): NbaModelPlay[] {
+  return nbaModelPlays(latestNbaForecasts(forecasts, now).filter(f => !marketProjectionPending(f)), schedule, now);
 }
 
 /** The collector changes only active days; the public board reads compact saved totals. */
