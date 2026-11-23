@@ -13,6 +13,7 @@ import { evaluateSignalMovement } from "../lib/signalMovement";
 import SelectionTrial from "./SelectionTrial";
 import MatchupContextPanel from "./MatchupContextPanel";
 import { teamTrendAggregationExplanation } from "../lib/teamTrendScorePolicy";
+import ProjectionAdjustment from "./ProjectionAdjustment";
 
 const META = {
   money: { label: "Money", title: "Money support", Icon: Banknote },
@@ -28,7 +29,7 @@ function time(value: string, date = false) {
   const n = Date.parse(value); return Number.isFinite(n) ? new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York",
     ...(date ? { month: "short", day: "numeric" } as const : {}), hour: "numeric", minute: "2-digit" }).format(n) + " ET" : "Time unavailable";
 }
-function Lines({ items }: { items: [string, string | number][] }) {
+function Lines({ items }: { items: [string, React.ReactNode][] }) {
   return <dl className="fs-lines">{items.map(([label, value], i) => <div key={`${label}-${i}`}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>;
 }
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -119,7 +120,8 @@ function SignalDetail({ side, signal, onClose, liveNba = false, inline = false }
     </> : null}
     {key === "model" ? <>
       {signal.available ? <Lines items={[[side.modelContext.regraded ? "Evaluated model play" : "Qualifying model play", side.modelContext.play || "None on this side"], ["Model grade", side.modelContext.grade || "Unavailable"],
-        ["Model projection", format(side.modelContext.projection, side.market === "Spread")], ["Current line", format(side.line, side.market === "Spread")]]} /> : null}
+        ["Model projection", <>{format(side.modelContext.projection, side.market === "Spread")}<ProjectionAdjustment points={side.modelContext.projectionAdjustment}
+          label={side.market === "Spread" ? `${side.selection} strength` : "total"} /></>], ["Current line", format(side.line, side.market === "Spread")]]} /> : null}
       {side.modelContext.regraded ? <Lines items={[["Original model play", side.modelContext.originalPlay || "Unavailable"],
         ["Original model grade", side.modelContext.originalGrade || "Unavailable"],
         [side.modelContext.probabilityEstimated ? "Probability estimate at this line" : "Model probability", side.modelContext.probability == null ? "Unavailable" : percent(side.modelContext.probability * 100)]]} /> : null}

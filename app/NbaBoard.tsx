@@ -18,6 +18,8 @@ import { ncaamSpreadGrade } from "../lib/ncaamSpreadGrades";
 import NcaamSpreadGrade from "./NcaamSpreadGrade";
 import { ncaamPointProjection, isNcaamPointModel } from "../lib/ncaamPointEdges";
 import { ncaamTrackingGradesPending } from "../lib/ncaamMarketTrackingPolicy";
+import { ncaamProjectionAdjustments } from "../lib/ncaamProjectionAdjustments";
+import ProjectionAdjustment from "./ProjectionAdjustment";
 
 const PublicSplits = dynamic(() => import("./NbaPublicSplits"), { loading: () => <div className="fs-empty">Loading NBA markets…</div> });
 const Signals = dynamic(() => import("./FootballSignalsBoard"), { loading: () => <div className="fs-empty">Loading signals…</div> });
@@ -51,9 +53,11 @@ const signed = (value: number) => `${value > 0 ? "+" : ""}${Number(value.toFixed
 const byTipoff = (a: Forecast, b: Forecast) => Date.parse(a.tipoff) - Date.parse(b.tipoff);
 const gameStatus = (game?: Row) => game?.Completed === "TRUE" || game?.Status === "STATUS_FINAL" ? "Final"
   : game?.Status === "STATUS_IN_PROGRESS" ? "In progress" : game?.Status === "STATUS_SCHEDULED" ? "Scheduled" : "";
-function Score({ away, home, awayScore, homeScore, label }: { away: string; home: string; awayScore: string; homeScore: string; label: string }) {
+function Score({ away, home, awayScore, homeScore, label, adjustments }: { away: string; home: string; awayScore: string; homeScore: string; label: string;
+  adjustments?: ReturnType<typeof ncaamProjectionAdjustments> }) {
   return <div className="nbaScoreBlock"><p className="nbaSmall">{label}</p><div className="nbaScore">
-    <div><span>{away}</span><strong>{awayScore}</strong></div><div><span>{home}</span><strong>{homeScore}</strong></div>
+    <div><span>{away}</span><strong>{awayScore}<ProjectionAdjustment points={adjustments?.awayScore} label={`${away} score`} /></strong></div>
+    <div><span>{home}</span><strong>{homeScore}<ProjectionAdjustment points={adjustments?.homeScore} label={`${home} score`} /></strong></div>
   </div></div>;
 }
 function GameScore({ game }: { game?: Row }) {
@@ -62,6 +66,7 @@ function GameScore({ game }: { game?: Row }) {
 }
 function ForecastCard({ forecast, game, qualifiedOnly = false, sport = "NBA" }: { forecast: Forecast; game?: Row; qualifiedOnly?: boolean; sport?: "NBA" | "NCAAM" }) {
   const gradingPending = sport === "NCAAM" && ncaamTrackingGradesPending(forecast);
+  const adjustments = sport === "NCAAM" ? ncaamProjectionAdjustments(forecast) : null;
   const matchupGrade = sport === "NCAAM" && !gradingPending ? ncaamMatchupGrade(forecast) : null;
   const spreadGrade = sport === "NCAAM" && !gradingPending ? ncaamSpreadGrade(forecast) : null;
   const newPointModel = sport === "NCAAM" && isNcaamPointModel(forecast.modelVersion);
@@ -85,12 +90,16 @@ function ForecastCard({ forecast, game, qualifiedOnly = false, sport = "NBA" }: 
     {forecast.availability_mode === "rotowire_html" && <p className="nbaNotice">RotoWire availability checked · {forecast.starters_confirmed ? "Starting fives confirmed" : "Projected starting fives"} · Unresolved statuses remain conditional</p>}
     <NbaGameLineups gameId={forecast.gameId} sport={sport} />
     {sport === "NCAAM" && <NcaamModelDetails forecast={forecast} />}
-    <Score away={forecast.away_team} home={forecast.home_team} awayScore={forecast.away_score.toFixed(1)} homeScore={forecast.home_score.toFixed(1)} label="Projected score" />
+    <Score away={forecast.away_team} home={forecast.home_team} awayScore={forecast.away_score.toFixed(1)} homeScore={forecast.home_score.toFixed(1)} label="Projected score" adjustments={adjustments} />
     <div className="nbaMarkets">{markets.filter(market => !qualifiedOnly || ["A", "B"].includes(market.grade || "")).map(market => <section className="nbaMarketCard" key={market.name} aria-label={`${market.name} forecast`}>
       <div className="nbaMarketHeading"><h4>{market.name}</h4><span className="nbaGrade" data-grade={market.grade}>{gradingPending ? "Ungraded" : `Grade ${market.grade || "—"}`}</span></div>
       <strong className="nbaSelection">{market.pick || "No market line"}</strong>
       <dl className="nbaMetrics">
-        <div><dt>{market.name === "Spread" ? "Model home spread" : "Model total"}</dt><dd>{market.model}</dd></div>
+        <div><dt>{market.name === "Spread" ? "Model home spread" : "Model total"}</dt><dd title={market.name === "Spread" ? forecast.home_team : undefined}>{market.model}
+          <ProjectionAdjustment points={market.name === "Spread" ? adjustments?.homeSpread : adjustments?.total}
+            label={market.name === "Spread" ? `${forecast.home_team} strength` : "total"} /></dd>
+          {market.name === "Spread" && adjustments ? <><dt className="nbaAwayProjection">Model away spread</dt><dd title={forecast.away_team}>{signed(-forecast.fair_home_spread)}
+            <ProjectionAdjustment points={adjustments.awaySpread} label={`${forecast.away_team} strength`} /></dd></> : null}</div>
         <div><dt>{market.name === "Spread" ? "Market home spread" : "Market total"}</dt><dd>{market.line}</dd></div>
         <div><dt>{market.name === "Total" && matchupGrade && !point ? "Point-model lean" : "Edge"}</dt><dd>{market.name === "Total" && matchupGrade && !point
           ? forecast.numeric_total_pick || "—" : market.edge == null ? "—" : `${Math.abs(market.edge).toFixed(1)} pts`}</dd></div>

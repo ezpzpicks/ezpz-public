@@ -3,6 +3,7 @@ import { buildNcaafTrendSubtypes, ncaafTrendCategory, type NcaafPublicTrendSubty
 import { ncaafRowsBeforeDecision, rankNcaafEzpzSubtypes, type NcaafEzpzSubtype } from "./ncaafEzpzWilson";
 import { NCAAM_MARKET_POLICY, ncaamTeamKey } from "./ncaamMarketCore";
 import { ncaamTrackingGradesPending } from "./ncaamMarketTrackingPolicy";
+import { ncaamProjectionAdjustments } from "./ncaamProjectionAdjustments";
 import { quoteImpliedProbability, regradeModelQuote } from "./modelSignalQuote";
 import { buildConsolidatedLeaderboard, visibleConsolidatedBadges } from "./consolidatedSportTrends";
 import { CONSOLIDATED_SPORT_EFFECTIVE_AT } from "./catalog/consolidatedSportCatalog";
@@ -49,9 +50,11 @@ export function ncaamModelFor(play: Row, forecasts: Row[], asOf: number) {
   if (forecast && ncaamTrackingGradesPending(forecast) && asOf>=Date.parse(forecast.market_tracking_effective_at || forecast.lockedAt)) {
     const home = selected===ncaamTeamKey(forecast.home_team);
     const projection = play.market==="Total" ? forecast.total : home ? forecast.fair_home_spread : -forecast.fair_home_spread;
+    const adjustments = ncaamProjectionAdjustments(forecast);
     const edge = line==null ? null : play.market==="Spread" ? line-projection : selected==="Over" ? projection-line : line-projection;
     return { active:false, available:true, edge, context:{ play:forecast[play.market==="Total"?"total_pick":"spread_pick"],
       grade:"Ungraded", version:forecast.modelVersion, projection, line, probability:null,
+      projectionAdjustment:play.market==="Total" ? adjustments?.total : home ? adjustments?.homeSpread : adjustments?.awaySpread,
       reason:"Market-tracked projection; new grading rules are pending.", regraded:false, originalGrade:"Ungraded" } };
   }
   if (isNcaamPointModel(forecast?.modelVersion)) {

@@ -7,10 +7,11 @@ const load = require('./load-typescript.cjs');
 const { api: trial, game, plain } = require('./selection-trial-fixtures.cjs');
 const context = load(path.resolve(__dirname, '../lib/matchupContext.ts'));
 const source = fs.readFileSync(path.resolve(__dirname, '../app/MatchupContextPanel.tsx'), 'utf8');
+const projectionAdjustment = require('./load-tsx-component.cjs')(path.resolve(__dirname, '../app/ProjectionAdjustment.tsx'));
 const exportsObject = {};
 vm.runInNewContext(ts.transpileModule(source + '\nexport const testGame = MatchupGame;', {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
-}).outputText, { exports: exportsObject, Date, Intl, Map, require });
+}).outputText, { exports: exportsObject, Date, Intl, Map, require: name => name === './ProjectionAdjustment' ? projectionAdjustment : require(name) });
 
 test('all four choices stay visible while tapping a choice switches the grouped evidence', async () => {
   const { window } = parseHTML('<html><body><div id="root"></div></body></html>');

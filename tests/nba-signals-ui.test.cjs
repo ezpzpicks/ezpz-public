@@ -10,7 +10,7 @@ function component(file, overrides = {}, append = '') {
   const exports = {};
   vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.resolve(__dirname, '..', file), 'utf8') + append, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
-  }).outputText, { exports, Date, Intl, console, process, require: name => overrides[name] || (name === './NbaGameLineups' ? lineupComponents : null)
+  }).outputText, { exports, Date, Intl, console, process, require: name => overrides[name] || (name === './ProjectionAdjustment' ? component('app/ProjectionAdjustment.tsx') : null) || (name === './NbaGameLineups' ? lineupComponents : null)
     || (name === './TeamLogoName' ? { TeamLogoName: p => p.team, SelectionWithTeamLogo: p => p.selection, MatchupWithLogos: p => p.game }
       : name.startsWith('../lib/') ? require(path.resolve(__dirname, '..', 'app', name + '.ts')) : require(name)) });
   return exports;

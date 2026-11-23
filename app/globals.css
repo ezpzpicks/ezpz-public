@@ -58,6 +58,11 @@
 .nbaBoard .nbaScore > div { display: flex; flex-direction: column; justify-content: space-between; gap: 6px; min-width: 0; padding: 12px; border-radius: 10px; background: #101e30; }
 .nbaBoard .nbaScore span { font-size: 13px; color: #b4c7dc; line-height: 1.4; }
 .nbaBoard .nbaScore strong { font-size: 24px; font-variant-numeric: tabular-nums; }
+.projectionAdjustment { display: inline-block; margin-inline-start: 5px; font-size: 11px; line-height: 1.3; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; vertical-align: baseline; }
+.projectionAdjustment[data-direction="up"] { color: #6ee7b7; }
+.projectionAdjustment[data-direction="down"] { color: #fda4af; }
+.nbaBoard .nbaScore .projectionAdjustment span { color: inherit; font-size: inherit; line-height: inherit; }
+.nbaBoard .nbaAwayProjection { margin-top: 10px; }
 .nbaBoard .nbaMarkets, .nbaBoard .nbaMarketQuotes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .nbaBoard .nbaMarketCard { min-width: 0; padding: 16px; border: 1px solid #29405b; border-radius: 12px; background: #0d1a2a; }
 .nbaBoard .nbaMarketHeading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
