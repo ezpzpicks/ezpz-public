@@ -1,10 +1,10 @@
 name: NCAAM selection review checks
 on:
   pull_request:
-    paths: ['lib/ncaam*.ts', 'app/Ncaam*.tsx', 'app/NbaBoard.tsx', 'scripts/test-ncaam-selection-review.cjs', 'tests/ncaam*.cjs', 'tests/fixtures/ncaam*.json', '.github/workflows/ncaam-selection-review.yml']
+    paths: ['lib/ncaam*.ts', 'lib/config/ncaam*.json', 'lib/tursoStore.ts', 'app/Ncaam*.tsx', 'app/NbaBoard.tsx', 'scripts/test-ncaam-selection-review.cjs', 'tests/ncaam*.cjs', 'tests/turso-history.cjs', 'tests/fixtures/ncaam*.json', '.github/workflows/ncaam-selection-review.yml']
   push:
     branches: [main]
-    paths: ['lib/ncaam*.ts', 'app/Ncaam*.tsx', 'app/NbaBoard.tsx', 'scripts/test-ncaam-selection-review.cjs', 'tests/ncaam*.cjs', 'tests/fixtures/ncaam*.json', '.github/workflows/ncaam-selection-review.yml']
+    paths: ['lib/ncaam*.ts', 'lib/config/ncaam*.json', 'lib/tursoStore.ts', 'app/Ncaam*.tsx', 'app/NbaBoard.tsx', 'scripts/test-ncaam-selection-review.cjs', 'tests/ncaam*.cjs', 'tests/turso-history.cjs', 'tests/fixtures/ncaam*.json', '.github/workflows/ncaam-selection-review.yml']
 permissions:
   contents: read
 jobs:
@@ -19,6 +19,7 @@ jobs:
           cache: npm
       - run: npm ci --no-audit --no-fund
       - run: npm run test:ncaam-selection
-      - run: node --test tests/ncaam-point-edges.test.cjs tests/ncaam-matchup-grades.test.cjs tests/ncaam-spread-grades.test.cjs tests/ncaam-signal-fallback.test.cjs tests/ncaam-launch.test.cjs tests/ncaam-collection.test.cjs tests/ncaam-division-one.test.cjs tests/ncaam-lineups.test.cjs tests/ncaaf-edge-grades.test.cjs tests/ncaaf-play-mix.test.cjs
+      - run: node --test tests/ncaam-market-tracking.test.cjs tests/ncaam-point-edges.test.cjs tests/ncaam-matchup-grades.test.cjs tests/ncaam-spread-grades.test.cjs tests/ncaam-signal-fallback.test.cjs tests/ncaam-launch.test.cjs tests/ncaam-collection.test.cjs tests/ncaam-division-one.test.cjs tests/ncaam-lineups.test.cjs tests/ncaaf-edge-grades.test.cjs tests/ncaaf-play-mix.test.cjs
+      - run: node --test tests/turso-history.cjs
       - run: npx tsc --noEmit
       - run: npm run build

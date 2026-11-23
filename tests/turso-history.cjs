@@ -186,3 +186,16 @@ test('a failed replacement rolls back every changed row and its manifest', async
   assert.deepEqual(f.rows().map(r=>JSON.parse(r.payload_json)['Snapshot Time ET']),['10:30','10:31']);
   assert.equal(f.count(),2);
 });
+
+test('custom atomic dataset writes can invalidate the scoped date cache before the projection reads its new splits',async()=>{
+ const f=fixture();
+ await f.store.withTursoReadCache(async()=>{
+  const before=await f.store.readTursoDatasetByDateKeys('NCAAM','weekly_market_trends',['2026-11-14']);
+  assert.equal(before.length,0);
+  const payload=JSON.stringify({Date:'2026-11-14',Game:'A @ B',Market:'Total',Selection:'Over',Line:'150.5'}).replaceAll("'","''");
+  await f.store.runTursoAtomicSql([`INSERT INTO dataset_rows (sport,dataset,row_index,payload_json,date_key) VALUES ('NCAAM','weekly_market_trends',1,'${payload}','2026-11-14')`]);
+  f.store.invalidateTursoDatasetReadCache('NCAAM','weekly_market_trends');
+  const after=await f.store.readTursoDatasetByDateKeys('NCAAM','weekly_market_trends',['2026-11-14']);
+  assert.equal(after.length,1);assert.equal(after[0].Line,'150.5');
+ });
+});

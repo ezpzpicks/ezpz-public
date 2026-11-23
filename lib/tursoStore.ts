@@ -123,6 +123,11 @@ export async function withTursoReadCache<T>(fn: () => Promise<T>): Promise<T> {
   return TURSO_READ_SCOPE.run(new Map<string, TursoIndexedRow[]>(), fn);
 }
 
+/** Read-after-write consistency for bounded custom dataset transactions. */
+export function invalidateTursoDatasetReadCache(sport: TursoSport, dataset: string) {
+  invalidateScopedRows(sport, dataset);
+}
+
 export function isTursoConfigured() {
   return Boolean(firstEnv(URL_ENV_NAMES) && firstEnv(TOKEN_ENV_NAMES));
 }
