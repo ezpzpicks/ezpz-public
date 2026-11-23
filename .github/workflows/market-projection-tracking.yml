@@ -1,0 +1,24 @@
+name: Multi-sport market projection checks
+on:
+  pull_request:
+    paths: ['lib/marketProjection*.ts', 'lib/footballMarketProjection.ts', 'lib/footballPublicDataHistory.ts', 'lib/footballSignals.ts', 'lib/nbaForecasts.ts', 'lib/nbaMarket*.ts', 'lib/nbaRecords.ts', 'lib/nbaTrendLeaderboard.ts', 'lib/nflModelPlayDisplay.ts', 'app/NbaBoard.tsx', 'app/NcaafModelBoard.tsx', 'app/FootballGameTabs.tsx', 'app/api/nfl-pending-game-plays/**', 'app/api/cron/football-market-discovery/**', 'tests/market-projection*.cjs', '.github/workflows/market-projection-tracking.yml']
+  push:
+    branches: [main]
+    paths: ['lib/marketProjection*.ts', 'lib/footballMarketProjection.ts', 'lib/footballPublicDataHistory.ts', 'lib/footballSignals.ts', 'lib/nbaForecasts.ts', 'lib/nbaMarket*.ts', 'lib/nbaRecords.ts', 'lib/nbaTrendLeaderboard.ts', 'app/NbaBoard.tsx', 'app/NcaafModelBoard.tsx', 'app/FootballGameTabs.tsx', 'tests/market-projection*.cjs', '.github/workflows/market-projection-tracking.yml']
+permissions:
+  contents: read
+jobs:
+  market-projections:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: node --test tests/market-projection*.cjs tests/nba-forecast-store.test.cjs tests/nba-collection-recovery.test.cjs tests/scheduled-refresh-routes.test.cjs tests/nfl-pending-games.test.cjs tests/nfl-model-play-display.test.cjs tests/football-catalog-only-picks.test.cjs tests/nfl-ezpz-wilson.test.cjs tests/ncaaf-ezpz-wilson.test.cjs
+      - run: node --test tests/ncaam-market-tracking.test.cjs tests/ncaam-projection-adjustments.test.cjs tests/ncaam-point-edges.test.cjs tests/nba-signals-ui.test.cjs tests/football-signals-ui.test.cjs tests/football-signals.test.cjs
+      - run: npx tsc --noEmit
+      - run: npm run build

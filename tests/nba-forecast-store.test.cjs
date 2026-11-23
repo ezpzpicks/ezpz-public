@@ -14,7 +14,8 @@ vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(root, 'lib/nbaFo
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText, { exports: api, Date, require: name => name === './tursoStore' ? {
   runTursoSql: async sql => sql.map(query => { queries.push(query); return db.prepare(query).all(); }),
-} : name === './nbaMarketCore' ? market : name === './nbaLineupsCore' ? lineups : require(name) });
+} : name === './marketProjectionStore' ? {readMarketProjectionBundle:async()=>({forecasts:[],activation:null}),readMarketProjectionActivation:async()=>null,mergeTrackedBasketballForecasts:rows=>rows}
+  : name === './nbaMarketCore' ? market : name === './nbaLineupsCore' ? lineups : require(name) });
 
 const selected = { away_team: 'Denver Nuggets', home_team: 'Oklahoma City Thunder', total: 230, fair_home_spread: -8,
   home_spread_edge: -.5, total_edge: -6.5, spread_pick: 'Denver Nuggets +8.5', spread_grade: 'Pass',

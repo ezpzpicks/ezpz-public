@@ -26,6 +26,7 @@ import { replayConsolidatedSignals } from "./consolidatedSportResearch";
 
 import { signalPickThreshold, selectSignalEzpzPicks } from "./signalPicks";
 import { teamTrendAggregationExplanation } from "./teamTrendScorePolicy";
+import { marketProjectionPending, projectionAdjustments } from "./marketProjectionPolicy";
 
 type SignalSport = FootballSport | "NBA" | "NCAAM";
 export type SignalsPolicy = { version: string; prefix: string; launchAt: string };
@@ -138,12 +139,24 @@ function pairedNflModelMarketsMatch(play: AnyRow, slate: AnyRow | undefined, sib
 function modelFor(play: AnyRow, sport: SignalSport, core: AnyRow, asOf: number, siblings: AnyRow[] = []) {
   if (sport === "NCAAM") return ncaamModelFor(play, core.ncaamForecasts || [], asOf);
   if (sport === "NBA") return nbaModelFor(play, core.nbaForecasts || [], asOf);
+  if (asOf < Date.parse(core.marketTracking?.activatedAt || "") && core.marketTrackingBaselineSlate) core = {
+    ...core,slateToday:core.marketTrackingBaselineSlate,bestPlays:core.marketTrackingBaselinePlays,
+  };
   const key = footballTeamGameKey(play, sport), selected = selectionKey(play, sport);
   const found = (play.date === core.today ? core.bestPlays || [] : []).find((model: AnyRow) => {
     if (model.playerName || model.propMarket || model.role !== play.market || footballTeamGameKey({ ...model, date: play.date }, sport) !== key) return false;
     return selectionKey({ ...model, market: model.role, selection: model.play, selectionTeam: model.play, side: model.play }, sport) === selected;
   });
   const slate = (core.slateToday || []).find((row: AnyRow) => footballTeamGameKey(row, sport) === key);
+  if (marketProjectionPending(slate) && asOf >= Date.parse(slate?.["Market Tracking Effective At"] || "")) {
+    const home = selected === footballTeamKey(play.homeTeam,sport), a = projectionAdjustments(slate), line = signalNumber(play.line);
+    const margin = signalNumber(slate?.["Projected Margin"]), total = signalNumber(slate?.["Projected Total"]);
+    const projection = play.market === "Total" ? total : margin == null ? null : home ? -margin : margin;
+    return {active:false,available:projection != null,edge:projection == null || line == null ? null : play.market === "Spread" ? line-projection : (projection-line)*(selected === "Over" ? 1 : -1),
+      context:{play:String(slate?.[play.market + " Pick"] || ""),grade:"Ungraded",version:String(slate?.["Model Version"] || ""),projection,line,probability:null,
+        projectionAdjustment:play.market === "Total" ? a?.total : home ? a?.homeSpread : a?.awaySpread,
+        reason:"Market-tracked projection; new grading rules are pending."}};
+  }
   if (sport === "NCAAF" && String(slate?.["Grading Policy Version"] || "").startsWith("ncaaf-sp-edge-")) {
     const current = signalNumber(play.line), context = ncaafMatchupContext(slate || {});
     const validation = ncaafMatchupQuoteReview(slate || {}, play.market, current ?? NaN, selected, asOf);

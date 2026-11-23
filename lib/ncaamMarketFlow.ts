@@ -2,6 +2,10 @@
 import { NCAAM_MARKET_TRACKING as P } from "./ncaamMarketTrackingPolicy";
 export type MarketPoint = { snapshotTime: string; line: number; betsPct: number | null; moneyPct: number | null };
 export type MarketName = "Spread" | "Total";
+export type MarketFlowParameters = { flow_policy: string; feature_order: readonly string[]; weights: readonly number[];
+  minimum_adjustment: number; spread_cap: number; total_cap: number; half_life_minutes: number;
+  confirmation_lookback_minutes: number; unconfirmed_split_multiplier: number; divergence_split_multiplier: number;
+  full_confirmation_points: number; opposing_price_damping_per_point: number };
 const sign = (n: number) => n > 0 ? 1 : n < 0 ? -1 : 0;
 export function marketNumber(value: unknown): number {
   if (value == null || typeof value === "boolean" || String(value).trim() === "" || !Number.isFinite(Number(value))) throw new Error("A finite reported number is required.");
@@ -17,7 +21,8 @@ export function marketTime(value: string) {
   if (!/(?:Z|[+-]\d\d:\d\d)$/.test(value) || !Number.isFinite(Date.parse(value))) throw new Error("Timezone-aware timestamps are required.");
   return Date.parse(value);
 }
-export function ncaamFlowFeatures(history: MarketPoint[], asOf: string, tipoff: string, market: MarketName) {
+export function ncaamFlowFeatures(history: MarketPoint[], asOf: string, tipoff: string, market: MarketName, parameters: MarketFlowParameters = P) {
+  const P = parameters;
   const clock = marketTime(asOf), tip = marketTime(tipoff);
   if (!(clock < tip) || !["Spread", "Total"].includes(market)) throw new Error("Market updates must precede tipoff.");
   const points = new Map<number, MarketPoint>();
@@ -80,7 +85,8 @@ export function ncaamFlowFeatures(history: MarketPoint[], asOf: string, tipoff: 
   return { ...result, status: features.some(v => Math.abs(v) > 1e-12) ? "ready" : "observed_unchanged",
     history_minutes: (timeline.at(-1)![0] - timeline[0][0]) / 60_000, split_information_as_of: new Date(anchor).toISOString() };
 }
-export function ncaamMarketAdjustment(baseline: number, flow: ReturnType<typeof ncaamFlowFeatures>) {
+export function ncaamMarketAdjustment(baseline: number, flow: ReturnType<typeof ncaamFlowFeatures>, parameters: MarketFlowParameters = P) {
+  const P = parameters;
   baseline = marketNumber(baseline);
   if (flow.policy !== P.flow_policy || flow.features.length !== 6) throw new Error("Mismatched market policy.");
   const contributions = Object.fromEntries(P.feature_order.map((name, i) => [name, flow.features[i] * P.weights[i]]));

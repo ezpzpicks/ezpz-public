@@ -51,7 +51,7 @@ export function latestNbaForecasts(forecasts: Row[], now = Date.now()): Row[] {
 }
 
 export function nbaModelPlays(forecasts: Row[], schedule: Row[] = [], now = Date.now()): NbaModelPlay[] {
-  return latestNbaForecasts(forecasts, now).flatMap(f => {
+  return latestNbaForecasts(forecasts.filter(f => f.legacy_grade_eligible !== false && !f.market_tracking), now).flatMap(f => {
     const game = schedule.find(g => g["Game ID"] === f.gameId && Date.parse(g["Game Time"]) === Date.parse(f.tipoff)
       && nbaTeamKey(g["Away Team"]) === nbaTeamKey(f.away_team) && nbaTeamKey(g["Home Team"]) === nbaTeamKey(f.home_team));
     const away = number(game?.["Away Score"]), home = number(game?.["Home Score"]), observed = Date.parse(game?.["Result Updated"] || "");

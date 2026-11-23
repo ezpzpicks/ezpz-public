@@ -15,6 +15,7 @@ function harness(file,options={}){
    syncPostedFootballMarkets:async()=>{collections++;if(options.error)throw options.error;return options.result||{ok:true,refreshCompleted:true,errors:[]};},
    inspectPostedFootballMarkets:async()=>{collections++;return{ok:true,dryRun:true,errors:[]};},
   },
+  '../../../../lib/footballMarketProjection':{refreshFootballMarketProjections:async()=>({gradingStatus:'ungraded',captured:0})},
   '../../../../lib/footballPublicData':{buildFootballPublicData:async(_,opts)=>{collections++;if(options.captureError&&opts.persist)throw options.captureError;return{ok:true,today:'2026-10-24'};}},
   '../../../../lib/ezpzCurrentPicks':{persistEzpzCurrentPicks:async()=>{}},
   '../../../../lib/publicBoardSnapshot':{persistPublicBoardSnapshot:async()=>{publications++;return{saved:true};}},

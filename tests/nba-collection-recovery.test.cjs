@@ -22,6 +22,9 @@ function harness(){
    values.forEach(r=>existing.set(key(r),r));tables[tab]=[...existing.values()];
   }},
   './nbaAnalysis':{nbaScheduleRows:games=>games.map(g=>({Date:g.date,'Game ID':g.gameId,'Game Key':`${g.date}|nba|${g.gameId}`,'Game Time':g.tipoff})),refreshNbaAnalysis:async()=>({ok:true})},
+  './nbaForecasts':{readNativeNbaForecasts:async()=>[]},
+  './marketProjectionStore':{refreshMarketProjections:async()=>({gradingStatus:'ungraded',captured:0})},
+  './marketProjectionTracking':{normalizeProjectionBaseline:()=>null},
   './nbaLineups':{refreshNbaLineups:async()=>{if(lineupError)throw new Error('lineup storage unavailable');return{games:1,changed:0};}},
  };
  const api={};vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(__dirname,'../lib/nbaMarket.ts'),'utf8'),{

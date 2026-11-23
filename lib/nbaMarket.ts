@@ -2,7 +2,10 @@ import { loadScoresAndOddsConsensus } from "./scoresAndOddsBettingSplits";
 import { readTursoDatasetByDateKeys } from "./tursoStore";
 import { advanceNbaMarkets, bindNbaSplits, NBA_MARKET_POLICY, nbaDate, normalizeNbaSlate } from "./nbaMarketCore";
 import { saveNbaMarketRows } from "./nbaMarketStore";
-import { readNbaForecasts } from "./nbaForecasts";
+import { readNbaForecastBundle, readNativeNbaForecasts } from "./nbaForecasts";
+import { refreshMarketProjections } from "./marketProjectionStore";
+import { normalizeProjectionBaseline, publicTrackedProjection } from "./marketProjectionTracking";
+import { trackingModelVersion } from "./marketProjectionPolicy";
 import { nbaScheduleRows, readNbaAnalysis, refreshNbaAnalysis } from "./nbaAnalysis";
 import { buildNbaSignals } from "./nbaAnalysisCore";
 import { NBA_SIGNALS_TAB } from "./nbaTrendLeaderboard";
@@ -37,11 +40,14 @@ export async function collectNbaMarket({ persist = true, now = Date.now(), refre
   if (upcoming.length && !bound.rows.length) throw new Error(`NBA ScoresAndOdds returned no complete matching spread/total pairs: ${bound.missing.join(", ")}`);
   const previous = await readTursoDatasetByDateKeys("NBA", "weekly_market_trends", [date]);
   const advanced = advanceNbaMarkets(bound.rows, previous, capturedAt);
-  let analysis;
+  let analysis, marketTracking;
   if (persist) {
     await saveNbaMarketRows("weekly_market_trends", advanced.latest);
     await saveNbaMarketRows("odds_snapshot", advanced.history, true);
     await saveNbaMarketRows("public_split_snapshots", advanced.finals);
+    const native = await readNativeNbaForecasts(date);
+    const baselines = native.flatMap(f => { const b = normalizeProjectionBaseline("NBA", f, date, f.tipoff); return b ? [b] : []; });
+    marketTracking = await refreshMarketProjections("NBA", baselines, advanced.latest, [date], capturedAt);
     analysis = await refreshNbaAnalysis(date, schedule, capturedAt, refresh);
   }
   // A lineup-provider outage must never prevent a real market observation or
@@ -57,18 +63,19 @@ export async function collectNbaMarket({ persist = true, now = Date.now(), refre
     games: games.length, matchedGames: bound.rows.length / 4, updatedSides: advanced.latest.length,
     finalSides: advanced.finals.length, historySides: advanced.history.length,
     missingMarkets: bound.missing, errors: bound.errors, partial: bound.missing.length > 0,
-    refreshCompleted: bound.missing.length === 0, lineups, analysis };
+    refreshCompleted: bound.missing.length === 0, lineups, analysis, marketTracking };
 }
 
 export async function readNbaPublicData(date = nbaDate()) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(`${date}T12:00:00Z`))
     || new Date(`${date}T12:00:00Z`).toISOString().slice(0,10) !== date) throw new Error("Choose a valid NBA slate date.");
-  const [games, splits, forecasts, state, storedRows, savedLineups] = await Promise.all([
+  const [games, splits, bundle, state, storedRows, savedLineups] = await Promise.all([
     readTursoDatasetByDateKeys("NBA", "schedule", [date]),
     readTursoDatasetByDateKeys("NBA", "weekly_market_trends", [date]),
-    readNbaForecasts(date), readNbaAnalysis(date), readTursoDatasetByDateKeys("NBA", NBA_SIGNALS_TAB, [date]),
+    readNbaForecastBundle(date), readNbaAnalysis(date), readTursoDatasetByDateKeys("NBA", NBA_SIGNALS_TAB, [date]),
     readNbaSavedLineups(date),
   ]);
+  const forecasts = bundle.forecasts;
   const lineups = mergeNbaLineups(forecasts.flatMap(forecast => forecast.lineup ? [forecast.lineup as NbaGameLineup] : []), savedLineups);
   const analysis = buildNbaSignals({ date, games, splits, forecasts, storedRows, state });
   const lastObservation = splits.map(r => r["Updated At"]).filter(Boolean).sort().at(-1) || "";
@@ -94,7 +101,9 @@ export async function readNbaPublicData(date = nbaDate()) {
       pendingGreen: modelPlays.filter(row => !row.result).length, bestPlaysToday: modelPlays.length },
     bestPlays: modelPlays, slateToday: games, betTrackerRows: [], trendPlays: analysis.plays, recordSummary: [], last7RecordSummary: [],
     nbaMarket: { consolidation: state.consolidation, source: "ScoresAndOdds", date, availableDates: [...new Set([date, ...state.archiveDates])].sort(), games, splits,
-      forecasts: forecasts.map(({ lineup, ...forecast }) => forecast),
+      forecasts: forecasts.map(({ lineup, ...forecast }) => forecast.market_tracking ? publicTrackedProjection(forecast) : forecast),
+      marketTracking: { modelVersion: trackingModelVersion("NBA"), profile: "balanced", activatedAt: bundle.activation?.activatedAt || null,
+        gradingStatus: "ungraded", historicalRecordsRegraded: false },
       modelRecords, modelPlays, ezpzSelections, ezpzRecords, lineups,
       trendPlays: analysis.plays, leaderboard: state.leaderboard, signals: analysis.board, stale: analysis.stale,
       refreshPolicy: "30 minutes until 90 minutes before tipoff, then 5 minutes", finalWindow: "10–20 minutes before tipoff" } };

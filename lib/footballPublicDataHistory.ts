@@ -13,6 +13,7 @@ import { buildTeamTrendHistory, withFootballTeamTrends } from "./footballTeamTre
 import { refreshFootballTeamSeasonHistory, TEAM_SEASON_HISTORY_TAB } from "./footballTeamSeasonHistory";
 import { buildTeamTrendTestState, TEAM_TREND_TEST_HEADERS, TEAM_TREND_TEST_TAB } from "./footballTeamTrendPlays";
 import { buildFootballSignalsState, FOOTBALL_SIGNALS_HEADERS, FOOTBALL_SIGNALS_TAB } from "./footballSignals";
+import { applyFootballMarketProjections, refreshFootballMarketProjections } from "./footballMarketProjection";
 import { attachSituationBoard } from "./situationStore";
 import { buildNflConsolidatedSubtypes, NFL_GROUPED_MIN_DECISIONS, NFL_GROUPED_MIN_ROI } from "./nflConsolidatedTrends";
 import { NFL_CONSOLIDATED_TYPES, NFL_CONSOLIDATED_VERSION, NFL_CONSOLIDATED_SIGNAL_POLICY, NFL_CONSOLIDATED_EFFECTIVE_AT } from "./catalog/nflConsolidatedCatalog";
@@ -1074,6 +1075,8 @@ export async function buildFootballPublicData(
   const today = isoDate(core.today) || new Date().toISOString().slice(0, 10);
   let history = await (historyRead || readHistory(sport));
   const selectionTime = Date.now();
+  if (options.persist) await refreshFootballMarketProjections(sport, selectionTime);
+  core = await applyFootballMarketProjections(sport, core, selectionTime);
   const consolidatedNcaaf = sport === "NCAAF" && selectionTime >= Date.parse(CONSOLIDATED_SPORT_EFFECTIVE_AT);
   if (consolidatedNcaaf) {
     const metadata = consolidationMetadata("NCAAF"), types = buildConsolidatedSubtypes("NCAAF", core.trendRecordRows || []);
@@ -1166,6 +1169,8 @@ export async function buildFootballPublicData(
   // Internal schedule context is already loaded by the core, never serialized
   // into the public payload a second time.
   core = { ...core, footballSignals };
+  delete core.marketTrackingBaselineSlate;
+  delete core.marketTrackingBaselinePlays;
   delete core.teamTrendScheduleRows;
   const archivedTeamScores = new Map(history.map(row => [String(row["Pick Key"] || pickKey(row, row.Date)), historyPickFromRow(row)]));
   // Informational only: enrich after selection and save the exact same evidence

@@ -1,4 +1,4 @@
-import { readTursoDatasetByDateKeys, runTursoAtomicSql, type TursoRow } from "./tursoStore";
+import { readTursoDatasetByDateKeys, runTursoAtomicSql, invalidateTursoDatasetReadCache, type TursoRow } from "./tursoStore";
 import { nbaRowKey } from "./nbaMarketCore";
 
 const q = (value: unknown) => `'${String(value ?? "").replaceAll("'", "''")}'`;
@@ -32,5 +32,5 @@ export async function saveNbaMarketRows(dataset: string, rows: TursoRow[], histo
   // These append/upsert-only datasets allocate contiguous positions under the
   // write lock. MAX uses the primary index, rather than COUNTing season archives.
   statements.push(`INSERT INTO dataset_manifest (sport,dataset,source_workbook,source_worksheet,headers_json,row_count,imported_at,source_kind) VALUES ('NBA',${q(dataset)},'turso-native',${q(dataset)},${q(JSON.stringify(headers))},(SELECT COALESCE(MAX(row_index),0) FROM dataset_rows WHERE sport='NBA' AND dataset=${q(dataset)}),${q(new Date().toISOString())},'turso') ON CONFLICT(sport,dataset) DO UPDATE SET headers_json=excluded.headers_json,row_count=excluded.row_count,imported_at=excluded.imported_at`);
-  await runTursoAtomicSql(statements);
+  try { await runTursoAtomicSql(statements); } finally { invalidateTursoDatasetReadCache("NBA", dataset); }
 }

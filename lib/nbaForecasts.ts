@@ -1,6 +1,7 @@
 import { runTursoSql } from "./tursoStore";
 import { nbaDate, settleNbaForecast } from "./nbaMarketCore";
 import { lineupFromRotoWireReport } from "./nbaLineupsCore";
+import { readMarketProjectionBundle, readMarketProjectionActivation, mergeTrackedBasketballForecasts } from "./marketProjectionStore";
 
 const q = (value: string) => `'${value.replaceAll("'", "''")}'`;
 async function readForecasts(start: string, end: string, includeDate: (date: string) => boolean): Promise<Record<string, any>[]> {
@@ -18,12 +19,18 @@ async function readForecasts(start: string, end: string, includeDate: (date: str
 }
 
 const endOfRead = (date: string) => `${new Date(Date.parse(`${date}T12:00:00Z`) + 2 * 86400000).toISOString().slice(0, 10)}T00:00:00+00:00`;
-export function readNbaForecasts(date: string) {
+export function readNativeNbaForecasts(date: string) {
   return readForecasts(`${date}T00:00:00+00:00`, endOfRead(date), day => day === date);
 }
+export async function readNbaForecastBundle(date: string) {
+  const [baseline, bundle] = await Promise.all([readNativeNbaForecasts(date), readMarketProjectionBundle("NBA", [date])]);
+  return { forecasts: mergeTrackedBasketballForecasts(baseline, bundle.forecasts, bundle.activation, Date.now()), activation: bundle.activation };
+}
+export async function readNbaForecasts(date: string) { return (await readNbaForecastBundle(date)).forecasts; }
 
 /** Used once to seed compact season totals, rather than on ordinary collector ticks. */
-export function readNbaForecastHistory(date: string) {
+export async function readNbaForecastHistory(date: string) {
   const year = Number(date.slice(0, 4)) - (Number(date.slice(5, 7)) < 7 ? 1 : 0), start = `${year}-07-01`;
-  return readForecasts(`${start}T00:00:00+00:00`, endOfRead(date), day => day >= start && day <= date);
+  const [forecasts, activation] = await Promise.all([readForecasts(`${start}T00:00:00+00:00`, endOfRead(date), day => day >= start && day <= date), readMarketProjectionActivation("NBA")]);
+  return mergeTrackedBasketballForecasts(forecasts, [], activation, Date.now());
 }
