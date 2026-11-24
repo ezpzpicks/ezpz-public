@@ -5,6 +5,8 @@ import { MARKET_PROJECTION_POLICY as POLICY, MARKET_PROJECTION_PARAMETERS as P, 
 import { buildMarketTrackedProjection, validMarketTrackedProjection, projectionTrackingInputs, projectionFingerprint,
   ProjectionDataPending, projectionTime, projectionGameKey, type ProjectionBaseline } from "./marketProjectionTracking";
 
+import { marketCapPolicyForNewCapture } from "./ncaamMarketFlow";
+
 type Row = Record<string, any>;
 const q = (value: unknown) => `'${String(value ?? "").replaceAll("'", "''")}'`;
 const decode = (rows: TursoRow[]) => rows.map(r => JSON.parse(r["Details JSON"]));
@@ -68,7 +70,7 @@ export function verifiedMarketProjections(rows: Row[], activation: MarketProject
   return rows.filter(f => {
     if (!validMarketTrackedProjection(f, activation, now)) return false;
     const t = f.market_tracking;
-    return t.input_digest === projectionDigest(projectionFingerprint(t.baseline, { histories: t.histories, observedAt: t.decision_as_of, finalPregame: t.final_pregame, source: t.source }));
+    return t.input_digest === projectionDigest(projectionFingerprint(t.baseline, { histories: t.histories, observedAt: t.decision_as_of, finalPregame: t.final_pregame, source: t.source }, t.adjustment_cap_policy));
   });
 }
 export async function readMarketProjectionBundle(sport: TrackingSport, dates: string[], now = Date.now()) {
@@ -76,6 +78,7 @@ export async function readMarketProjectionBundle(sport: TrackingSport, dates: st
   return { activation, forecasts: verifiedMarketProjections(rows, activation, now) };
 }
 export async function refreshMarketProjections(sport: TrackingSport, baselines: ProjectionBaseline[], splits: TursoRow[], dates: string[], now: number) {
+  const capPolicy = marketCapPolicyForNewCapture();
   const activation = await activate(sport, now), saved = verifiedMarketProjections(await readMarketProjectionUpdates(sport, dates), activation, now);
   const previous = new Map(saved.map(f => [projectionGameKey(sport, f.market_tracking.baseline.date, f.away_team, f.home_team, f.tipoff), f]));
   const grouped = new Map<string, ProjectionBaseline[]>();
@@ -96,9 +99,9 @@ export async function refreshMarketProjections(sport: TrackingSport, baselines: 
       if (sport === "NCAAF" && inputs.finalPregame) eligible.sort((a,b) => projectionTime(a.lockedAt)-projectionTime(b.lockedAt) || a.recordId.localeCompare(b.recordId));
       base = eligible[0];
       if (projectionTime(base.tipoff) - now < 10 * 60000 && !inputs.finalPregame) continue;
-      const digest = projectionDigest(projectionFingerprint(base, inputs));
+      const digest = projectionDigest(projectionFingerprint(base, inputs, capPolicy));
       if (old?.market_tracking.input_digest === digest) continue;
-      const f = buildMarketTrackedProjection(base, inputs, activation, now, digest);
+      const f = buildMarketTrackedProjection(base, inputs, activation, now, digest, capPolicy);
       rows.push({ Date: base.date, "Game Key": key, "Game ID": base.gameId, Game: `${base.away_team} @ ${base.home_team}`,
         Market: inputs.finalPregame ? "Final Forecast" : "Forecast", Selection: f.recordId, "Snapshot Time ET": f.lockedAt, "Updated At": f.lockedAt, "Details JSON": JSON.stringify(f) });
     } catch (error) {

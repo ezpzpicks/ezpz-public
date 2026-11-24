@@ -85,13 +85,30 @@ export function ncaamFlowFeatures(history: MarketPoint[], asOf: string, tipoff: 
   return { ...result, status: features.some(v => Math.abs(v) > 1e-12) ? "ready" : "observed_unchanged",
     history_minutes: (timeline.at(-1)![0] - timeline[0][0]) / 60_000, split_information_as_of: new Date(anchor).toISOString() };
 }
-export function ncaamMarketAdjustment(baseline: number, flow: ReturnType<typeof ncaamFlowFeatures>, parameters: MarketFlowParameters = P) {
+export type MarketCapPolicy = "uncapped-v1" | "rollback-capped-v1";
+// The writer alone selects the current mode. Readers replay the row's immutable mode.
+// Enabling caps returns future eligible captures to capped sizing, never rewrites a saved final.
+export const marketCapPolicyForNewCapture = (): MarketCapPolicy =>
+  process.env.EZPZ_MARKET_PROJECTION_CAPS === "on" ? "rollback-capped-v1" : "uncapped-v1";
+export function validateMarketCapPolicy(policy: unknown): asserts policy is MarketCapPolicy | undefined {
+  if (policy !== undefined && policy !== "uncapped-v1" && policy !== "rollback-capped-v1")
+    throw new Error("Unknown market adjustment cap policy.");
+}
+export function ncaamMarketAdjustment(baseline: number, flow: ReturnType<typeof ncaamFlowFeatures>, parameters: MarketFlowParameters = P, capPolicy?: MarketCapPolicy) {
   const P = parameters;
   baseline = marketNumber(baseline);
   if (flow.policy !== P.flow_policy || flow.features.length !== 6) throw new Error("Mismatched market policy.");
   const contributions = Object.fromEntries(P.feature_order.map((name, i) => [name, flow.features[i] * P.weights[i]]));
   const raw = Object.values(contributions).reduce((a, b) => a + b, 0);
   const cap = flow.market === "Spread" ? P.spread_cap : P.total_cap;
-  const value = Math.abs(raw) < 1e-9 ? 0 : sign(raw) * Math.min(cap, Math.max(P.minimum_adjustment, Math.abs(raw)));
+  validateMarketCapPolicy(capPolicy);
+  if (!Number.isFinite(raw)) throw new Error("Nonfinite market adjustment.");
+  const floored = Math.max(P.minimum_adjustment, Math.abs(raw));
+  const value = Math.abs(raw) < 1e-9 ? 0 : sign(raw) * (capPolicy === "uncapped-v1" ? floored : Math.min(cap, floored));
   return { baseline, raw_adjustment: raw, adjustment: value, projection: baseline + value, contributions };
+}
+
+export function sameInputCappedComparator(spread: ReturnType<typeof ncaamMarketAdjustment>, total: ReturnType<typeof ncaamMarketAdjustment>) {
+  return { spread_adjustment: spread.adjustment, total_adjustment: total.adjustment,
+    projected_home_margin: spread.projection, projected_total: total.projection };
 }

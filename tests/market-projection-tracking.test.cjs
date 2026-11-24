@@ -32,7 +32,7 @@ function rows(sport,{spread,total,at=clock,final=false}={}){
 }
 function candidate(sport,options={}){
  const b=options.base||baseline(sport),now=options.now||clock,inputs=core.projectionTrackingInputs(b,options.rows||rows(sport),now),a=options.activation||activation(sport);
- return core.buildMarketTrackedProjection(b,inputs,a,now,store.projectionDigest(core.projectionFingerprint(b,inputs)));
+ return core.buildMarketTrackedProjection(b,inputs,a,now,store.projectionDigest(core.projectionFingerprint(b,inputs,options.capPolicy)),options.capPolicy);
 }
 for(const sport of ['NBA','NFL','NCAAF']){
  test(`${sport}: approved directional math adjusts scores once and carries no grades`,()=>{
@@ -282,4 +282,36 @@ test('NCAAF stale previews cannot reschedule, resurrect, or overlay trusted sche
  assert.equal(merged[0]['Game Date'],date);assert.equal(merged[0].Date,'');
  const rebound={...preview,'Game Time':'2035-11-25T00:00:00Z'};
  assert.deepEqual(adapter.mergeNcaafPreviews([shell],[rebound],now),[shell]);
+});
+
+test('uncapped edits change only new NBA/NFL/NCAAF game sizing and old capped rows still validate',()=>{
+ for(const sport of ['NBA','NFL','NCAAF']){
+  const total=sport==='NBA'?210:50;
+  const q=rows(sport,{spread:[point(lock,-10,null,null),point(clock,-18,null,null)],total:[point(lock,total,null,null),point(clock,total+9,null,null)]});
+  const a=candidate(sport,{rows:q}),b=candidate(sport,{rows:q,capPolicy:'uncapped-v1'}),r=candidate(sport,{rows:q,capPolicy:'rollback-capped-v1'});
+  assert.equal(a.market_tracking.adjustment_cap_policy,undefined);
+  assert.equal(b.market_tracking.adjustment_cap_policy,'uncapped-v1');
+  assert.equal(r.market_tracking.adjustment_cap_policy,'rollback-capped-v1');
+  assert.equal(new Set([a.recordId,b.recordId,r.recordId]).size,3);
+  assert.deepEqual([a.market_tracking.spread_adjustment,a.market_tracking.total_adjustment],[4,6]);
+  assert.deepEqual([b.market_tracking.spread_adjustment,b.market_tracking.total_adjustment],[8,9]);
+  assert.deepEqual([r.market_tracking.spread_adjustment,r.market_tracking.total_adjustment],[4,6]);
+  assert.deepEqual(b.market_tracking.capped_comparator,{spread_adjustment:4,total_adjustment:6,projected_home_margin:14,projected_total:total+6});
+  assert.deepEqual(b.market_tracking.market_models.total.contributions,a.market_tracking.market_models.total.contributions);
+  assert.equal(b.spread_grade,'Ungraded');assert.equal(b.official_pick_eligible,false);
+  assert.equal(store.verifiedMarketProjections([a,b,r],activation(sport),clock).length,3);
+  const corrupt=structuredClone(b);corrupt.market_tracking.capped_comparator.projected_total++;
+  assert.equal(store.verifiedMarketProjections([corrupt],activation(sport),clock).length,0);
+  const invalid=rows(sport,{total:[point(lock,total,null,null),point(clock,1-total*2,null,null)]});
+  assert.throws(()=>candidate(sport,{rows:invalid,capPolicy:'uncapped-v1'}),/scores must remain positive/);
+ }
+});
+test('cap rollback switch is writer-only and preserves the one-point floor and zero',()=>{
+ const scorer=require('../lib/ncaamMarketFlow.ts'),p=policy.MARKET_PROJECTION_PARAMETERS;
+ const prior=process.env.EZPZ_MARKET_PROJECTION_CAPS;
+ try{
+  delete process.env.EZPZ_MARKET_PROJECTION_CAPS;assert.equal(scorer.marketCapPolicyForNewCapture(),'uncapped-v1');
+  process.env.EZPZ_MARKET_PROJECTION_CAPS='on';assert.equal(scorer.marketCapPolicyForNewCapture(),'rollback-capped-v1');
+  for(const raw of [0,0.1,-0.1])assert.equal(scorer.ncaamMarketAdjustment(100,{policy:p.flow_policy,market:'Total',features:[raw,0,0,0,0,0]},p,'uncapped-v1').adjustment,Math.sign(raw));
+ }finally{if(prior===undefined)delete process.env.EZPZ_MARKET_PROJECTION_CAPS;else process.env.EZPZ_MARKET_PROJECTION_CAPS=prior;}
 });

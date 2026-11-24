@@ -1,5 +1,5 @@
 import { footballTeamKey } from "./footballTeamTrends";
-import { ncaamFlowFeatures, ncaamMarketAdjustment, type MarketPoint, type MarketName } from "./ncaamMarketFlow";
+import { ncaamFlowFeatures, ncaamMarketAdjustment, sameInputCappedComparator, validateMarketCapPolicy, type MarketCapPolicy, type MarketPoint, type MarketName } from "./ncaamMarketFlow";
 import { MARKET_PROJECTION_PARAMETERS as P, MARKET_PROJECTION_POLICY, trackingModelVersion,
   type TrackingSport, type MarketProjectionActivation } from "./marketProjectionPolicy";
 
@@ -97,11 +97,13 @@ export function projectionTrackingInputs(base: ProjectionBaseline, rows: Row[], 
   if (finalPregame && (lead < 10 || lead > 20)) throw new Error("Final capture is outside the existing pregame window.");
   return { histories, observedAt, finalPregame, source: "ScoresAndOdds" };
 }
-export function projectionFingerprint(base: ProjectionBaseline, inputs: ProjectionInputs) {
+export function projectionFingerprint(base: ProjectionBaseline, inputs: ProjectionInputs, capPolicy?: MarketCapPolicy) {
+  validateMarketCapPolicy(capPolicy);
   const material = (h: MarketPoint[]) => h.filter((p, i) => !i || JSON.stringify([p.line, p.betsPct, p.moneyPct]) !== JSON.stringify([h[i-1].line, h[i-1].betsPct, h[i-1].moneyPct]));
-  return { policy: MARKET_PROJECTION_POLICY, parameters: P, baseline: base, spread: material(inputs.histories.Spread), total: material(inputs.histories.Total), final: inputs.finalPregame };
+  return { policy: MARKET_PROJECTION_POLICY, parameters: P, baseline: base, spread: material(inputs.histories.Spread), total: material(inputs.histories.Total), final: inputs.finalPregame, ...(capPolicy ? { adjustment_cap_policy: capPolicy } : {}) };
 }
-export function buildMarketTrackedProjection(base: ProjectionBaseline, inputs: ProjectionInputs, activation: MarketProjectionActivation, now: number, digest: string): Row {
+export function buildMarketTrackedProjection(base: ProjectionBaseline, inputs: ProjectionInputs, activation: MarketProjectionActivation, now: number, digest: string, capPolicy?: MarketCapPolicy): Row {
+  validateMarketCapPolicy(capPolicy);
   const tip = projectionTime(base.tipoff), observed = projectionTime(inputs.observedAt), captured = projectionTime(base.lockedAt);
   if (base.sport === "NCAAF" && inputs.finalPregame && (base.sourceDataset === "game_previews" || base.original["Build Phase"] === "preview"))
     throw new Error("A morning preview cannot create a final pregame lock.");
@@ -115,7 +117,9 @@ export function buildMarketTrackedProjection(base: ProjectionBaseline, inputs: P
   }
   if (inputs.finalPregame && ((tip - observed) / 60000 < 10 || (tip - observed) / 60000 > 20)) throw new Error("Invalid final pregame capture.");
   const at = new Date(now).toISOString(), spreadFlow = ncaamFlowFeatures(inputs.histories.Spread, at, base.tipoff, "Spread", P), totalFlow = ncaamFlowFeatures(inputs.histories.Total, at, base.tipoff, "Total", P);
-  const spread = ncaamMarketAdjustment(-base.fair_home_spread, spreadFlow, P), total = ncaamMarketAdjustment(base.total, totalFlow, P);
+  const spread = ncaamMarketAdjustment(-base.fair_home_spread, spreadFlow, P, capPolicy), total = ncaamMarketAdjustment(base.total, totalFlow, P, capPolicy);
+  const sizing = capPolicy ? { adjustment_cap_policy: capPolicy, ...(capPolicy === "uncapped-v1" ?
+    { capped_comparator: sameInputCappedComparator(ncaamMarketAdjustment(-base.fair_home_spread, spreadFlow, P), ncaamMarketAdjustment(base.total, totalFlow, P)) } : {}) } : {};
   const home = (total.projection + spread.projection) / 2, away = (total.projection - spread.projection) / 2;
   if (!(home > 0 && away > 0)) throw new Error("Adjusted team scores must remain positive.");
   const homeLine = inputs.histories.Spread.at(-1)!.line, totalLine = inputs.histories.Total.at(-1)!.line;
@@ -125,7 +129,7 @@ export function buildMarketTrackedProjection(base: ProjectionBaseline, inputs: P
     baseline_margin: -base.fair_home_spread, baseline_total: base.total, baseline_home: base.home_score, baseline_away: base.away_score,
     decision_as_of: inputs.observedAt, published_at: at, spread_adjustment: spread.adjustment, total_adjustment: total.adjustment,
     final_pregame: inputs.finalPregame, input_digest: digest, parameters: P, histories: inputs.histories, baseline: base, source: inputs.source,
-    market_models: { spread, total } };
+    market_models: { spread, total }, ...sizing };
   return { ...base.original, sport: base.sport, gameId: base.gameId, recordId: `${base.gameId}|${trackingModelVersion(base.sport)}|${digest}`,
     modelVersion: trackingModelVersion(base.sport), tipoff: base.tipoff, lockedAt: at, phase: inputs.finalPregame || tip - now <= 90 * 60000 ? "pregame" : "early",
     away_team: base.away_team, home_team: base.home_team, home_score: home, away_score: away, home_margin: spread.projection,
@@ -144,7 +148,7 @@ export function validMarketTrackedProjection(value: Row, activation: MarketProje
       || value.spread_grade !== "Ungraded" || value.total_grade !== "Ungraded" || value.official_pick_eligible !== false
       || base.sport !== activation.sport || value.tipoff !== base.tipoff || value.gameId !== base.gameId
       || value.home_team !== base.home_team || value.away_team !== base.away_team) return false;
-    const rebuilt = buildMarketTrackedProjection(base, { histories: info.histories, observedAt: info.decision_as_of, finalPregame: info.final_pregame, source: info.source }, activation, projectionTime(value.lockedAt), info.input_digest);
+    const rebuilt = buildMarketTrackedProjection(base, { histories: info.histories, observedAt: info.decision_as_of, finalPregame: info.final_pregame, source: info.source }, activation, projectionTime(value.lockedAt), info.input_digest, info.adjustment_cap_policy);
     return ["total", "fair_home_spread", "home_score", "away_score", "home_spread_edge", "total_edge", "recordId", "market", "market_tracking"].every(k => JSON.stringify(value[k]) === JSON.stringify(rebuilt[k]));
   } catch { return false; }
 }

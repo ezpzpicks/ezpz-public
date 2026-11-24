@@ -4,7 +4,7 @@ import { ncaamDate, ncaamTeamKey } from "./ncaamMarketCore";
 import { ncaamTrackingInputs, ncaamBaselineTrackingInputs, ncaamTrackingFingerprint, buildNcaamTrackedForecast, validNcaamTrackingForecast, NcaamTrackingDataPending } from "./ncaamMarketTracking";
 import { NCAAM_MARKET_TRACKING as P, NCAAM_TRACKING_ACTIVATION_TAB, NCAAM_TRACKING_FORECAST_TAB,
   type NcaamTrackingActivation } from "./ncaamMarketTrackingPolicy";
-import { marketTime } from "./ncaamMarketFlow";
+import { marketCapPolicyForNewCapture, marketTime } from "./ncaamMarketFlow";
 type Row = Record<string, any>;
 const q = (value: unknown) => `'${String(value ?? "").replaceAll("'", "''")}'`;
 const parse = (rows: TursoRow[]) => rows.flatMap(row => { try { return [JSON.parse(row["Details JSON"])]; } catch { return []; } });
@@ -49,6 +49,7 @@ async function activate(now: number) {
   return saved;
 }
 export async function refreshNcaamMarketTracking(date: string, schedule: TursoRow[], now: number) {
+  const capPolicy = marketCapPolicyForNewCapture();
   const activation = await activate(now);
   const [baseRows, splits, savedRows] = await Promise.all([
     readTursoDatasetByDateKeys("NCAAM","ncaam_model_forecasts",[date]),
@@ -78,10 +79,10 @@ export async function refreshNcaamMarketTracking(date: string, schedule: TursoRo
       if (now-marketTime(inputs.observedAt)>P.maximum_market_age_minutes*60_000) { waitingForFreshMarket++; continue; }
       // Leave the established final window intact if the collector missed it.
       if (marketTime(game["Game Time"])-now<10*60_000 && !inputs.finalPregame) continue;
-      const digest = ncaamTrackingDigest(ncaamTrackingFingerprint(base,inputs));
+      const digest = ncaamTrackingDigest(ncaamTrackingFingerprint(base,inputs,capPolicy));
       const id = `${gid}|${P.model_version}|${digest}`;
       if (identities.has(id)) continue;
-      const forecast = buildNcaamTrackedForecast(base,inputs,activation,now,digest);
+      const forecast = buildNcaamTrackedForecast(base,inputs,activation,now,digest,capPolicy);
       newRows.push({ Date:date,"Game Key":`${date}|ncaam|${gid}`,"Game ID":gid,Game:`${base.away_team} @ ${base.home_team}`,Market:"Forecast",Selection:forecast.recordId,"Snapshot Time ET":forecast.lockedAt,"Updated At":forecast.lockedAt,"Details JSON":JSON.stringify(forecast) });
     } catch (error) {
       if (error instanceof NcaamTrackingDataPending) waitingForFreshMarket++;

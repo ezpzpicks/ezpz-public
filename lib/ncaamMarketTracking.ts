@@ -1,7 +1,7 @@
 /** Forward-only forecasts from a captured team baseline and paired market observations. */
 import { ncaamPointProjection, NCAAM_POINT_MODEL } from "./ncaamPointEdges";
 import { ncaamDate, ncaamTeamKey, NCAAM_MARKET_POLICY } from "./ncaamMarketCore";
-import { ncaamFlowFeatures, ncaamMarketAdjustment, marketNumber, marketTime, type MarketPoint, type MarketName } from "./ncaamMarketFlow";
+import { ncaamFlowFeatures, ncaamMarketAdjustment, sameInputCappedComparator, validateMarketCapPolicy, marketNumber, marketTime, type MarketCapPolicy, type MarketPoint, type MarketName } from "./ncaamMarketFlow";
 import { NCAAM_MARKET_TRACKING as P, NCAAM_MARKET_TRACKING_MODEL, isNcaamMarketTracked,
   type NcaamTrackingActivation, type NcaamTrackingInfo } from "./ncaamMarketTrackingPolicy";
 type Row = Record<string, any>;
@@ -93,11 +93,13 @@ export function ncaamBaselineTrackingInputs(base: Row, candidates: Row[], now: n
   const history = (key: string): MarketPoint[] => points.map(([t,q])=>({snapshotTime:new Date(t).toISOString(),line:q[key],betsPct:null,moneyPct:null}));
   return { histories:{Spread:history("home_spread"),Total:history("total")},observedAt:new Date(end).toISOString(),finalPregame:false,source:market.source,sourceUrl:market.source_url };
 }
-export function ncaamTrackingFingerprint(base: Row, inputs: TrackingInputs) {
+export function ncaamTrackingFingerprint(base: Row, inputs: TrackingInputs, capPolicy?: MarketCapPolicy) {
+  validateMarketCapPolicy(capPolicy);
   return { parameters: P, baselineRecordId: base.recordId,
-    spread: materialNcaamHistory(inputs.histories.Spread), total: materialNcaamHistory(inputs.histories.Total), finalPregame: inputs.finalPregame };
+    spread: materialNcaamHistory(inputs.histories.Spread), total: materialNcaamHistory(inputs.histories.Total), finalPregame: inputs.finalPregame, ...(capPolicy ? { adjustment_cap_policy: capPolicy } : {}) };
 }
-export function buildNcaamTrackedForecast(base: Row, inputs: TrackingInputs, activation: NcaamTrackingActivation, now: number, digest: string): Row {
+export function buildNcaamTrackedForecast(base: Row, inputs: TrackingInputs, activation: NcaamTrackingActivation, now: number, digest: string, capPolicy?: MarketCapPolicy): Row {
+  validateMarketCapPolicy(capPolicy);
   const p = ncaamPointProjection(base), tip = marketTime(base.tipoff), lock = marketTime(base.lockedAt);
   if (!p || base.modelVersion !== NCAAM_POINT_MODEL || now < marketTime(activation.activatedAt) || !(lock<=now && now<tip)
     || activation.modelVersion !== P.model_version || activation.policy !== P.flow_policy
@@ -111,7 +113,9 @@ export function buildNcaamTrackedForecast(base: Row, inputs: TrackingInputs, act
   }
   const clock = new Date(now).toISOString();
   const flows = { spread: ncaamFlowFeatures(inputs.histories.Spread, clock, base.tipoff, "Spread"), total: ncaamFlowFeatures(inputs.histories.Total, clock, base.tipoff, "Total") };
-  const spread = ncaamMarketAdjustment(p.margin, flows.spread), total = ncaamMarketAdjustment(p.total, flows.total);
+  const spread = ncaamMarketAdjustment(p.margin, flows.spread, P, capPolicy), total = ncaamMarketAdjustment(p.total, flows.total, P, capPolicy);
+  const sizing = capPolicy ? { adjustment_cap_policy: capPolicy, ...(capPolicy === "uncapped-v1" ?
+    { capped_comparator: sameInputCappedComparator(ncaamMarketAdjustment(p.margin, flows.spread), ncaamMarketAdjustment(p.total, flows.total)) } : {}) } : {};
   const home = (total.projection+spread.projection)/2, away = (total.projection-spread.projection)/2;
   if (!(home>0 && away>0)) throw new Error("Adjusted team scores must remain positive.");
   const homeLine = inputs.histories.Spread.at(-1)!.line, totalLine = inputs.histories.Total.at(-1)!.line;
@@ -123,7 +127,7 @@ export function buildNcaamTrackedForecast(base: Row, inputs: TrackingInputs, act
     baseline_projection_sha256: p.sha256, baseline_margin: p.margin, baseline_total: p.total, baseline_home: p.home_points, baseline_away: p.away_points,
     decision_as_of: inputs.observedAt, published_at: clock, spread_adjustment: spread.adjustment, total_adjustment: total.adjustment,
     final_pregame: inputs.finalPregame, input_digest: digest, parameters: P, histories: inputs.histories,
-    market_models: { spread, total }, source: inputs.source, source_url: inputs.sourceUrl };
+    market_models: { spread, total }, source: inputs.source, source_url: inputs.sourceUrl, ...sizing };
   const f = { ...base, modelVersion: P.model_version, projection_engine: P.model_version,
     recordId: `${base.gameId}|${P.model_version}|${digest}`, lockedAt: clock, phase: inputs.finalPregame ? "pregame" : (tip-now)/60_000<=90 ? "pregame" : "early",
     inputDigest: digest, away_score: away, home_score: home, fair_home_spread: -spread.projection, total: total.projection,
@@ -144,12 +148,15 @@ export function validNcaamTrackingForecast(f: Row, base: Row, activation: NcaamT
       || f.gameId!==base.gameId || f.tipoff!==base.tipoff || f.away_team!==base.away_team || f.home_team!==base.home_team
       || f.spread_grade!=="Ungraded" || f.total_grade!=="Ungraded" || f.official_pick_eligible!==false) return false;
     const inputs = { histories: track.histories, observedAt: track.decision_as_of, finalPregame: track.final_pregame, source: track.source, sourceUrl:track.source_url } as TrackingInputs;
-    const expected = buildNcaamTrackedForecast(base, inputs, activation, marketTime(f.lockedAt), track.input_digest);
+    const capPolicy = track.adjustment_cap_policy;
+    validateMarketCapPolicy(capPolicy);
+    const expected = buildNcaamTrackedForecast(base, inputs, activation, marketTime(f.lockedAt), track.input_digest, capPolicy);
     return ["total", "fair_home_spread", "away_score", "home_score", "home_spread_edge", "total_edge"].every(k =>
       typeof f[k]==="number" && Math.abs(f[k]-expected[k])<1e-7) && f.recordId===expected.recordId
       && f.market?.home_spread===expected.market.home_spread && f.market?.total===expected.market.total
       && ["policy","profile","baseline_model_version","baseline_captured_at","baseline_projection_sha256","baseline_margin","baseline_total","spread_adjustment","total_adjustment"].every(k=>track[k]===expected.market_tracking[k])
-      && JSON.stringify(track.parameters)===JSON.stringify(P);
+      && JSON.stringify(track.parameters)===JSON.stringify(P)
+      && JSON.stringify(track.capped_comparator)===JSON.stringify(expected.market_tracking.capped_comparator);
   } catch { return false; }
 }
 export function mergeNcaamTrackingForecasts(baselines: Row[], tracked: Row[], activation: NcaamTrackingActivation | null, now: number): Row[] {
