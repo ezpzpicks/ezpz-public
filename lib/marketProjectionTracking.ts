@@ -4,7 +4,7 @@ import { MARKET_PROJECTION_PARAMETERS as P, MARKET_PROJECTION_POLICY, trackingMo
   type TrackingSport, type MarketProjectionActivation } from "./marketProjectionPolicy";
 
 type Row = Record<string, any>;
-export type ProjectionBaseline = { sport: TrackingSport; recordId: string; gameId: string; date: string; tipoff: string;
+export type ProjectionBaseline = { sourceDataset?: "daily_slate" | "game_previews"; sport: TrackingSport; recordId: string; gameId: string; date: string; tipoff: string;
   lockedAt: string; modelVersion: string; away_team: string; home_team: string; home_score: number; away_score: number;
   total: number; fair_home_spread: number; original: Row };
 export type ProjectionInputs = { histories: Record<MarketName, MarketPoint[]>; observedAt: string; finalPregame: boolean; source: "ScoresAndOdds" };
@@ -103,6 +103,8 @@ export function projectionFingerprint(base: ProjectionBaseline, inputs: Projecti
 }
 export function buildMarketTrackedProjection(base: ProjectionBaseline, inputs: ProjectionInputs, activation: MarketProjectionActivation, now: number, digest: string): Row {
   const tip = projectionTime(base.tipoff), observed = projectionTime(inputs.observedAt), captured = projectionTime(base.lockedAt);
+  if (base.sport === "NCAAF" && inputs.finalPregame && (base.sourceDataset === "game_previews" || base.original["Build Phase"] === "preview"))
+    throw new Error("A morning preview cannot create a final pregame lock.");
   if (activation.sport !== base.sport || activation.policy !== MARKET_PROJECTION_POLICY || activation.modelVersion !== trackingModelVersion(base.sport)
     || projectionTime(activation.activatedAt) > now || !/^[a-f0-9]{64}$/.test(digest) || !(captured <= now && now < tip)
     || tip <= projectionTime(activation.activatedAt) || now - captured > 30 * 3600000 || observed > now || observed >= tip

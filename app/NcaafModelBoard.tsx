@@ -67,7 +67,8 @@ function MatchupGrade({ context, market, row }: { context: NcaafMatchupContext; 
 }
 function ForecastCard({ group, sport, qualifiedOnly = false, tracker, today }: { group: Group; sport: Sport; qualifiedOnly?: boolean; tracker: Row[]; today?: string }) {
   const row = group.row || {}, pair = teams(row, group.game);
-  const pending = marketProjectionPending(row), adjustments = projectionAdjustments(row);
+  const preview = sport === "NCAAF" && row["Build Phase"] === "preview";
+  const pending = preview || marketProjectionPending(row), adjustments = projectionAdjustments(row);
   const hasForecast = numeric(row["Projected Away"]) != null && numeric(row["Projected Home"]) != null;
   const context = pending || sport !== "NCAAF" ? null : ncaafMatchupContext(row);
   const matchupDriven = sport === "NCAAF" && row["Projection Engine"] === NCAAF_PROJECTION_MODEL;
@@ -98,6 +99,7 @@ function ForecastCard({ group, sport, qualifiedOnly = false, tracker, today }: {
     <p className="nbaMeta"><time>{time(group.time)}</time>{gameStatus ? <span className="gameStatus" data-status={gameStatus}>{gameStatus}</span> : null}</p>
     {hasForecast || qualifiedOnly ? <>
       {row["Projection Engine"] === "legacy_fallback" ? <p className="nbaSmall">Matchup inputs unavailable</p> : null}
+      {preview ? <p className="nbaSmall">Morning preview · Ungraded projection; awaiting the normal builder save.</p> : null}
       <Score row={row} game={group.game} />
       <div className="nbaMarkets">{markets.map(market => <section className="nbaMarketCard" key={market.name} aria-label={`${market.name} forecast`}>
         <div className="nbaMarketHeading"><h4>{market.name}</h4><span className="nbaGrade" data-grade={market.grade}>{pending ? "Ungraded" : `Grade ${market.grade}`}</span></div>
