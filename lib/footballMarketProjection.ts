@@ -20,13 +20,15 @@ export async function refreshFootballMarketProjections(sport: Sport, now: number
     readTursoDatasetByDateKeys(sport,"weekly_market_trends",dateKeys),
   ]);
   // Schedule rows use Game Date, which the admin's legacy metadata does not
-  // index as date_key. Resolve only missing slate clocks by indexed Game ID.
-  const missingIds = sport === "NCAAF" ? [...new Set(slate.filter(r => !Number.isFinite(projectionTime(kickoff(r))))
+  // index as date_key. Resolve missing slate clocks and validate every preview
+  // against the current schedule using indexed Game ID.
+  const scheduleIds = sport === "NCAAF" ? [...new Set([...slate.filter(r => !Number.isFinite(projectionTime(kickoff(r)))),...previews]
     .map(r => String(r["Game ID"] || "")).filter(Boolean))].slice(0,200) : [];
   const q = (v: string) => `'${v.replaceAll("'", "''")}'`;
-  const schedule = missingIds.length ? (await runTursoSql([`SELECT payload_json FROM dataset_rows WHERE sport='NCAAF' AND dataset='schedule' AND game_key IN (${missingIds.map(q).join(",")}) LIMIT 400`]))[0].map(r => JSON.parse(r.payload_json)) : [];
+  const schedule = scheduleIds.length ? (await runTursoSql([`SELECT payload_json FROM dataset_rows WHERE sport='NCAAF' AND dataset='schedule' AND game_key IN (${scheduleIds.map(q).join(",")}) LIMIT 400`]))[0].map(r => JSON.parse(r.payload_json)) : [];
   const bases = ([...slate.map(r => ({row:r,sourceDataset:"daily_slate" as const})),
     ...previews.map(r => ({row:r,sourceDataset:"game_previews" as const}))]).flatMap(({row,sourceDataset}) => {
+    if (sport === "NCAAF" && sourceDataset === "game_previews" && !currentNcaafPreview(row,schedule,now)) return [];
     const r = sport === "NCAAF" ? withNcaafScheduleClock(row,schedule) : row;
     const b=normalizeProjectionBaseline(sport,r,isoDay(r.Date || r["Game Date"]),kickoff(r));
     return b ? [{...b,...(sport === "NCAAF" ? {sourceDataset} : {})}] : [];
@@ -55,7 +57,7 @@ export async function applyFootballMarketProjections(sport: Sport, core: Row, no
     const baseline = forecast?.market_tracking?.baseline;
     const previewOverlay = sport === "NCAAF" && (baseline?.sourceDataset === "game_previews" || baseline?.original?.["Build Phase"] === "preview");
     const authoritativeRow = row["Build Phase"] !== "preview" && row["Model Version"] && row["Projected Away"];
-    return trackedFootballRow(row,previewOverlay && authoritativeRow ? undefined : forecast,activation);
+    return trackedFootballRow(row,previewOverlay && (authoritativeRow || !currentNcaafPreview(baseline.original,[row],now)) ? undefined : forecast,activation);
   });
   const bestPlays = (core.bestPlays || []).filter((p:Row) => p.playerName || p.propMarket || !["Spread","Total"].includes(p.role)
     || !held.has(footballTeamGameKey({...p,date:isoDay(p.date || core.today)},sport)));
@@ -71,12 +73,17 @@ export function mergeNcaafPreviews(slate: Row[], previews: Row[], now: number): 
     const base = normalizeProjectionBaseline("NCAAF", row, date, kickoff(row));
     if (row["Build Phase"] !== "preview" || date !== day(now) || !base
       || projectionTime(base.lockedAt) > now || projectionTime(base.tipoff) <= now) continue;
-    const index = result.findIndex(r => String(r["Game ID"]) === base.gameId || key("NCAAF", r) === key("NCAAF", row));
-    if (index >= 0 && (result[index]["Model Version"] || result[index]["Projected Away"])) continue;
-    const preview = {...(index >= 0 ? result[index] : {}), ...row,
+    if (!currentNcaafPreview(row,slate,now)) continue;
+    const index = result.findIndex(r => String(r["Game ID"]) === base.gameId);
+    if (index < 0 || result[index]["Model Version"] || result[index]["Projected Away"]) continue;
+    const trusted = result[index];
+    const preview = {...trusted, ...row,
+      "Game ID": trusted["Game ID"], "Game Time": trusted["Game Time"] || trusted.Time,
+      Date: trusted.Date, "Game Date": trusted["Game Date"],
+      "Away Team": trusted["Away Team"], "Home Team": trusted["Home Team"],
+      Status: trusted.Status, Completed: trusted.Completed,
       "Spread Grade": "Ungraded preview", "Total Grade": "Ungraded preview", "ML Grade": "Ungraded preview"};
-    if (index >= 0) result[index] = preview;
-    else result.push(preview);
+    result[index] = preview;
   }
   return result;
 }
@@ -93,4 +100,23 @@ export function withNcaafScheduleClock(row: Row, schedule: Row[]): Row {
   // Midnight is the schedule import's unknown-time placeholder, not evidence.
   const local = new Intl.DateTimeFormat("en-US",{timeZone:"America/New_York",hourCycle:"h23",hour:"2-digit",minute:"2-digit"}).format(new Date(times[0]));
   return local === "00:00" ? row : {...row,"Game Time":times[0]};
+}
+
+/** A preview may enrich a current scheduled game, never resurrect or reschedule it. */
+export function currentNcaafPreview(preview: Row, schedule: Row[], now: number): boolean {
+  const id = String(preview?.["Game ID"] || "");
+  if (!id) return false;
+  const matches = schedule.filter(r => String(r["Game ID"] || "") === id);
+  if (matches.length !== 1) return false;
+  const row = matches[0];
+  // Use literal ISO instants, not the display helper's date-rebinding fallback.
+  const tip = projectionTime(row["Game Time"] || row.Time), previewTip = projectionTime(preview["Game Time"] || preview.Time);
+  const hasScore = ["Away Score","Home Score","Actual Away","Actual Home"].some(field =>
+    row[field] != null && String(row[field]).trim() !== "" && Number.isFinite(Number(row[field])));
+  return Number.isFinite(tip) && tip > now && previewTip === tip && !hasScore
+    && day(tip) === isoDay(row.Date || row["Game Date"])
+    && day(previewTip) === isoDay(preview.Date || preview["Game Date"])
+    && !/FINAL|IN_PROGRESS|CANCEL|POSTPON|SUSPEND|DELAY/i.test(String(row.Status || row["Game Status"] || ""))
+    && !/^(true|1|yes)$/i.test(String(row.Completed || ""))
+    && key("NCAAF", row) === key("NCAAF", preview);
 }
