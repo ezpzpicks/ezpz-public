@@ -1,3 +1,4 @@
+import { loadFootballWeekSchedule } from "./footballScheduleSource";
 import { readTursoDatasetByDateKeys, runTursoSql } from "./tursoStore";
 import { nflKickoffIso } from "./footballWeeklyMarket";
 import { footballTeamGameKey } from "./footballTeamTrends";
@@ -25,7 +26,14 @@ export async function refreshFootballMarketProjections(sport: Sport, now: number
   const scheduleIds = sport === "NCAAF" ? [...new Set([...slate.filter(r => !Number.isFinite(projectionTime(kickoff(r)))),...previews]
     .map(r => String(r["Game ID"] || "")).filter(Boolean))].slice(0,200) : [];
   const q = (v: string) => `'${v.replaceAll("'", "''")}'`;
-  const schedule = scheduleIds.length ? (await runTursoSql([`SELECT payload_json FROM dataset_rows WHERE sport='NCAAF' AND dataset='schedule' AND game_key IN (${scheduleIds.map(q).join(",")}) LIMIT 400`]))[0].map(r => JSON.parse(r.payload_json)) : [];
+  let schedule = scheduleIds.length ? (await runTursoSql([`SELECT payload_json FROM dataset_rows WHERE sport='NCAAF' AND dataset='schedule' AND game_key IN (${scheduleIds.map(q).join(",")}) LIMIT 400`]))[0].map(r => JSON.parse(r.payload_json)) : [];
+  if (sport === "NCAAF") {
+    const previewIds = new Set(previews.filter(r => projectionTime(r["Game Time"]) > now).map(r => String(r["Game ID"])));
+    const repairDates = [...new Set<string>(schedule.filter((r: Row) => previewIds.has(String(r["Game ID"])) && placeholderNcaafClock(r))
+      .map((r: Row) => isoDay(r.Date || r["Game Date"])))].filter(d => dates.includes(d));
+    const posted = (await Promise.all(repairDates.map(date => loadFootballWeekSchedule("NCAAF",date,date)))).flat();
+    schedule = reconcileNcaafPreviewClocks(schedule,posted,now);
+  }
   const bases = ([...slate.map(r => ({row:r,sourceDataset:"daily_slate" as const})),
     ...previews.map(r => ({row:r,sourceDataset:"game_previews" as const}))]).flatMap(({row,sourceDataset}) => {
     if (sport === "NCAAF" && sourceDataset === "game_previews" && !currentNcaafPreview(row,schedule,now)) return [];
@@ -119,4 +127,29 @@ export function currentNcaafPreview(preview: Row, schedule: Row[], now: number):
     && !/FINAL|IN_PROGRESS|CANCEL|POSTPON|SUSPEND|DELAY/i.test(String(row.Status || row["Game Status"] || ""))
     && !/^(true|1|yes)$/i.test(String(row.Completed || ""))
     && key("NCAAF", row) === key("NCAAF", preview);
+}
+
+/** Only recognized legacy placeholders can inherit an observed ESPN clock. */
+export function placeholderNcaafClock(row: Row): boolean {
+  const raw = String(row["Game Time"] || row.Time || "").trim();
+  if (!raw) return true;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw === isoDay(row.Date || row["Game Date"]);
+  const instant = projectionTime(raw);
+  return Number.isFinite(instant) && day(instant) === isoDay(row.Date || row["Game Date"])
+    && new Intl.DateTimeFormat("en-US",{timeZone:"America/New_York",hourCycle:"h23",hour:"2-digit",minute:"2-digit",second:"2-digit"}).format(new Date(instant)) === "00:00:00";
+}
+export function reconcileNcaafPreviewClocks(schedule: Row[], posted: Row[], now: number): Row[] {
+  return schedule.map(row => {
+    if (!placeholderNcaafClock(row)) return row;
+    const matches = posted.filter(p => String(p["Game ID"]) === String(row["Game ID"]));
+    if (matches.length !== 1) return row;
+    const source = matches[0], clock = source["Source Game Time"];
+    if (!clock || source["Time Valid"] !== "TRUE" || !/^STATUS_SCHEDULED$/.test(String(source.Status || ""))) return row;
+    const candidate = {...row,"Game Time":clock};
+    // Both raw and posted status/score/identity gates must agree. The preview
+    // itself is never a source for repairing the saved schedule.
+    if (!currentNcaafPreview(candidate,[{...source,"Game Time":clock}],now)
+      || !currentNcaafPreview(candidate,[candidate],now)) return row;
+    return candidate;
+  });
 }
