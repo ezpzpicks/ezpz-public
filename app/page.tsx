@@ -1,5 +1,6 @@
 "use client";
 
+import { formatFullSlateDate } from "../lib/fullSlateDate";
 import CompactMatchup, { savedNumber } from "./CompactMatchup";
 import FootballBoard from "./FootballBoard";
 import SiteNavigation, { SiteHeader } from "./SiteNavigation";
@@ -7469,7 +7470,7 @@ export default function Home() {
         return <section className="nbaBoard mlbModelBoard">
           <div className="nbaIntro"><h2>MLB Full Slate</h2></div>
           {rows.map((row, index) => <SlateCard key={`${row["Game ID"] || row["Game Key"] || row["Game Label"]}-${index}`} row={row} draftKings={slateMarket} />)}
-          {!rows.length ? <div className="nbaCard">No games saved for {slateData.today}.</div> : null}
+          {!rows.length ? <div className="nbaCard">No games saved for {formatFullSlateDate(slateData.today || "")}.</div> : null}
         </section>;
       }}</FullSlateHistory>;
     }

@@ -1,5 +1,7 @@
 "use client";
 
+import { formatFullSlateDate } from "../lib/fullSlateDate";
+import SlateDisplayFinals from "./SlateDisplayFinals";
 import { useEffect, useState, type ReactNode } from "react";
 
 type Slate = { today?: string; slateToday?: Record<string, string>[]; marketAvailableDates?: string[] };
@@ -12,9 +14,7 @@ function slateDay(value: string | undefined) {
   const stamp = /^\d{4}-\d{2}-\d{2}$/.test(date) ? Date.parse(`${date}T12:00:00Z`) : NaN;
   return Number.isFinite(stamp) && new Date(stamp).toISOString().slice(0, 10) === date ? date : "";
 }
-const dateLabel = (date: string) => new Intl.DateTimeFormat("en-US", {
-  timeZone: "UTC", weekday: "short", month: "short", day: "numeric", year: "numeric",
-}).format(new Date(`${date}T12:00:00Z`));
+
 
 export default function FullSlateHistory<T extends Slate>({ sport, data, children }: {
   sport: Sport; data: T; children: (view: T, historical: boolean) => ReactNode;
@@ -58,11 +58,11 @@ export default function FullSlateHistory<T extends Slate>({ sport, data, childre
     <div className="slateHistoryControls">
       <label><span>Slate date</span><select aria-label={`View ${sport} full slate`} value={selected}
         onChange={event => setChoice({ sport, date: event.target.value })}>
-        {available.map(date => <option key={date} value={date}>{dateLabel(date)}{date === todayET() ? " — Today" : ""}</option>)}
+        {available.map(date => <option key={date} value={date}>{formatFullSlateDate(date)}</option>)}
       </select></label>
     </div>
     {datesError && <p className="slateHistoryStatus" role="alert">Saved dates could not be loaded. <button type="button" onClick={() => setRetry(n => n + 1)}>Try again</button></p>}
-    {view ? children(view, historical) : <p className="slateHistoryStatus" role={saved?.error ? "alert" : "status"}>
+    {view ? <SlateDisplayFinals sport={sport} date={selected}>{children(view, historical)}</SlateDisplayFinals> : <p className="slateHistoryStatus" role={saved?.error ? "alert" : "status"}>
       {saved?.error ? <>Saved projections could not be loaded. <button type="button" onClick={() => setRetry(n => n + 1)}>Try again</button></> : "Loading saved projections…"}</p>}
     <style jsx>{`
       .slateHistory{display:grid;gap:18px;min-width:0}.slateHistoryControls{display:flex;align-items:flex-end;flex-wrap:wrap;gap:12px 20px;padding:16px;border:1px solid var(--ez-border);border-radius:18px;background:var(--ez-panel)}

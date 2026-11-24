@@ -1,3 +1,5 @@
+import { useSlateDisplayFinals } from "./SlateDisplayFinals";
+import { displayFinalForRow, type SlateDisplayFinal } from "../lib/slateDisplayFinals";
 import CompactMatchup, { savedNumber } from "./CompactMatchup";
 import { MatchupWithLogos, SelectionWithTeamLogo } from "./TeamLogoName";
 import FootballModelFormBadges from "./FootballModelFormBadges";
@@ -40,13 +42,13 @@ function status(row: Row) {
   if (/IN_PROGRESS/i.test(row.Status || "")) return "In progress";
   return "";
 }
-function Score({ row, game, actual = false }: { row: Row; game: string; actual?: boolean }) {
-  const pair = teams(row, game);
+function Score({ row, game, actual = false, final }: { row: Row; game: string; actual?: boolean; final?: SlateDisplayFinal }) {
+  const pair = final ? {away:final.awayTeam,home:final.homeTeam} : teams(row, game);
   const adjustment = actual ? null : projectionAdjustments(row);
-  const away = actual ? numeric(row["Away Score"]) ?? numeric(row["Actual Away"]) : numeric(row["Projected Away"]);
-  const home = actual ? numeric(row["Home Score"]) ?? numeric(row["Actual Home"]) : numeric(row["Projected Home"]);
+  const away = actual ? final?.awayScore ?? numeric(row["Away Score"]) ?? numeric(row["Actual Away"]) : numeric(row["Projected Away"]);
+  const home = actual ? final?.homeScore ?? numeric(row["Home Score"]) ?? numeric(row["Actual Home"]) : numeric(row["Projected Home"]);
   if (actual && (away == null || home == null)) return null;
-  return <div className={`nbaScoreBlock ${actual && status(row) === "Final" ? "actualFinalScore" : ""}`}><p className="nbaSmall">{actual ? status(row) === "Final" ? "Final score" : "Current score" : "Projected score"}</p>
+  return <div className={`nbaScoreBlock ${actual && (final || status(row) === "Final") ? "actualFinalScore" : ""}`}><p className="nbaSmall">{actual ? final || status(row) === "Final" ? "Final score" : "Current score" : "Projected score"}</p>
     <div className="nbaScore"><div><span>{pair.away}</span><strong>{away == null ? "—" : actual ? String(away) : away.toFixed(1)}<ProjectionAdjustment points={adjustment?.awayScore} label={`${pair.away} score`} /></strong></div>
       <div><span>{pair.home}</span><strong>{home == null ? "—" : actual ? String(home) : home.toFixed(1)}<ProjectionAdjustment points={adjustment?.homeScore} label={`${pair.home} score`} /></strong></div></div>
   </div>;
@@ -94,7 +96,9 @@ function ForecastCard({ group, sport, qualifiedOnly = false, tracker, today }: {
       edge: numeric(row[`${name} Edge`]), odds: row[`${name} Odds`] || play?.marketOdds || play?.oddsLine || "",
       probability: pending ? null : numeric(row[`${name} Probability`]) ?? numeric(play?.score) }];
   });
-  const gameStatus = status(row);
+  const finals = useSlateDisplayFinals();
+  const final = sport === "NFL" ? displayFinalForRow(finals, row) : undefined;
+  const gameStatus = final ? "Final" : status(row);
   const card = <article className="nbaCard" data-game-id={row["Game ID"] || group.game}>
     <h3><MatchupWithLogos sport={sport} game={`${pair.away} @ ${pair.home}`} /></h3>
     <p className="nbaMeta"><time>{time(group.time)}</time>{gameStatus ? <span className="gameStatus" data-status={gameStatus}>{gameStatus}</span> : null}</p>
@@ -123,13 +127,13 @@ function ForecastCard({ group, sport, qualifiedOnly = false, tracker, today }: {
       <dl className="nbaMarketQuotes"><div><dt>Market home spread · {pair.home}</dt><dd>{signed(row["Market Home Spread"] || row["Home Spread"])}</dd></div>
         <div><dt>Market total</dt><dd>{decimal(row["Market Total"] || row.Total)}</dd></div></dl>
     </>}
-    <Score row={row} game={group.game} actual />
+    <Score row={row} game={group.game} actual final={final} />
     {context ? <p className="nbaSmall">SP+ inputs captured {time(context.factors.observed_at)}</p> : null}
   </article>;
   return <CompactMatchup id={row["Game ID"] || group.game} sport={sport} away={pair.away} home={pair.home} awayScore={savedNumber(row["Projected Away"])} homeScore={savedNumber(row["Projected Home"])} awayAdjustment={adjustments?.awayScore} homeAdjustment={adjustments?.homeScore}
     time={time(group.time)} status={gameStatus || (hasForecast ? "Preview" : "Pending")}
     markets={hasForecast || qualifiedOnly ? markets.map(market => ({name:market.name, selection:market.selection || "No market line", detail:market.edge == null ? "Edge unavailable" : `${Math.abs(market.edge).toFixed(1)} pt edge`, grade:qualifiedOnly ? pending ? "Ungraded" : `Grade ${market.grade}` : undefined, result:market.result})) : []}
-    finalScore={gameStatus === "Final" ? {away:row["Away Score"] || row["Actual Away"] || "—", home:row["Home Score"] || row["Actual Home"] || "—"} : undefined}
+    finalScore={final ? {away:final.awayScore,home:final.homeScore,awayTeam:final.awayTeam,homeTeam:final.homeTeam} : gameStatus === "Final" ? {away:row["Away Score"] || row["Actual Away"] || "—", home:row["Home Score"] || row["Actual Home"] || "—"} : undefined}
     returnLabel={qualifiedOnly ? "Back to Model Plays" : "Back to slate"}>{card}</CompactMatchup>;
 }
 

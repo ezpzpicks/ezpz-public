@@ -9,7 +9,7 @@ const scoreText = (value: number | null | undefined) => typeof value === "number
 export default function CompactMatchup({ id, sport, away, home, awayScore, homeScore, awayAdjustment, homeAdjustment, time, status, markets, finalScore, returnLabel = "Back to slate", children }: {
   id: string; sport: LogoSport; away: string; home: string; awayScore?: number | null; homeScore?: number | null;
   awayAdjustment?: number | null; homeAdjustment?: number | null; time?: string; status: string; markets: CompactMarket[];
-  finalScore?: { away: string | number; home: string | number }; returnLabel?: string; children: ReactNode;
+  finalScore?: { away: string | number; home: string | number; awayTeam?: string; homeTeam?: string }; returnLabel?: string; children: ReactNode;
 }) {
   const [mobile, setMobile] = useState(false), [open, setOpen] = useState(false);
   const dialog = useRef<HTMLDialogElement>(null), trigger = useRef<HTMLButtonElement>(null), returnY = useRef(0);
@@ -39,7 +39,7 @@ export default function CompactMatchup({ id, sport, away, home, awayScore, homeS
       {market.grade && <small className="compactGrade">{market.grade}</small>}
       {market.result && <small className="compactResult">Result: {market.result}</small>}
     </div>)}</div> : <p className="ncaamPending">No saved model forecast for this matchup.</p>}
-    {finalScore && <div className="ncaamFinal"><span>Final score</span><div className="compactFinalTeams"><div><span>{away}</span><strong>{finalScore.away}</strong></div><div><span>{home}</span><strong>{finalScore.home}</strong></div></div></div>}
+    {finalScore && <div className="ncaamFinal"><span>Final score</span><div className="compactFinalTeams"><div><span>{finalScore.awayTeam || away}</span><strong>{finalScore.away}</strong></div><div><span>{finalScore.homeTeam || home}</span><strong>{finalScore.home}</strong></div></div></div>}
     <button ref={trigger} className="ncaamOpen" type="button" aria-haspopup="dialog" onClick={() => { returnY.current = window.scrollY; window.history.pushState({ ...window.history.state, ezpzMatchup: id }, "", window.location.href); setOpen(true); }}>Matchup details <span aria-hidden="true">›</span><span className="ez-sr-only"> for {away} at {home}</span></button>
     {open && <dialog ref={dialog} className="ncaamSheet" aria-label={`${away} at ${home} matchup details`} onCancel={event => { event.preventDefault(); close(); }}>
       <div className="ncaamSheetHeader"><span>Matchup details</span><button type="button" onClick={close} autoFocus>{returnLabel}</button></div>{children}

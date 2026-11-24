@@ -1,5 +1,6 @@
 "use client";
 
+import { formatFullSlateDate } from "../lib/fullSlateDate";
 import { MatchupWithLogos } from "./TeamLogoName";
 import dynamic from "next/dynamic";
 import type { FootballSignalsBoard } from "../lib/footballSignals";
@@ -196,7 +197,7 @@ function ArchivedSlate({ data, picks = false }: { data: NbaMarketPayload; picks?
   }, [selected, current, retry, sport, field]);
   const view = selected === current ? data : archive?.date === selected ? archive.data : undefined;
   return <div className={sport === "NCAAM" && !picks ? "ncaamArchive" : undefined}><div className="nbaControls"><label><span className="nbaDateLabel">{picks ?  `View ${sport} picks slate` : `View ${sport} slate`}</span> <select aria-label={picks ? `View ${sport} picks slate` : `View ${sport} full slate`} value={selected} onChange={event => setDate(event.target.value)} disabled={!dates.length}>
-    {dates.map(day => <option key={day} value={day}>{sport === "NCAAM" && !picks ? new Intl.DateTimeFormat("en-US", { timeZone: "UTC", weekday: "short", month: "short", day: "numeric" }).format(new Date(`${day}T12:00:00Z`)) : day}</option>)}</select></label></div>
+    {dates.map(day => <option key={day} value={day}>{picks ? day : formatFullSlateDate(day)}</option>)}</select></label></div>
     {view ? <NbaLineupProvider lineups={view.lineups}>{picks ? <NbaEzpzPicks data={view} /> : <ModelSlate tab="Full Slate" data={view} />}</NbaLineupProvider> : <div className="nbaBoard"><p className="nbaCard" role={archive?.error ? "alert" : "status"}>
       {archive?.error ? <>The saved slate could not be loaded. <button type="button" onClick={() => setRetry(n => n + 1)}>Try again</button></> : `Loading saved ${sport} slate…`}</p></div>}</div>;
 }
