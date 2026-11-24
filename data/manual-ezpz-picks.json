@@ -1358,6 +1358,22 @@
         "away": 41,
         "home": 102
       }
+    },
+    {
+      "id": "manual_20261124_ncaam_401928835_total_under_139_5",
+      "sport": "NCAAM",
+      "game": "Belmont @ Akron",
+      "gameTime": "2026-11-24T17:30:00.000Z",
+      "market": "Total",
+      "selection": "Under 139.5",
+      "line": 139.5,
+      "odds": null,
+      "date": "2026-11-24",
+      "approvedAt": "2026-11-24T16:54:18.738Z",
+      "approvedBy": "ChatGPT",
+      "selectedBy": "Ryan",
+      "status": "approved",
+      "result": "PENDING"
     }
   ]
 }
