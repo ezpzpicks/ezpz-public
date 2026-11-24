@@ -29,9 +29,9 @@ function splitRows({now=clock,spread,total,final=false}={}) {
  }
  return rows;
 }
-function candidate({base=source,rows=splitRows(),now=clock,active=activation}={}) {
- const inputs=core.ncaamTrackingInputs(game,rows,now);const digest=store.ncaamTrackingDigest(core.ncaamTrackingFingerprint(base,inputs));
- return core.buildNcaamTrackedForecast(base,inputs,active,now,digest);
+function candidate({base=source,rows=splitRows(),now=clock,active=activation,capPolicy}={}) {
+ const inputs=core.ncaamTrackingInputs(game,rows,now);const digest=store.ncaamTrackingDigest(core.ncaamTrackingFingerprint(base,inputs,capPolicy));
+ return core.buildNcaamTrackedForecast(base,inputs,active,now,digest,capPolicy);
 }
 const close=(actual,expected,label)=>assert(Math.abs(actual-expected)<1e-8,`${label}: ${actual} != ${expected}`);
 
@@ -170,4 +170,18 @@ else:
   assert.equal((await db.readTursoDatasetByDateKeys('NCAAM',policy.NCAAM_TRACKING_FORECAST_TAB,[game.Date]))[0]['Details JSON'],original[0]['Details JSON']);
   assert.equal((await store.readNcaamTrackingActivation()).activatedAt,iso(clock));assert(invalidated>0);
  }finally{db.readTursoDatasetByDateKeys=old.read;db.runTursoSql=old.sql;db.runTursoAtomicSql=old.write;db.invalidateTursoDatasetReadCache=old.invalidate;fs.rmSync(dir,{recursive:true,force:true});}
+});
+
+test('NCAAM saves a same-input capped comparator only for uncapped rows and replays historical and rollback rows',()=>{
+ const rows=splitRows({spread:[point(lock+120_000,-3,null,null),point(clock,-11,null,null)],total:[point(lock+120_000,150,null,null),point(clock,159,null,null)]});
+ const a=candidate({rows}), b=candidate({rows,capPolicy:'uncapped-v1'}),r=candidate({rows,capPolicy:'rollback-capped-v1'});
+ assert.deepEqual([a.market_tracking.spread_adjustment,a.market_tracking.total_adjustment],[4,6]);
+ assert.deepEqual([b.market_tracking.spread_adjustment,b.market_tracking.total_adjustment],[8,9]);
+ assert.deepEqual([r.market_tracking.spread_adjustment,r.market_tracking.total_adjustment],[4,6]);
+ assert.deepEqual(b.market_tracking.capped_comparator,{spread_adjustment:4,total_adjustment:6,projected_home_margin:-a.fair_home_spread,projected_total:a.total});
+ assert.equal(new Set([a.recordId,b.recordId,r.recordId]).size,3);
+ for(const f of [a,b,r])assert(core.validNcaamTrackingForecast(f,source,activation,clock));
+ const corrupt=structuredClone(b);corrupt.market_tracking.capped_comparator.projected_total++;
+ assert.equal(core.validNcaamTrackingForecast(corrupt,source,activation,clock),false);
+ assert.equal(b.spread_grade,'Ungraded');assert.equal(b.official_pick_eligible,false);
 });

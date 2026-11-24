@@ -11,3 +11,9 @@ Each update saves its baseline record ID, original scoring proof, quote/split hi
 The board and collector query only the latest tracked payload per game. Full earlier snapshots remain in storage for later grading analysis; they are not all shipped to the browser. Existing forecast rows, grade rows, manual EZPZ selections and historical betting results are not rewritten. No historical betting backtest or grading recalibration is performed by this rollout.
 
 `lib/config/ncaam-market-tracking.json` mirrors the approved Python repository's `config/ncaam_market_tracking_live.json`. `lib/ncaamMarketTrackingPolicy.ts` is checked against those fixed parameters and 90 Python-generated rule examples. The test suite also executes the actual insert-only SQL against SQLite and checks duplicates, revisions, final capture, ledger preservation and model-vote suppression.
+
+## Forward-only cap sizing
+
+New eligible captures use adjustment sizing `uncapped-v1` for spreads and totals across NCAAM, NBA, NFL, and NCAAF. The existing feature weights, 1-point nonzero floor, timing/identity/eligibility rules, and positive team-score requirement do not change. The capped scorer remains in place to replay legacy rows and store a same-input comparator alongside each uncapped row. Model grade activation, previously saved final forecasts and historical records are unchanged. The first roll forward is the next eligible collector capture under the new build, not a replay of prior decisions.
+
+To stop future uncapped captures, set the Vercel server environment variable `EZPZ_MARKET_PROJECTION_CAPS=on` and redeploy the compatible build. This records future updates under `rollback-capped-v1`, leaving stored uncapped and legacy final rows readable and frozen. Do not roll back to a binary predating mixed-policy reads after uncapped rows have been written. Neither setting changes MLB, props, grades, picks, or baseline models.
