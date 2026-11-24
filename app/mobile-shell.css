@@ -85,17 +85,13 @@
  body:has(.ncaamArchive) .ez-context{max-width:122px;margin:10px 0 18px}
  body:has(.ncaamArchive) .ez-context select{border:1px solid #5c6876;border-radius:24px;background:#171e26;font-size:15px;font-weight:700;padding-left:16px;min-height:40px}
  .ncaamArchive{position:relative;min-width:0}
- .ncaamArchive .nbaControls{position:absolute;top:0;right:0;z-index:1;padding:0!important;margin:0;background:none!important;border:0}
- .ncaamArchive .nbaDateLabel{position:absolute;width:1px;height:1px;clip-path:inset(50%);overflow:hidden}
- .ncaamArchive .nbaControls select{max-width:144px;min-height:44px;padding:6px 4px;background:transparent!important;border:0!important;color:#c6ccd5;font-size:13px;font-weight:650}
- .ncaamArchive>.nbaBoard:not(.ncaamSlateTrial){padding-top:55px}
- .ncaamSlateTrial .nbaIntro{padding:3px 145px 16px 0;border-bottom:1px solid #48515b;margin-bottom:0;min-height:53px}
+ .ncaamSlateTrial .nbaIntro{padding:3px 0 16px;border-bottom:1px solid #48515b;margin-bottom:0;min-height:53px}
  .ncaamSlateTrial .nbaIntro h2{font-size:28px;line-height:1.15;margin:0;font-weight:800;letter-spacing:-.035em;white-space:nowrap}
  .ncaamSlateTrial .ncaamTitleSport{display:none}
  .ncaamStartTime{display:block;margin:18px 0 12px;font-size:17px;font-weight:750;letter-spacing:.01em;color:#dde1e7}
  .ncaamCompact{background:#101112;border:1px solid #2d3946;border-radius:9px;padding:10px 12px 0;margin-bottom:12px}
- .ncaamScoreLabel{font-size:9px;text-align:right;color:#9ba6b4;margin:0 45px 5px 0}
- .ncaamCompactTeam{grid-template-columns:minmax(0,1fr) 52px 41px;gap:6px;min-height:40px;margin:2px 0}
+ .ncaamScoreLabel{font-size:9px;text-align:right;color:#9ba6b4;margin:0 60px 5px 0}
+ .ncaamCompactTeam{grid-template-columns:minmax(0,1fr) 76px 54px;gap:6px;min-height:40px;margin:2px 0}
  .ncaamCompactTeam>span:first-child{font-size:14px!important;font-weight:700;gap:10px!important}
  .ncaamCompactTeam img{width:29px!important;height:29px!important;filter:none!important}
  .ncaamCompactTeam>strong{font-size:28px;letter-spacing:-.025em;line-height:1.15}

@@ -248,3 +248,23 @@ test('NCAAM reuses basketball pages with research status and its own pending qua
   assert.doesNotMatch(live,/class="nbaLineups"|fs-detail-inline/);
   assert.match(render(React.createElement(records.default,{data})),/NCAAM Records/);
 });
+
+test('compact summaries omit pending results but retain every settled result and numeric adjustment', () => {
+  const compact = component('app/CompactMatchup.tsx', { react: { ...React,
+    useState: () => [true, () => {}], useEffect: () => {},
+  } }).default;
+  const props = { id: 'qa-mobile', sport: 'NBA', away: 'Orlando Magic', home: 'Boston Celtics',
+    awayScore: 111.1, homeScore: 123.2, awayAdjustment: 1.0, homeAdjustment: 1.1, status: 'Preview',
+    markets: [{ name: 'Spread', selection: 'Orlando +12.5', result: 'Pending' },
+      { name: 'Total', selection: 'Over 230.5', result: ' pending ' }], children: null };
+  const pending = render(React.createElement(compact, props));
+  assert.doesNotMatch(pending, /Result:/);
+  for (const text of ['111.1', '123.2', '↑ 1.0 pts', '↑ 1.1 pts', 'Preview']) assert(pending.includes(text), text);
+  for (const result of ['WIN', 'LOSS', 'PUSH', 'VOID']) {
+    const settled = render(React.createElement(compact, { ...props, status: 'Final',
+      finalScore: { away: 0, home: 22 }, markets: [{ name: 'Total', selection: 'Under 230.5', result }] }));
+    const doc = require('linkedom').parseHTML(settled).document;
+    assert.equal(doc.querySelector('.compactResult').textContent, `Result: ${result}`);
+    assert.deepEqual([...doc.querySelectorAll('.compactFinalTeams strong')].map(e => e.textContent), ['0', '22']);
+  }
+});

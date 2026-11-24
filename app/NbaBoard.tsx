@@ -196,7 +196,7 @@ function ArchivedSlate({ data, picks = false }: { data: NbaMarketPayload; picks?
     return () => controller.abort();
   }, [selected, current, retry, sport, field]);
   const view = selected === current ? data : archive?.date === selected ? archive.data : undefined;
-  return <div className={sport === "NCAAM" && !picks ? "ncaamArchive" : undefined}><div className="nbaControls"><label><span className="nbaDateLabel">{picks ?  `View ${sport} picks slate` : `View ${sport} slate`}</span> <select aria-label={picks ? `View ${sport} picks slate` : `View ${sport} full slate`} value={selected} onChange={event => setDate(event.target.value)} disabled={!dates.length}>
+  return <div className={sport === "NCAAM" && !picks ? "ncaamArchive" : undefined}><div className={picks ? "nbaControls" : "fullSlateDateControl"}><label><span className="nbaDateLabel">{picks ? `View ${sport} picks slate` : "Slate date"}</span> <select aria-label={picks ? `View ${sport} picks slate` : `View ${sport} full slate`} value={selected} onChange={event => setDate(event.target.value)} disabled={!dates.length}>
     {dates.map(day => <option key={day} value={day}>{picks ? day : formatFullSlateDate(day)}</option>)}</select></label></div>
     {view ? <NbaLineupProvider lineups={view.lineups}>{picks ? <NbaEzpzPicks data={view} /> : <ModelSlate tab="Full Slate" data={view} />}</NbaLineupProvider> : <div className="nbaBoard"><p className="nbaCard" role={archive?.error ? "alert" : "status"}>
       {archive?.error ? <>The saved slate could not be loaded. <button type="button" onClick={() => setRetry(n => n + 1)}>Try again</button></> : `Loading saved ${sport} slate…`}</p></div>}</div>;
