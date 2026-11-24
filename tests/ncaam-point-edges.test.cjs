@@ -324,7 +324,7 @@ test('basketball slates retain numeric cards with correctly associated NCAAM tim
   const html=renderToStaticMarkup(React.createElement(component('app/NbaBoard.tsx').testSlate,
    {tab,data:{sport,forecasts:[f],games:[{'Game ID':f.gameId,'Game Time':f.tipoff}],splits:[],stale:true}}));
   const {document}=require('linkedom').parseHTML(html),board=document.querySelector('.nbaBoard');
-  assert.equal(board.children[0].querySelector('h2').textContent,`${sport} ${tab==='Full Slate'?'Full Slate':'Model Plays'}`);
+  assert.equal(board.children[0].querySelector('h2').textContent,`${sport} ${tab==='Full Slate'?'Projections':'Model Plays'}`);
   const firstCard=board.querySelector(':scope > article');
   if(sport==='NCAAM' && tab==='Full Slate') {
    const timeHeading=board.children[1];

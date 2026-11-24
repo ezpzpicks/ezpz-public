@@ -56,7 +56,7 @@ export default function FullSlateHistory<T extends Slate>({ sport, data, childre
   const view = historical ? saved?.data ? { ...data, ...saved.data, draftKings: undefined, bestPlays: [], betTrackerRows: [] } as T : null : data;
   return <section className="slateHistory">
     <div className="fullSlateDateControl">
-      <label><span>Slate date</span><select aria-label={`View ${sport} full slate`} value={selected}
+      <label><span>Slate date</span><select aria-label={`View ${sport} projections`} value={selected}
         onChange={event => setChoice({ sport, date: event.target.value })}>
         {available.map(date => <option key={date} value={date}>{formatFullSlateDate(date)}</option>)}
       </select></label>

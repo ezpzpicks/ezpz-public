@@ -164,7 +164,7 @@ function ModelSlate({ tab, data }: { tab: string; data: NbaMarketPayload }) {
     {gameCard(game)}
   </Fragment>);
   return <section className={`nbaBoard${fullSlate && sport === "NCAAM" ? " ncaamSlateTrial" : ""}`}>
-    <div className="nbaIntro"><h2>{fullSlate ? <><span className="ncaamTitleSport">{sport} </span>Full Slate</> : `${sport} Model Plays`}</h2></div>
+    <div className="nbaIntro"><h2>{fullSlate ? <><span className="ncaamTitleSport">{sport} </span>Projections</> : `${sport} Model Plays`}</h2></div>
     {fullSlate ? <>{timedCards(activeGames)}
       {completed.length ? <details className="completedGames" open={!activeGames.length}>
         <summary>Completed games <span>{completed.length}</span></summary>
@@ -173,7 +173,7 @@ function ModelSlate({ tab, data }: { tab: string; data: NbaMarketPayload }) {
     </> : qualified.map(forecast => <ForecastCard key={`${forecast.gameId}-${forecast.modelVersion}-${forecast.lockedAt}`}
       forecast={forecast} sport={sport} qualifiedOnly game={games.find(game => game["Game ID"] === forecast.gameId)} />)}
     {!fullSlate && !qualified.length && <div className="nbaCard">{latest.some(f => marketProjectionPending(f) || (sport === "NCAAM" && ncaamTrackingGradesPending(f)))
-      ? `New ${sport} grades are pending. Updated projections are available in Full Slate.`
+      ? `New ${sport} grades are pending. Updated projections are available in Projections.`
       : `No ${sport} model plays for this slate.`}</div>}
     {fullSlate && !games.length && <div className="nbaCard">No {sport} games have been collected for this date.</div>}
   </section>;
@@ -196,7 +196,7 @@ function ArchivedSlate({ data, picks = false }: { data: NbaMarketPayload; picks?
     return () => controller.abort();
   }, [selected, current, retry, sport, field]);
   const view = selected === current ? data : archive?.date === selected ? archive.data : undefined;
-  return <div className={sport === "NCAAM" && !picks ? "ncaamArchive" : undefined}><div className={picks ? "nbaControls" : "fullSlateDateControl"}><label><span className="nbaDateLabel">{picks ? `View ${sport} picks slate` : "Slate date"}</span> <select aria-label={picks ? `View ${sport} picks slate` : `View ${sport} full slate`} value={selected} onChange={event => setDate(event.target.value)} disabled={!dates.length}>
+  return <div className={sport === "NCAAM" && !picks ? "ncaamArchive" : undefined}><div className={picks ? "nbaControls" : "fullSlateDateControl"}><label><span className="nbaDateLabel">{picks ? `View ${sport} picks slate` : "Slate date"}</span> <select aria-label={picks ? `View ${sport} picks slate` : `View ${sport} projections`} value={selected} onChange={event => setDate(event.target.value)} disabled={!dates.length}>
     {dates.map(day => <option key={day} value={day}>{picks ? day : formatFullSlateDate(day)}</option>)}</select></label></div>
     {view ? <NbaLineupProvider lineups={view.lineups}>{picks ? <NbaEzpzPicks data={view} /> : <ModelSlate tab="Full Slate" data={view} />}</NbaLineupProvider> : <div className="nbaBoard"><p className="nbaCard" role={archive?.error ? "alert" : "status"}>
       {archive?.error ? <>The saved slate could not be loaded. <button type="button" onClick={() => setRetry(n => n + 1)}>Try again</button></> : `Loading saved ${sport} slate…`}</p></div>}</div>;
