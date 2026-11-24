@@ -22,7 +22,7 @@ const final={sport:'NFL',date:pick.date,gameId:'401910036',gameTime:pick.gameTim
   away:{name:'Cincinnati Bengals',score:31},home:{name:'Washington Commanders',score:20},observedAt:'2035-11-24T00:00:00Z',source:'ESPN official scoreboard'};
 const plain=x=>JSON.parse(JSON.stringify(x));
 
-test('settlement uses the approved side, line and actual recorded price',()=>{
+test('settlement uses approved side/line and simulated -110 only for spreads and totals',()=>{
   const result=settle(pick,[final],now);
   assert.equal(result.result,'W');assert.equal(result.netUnits,100/110);
   for(const key of ['id','sport','date','game','gameTime','market','selection','line','odds','approvedAt','selectedBy','approvedBy','status'])assert.equal(result[key],pick[key]);
@@ -31,7 +31,9 @@ test('settlement uses the approved side, line and actual recorded price',()=>{
   assert.equal(settle({...pick,selection:'WAS +6',line:6},[final],now).result,'L');
   assert.equal(settle({...pick,selection:'CIN -11',line:-11},[final],now).result,'P');
   const total={...pick,market:'Total',selection:'Under 51.5',line:51.5,odds:'-115'};
-  assert.equal(settle(total,[final],now).netUnits,100/115);
+  assert.equal(settle(total,[final],now).netUnits,100/110);
+  assert.equal(settle(total,[final],now).odds,"-115");
+  assert.equal(settle(total,[final],now).trackingBasis,"standard-simulated");
   assert.equal(settle({...total,selection:'Over 51.5'},[final],now).result,'L');
   assert.equal(settle({...pick,market:'Moneyline',selection:'CIN ML',line:null,odds:'+125'},[final],now).netUnits,1.25);
 });
@@ -59,7 +61,7 @@ test('missing, ambiguous, mismatched and unfinished outcomes stay pending',()=>{
   assert.equal(settle(pick,[],now),pick);
   assert.equal(settle(pick,[final,{...final,home:{...final.home,score:50}}],now),pick);
   assert.equal(settle({...pick,line:-5.5},[final],now).result,'PENDING');
-  assert.equal(settle({...pick,odds:null},[final],now).result,'PENDING');
+  assert.equal(settle({...pick,odds:null,market:"Moneyline",selection:"CIN ML",line:null},[final],now).result,'PENDING');
   assert.equal(settle({...pick,market:'Player Prop'},[final],now).result,'PENDING');
   assert.equal(settle(pick,[final],Date.parse('2035-11-23T19:30:00Z')),pick);
 });
@@ -103,7 +105,7 @@ test('results outages preserve approved picks and never manufacture settlements'
   const read=loader({'./manualEzpzPicks':{getApprovedManualPicks:()=>[pick]},'./tursoStore':{
     readTursoDatasetByDateKeys:async()=>{throw new Error('unavailable');}
   }})('lib/manualEzpzResults.ts').readApprovedManualPickResults;
-  assert.deepEqual(plain(await read('NFL',undefined,now)),[pick]);
+  assert.deepEqual(plain(await read('NFL',undefined,now)),[plain(load("lib/officialTracking.ts").standardOfficialTracking(pick))]);
 });
 
 test('settled and upcoming approvals require no database result reads',async()=>{
@@ -112,7 +114,7 @@ test('settled and upcoming approvals require no database result reads',async()=>
   const read=loader({'./manualEzpzPicks':{getApprovedManualPicks:()=>[future,done]},'./tursoStore':{
     readTursoDatasetByDateKeys:async()=>{throw new Error('must not read');}
   }})('lib/manualEzpzResults.ts').readApprovedManualPickResults;
-  assert.deepEqual(plain(await read('NFL',undefined,now)),[future,done]);
+  assert.deepEqual(plain(await read('NFL',undefined,now)),[future,done].map(p=>plain(load("lib/officialTracking.ts").standardOfficialTracking(p))));
 });
 
 test('official record totals include losses and pushes and exclude void stake',()=>{
@@ -122,4 +124,34 @@ test('official record totals include losses and pushes and exclude void stake',(
   const html=render(React.createElement(View,{sport:'NFL',picks:rows}));
   assert.match(html,/1–1–1/);assert.match(html,/-0\.09u/);assert.match(html,/-3\.0%/);
   assert.match(html,/Awaiting result/);assert.match(html,/Final 31–20/);assert.match(html,/1 void/);
+});
+
+test('unpriced official spreads/totals settle W/L/P from verified finals, never an unfinished game',()=>{
+  for(const [selection,line,result] of [['CIN -6',-6,'W'],['CIN -12',-12,'L'],['CIN -11',-11,'P']]) {
+    const unpriced={...pick,selection,line,odds:null};
+    const graded=settle(unpriced,[final],now);
+    assert.equal(graded.result,result);assert.equal(graded.odds,null);assert.equal(graded.trackingOdds,-110);
+    assert.equal(graded.netUnits,result==='W'?100/110:result==='L'?-1:0);
+    assert.equal(settle(unpriced,[{...final,completed:false,status:'STATUS_IN_PROGRESS'}],now),unpriced);
+  }
+  const belmont={...pick,id:'manual_20261124_ncaam_401928835_total_under_139_5',sport:'NCAAM',date:'2026-11-24',game:'Belmont @ Akron',
+    gameTime:'2026-11-24T17:30:00Z',approvedAt:'2026-11-24T17:00:00Z',market:'Total',selection:'Under 139.5',line:139.5,odds:null};
+  const confirmed={...final,sport:'NCAAM',date:belmont.date,gameId:'401928835',gameTime:belmont.gameTime,
+    away:{name:'Belmont Bruins',score:64},home:{name:'Akron Zips',score:87},observedAt:'2026-11-24T21:50:06.316Z'};
+  const result=settle(belmont,[confirmed],Date.parse('2026-11-24T22:00:00Z'));
+  assert.equal(result.result,'L');assert.equal(result.netUnits,-1);assert.equal(result.resultGameId,'401928835');
+  assert.deepEqual(plain(result.finalScore),{away:64,home:87});assert.equal(result.odds,null);
+});
+
+test('historical standard tracking retains quoted prices, recorded units and settlement provenance',()=>{
+  const {standardOfficialTracking:track}=load('lib/officialTracking.ts');
+  const historical={...pick,odds:'+125',result:'W',netUnits:1.25,units:1.25,resultSource:'Verified historical final',resultUpdated:'2035-11-24T00:00:00Z'};
+  const row=track(historical);
+  assert.equal(row.netUnits,100/110);assert.equal(row.units,100/110);assert.equal(row.recordedNetUnits,1.25);assert.equal(row.recordedUnits,1.25);
+  assert.equal(row.odds,'+125');assert.equal(row.resultSource,historical.resultSource);assert.equal(row.resultUpdated,historical.resultUpdated);
+  assert.deepEqual(plain(track(row)),plain(row));assert.equal(historical.netUnits,1.25);
+  for(const market of ['Moneyline','Player Prop','Team Total','First Half Spread'])assert.equal(track({...historical,market}).trackingBasis,undefined);
+  const View=loader()('app/ManualEzpzRecords.tsx').OfficialRecordView;
+  const html=render(React.createElement(View,{sport:'NFL',picks:[row,track({...pick,result:'L',netUnits:-1}),track({...pick,result:'P',netUnits:0})]}));
+  assert.match(html,/1–1–1/);assert.match(html,/-0\.09u/);assert.match(html,/-3\.0%/);assert.match(html,/simulated -110, not bookmaker prices/);
 });

@@ -55,3 +55,8 @@ body:has(.ez-sitewide)::before{display:none}
 .ez-sitewide .fullSlateDateControl{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin:8px 0 16px;min-width:0}
 .ez-sitewide .fullSlateDateControl label{display:flex;align-items:center;flex-wrap:wrap;gap:10px;min-width:0;max-width:100%;color:#b4c7dc;font-size:14px}
 .ez-sitewide .fullSlateDateControl select{box-sizing:border-box;min-width:0;max-width:100%;min-height:44px;padding:10px 14px;border:1px solid #29405b;border-radius:10px;background:#0d1a2a;color:#b7e2ff;color-scheme:dark;font:inherit}
+
+.ez-sitewide .ez-context:has(.ez-sport-control){max-width:480px}
+.ez-sitewide .ez-context label.ez-sport-control{flex:0 1 182px;min-width:160px;gap:10px}
+.ez-sitewide .ez-sport-label{flex:none;color:#b6beca;font-size:12px;white-space:nowrap}
+.ez-sitewide .ez-sport-control select{flex:1;min-width:0}

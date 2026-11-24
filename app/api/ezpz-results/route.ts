@@ -1,3 +1,4 @@
+import { standardOfficialTracking } from "../../../lib/officialTracking";
 import { NextRequest, NextResponse } from "next/server";
 import { EZPZ_RESULT_SPORTS, readSavedEzpzResults } from "../../../lib/ezpzSavedResults";
 import { MANUAL_EZPZ_EFFECTIVE_DATE } from "../../../lib/manualEzpzPicks";
@@ -30,7 +31,7 @@ export async function GET(request: NextRequest) {
           result: pick.result || "PENDING", units: pick.netUnits ?? null,
           finalizedAt: pick.approvedAt, snapshotStatus: "FINAL_PREGAME",
         }))
-      : await readSavedEzpzResults(sport as typeof EZPZ_RESULT_SPORTS[number], date);
+      : (await readSavedEzpzResults(sport as typeof EZPZ_RESULT_SPORTS[number], date)).map(standardOfficialTracking);
     return NextResponse.json({ ok: true, sport, date, timezone: "America/New_York",
       generatedAt: new Date().toISOString(), source: date >= MANUAL_EZPZ_EFFECTIVE_DATE ? "reviewed-manual-approval-ledger" : "legacy-saved-result-ledgers",
       selectionPolicy: date >= MANUAL_EZPZ_EFFECTIVE_DATE ? "manually-approved-only" : "historical-automatic",

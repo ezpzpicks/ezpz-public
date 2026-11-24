@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 type Pick = {
   id: string; game: string; gameTime?: string; selection: string; date: string;
   result?: "W" | "L" | "P" | "VOID" | "PENDING"; netUnits?: number;
+  trackingBasis?: string;
   finalScore?: { away: number; home: number };
 };
 function dayLabel(date: string) {
@@ -19,6 +20,7 @@ function RecordCard({ pick }: { pick: Pick }) {
     <div><strong>{pick.selection}</strong><p>{pick.game}</p>
       {pick.finalScore ? <span className="officialFinalScore">Final {pick.finalScore.away}–{pick.finalScore.home}</span> : null}</div>
     <div className="officialRecordOutcome"><span className="officialResult" data-result={pick.result || "PENDING"}>{label}</span>
+      {pick.trackingBasis === "standard-simulated" ? <small>Simulated -110</small> : null}
       {settled && typeof pick.netUnits === "number" ? <small>{pick.netUnits > 0 ? "+" : ""}{pick.netUnits.toFixed(2)}u</small> : null}</div>
   </article>;
 }
@@ -43,7 +45,7 @@ export function OfficialRecordView({ sport, picks }: { sport: string; picks: Pic
       <div><span>ROI</span><strong>{totals.roi === null ? "—" : `${totals.roi >= 0 ? "+" : ""}${totals.roi.toFixed(1)}%`}</strong></div>
       <div><span>Pending</span><strong>{totals.pending}</strong></div>
     </div>
-    <p className="officialRecordNote">Official selections · 1 unit risk per pick{totals.voids ? ` · ${totals.voids} void` : ""}</p>
+    <p className="officialRecordNote">Official selections · 1 unit risk per pick. Spread/total units and ROI use simulated -110, not bookmaker prices. Other markets retain recorded pricing.{totals.voids ? ` · ${totals.voids} void` : ""}</p>
     {pending.length ? <section className="officialRecordPending"><h3>Awaiting results <span>{pending.length}</span></h3>
       {pending.map(pick => <RecordCard key={pick.id} pick={pick} />)}</section> : null}
     {days.map((date, index) => {

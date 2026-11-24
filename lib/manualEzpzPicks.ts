@@ -30,6 +30,9 @@ export type ManualApprovedPick = {
   notes?: string;
   result?: "W" | "L" | "P" | "VOID" | "PENDING";
   netUnits?: number;
+  trackingOdds?: number;
+  trackingBasis?: "standard-simulated";
+  recordedNetUnits?: number;
   resultSource?: string;
   resultUpdated?: string;
   resultGameId?: string;

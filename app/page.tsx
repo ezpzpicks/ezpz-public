@@ -6797,13 +6797,13 @@ export default function Home() {
   const nflEzpzRecords = useMemo(() => activeSport === "NFL" && data
     ? data.ezpzRecords || buildNflEzpzRecords(data.aiPickRecordRows || [], data.today)
     : null, [activeSport, data]);
-  const [active, setActive] = useState<Tab>("EZPZ Picks");
+  const [active, setActive] = useState<Tab>("Full Slate");
   const [selectedSignalDate, setSelectedSignalDate] = useState("");
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     let rememberedSport = "";
     try { rememberedSport = localStorage.getItem("ezpz:sport") || ""; } catch { /* Optional device preference. */ }
-    const sport = params.get("sport") || rememberedSport;
+    const sport = params.get("sport") || (params.has("tab") ? rememberedSport : "NBA");
     if (SPORTS.includes(sport as Sport)) setActiveSport(sport as Sport);
     const tab = params.get("tab") as Tab;
     if (TABS.includes(tab)) setActive(tab);

@@ -1,3 +1,4 @@
+import { isStandardOfficialMarket, OFFICIAL_TRACKING_BASIS } from "./officialTracking";
 import type { ManualApprovedPick } from "./manualEzpzPicks";
 import { footballTeamKey } from "./footballTeamTrends";
 import { normalizeTexasAmAlias } from "./texasAmAlias";
@@ -88,13 +89,14 @@ export function settleApprovedManualPick(pick: ManualApprovedPick, finals: Manua
       + (/^spread$/i.test(pick.market) ? line! : 0);
   }
   if (margin == null) return pick; // Player props require their own verified outcome source.
-  const odds = /^[+-]?\d{3,4}$/.test(String(pick.odds || "")) ? Number(pick.odds) : NaN;
+  const standard = isStandardOfficialMarket(pick.market);
+  const odds = standard ? -110 : /^[+-]?\d{3,4}$/.test(String(pick.odds || "")) ? Number(pick.odds) : NaN;
   if (!Number.isFinite(odds) || Math.abs(odds) < 100) return pick;
   const result = margin > 0 ? "W" : margin < 0 ? "L" : "P";
   const netUnits = result === "W" ? odds > 0 ? odds / 100 : 100 / -odds : result === "L" ? -1 : 0;
   const originalAway = matches(pair[0], game.away, pick.sport) ? game.away : game.home;
   const originalHome = originalAway === game.away ? game.home : game.away;
-  return { ...pick, result, netUnits, resultSource: game.source,
+  return { ...pick, result, netUnits, ...(standard ? { trackingOdds: -110, trackingBasis: OFFICIAL_TRACKING_BASIS } : {}), resultSource: game.source,
     resultUpdated: game.observedAt, resultGameId: game.gameId,
     finalScore: { away: originalAway.score, home: originalHome.score } };
 }

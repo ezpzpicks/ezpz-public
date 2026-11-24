@@ -29,7 +29,7 @@ export function SiteHeader({ sport, onSportChange, dates, date, onDateChange, re
       </button>
     </header>
     <div className="ez-context">
-      <label><span className="ez-sr-only">Sport</span><select aria-label="Sport" value={sport} onChange={event => onSportChange(event.target.value as BoardSport)}>
+      <label className="ez-sport-control"><span className="ez-sport-label">Sport</span><select aria-label="Sport" value={sport} onChange={event => onSportChange(event.target.value as BoardSport)}>
         {(["MLB", "NFL", "NCAAF", "NCAAM", "NBA"] as const).map(value => <option key={value}>{value}</option>)}
       </select><ChevronDown size={17} aria-hidden="true" /></label>
       {dates.length ? <label><span className="ez-sr-only">Slate</span><select aria-label="Slate" value={date} onChange={event => onDateChange(event.target.value)}>

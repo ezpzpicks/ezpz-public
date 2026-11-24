@@ -7,6 +7,7 @@ import { MatchupWithLogos, SelectionWithTeamLogo, type LogoSport } from "./TeamL
 type Pick = {
   id: string; pickId: string; sport: string; date: string; game: string;
   market: string; selection: string; line: number | string | null;
+  trackingOdds?: number; trackingBasis?: string;
   odds: string | null; gameTime: string; approvedAt: string;
   pickCategory: "manual"; pickLabel: "EZPZ PICK"; eligibleForPosting: boolean;
   selectedBy: "Ryan";
@@ -98,7 +99,8 @@ export default function ManualEzpzPicks({ sport }: { sport: LogoSport }) {
               <span><CalendarDays size={14} aria-hidden="true" />{readableDate(pick.date)}</span>
               <span><Clock3 size={14} aria-hidden="true" />{readableTime(pick.gameTime)}</span>
             </time>
-            {pick.odds ? <span className="ep-pick-odds"><span>Odds</span><strong>{pick.odds}</strong></span> : null}
+            {pick.trackingBasis === "standard-simulated" ? <span className="ep-pick-odds"><span>Simulated</span><strong>-110</strong></span> : null}
+            {pick.odds ? <span className="ep-pick-odds"><span>Quoted odds</span><strong>{pick.odds}</strong></span> : null}
           </div>
         </article>)}
       </div> : <div className="fs-empty">No {sport} EZPZ Picks for {readableDate(selectedDate)}.</div>}
