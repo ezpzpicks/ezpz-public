@@ -37,7 +37,7 @@ export default function CompactMatchup({ id, sport, away, home, awayScore, homeS
       {market.projection && <span className="compactMarketProjection">Projected <b>{market.projection}</b><ProjectionAdjustment points={market.adjustment} label={market.name} /></span>}
       {market.detail && <span className="ncaamEdge">{market.detail}</span>}
       {market.grade && <small className="compactGrade">{market.grade}</small>}
-      {market.result && <small className="compactResult">Result: {market.result}</small>}
+      {market.result && market.result.trim().toLowerCase() !== "pending" && <small className="compactResult">Result: {market.result}</small>}
     </div>)}</div> : <p className="ncaamPending">No saved model forecast for this matchup.</p>}
     {finalScore && <div className="ncaamFinal"><span>Final score</span><div className="compactFinalTeams"><div><span>{finalScore.awayTeam || away}</span><strong>{finalScore.away}</strong></div><div><span>{finalScore.homeTeam || home}</span><strong>{finalScore.home}</strong></div></div></div>}
     <button ref={trigger} className="ncaamOpen" type="button" aria-haspopup="dialog" onClick={() => { returnY.current = window.scrollY; window.history.pushState({ ...window.history.state, ezpzMatchup: id }, "", window.location.href); setOpen(true); }}>Matchup details <span aria-hidden="true">›</span><span className="ez-sr-only"> for {away} at {home}</span></button>

@@ -55,7 +55,7 @@ export default function FullSlateHistory<T extends Slate>({ sport, data, childre
   const saved = archive?.sport === sport && archive.date === selected ? archive : null;
   const view = historical ? saved?.data ? { ...data, ...saved.data, draftKings: undefined, bestPlays: [], betTrackerRows: [] } as T : null : data;
   return <section className="slateHistory">
-    <div className="slateHistoryControls">
+    <div className="fullSlateDateControl">
       <label><span>Slate date</span><select aria-label={`View ${sport} full slate`} value={selected}
         onChange={event => setChoice({ sport, date: event.target.value })}>
         {available.map(date => <option key={date} value={date}>{formatFullSlateDate(date)}</option>)}
@@ -65,9 +65,7 @@ export default function FullSlateHistory<T extends Slate>({ sport, data, childre
     {view ? <SlateDisplayFinals sport={sport} date={selected}>{children(view, historical)}</SlateDisplayFinals> : <p className="slateHistoryStatus" role={saved?.error ? "alert" : "status"}>
       {saved?.error ? <>Saved projections could not be loaded. <button type="button" onClick={() => setRetry(n => n + 1)}>Try again</button></> : "Loading saved projections…"}</p>}
     <style jsx>{`
-      .slateHistory{display:grid;gap:18px;min-width:0}.slateHistoryControls{display:flex;align-items:flex-end;flex-wrap:wrap;gap:12px 20px;padding:16px;border:1px solid var(--ez-border);border-radius:18px;background:var(--ez-panel)}
-      label{display:grid;gap:7px;min-width:0;max-width:100%;flex:0 1 300px}label>span{color:var(--ez-muted);font-size:.75rem;font-weight:850}select{box-sizing:border-box;width:100%;max-width:100%;min-width:0;min-height:44px;border:1px solid var(--ez-border);border-radius:11px;padding:10px 12px;background:var(--ez-panel-2);color:var(--ez-text,#eef6ff);font:inherit;color-scheme:dark}select:focus-visible,button:focus-visible{outline:2px solid #78b9ff;outline-offset:3px}
-      .slateHistoryControls p{margin:0 0 10px;color:var(--ez-muted);font-size:.8rem}.slateHistoryStatus{margin:0;padding:20px;border:1px solid var(--ez-border);border-radius:16px;color:var(--ez-muted)}button{min-height:44px;margin-left:6px;border:1px solid var(--ez-border);border-radius:9px;padding:8px 12px;background:var(--ez-panel-2);color:#8bc5ff;font:inherit;cursor:pointer}@media(max-width:620px){label{flex-basis:100%;width:100%}.slateHistoryControls p{margin:0}}
+      .slateHistory{display:grid;gap:18px;min-width:0}.slateHistoryStatus{margin:0;padding:20px;border:1px solid var(--ez-border);border-radius:16px;color:var(--ez-muted)}button{min-height:44px;margin-left:6px;border:1px solid var(--ez-border);border-radius:9px;padding:8px 12px;background:var(--ez-panel-2);color:#8bc5ff;font:inherit;cursor:pointer}button:focus-visible{outline:2px solid #78b9ff;outline-offset:3px}
     `}</style>
   </section>;
 }

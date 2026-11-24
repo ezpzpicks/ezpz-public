@@ -50,3 +50,8 @@ body:has(.ez-sitewide)::before{display:none}
 }
 .ez-sitewide .nbaBoard :is(.nbaScore strong,.nbaSelection,.nbaMetrics dd){color:#eef0f3}
 .ez-sitewide .nbaBoard .nbaMarketCard{border-radius:0;border-width:1px 0 0!important}
+
+/* One compact Full Slate date control across sports; ISO selection is unchanged. */
+.ez-sitewide .fullSlateDateControl{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin:8px 0 16px;min-width:0}
+.ez-sitewide .fullSlateDateControl label{display:flex;align-items:center;flex-wrap:wrap;gap:10px;min-width:0;max-width:100%;color:#b4c7dc;font-size:14px}
+.ez-sitewide .fullSlateDateControl select{box-sizing:border-box;min-width:0;max-width:100%;min-height:44px;padding:10px 14px;border:1px solid #29405b;border-radius:10px;background:#0d1a2a;color:#b7e2ff;color-scheme:dark;font:inherit}
