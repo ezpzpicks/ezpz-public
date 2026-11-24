@@ -148,14 +148,17 @@ function modelFor(play: AnyRow, sport: SignalSport, core: AnyRow, asOf: number, 
     return selectionKey({ ...model, market: model.role, selection: model.play, selectionTeam: model.play, side: model.play }, sport) === selected;
   });
   const slate = (core.slateToday || []).find((row: AnyRow) => footballTeamGameKey(row, sport) === key);
-  if (marketProjectionPending(slate) && asOf >= Date.parse(slate?.["Market Tracking Effective At"] || "")) {
+  const preview = sport === "NCAAF" && slate?.["Build Phase"] === "preview";
+  if (preview || (marketProjectionPending(slate) && asOf >= Date.parse(slate?.["Market Tracking Effective At"] || ""))) {
     const home = selected === footballTeamKey(play.homeTeam,sport), a = projectionAdjustments(slate), line = signalNumber(play.line);
     const margin = signalNumber(slate?.["Projected Margin"]), total = signalNumber(slate?.["Projected Total"]);
-    const projection = play.market === "Total" ? total : margin == null ? null : home ? -margin : margin;
+    const available = !preview || (Date.parse(slate?.["Build At"] || "") <= asOf
+      && asOf < Date.parse(nflKickoffIso(play.date, play.gameTime)));
+    const projection = !available ? null : play.market === "Total" ? total : margin == null ? null : home ? -margin : margin;
     return {active:false,available:projection != null,edge:projection == null || line == null ? null : play.market === "Spread" ? line-projection : (projection-line)*(selected === "Over" ? 1 : -1),
       context:{play:String(slate?.[play.market + " Pick"] || ""),grade:"Ungraded",version:String(slate?.["Model Version"] || ""),projection,line,probability:null,
         projectionAdjustment:play.market === "Total" ? a?.total : home ? a?.homeSpread : a?.awaySpread,
-        reason:"Market-tracked projection; new grading rules are pending."}};
+        reason:preview ? "Ungraded morning preview; the normal builder save is pending." : "Market-tracked projection; new grading rules are pending."}};
   }
   if (sport === "NCAAF" && String(slate?.["Grading Policy Version"] || "").startsWith("ncaaf-sp-edge-")) {
     const current = signalNumber(play.line), context = ncaafMatchupContext(slate || {});

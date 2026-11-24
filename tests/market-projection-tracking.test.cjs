@@ -91,7 +91,8 @@ test('NBA original A/B records survive while adjusted forecasts and later baseli
  const vote=nbaModel.nbaModelFor(play,merged,clock+1000);assert.equal(vote.active,false);assert.equal(vote.context.grade,'Ungraded');assert(vote.context.projectionAdjustment>0);
 });
 test('football overlay preserves the original ledger and props and cannot cast a new model vote',async()=>{
- const adapter=require('../lib/footballMarketProjection.ts'),oldRead=store.readMarketProjectionBundle;
+ const adapter=require('../lib/footballMarketProjection.ts'),oldRead=store.readMarketProjectionBundle,oldDatasetRead=db.readTursoDatasetByDateKeys;
+ db.readTursoDatasetByDateKeys=async()=>[];
  try{for(const sport of ['NFL','NCAAF']){
   const f=candidate(sport),a=activation(sport),r=native(sport),before={today:date,slateToday:[r],bestPlays:[{game:'Away @ Home',role:'Total',play:'Over 50'},
    {game:'Away @ Home',role:'Player Prop',playerName:'Player',play:'Over 50'}],betTrackerRows:[{Selection:'Over 50',Grade:'A',Line:'50'}],tiles:{bestPlaysToday:2}};
@@ -106,7 +107,7 @@ test('football overlay preserves the original ledger and props and cannot cast a
   const total=result.board.sides.find(s=>s.market==='Total');assert.equal(total.modelContext.projection,f.total);assert.equal(total.modelContext.projectionAdjustment,f.market_tracking.total_adjustment);
   const early=buildFootballSignalsState({sport,core:{...view,trendPlays:plays,trendRecordRows:[]},history:buildTeamTrendHistory(sport,[],[],[]),storedRows:[],now:lock+30000,capture:false,leaderboard:[]});
   assert.equal(early.board.sides.find(s=>s.market==='Total').modelContext.projection,50);
- }}finally{store.readMarketProjectionBundle=oldRead;}
+ }}finally{store.readMarketProjectionBundle=oldRead;db.readTursoDatasetByDateKeys=oldDatasetRead;}
 });
 test('insert-only collector isolates sports, dedupes refreshes, saves material changes and freezes before play',async()=>{
  const sqlite=new DatabaseSync(':memory:');sqlite.exec(`CREATE TABLE dataset_rows(sport TEXT,dataset TEXT,row_index INTEGER,payload_json TEXT,source_hash TEXT,date_key TEXT,game_key TEXT,game TEXT,market TEXT,selection TEXT,result TEXT,snapshot_time TEXT,imported_at TEXT,PRIMARY KEY(sport,dataset,row_index));CREATE TABLE dataset_manifest(sport TEXT,dataset TEXT,source_workbook TEXT,source_worksheet TEXT,headers_json TEXT,row_count INTEGER,imported_at TEXT,source_kind TEXT,PRIMARY KEY(sport,dataset));`);
@@ -140,3 +141,40 @@ test('insert-only collector isolates sports, dedupes refreshes, saves material c
 });
 
 module.exports={baseline,native,rows,candidate,activation,clock,tip,date};
+
+test('NCAAF morning preview is visible before save, never replaces a final model, and expires at kickoff',()=>{
+ const {mergeNcaafPreviews}=require('../lib/footballMarketProjection.ts');
+ const preview={...native('NCAAF'),'Build Phase':'preview'};
+ const shell={Date:date,'Game ID':'one','Game Time':iso(tip),'Away Team':'Away','Home Team':'Home'};
+ const merged=mergeNcaafPreviews([shell],[preview],clock);
+ assert.equal(merged.length,1);assert.equal(merged[0]['Projected Home'],'30');
+ assert.equal(merged[0]['Spread Grade'],'Ungraded preview');
+ assert.deepEqual(mergeNcaafPreviews([native('NCAAF')],[preview],clock),[native('NCAAF')]);
+ assert.deepEqual(mergeNcaafPreviews([shell],[preview],tip),[shell]);
+ assert.deepEqual(mergeNcaafPreviews([shell],[{...preview,'Build At':iso(clock+1)}],clock),[shell]);
+ assert.deepEqual(mergeNcaafPreviews([shell],[{...preview,'Projected Total':''}],clock),[shell]);
+ const b=core.normalizeProjectionBaseline('NCAAF',merged[0],date,iso(tip));
+ const one=candidate('NCAAF',{base:b}),two=candidate('NCAAF',{base:b,rows:rows('NCAAF',{spread:[point(lock,-10),point(clock,-8,40,30)]})});
+ assert.notEqual(one.home_score,two.home_score);
+ assert.equal(two.official_pick_eligible,false);assert.equal(two.market_tracking.grade_status,'ungraded');
+});
+
+test('NCAAF preview adapter reads a bounded dataset and never casts a graded model vote without activation',async()=>{
+ const adapter=require('../lib/footballMarketProjection.ts');
+ const old={read:db.readTursoDatasetByDateKeys,bundle:store.readMarketProjectionBundle,refresh:store.refreshMarketProjections};
+ const preview={...native('NCAAF'),'Build Phase':'preview','Grading Policy Version':'ncaaf-sp-edge-test'};
+ const calls=[];
+ db.readTursoDatasetByDateKeys=async(s,d,dates)=>{calls.push([s,d,dates]);return d==='game_previews'?[preview]:d==='weekly_market_trends'?rows(s):[];};
+ store.readMarketProjectionBundle=async()=>({activation:null,forecasts:[]});
+ store.refreshMarketProjections=async(s,bases)=>{assert.equal(s,'NCAAF');assert.equal(bases.length,1);assert.equal(bases[0].original['Build Phase'],'preview');return {captured:1};};
+ try{
+  assert.equal((await adapter.refreshFootballMarketProjections('NCAAF',clock)).captured,1);
+  const view=await adapter.applyFootballMarketProjections('NCAAF',{today:date,slateToday:[],bestPlays:[]},clock);
+  assert.equal(view.slateToday.length,1);
+  assert.deepEqual(calls.at(-1),['NCAAF','game_previews',[date]]);
+  const plays=rows('NCAAF').map(r=>({date,game:'Away @ Home',gameTime:iso(tip),awayTeam:'Away',homeTeam:'Home',market:r.Market,side:r.Side,selection:r.Selection,selectionTeam:r.Market==='Spread'?r.Selection:'',line:Number(r.Line),odds:'-110',betsPct:Number(r['Current Bets %']),moneyPct:Number(r['Current Handle %']),updatedAt:iso(clock),snapshotStatus:'LIVE',movementHistory:[]}));
+  const result=buildFootballSignalsState({sport:'NCAAF',core:{...view,trendPlays:plays,trendRecordRows:[]},history:buildTeamTrendHistory('NCAAF',[],[],[]),storedRows:[],now:clock,capture:false,leaderboard:[]});
+  assert.equal(result.board.sides.length,4);
+  for(const side of result.board.sides){assert.equal(side.signals.find(s=>s.key==='model').active,false);assert.equal(side.modelContext.grade,'Ungraded');}
+ }finally{db.readTursoDatasetByDateKeys=old.read;store.readMarketProjectionBundle=old.bundle;store.refreshMarketProjections=old.refresh;}
+});

@@ -16,7 +16,7 @@ export async function refreshFootballMarketProjections(sport: Sport, now: number
   const dateKeys = dates.flatMap(d => {const [y,m,a]=d.split("-");return [d,`${m}/${a}/${y}`,`${Number(m)}/${Number(a)}/${y}`];});
   const [slate, previews, splits] = await Promise.all([
     readTursoDatasetByDateKeys(sport,"daily_slate",dateKeys),
-    sport === "NFL" ? readTursoDatasetByDateKeys(sport,"game_previews",dateKeys) : Promise.resolve([]),
+    readTursoDatasetByDateKeys(sport,"game_previews",dateKeys),
     readTursoDatasetByDateKeys(sport,"weekly_market_trends",dateKeys),
   ]);
   const bases = [...slate,...previews].flatMap(r => {const b=normalizeProjectionBaseline(sport,r,isoDay(r.Date || r["Game Date"]),kickoff(r));return b?[b]:[];});
@@ -25,6 +25,11 @@ export async function refreshFootballMarketProjections(sport: Sport, now: number
 }
 /** Called before signal selection; the original model ledger remains unchanged. */
 export async function applyFootballMarketProjections(sport: Sport, core: Row, now = Date.now()) {
+  if (sport === "NCAAF") {
+    const today = day(now);
+    const previews = await readTursoDatasetByDateKeys(sport, "game_previews", [today]);
+    core = {...core, slateToday: mergeNcaafPreviews(core.slateToday || [], previews, now)};
+  }
   const dates = [...new Set<string>((core.slateToday || []).map((r:Row) => isoDay(r.Date || r["Game Date"])))].filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d)).slice(0,8);
   if (!dates.length) dates.push(day(now));
   const {activation,forecasts} = await readMarketProjectionBundle(sport,dates,now);
@@ -41,4 +46,22 @@ export async function applyFootballMarketProjections(sport: Sport, core: Row, no
     || !held.has(footballTeamGameKey({...p,date:isoDay(p.date || core.today)},sport)));
   return {...core,slateToday,bestPlays,marketTracking,marketTrackingBaselineSlate:core.slateToday,marketTrackingBaselinePlays:core.bestPlays,
     tiles:{...core.tiles,bestPlaysToday:bestPlays.length}};
+}
+
+/** Display-only previews never enter historical records or pick selection. */
+export function mergeNcaafPreviews(slate: Row[], previews: Row[], now: number): Row[] {
+  const result = [...slate];
+  for (const row of previews) {
+    const date = isoDay(row.Date || row["Game Date"]);
+    const base = normalizeProjectionBaseline("NCAAF", row, date, kickoff(row));
+    if (row["Build Phase"] !== "preview" || date !== day(now) || !base
+      || projectionTime(base.lockedAt) > now || projectionTime(base.tipoff) <= now) continue;
+    const index = result.findIndex(r => String(r["Game ID"]) === base.gameId || key("NCAAF", r) === key("NCAAF", row));
+    if (index >= 0 && (result[index]["Model Version"] || result[index]["Projected Away"])) continue;
+    const preview = {...(index >= 0 ? result[index] : {}), ...row,
+      "Spread Grade": "Ungraded preview", "Total Grade": "Ungraded preview", "ML Grade": "Ungraded preview"};
+    if (index >= 0) result[index] = preview;
+    else result.push(preview);
+  }
+  return result;
 }
