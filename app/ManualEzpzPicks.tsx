@@ -99,8 +99,8 @@ export default function ManualEzpzPicks({ sport }: { sport: LogoSport }) {
               <span><CalendarDays size={14} aria-hidden="true" />{readableDate(pick.date)}</span>
               <span><Clock3 size={14} aria-hidden="true" />{readableTime(pick.gameTime)}</span>
             </time>
-            {pick.trackingBasis === "standard-simulated" ? <span className="ep-pick-odds"><span>Simulated</span><strong>-110</strong></span> : null}
-            {pick.odds ? <span className="ep-pick-odds"><span>Quoted odds</span><strong>{pick.odds}</strong></span> : null}
+            <div className="ep-pick-prices">{pick.trackingBasis === "standard-simulated" ? <span className="ep-pick-odds"><span>Simulated</span><strong>-110</strong></span> : null}
+            {pick.odds ? <span className="ep-pick-odds"><span>Quoted odds</span><strong>{pick.odds}</strong></span> : null}</div>
           </div>
         </article>)}
       </div> : <div className="fs-empty">No {sport} EZPZ Picks for {readableDate(selectedDate)}.</div>}
@@ -184,8 +184,10 @@ export default function ManualEzpzPicks({ sport }: { sport: LogoSport }) {
         font-weight: 550;
         line-height: 1.5;
       }
+      .ep-pick-prices { display: flex; flex: none; gap: 10px; }
       .ep-pick-footer {
         display: flex;
+        flex-wrap: wrap;
         align-items: center;
         justify-content: space-between;
         gap: 12px;
@@ -195,6 +197,7 @@ export default function ManualEzpzPicks({ sport }: { sport: LogoSport }) {
       }
       .ep-pick-schedule {
         display: flex;
+        flex: 1 0 110px;
         flex-wrap: wrap;
         gap: 7px 14px;
         min-width: 0;
