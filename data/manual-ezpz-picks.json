@@ -1374,6 +1374,22 @@
       "selectedBy": "Ryan",
       "status": "approved",
       "result": "PENDING"
+    },
+    {
+      "id": "manual_20261124_ncaam_401906853_spread_maryland_plus_2_5",
+      "sport": "NCAAM",
+      "game": "Tennessee @ Maryland",
+      "gameTime": "2026-11-24T20:00:00.000Z",
+      "market": "Spread",
+      "selection": "Maryland +2.5",
+      "line": 2.5,
+      "odds": null,
+      "date": "2026-11-24",
+      "approvedAt": "2026-11-24T18:08:33.259Z",
+      "approvedBy": "ChatGPT",
+      "selectedBy": "Ryan",
+      "status": "approved",
+      "result": "PENDING"
     }
   ]
 }
