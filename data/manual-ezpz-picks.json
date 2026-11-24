@@ -1390,6 +1390,22 @@
       "selectedBy": "Ryan",
       "status": "approved",
       "result": "PENDING"
+    },
+    {
+      "id": "manual_20261124_ncaam_401915942_total_over_153_5",
+      "sport": "NCAAM",
+      "game": "Texas Tech @ Louisville",
+      "gameTime": "2026-11-25T01:00:00.000Z",
+      "market": "Total",
+      "selection": "Over 153.5",
+      "line": 153.5,
+      "odds": null,
+      "date": "2026-11-24",
+      "approvedAt": "2026-11-24T20:08:35.940Z",
+      "approvedBy": "ChatGPT",
+      "selectedBy": "Ryan",
+      "status": "approved",
+      "result": "PENDING"
     }
   ]
 }
