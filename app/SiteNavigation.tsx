@@ -13,7 +13,7 @@ const primary = [
 const supporting: { tab: BoardTab; label: string }[] = [
   { tab: "Records", label: "Records" },
   { tab: "Public Betting Splits", label: "Public Betting Splits" },
-  { tab: "Full Slate", label: "Full Slate" },
+  { tab: "Full Slate", label: "Projections" },
 ];
 
 export function SiteHeader({ sport, onSportChange, dates, date, onDateChange, refreshing, onRefresh }: {
@@ -42,7 +42,7 @@ export function SiteHeader({ sport, onSportChange, dates, date, onDateChange, re
 export default function SiteNavigation({ active, onChange, sport }: { active: BoardTab; onChange: (tab: BoardTab) => void; sport: BoardSport }) {
   const [moreOpen, setMoreOpen] = useState(false);
   const mobileTrial = true;
-  const primaryPages = mobileTrial ? [{ tab: "EZPZ Picks" as const, label: "Picks", Icon: Zap }, { tab: "Full Slate" as const, label: "Full Slate", Icon: List }, primary[2]] : primary;
+  const primaryPages = mobileTrial ? [{ tab: "EZPZ Picks" as const, label: "Picks", Icon: Zap }, { tab: "Full Slate" as const, label: "Projections", Icon: List }, primary[2]] : primary;
   const supportPages = mobileTrial ? [{ tab: "Signals" as const, label: "Signals" }, ...supporting.filter(item => item.tab !== "Full Slate")] : supporting;
   const menu = useRef<HTMLDivElement>(null);
   const moreButton = useRef<HTMLButtonElement>(null);

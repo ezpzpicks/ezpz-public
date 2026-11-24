@@ -40,7 +40,7 @@ for(const sport of ['NFL','NCAAF'])test(`${sport} full slate uses the same compa
  assert.match(html,/Home score decreased by 1\.0/);assert.match(html,/Away score decreased by 3\.0/);assert.match(html,/Ungraded/);
  assert.doesNotMatch(html,/Model probability|95\.0%|94\.0%/);
  const {document}=require('linkedom').parseHTML(html),board=document.querySelector('.nbaBoard');
- assert.equal(board.children[0].textContent,`${sport} Full Slate`);assert.equal(board.children[1].tagName,'ARTICLE');
+ assert.equal(board.children[0].textContent,`${sport} Projections`);assert.equal(board.children[1].tagName,'ARTICLE');
  assert.equal(board.querySelectorAll('.nbaMarketCard').length,2);
  const awayRow={...r,'Projected Margin':'-9','Market Home Spread':'7.5','Spread Pick':'Away -7.5','Spread Edge':'1.5'};
  const awayHtml=render(React.createElement(Ncaaf,{sport,fullSlate:true,rows:[awayRow],groups:[]}));

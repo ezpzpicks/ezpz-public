@@ -6696,7 +6696,7 @@ function SportDevelopmentContent({
       <>
         <div className="sectionHead">
           <div>
-            <h2>{meta.name} Full Slate</h2>
+            <h2>{meta.name} Projections</h2>
           </div>
         </div>
 
@@ -7468,7 +7468,7 @@ export default function Home() {
           return aGame.localeCompare(bGame);
         });
         return <section className="nbaBoard mlbModelBoard">
-          <div className="nbaIntro"><h2>MLB Full Slate</h2></div>
+          <div className="nbaIntro"><h2>MLB Projections</h2></div>
           {rows.map((row, index) => <SlateCard key={`${row["Game ID"] || row["Game Key"] || row["Game Label"]}-${index}`} row={row} draftKings={slateMarket} />)}
           {!rows.length ? <div className="nbaCard">No games saved for {formatFullSlateDate(slateData.today || "")}.</div> : null}
         </section>;
@@ -7611,7 +7611,7 @@ export default function Home() {
       ) : null}
 
       {active === "Today’s Model Plays" ? <div className="modelViewActions">
-        <button type="button" className="fullSlateShortcut" onClick={() => changeTab("Full Slate")}>View Full Slate</button>
+        <button type="button" className="fullSlateShortcut" onClick={() => changeTab("Full Slate")}>View Projections</button>
       </div> : null}
 
       {active === "Records" ? <>

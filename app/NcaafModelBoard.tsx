@@ -147,11 +147,11 @@ export default function NcaafModelBoard({ sport = "NCAAF", fullSlate, rows, grou
     .sort((a, b) => Number(status(b.row || {}) === "In progress") - Number(status(a.row || {}) === "In progress"));
   const card = (group: Group) => <ForecastCard key={group.row?.["Game ID"] || group.game} sport={sport} group={group} qualifiedOnly={!fullSlate} tracker={tracker} today={today} />;
   return <section className={`nbaBoard ${sport === "NCAAF" ? "ncaafModelBoard" : "nflModelBoard"}`}>
-    <div className="nbaIntro"><h2>{sport} {fullSlate ? "Full Slate" : "Model Plays"}</h2></div>
+    <div className="nbaIntro"><h2>{sport} {fullSlate ? "Projections" : "Model Plays"}</h2></div>
     {fullSlate ? <>{activeCards.map(card)}{completed.length ? <details className="completedGames" open={!activeCards.length}>
       <summary>Completed games <span>{completed.length}</span></summary><div className="completedGamesList">{completed.map(card)}</div>
     </details> : null}</> : cards.map(card)}
     {!cards.length ? <div className="nbaCard">{fullSlate ? `No ${sport} games have been collected for this date.` : rows.some(marketProjectionPending)
-      ? `New ${sport} grades are pending. Updated projections are available in Full Slate.` : `No ${sport} model plays for this slate.`}</div> : null}
+      ? `New ${sport} grades are pending. Updated projections are available in Projections.` : `No ${sport} model plays for this slate.`}</div> : null}
   </section>;
 }

@@ -103,7 +103,7 @@ test('NCAAF Full Slate keeps numerical grades and eligibility with cards directl
  const section=html.split('aria-label="Spread forecast"')[1].split('aria-label="Total forecast"')[0];
  assert(section.includes('Grade A'));assert(section.includes('Projection only'));
  const {document}=require('linkedom').parseHTML(html),board=document.querySelector('.ncaafModelBoard');
- assert.equal(board.children[0].querySelector('h2').textContent,'NCAAF Full Slate');
+ assert.equal(board.children[0].querySelector('h2').textContent,'NCAAF Projections');
  assert.equal(board.children[1].tagName,'ARTICLE');
  assert(html.includes('Adjusted offense'));assert(html.includes('Adjusted defense'));assert(html.includes('Tempo'));
  for(const text of ['Point-edge grade','Matchup strength is already included','NCAAF play mix','Full Saturday target','Input confidence flags'])assert(!html.includes(text),text);

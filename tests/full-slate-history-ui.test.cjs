@@ -76,7 +76,7 @@ test('date switching loads the requested saved slate, guards races and failures,
     const pending = h.requests.at(-1);
     await h.render('NCAAF', { today: current.today, slateToday: [{ Game: 'College game' }] });
     assert.equal(pending.signal.aborted, true);
-    assert.equal(document.querySelector('select').getAttribute('aria-label'), 'View NCAAF full slate');
+    assert.equal(document.querySelector('select').getAttribute('aria-label'), 'View NCAAF projections');
     assert.equal(document.querySelector('article').textContent, 'College game');
     assert.deepEqual([...document.querySelectorAll('option')].map(option => option.value), [current.today]);
   } finally { await act(async () => h.root.unmount()); }
