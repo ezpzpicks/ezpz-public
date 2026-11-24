@@ -19,7 +19,7 @@ jobs:
           cache: npm
       - run: npm ci --no-audit --no-fund
       - run: npm run test:ncaam-selection
-      - run: node --test tests/ncaam-projection-adjustments.test.cjs tests/ncaam-market-tracking.test.cjs tests/ncaam-point-edges.test.cjs tests/ncaam-matchup-grades.test.cjs tests/ncaam-spread-grades.test.cjs tests/ncaam-signal-fallback.test.cjs tests/ncaam-launch.test.cjs tests/ncaam-collection.test.cjs tests/ncaam-division-one.test.cjs tests/ncaam-lineups.test.cjs tests/ncaaf-edge-grades.test.cjs tests/ncaaf-play-mix.test.cjs
+      - run: node --test tests/ncaam-projection-adjustments.test.cjs tests/ncaam-market-tracking.test.cjs tests/ncaam-point-edges.test.cjs tests/ncaam-matchup-grades.test.cjs tests/ncaam-spread-grades.test.cjs tests/ncaam-signal-fallback.test.cjs tests/ncaam-launch.test.cjs tests/ncaam-collection.test.cjs tests/ncaam-eastern-rollover.test.cjs tests/ncaam-division-one.test.cjs tests/ncaam-lineups.test.cjs tests/ncaaf-edge-grades.test.cjs tests/ncaaf-play-mix.test.cjs
       - run: node --test tests/nba-signals-ui.test.cjs tests/football-signals-ui.test.cjs tests/matchup-context-ui.test.cjs tests/matchup-context.test.cjs tests/matchup-context-store.test.cjs tests/matchup-context-route.test.cjs
       - run: node --test tests/turso-history.cjs
       - run: npx tsc --noEmit
