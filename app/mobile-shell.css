@@ -93,7 +93,7 @@
  .ncaamSlateTrial .nbaIntro h2{font-size:28px;line-height:1.15;margin:0;font-weight:800;letter-spacing:-.035em;white-space:nowrap}
  .ncaamSlateTrial .ncaamTitleSport{display:none}
  .ncaamStartTime{display:block;margin:18px 0 12px;font-size:17px;font-weight:750;letter-spacing:.01em;color:#dde1e7}
- .ncaamCompact{background:#171e26;border:1px solid #2d3946;border-radius:9px;padding:10px 12px 0;margin-bottom:12px}
+ .ncaamCompact{background:#101112;border:1px solid #2d3946;border-radius:9px;padding:10px 12px 0;margin-bottom:12px}
  .ncaamScoreLabel{font-size:9px;text-align:right;color:#9ba6b4;margin:0 45px 5px 0}
  .ncaamCompactTeam{grid-template-columns:minmax(0,1fr) 52px 41px;gap:6px;min-height:40px;margin:2px 0}
  .ncaamCompactTeam>span:first-child{font-size:14px!important;font-weight:700;gap:10px!important}
@@ -106,7 +106,7 @@
  .ncaamCompactMarket{display:flex;flex-direction:column;gap:4px;padding:0 10px 0 0;border:0;min-width:0;text-align:left}
  .ncaamCompactMarket+.ncaamCompactMarket{border-left:1px solid #485462;padding:0 0 0 14px}
  .ncaamCompactMarket .ncaamMarketLabel{text-transform:uppercase;font-size:11px;font-weight:750;letter-spacing:.07em;color:#bac2ce;text-align:left}
- .ncaamCompactMarket>strong{font-size:16px;line-height:1.3;text-align:left;overflow-wrap:anywhere}
+ .ncaamCompactMarket>strong{font-family:inherit;font-size:14px;font-weight:700;line-height:1.3;text-align:left;overflow-wrap:anywhere}
  .ncaamCompactMarket>.ncaamEdge{font-size:12px;color:#cbd1da;text-align:left}
  .ncaamOpen{border-top:1px solid #46515e;color:#57afff;font-size:14px;font-weight:700;min-height:44px;padding:8px 0}
  .ncaamOpen>span[aria-hidden]{font-size:26px;font-weight:400;line-height:1}
