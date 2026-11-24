@@ -20,20 +20,34 @@ function tracking(sport){return {policy:policy.MARKET_PROJECTION_POLICY,sport,pr
 function row(sport,tracked=true){return {Date:'2035-11-23','Game ID':'one',Game:'Away @ Home','Game Time':'2035-11-23T20:00:00Z','Away Team':'Away','Home Team':'Home',
  'Spread Probability':'0.95','Total Probability':'0.94','Projected Away':'17','Projected Home':'29','Projected Margin':'12','Projected Total':'46','Spread Pick':'Home -10','Total Pick':'Under 50','Market Home Spread':'-10','Market Total':'50','Spread Edge':'2','Total Edge':'4',
  ...(tracked?{'Market Tracking JSON':JSON.stringify(tracking(sport)),'Market Tracking Grade Status':'ungraded','Spread Grade':'Ungraded','Total Grade':'Ungraded'}:{'Spread Grade':'Research','Total Grade':'Research'})};}
-test('NBA forecast card shows score deltas, both spread directions, total delta and an Ungraded badge',()=>{
- const forecast={gameId:'one',modelVersion:policy.trackingModelVersion('NBA'),lockedAt:'2035-11-23T18:00:00Z',tipoff:'2035-11-23T20:00:00Z',phase:'early',away_team:'Away',home_team:'Home',away_score:97,home_score:109,total:206,fair_home_spread:-12,market:{home_spread:-10,total:210},spread_grade:'Ungraded',total_grade:'Ungraded',grading_status:'awaiting_market_tracking_grades',market_tracking:tracking('NBA')};
+test('NBA forecast card shows only the selected spread side with its market line and adjustment',()=>{
+ const forecast={gameId:'one',modelVersion:policy.trackingModelVersion('NBA'),lockedAt:'2035-11-23T18:00:00Z',tipoff:'2035-11-23T20:00:00Z',phase:'early',away_team:'Away',home_team:'Home',away_score:97,home_score:109,total:206,fair_home_spread:-12,market:{home_spread:-10,total:210},spread_pick:'Home -10',home_spread_edge:2,spread_grade:'Ungraded',total_grade:'Ungraded',grading_status:'awaiting_market_tracking_grades',market_tracking:tracking('NBA')};
  const html=render(React.createElement(Nba,{sport:'NBA',forecast}));
- assert.match(html,/Home strength increased by 2\.0/);assert.match(html,/Away strength decreased by 2\.0/);assert.match(html,/total decreased by 4\.0/);
+ assert.match(html,/Home strength increased by 2\.0/);assert.doesNotMatch(html,/Away strength/);assert.match(html,/total decreased by 4\.0/);
  assert.match(html,/Home score decreased by 1\.0/);assert.match(html,/Away score decreased by 3\.0/);assert.match(html,/>Ungraded</);
+ const {parseHTML}=require('linkedom'),spread=parseHTML(html).document.querySelector('[aria-label="Spread forecast"]');
+ assert.deepEqual([...spread.querySelectorAll('dt')].map(el=>el.textContent),['Model spread','Market spread','Edge']);
+ assert.equal(spread.querySelectorAll('dd')[0].childNodes[0].textContent,'-12');assert.equal(spread.querySelectorAll('dd')[1].textContent,'-10');
+ const away=render(React.createElement(Nba,{sport:'NBA',forecast:{...forecast,fair_home_spread:-8,spread_pick:'Away +10',home_spread_edge:-2}}));
+ const awaySpread=parseHTML(away).document.querySelector('[aria-label="Spread forecast"]');
+ assert.equal(awaySpread.querySelectorAll('dd')[0].childNodes[0].textContent,'+8');assert.equal(awaySpread.querySelectorAll('dd')[1].textContent,'+10');
+ assert.match(awaySpread.innerHTML,/Away strength decreased by 2\.0/);assert.doesNotMatch(awaySpread.innerHTML,/Home strength/);
+ assert.equal(parseHTML(away).document.querySelector('[aria-label="Total forecast"]').outerHTML,parseHTML(html).document.querySelector('[aria-label="Total forecast"]').outerHTML);
 });
 for(const sport of ['NFL','NCAAF'])test(`${sport} full slate uses the same compact arrows and suppresses inherited probabilities`,()=>{
  const r=row(sport),html=render(React.createElement(Ncaaf,{sport,fullSlate:true,rows:[r],groups:[]}));
- assert.match(html,/Home strength increased by 2\.0/);assert.match(html,/Away strength decreased by 2\.0/);assert.match(html,/total decreased by 4\.0/);
+ assert.match(html,/Home strength increased by 2\.0/);assert.doesNotMatch(html,/Away strength/);assert.match(html,/total decreased by 4\.0/);
  assert.match(html,/Home score decreased by 1\.0/);assert.match(html,/Away score decreased by 3\.0/);assert.match(html,/Ungraded/);
  assert.doesNotMatch(html,/Model probability|95\.0%|94\.0%/);
  const {document}=require('linkedom').parseHTML(html),board=document.querySelector('.nbaBoard');
  assert.equal(board.children[0].textContent,`${sport} Full Slate`);assert.equal(board.children[1].tagName,'ARTICLE');
  assert.equal(board.querySelectorAll('.nbaMarketCard').length,2);
+ const awayRow={...r,'Projected Margin':'-9','Market Home Spread':'7.5','Spread Pick':'Away -7.5','Spread Edge':'1.5'};
+ const awayHtml=render(React.createElement(Ncaaf,{sport,fullSlate:true,rows:[awayRow],groups:[]}));
+ const awaySpread=require('linkedom').parseHTML(awayHtml).document.querySelector('[aria-label="Spread forecast"]');
+ assert.deepEqual([...awaySpread.querySelectorAll('dt')].map(el=>el.textContent),['Model spread','Market spread','Edge']);
+ assert.equal(awaySpread.querySelectorAll('dd')[0].childNodes[0].textContent,'-9');assert.equal(awaySpread.querySelectorAll('dd')[1].textContent,'-7.5');
+ assert.equal(awaySpread.querySelectorAll('dd')[2].textContent,'1.5 pts');assert.match(awaySpread.innerHTML,/Away strength decreased by 2\.0/);assert.doesNotMatch(awaySpread.innerHTML,/Home strength/);
  const older=row(sport,false),legacy=render(React.createElement(Ncaaf,{sport,fullSlate:true,rows:[older],groups:[]}));
  assert.doesNotMatch(legacy,/class="projectionAdjustment"/);
 });

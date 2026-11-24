@@ -72,9 +72,13 @@ function ForecastCard({ forecast, game, qualifiedOnly = false, sport = "NBA" }: 
   const spreadGrade = sport === "NCAAM" && !gradingPending ? ncaamSpreadGrade(forecast) : null;
   const newPointModel = sport === "NCAAM" && isNcaamPointModel(forecast.modelVersion);
   const point = newPointModel ? ncaamPointProjection(forecast) : null;
+  const awaySpread = forecast.spread_pick?.startsWith(`${forecast.away_team} `)
+    ?? (forecast.home_spread_edge != null && forecast.home_spread_edge < 0);
+  const spreadSign = awaySpread ? -1 : 1;
+  const spreadTeam = awaySpread ? forecast.away_team : forecast.home_team;
   const markets = [
-    { name: "Spread", pick: forecast.spread_pick, grade: forecast.spread_grade, model: signed(forecast.fair_home_spread),
-      line: forecast.market ? signed(forecast.market.home_spread) : "—", edge: forecast.home_spread_edge, result: forecast.spreadResult },
+    { name: "Spread", pick: forecast.spread_pick, grade: forecast.spread_grade, model: signed(spreadSign * forecast.fair_home_spread),
+      line: forecast.market ? signed(spreadSign * forecast.market.home_spread) : "—", edge: forecast.home_spread_edge, result: forecast.spreadResult },
     { name: "Total", pick: forecast.total_pick, grade: forecast.total_grade, model: forecast.total.toFixed(1),
       line: forecast.market ? String(forecast.market.total) : "—", edge: forecast.total_edge, result: forecast.totalResult },
   ];
@@ -96,12 +100,10 @@ function ForecastCard({ forecast, game, qualifiedOnly = false, sport = "NBA" }: 
       <div className="nbaMarketHeading"><h4>{market.name}</h4><span className="nbaGrade" data-grade={market.grade}>{gradingPending ? "Ungraded" : `Grade ${market.grade || "—"}`}</span></div>
       <strong className="nbaSelection">{market.pick || "No market line"}</strong>
       <dl className="nbaMetrics">
-        <div><dt>{market.name === "Spread" ? "Model home spread" : "Model total"}</dt><dd title={market.name === "Spread" ? forecast.home_team : undefined}>{market.model}
-          <ProjectionAdjustment points={market.name === "Spread" ? adjustments?.homeSpread : adjustments?.total}
-            label={market.name === "Spread" ? `${forecast.home_team} strength` : "total"} /></dd>
-          {market.name === "Spread" && adjustments ? <><dt className="nbaAwayProjection">Model away spread</dt><dd title={forecast.away_team}>{signed(-forecast.fair_home_spread)}
-            <ProjectionAdjustment points={adjustments.awaySpread} label={`${forecast.away_team} strength`} /></dd></> : null}</div>
-        <div><dt>{market.name === "Spread" ? "Market home spread" : "Market total"}</dt><dd>{market.line}</dd></div>
+        <div><dt>{market.name === "Spread" ? "Model spread" : "Model total"}</dt><dd title={market.name === "Spread" ? spreadTeam : undefined}>{market.model}
+          <ProjectionAdjustment points={market.name === "Spread" ? awaySpread ? adjustments?.awaySpread : adjustments?.homeSpread : adjustments?.total}
+            label={market.name === "Spread" ? `${spreadTeam} strength` : "total"} /></dd></div>
+        <div><dt>{market.name === "Spread" ? "Market spread" : "Market total"}</dt><dd>{market.line}</dd></div>
         <div><dt>{market.name === "Total" && matchupGrade && !point ? "Point-model lean" : "Edge"}</dt><dd>{market.name === "Total" && matchupGrade && !point
           ? forecast.numeric_total_pick || "—" : market.edge == null ? "—" : `${Math.abs(market.edge).toFixed(1)} pts`}</dd></div>
       </dl>

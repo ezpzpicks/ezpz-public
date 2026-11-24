@@ -63,7 +63,6 @@
 .projectionAdjustment[data-direction="up"] { color: #6ee7b7; }
 .projectionAdjustment[data-direction="down"] { color: #fda4af; }
 .nbaBoard .nbaScore .projectionAdjustment span { color: inherit; font-size: inherit; line-height: inherit; }
-.nbaBoard .nbaAwayProjection { margin-top: 10px; }
 .nbaBoard .nbaMarkets, .nbaBoard .nbaMarketQuotes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .nbaBoard .nbaMarketCard { min-width: 0; padding: 16px; border: 1px solid #29405b; border-radius: 12px; background: #0d1a2a; }
 .nbaBoard .nbaMarketHeading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }

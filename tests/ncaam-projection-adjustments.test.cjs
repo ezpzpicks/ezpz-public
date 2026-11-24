@@ -51,13 +51,21 @@ test('compact arrows render direction, points and an accessible baseline explana
  assert.match(down,/data-direction="down"/);assert.match(down,/↓ 1\.3 pts/);
  for(const points of [undefined,null,NaN,Infinity,0,-0,0.049,-0.049])assert.equal(render(React.createElement(Arrow,{points})), '');
 });
-test('full slate shows opposite spread arrows, total decrease and true team score changes',()=>{
+test('full slate shows the edge side spread, total decrease and true team score changes',()=>{
  const markup=slate(forecast());
- assert.match(markup,/Model home spread/);assert.match(markup,/Home strength increased by 2\.0/);
- assert.match(markup,/Model away spread/);assert.match(markup,/Away strength decreased by 2\.0/);
+ assert.match(markup,/Model spread/);assert.match(markup,/Home strength increased by 2\.0/);
+ assert.doesNotMatch(markup,/Model home spread|Model away spread|Market home spread|Away strength/);
  assert.match(markup,/total decreased by 4\.0/);
  assert.match(markup,/Home score decreased by 1\.0/);assert.match(markup,/Away score decreased by 3\.0/);
- assert.equal((markup.match(/class="projectionAdjustment"/g)||[]).length,5);
+ assert.equal((markup.match(/class="projectionAdjustment"/g)||[]).length,4);
+ const away=slate({...forecast(-2,-2),fair_home_spread:9,home_spread_edge:-1.5,spread_pick:'Away -7.5',market:{...forecast().market,home_spread:7.5}});
+ const spread=require('linkedom').parseHTML(away).document.querySelector('[aria-label="Spread forecast"]');
+ assert.equal(spread.querySelectorAll('dd')[0].childNodes[0].textContent,'-9');assert.equal(spread.querySelectorAll('dd')[1].textContent,'-7.5');
+ assert.equal(spread.querySelectorAll('dd')[2].textContent,'1.5 pts');assert.match(spread.innerHTML,/Away strength increased by 2\.0/);assert.doesNotMatch(spread.innerHTML,/Home strength/);
+ const homeDog=slate({...forecast(),fair_home_spread:1.5,spread_pick:'Home +3',market:{...forecast().market,home_spread:3}});
+ const dogSpread=require('linkedom').parseHTML(homeDog).document.querySelector('[aria-label="Spread forecast"]');
+ assert.equal(dogSpread.querySelectorAll('dd')[0].childNodes[0].textContent,'+1.5');assert.equal(dogSpread.querySelectorAll('dd')[1].textContent,'+3');
+ assert.match(dogSpread.innerHTML,/Home strength increased by 2\.0/);
  assert.doesNotMatch(slate({...forecast(),modelVersion:'legacy'}),/class="projectionAdjustment"/);
  assert.doesNotMatch(slate(forecast(),'NBA'),/class="projectionAdjustment"/);
  assert.doesNotMatch(slate(forecast(0,0)),/class="projectionAdjustment"/);

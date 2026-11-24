@@ -75,14 +75,19 @@ function ForecastCard({ group, sport, qualifiedOnly = false, tracker, today }: {
     if (qualifiedOnly && !play) return [];
     const margin = numeric(row["Projected Margin"]);
     const selection = qualifiedOnly ? play?.play || row[`${name} Pick`] : row[`${name} Pick`];
+    const awaySpread = selection?.startsWith(`${pair.away} `)
+      ?? (margin != null && margin + (numeric(row["Market Home Spread"]) ?? 0) < 0);
+    const spreadSign = awaySpread ? -1 : 1;
     const result = tracker.find(record => record["Game ID"] && record["Game ID"] === row["Game ID"]
       && record["Bet Type"] === name && record.Selection === selection)?.Result;
     const savedGrade = name === "Spread" ? context?.spread : context?.total;
     return [{ name, play, selection, result, grade: pending ? "Ungraded" : gradeLabel(qualifiedOnly ? play?.playType
         : savedGrade?.grading_basis === "market_point_edge" ? savedGrade.edge_grade : row[`${name} Grade`]),
       held: savedGrade?.grading_basis === "market_point_edge" && savedGrade.eligible === false,
-      model: name === "Spread" ? margin == null ? "—" : signed(-margin) : decimal(row["Projected Total"]),
-      line: name === "Spread" ? signed(row["Market Home Spread"]) : decimal(row["Market Total"]),
+      model: name === "Spread" ? margin == null ? "—" : signed(-spreadSign * margin) : decimal(row["Projected Total"]),
+      line: name === "Spread" ? numeric(row["Market Home Spread"]) == null ? "—" : signed(spreadSign * Number(row["Market Home Spread"])) : decimal(row["Market Total"]),
+      spreadTeam: awaySpread ? pair.away : pair.home,
+      adjustment: name === "Spread" ? awaySpread ? adjustments?.awaySpread : adjustments?.homeSpread : adjustments?.total,
       edge: numeric(row[`${name} Edge`]), odds: row[`${name} Odds`] || play?.marketOdds || play?.oddsLine || "",
       probability: pending ? null : numeric(row[`${name} Probability`]) ?? numeric(play?.score) }];
   });
@@ -98,10 +103,9 @@ function ForecastCard({ group, sport, qualifiedOnly = false, tracker, today }: {
         <div className="nbaMarketHeading"><h4>{market.name}</h4><span className="nbaGrade" data-grade={market.grade}>{pending ? "Ungraded" : `Grade ${market.grade}`}</span></div>
         {market.held && market.grade !== "Research" ? <p className="nbaSmall">Projection only · Saved eligibility or price check did not qualify.</p> : null}
         <strong className="nbaSelection"><SelectionWithTeamLogo sport={sport} selection={market.selection || "No market line"} game={group.game} /></strong>
-        <dl className="nbaMetrics"><div><dt>{market.name === "Spread" ? "Model home spread" : "Model total"}</dt><dd>{market.model}
-          <ProjectionAdjustment points={market.name === "Spread" ? adjustments?.homeSpread : adjustments?.total} label={market.name === "Spread" ? `${pair.home} strength` : "total"} /></dd>
-          {market.name === "Spread" && adjustments ? <><dt className="nbaAwayProjection">Model away spread</dt><dd>{signed(row["Projected Margin"])}<ProjectionAdjustment points={adjustments.awaySpread} label={`${pair.away} strength`} /></dd></> : null}</div>
-          <div><dt>{market.name === "Spread" ? "Market home spread" : "Market total"}</dt><dd>{market.line}</dd></div>
+        <dl className="nbaMetrics"><div><dt>{market.name === "Spread" ? "Model spread" : "Model total"}</dt><dd title={market.name === "Spread" ? market.spreadTeam : undefined}>{market.model}
+          <ProjectionAdjustment points={market.adjustment} label={market.name === "Spread" ? `${market.spreadTeam} strength` : "total"} /></dd></div>
+          <div><dt>{market.name === "Spread" ? "Market spread" : "Market total"}</dt><dd>{market.line}</dd></div>
           <div><dt>Edge</dt><dd>{market.edge == null ? "—" : `${Math.abs(market.edge).toFixed(1)} pts`}</dd></div></dl>
         {market.odds || market.probability != null ? <p className="nbaSmall">{market.odds ? `Odds ${market.odds}` : ""}{market.odds && market.probability != null ? " · " : ""}{market.probability != null ? `${matchupDriven ? "Uncalibrated simulation" : "Model probability"} ${(Math.abs(market.probability) <= 1 ? market.probability * 100 : market.probability).toFixed(1)}%` : ""}</p> : null}
         {context ? <MatchupGrade context={context} market={market.name} row={row} /> : null}
