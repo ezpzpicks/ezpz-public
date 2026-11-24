@@ -4,7 +4,7 @@ import { MatchupWithLogos } from "./TeamLogoName";
 import dynamic from "next/dynamic";
 import type { FootballSignalsBoard } from "../lib/footballSignals";
 import type { NcaafEzpzSubtype } from "../lib/ncaafEzpzWilson";
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { latestNbaForecasts, type NbaModelPlay, type NbaModelRecords, type NbaRecordTotals } from "../lib/nbaRecords";
 import type { FootballSignalSide } from "../lib/footballSignals";
 import type { NbaSignalTest } from "../lib/nbaAnalysisCore";
@@ -156,12 +156,16 @@ function ModelSlate({ tab, data }: { tab: string; data: NbaMarketPayload }) {
       : <MissingForecastCard key={game["Game ID"]} game={game} splits={data.splits} sport={sport} />;
     return fullSlate && sport === "NCAAM" ? <NcaamMobileMatchup key={game["Game ID"]} game={game} forecast={forecast}>{card}</NcaamMobileMatchup> : card;
   };
+  const timedCards = (items: Row[]) => items.map((game, index) => <Fragment key={game["Game ID"]}>
+    {sport === "NCAAM" && (index === 0 || time(items[index - 1]["Game Time"]) !== time(game["Game Time"])) && <h3 className="ncaamStartTime"><time dateTime={game["Game Time"]}>{time(game["Game Time"])}</time></h3>}
+    {gameCard(game)}
+  </Fragment>);
   return <section className={`nbaBoard${fullSlate && sport === "NCAAM" ? " ncaamSlateTrial" : ""}`}>
-    <div className="nbaIntro"><h2>{fullSlate ? `${sport} Full Slate` : `${sport} Model Plays`}</h2></div>
-    {fullSlate ? <>{activeGames.map(gameCard)}
+    <div className="nbaIntro"><h2>{fullSlate ? <><span className="ncaamTitleSport">{sport} </span>Full Slate</> : `${sport} Model Plays`}</h2></div>
+    {fullSlate ? <>{timedCards(activeGames)}
       {completed.length ? <details className="completedGames" open={!activeGames.length}>
         <summary>Completed games <span>{completed.length}</span></summary>
-        <div className="completedGamesList">{completed.map(gameCard)}</div>
+        <div className="completedGamesList">{timedCards(completed)}</div>
       </details> : null}
     </> : qualified.map(forecast => <ForecastCard key={`${forecast.gameId}-${forecast.modelVersion}-${forecast.lockedAt}`}
       forecast={forecast} sport={sport} qualifiedOnly game={games.find(game => game["Game ID"] === forecast.gameId)} />)}
@@ -189,10 +193,10 @@ function ArchivedSlate({ data, picks = false }: { data: NbaMarketPayload; picks?
     return () => controller.abort();
   }, [selected, current, retry, sport, field]);
   const view = selected === current ? data : archive?.date === selected ? archive.data : undefined;
-  return <><div className="nbaControls"><label>{picks ?  `View ${sport} picks slate` : `View ${sport} slate`} <select aria-label={picks ? `View ${sport} picks slate` : `View ${sport} full slate`} value={selected} onChange={event => setDate(event.target.value)} disabled={!dates.length}>
-    {dates.map(day => <option key={day} value={day}>{day}</option>)}</select></label></div>
+  return <div className={sport === "NCAAM" && !picks ? "ncaamArchive" : undefined}><div className="nbaControls"><label><span className="nbaDateLabel">{picks ?  `View ${sport} picks slate` : `View ${sport} slate`}</span> <select aria-label={picks ? `View ${sport} picks slate` : `View ${sport} full slate`} value={selected} onChange={event => setDate(event.target.value)} disabled={!dates.length}>
+    {dates.map(day => <option key={day} value={day}>{sport === "NCAAM" && !picks ? new Intl.DateTimeFormat("en-US", { timeZone: "UTC", weekday: "short", month: "short", day: "numeric" }).format(new Date(`${day}T12:00:00Z`)) : day}</option>)}</select></label></div>
     {view ? <NbaLineupProvider lineups={view.lineups}>{picks ? <NbaEzpzPicks data={view} /> : <ModelSlate tab="Full Slate" data={view} />}</NbaLineupProvider> : <div className="nbaBoard"><p className="nbaCard" role={archive?.error ? "alert" : "status"}>
-      {archive?.error ? <>The saved slate could not be loaded. <button type="button" onClick={() => setRetry(n => n + 1)}>Try again</button></> : `Loading saved ${sport} slate…`}</p></div>}</>;
+      {archive?.error ? <>The saved slate could not be loaded. <button type="button" onClick={() => setRetry(n => n + 1)}>Try again</button></> : `Loading saved ${sport} slate…`}</p></div>}</div>;
 }
 
 export default function NbaBoard({ tab, data }: { tab: string; data: NbaMarketPayload }) {

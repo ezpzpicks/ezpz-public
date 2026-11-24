@@ -51,26 +51,25 @@ export default function NcaamMobileMatchup({ game, forecast, children }: {
     -forecast.fair_home_spread, forecast.market?.home_spread ?? null) : null;
   const spreadSign = side === "away" ? -1 : 1;
   const close = () => { if (window.history.state?.ezpzMatchup === game["Game ID"]) window.history.back(); else setOpen(false); };
-  const tipoff = Date.parse(game["Game Time"]);
   const rows = forecast ? [
     { name: "Spread", pick: forecast.spread_pick || "No market line", model: side ? number(spreadSign * forecast.fair_home_spread, true) : "—", market: side && forecast.market ? number(spreadSign * forecast.market.home_spread, true) : "—", edge: forecast.home_spread_edge, delta: side === "away" ? adjustments?.awaySpread : side === "home" ? adjustments?.homeSpread : null, label: `${side === "away" ? away : home} strength` },
     { name: "Total", pick: forecast.total_pick || "No market line", model: number(forecast.total), market: number(forecast.market?.total), edge: forecast.total_edge, delta: adjustments?.total, label: "total" },
   ] : [];
   return <article className="ncaamCompact" data-game-id={game["Game ID"]}>
-    <div className="ncaamCompactMeta"><time dateTime={game["Game Time"]}>{Number.isFinite(tipoff) ? new Date(tipoff).toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" }) + " ET" : "Time pending"}</time><span>{status}{game.Status === "STATUS_IN_PROGRESS" ? " · In progress" : ""}</span></div>
     <div className="ncaamScoreLabel">Projected score</div>
     {([ [away, forecast?.away_score, adjustments?.awayScore], [home, forecast?.home_score, adjustments?.homeScore] ] as const).map(([team, score, delta]) => <div className="ncaamCompactTeam" key={team}>
-      <TeamLogoName sport="NCAAM" team={team} compact /><strong>{number(score)}<ProjectionAdjustment points={delta} label={`${team} score`} /></strong>
+      <TeamLogoName sport="NCAAM" team={team} compact /><strong>{number(score)}</strong><span className="ncaamMovement"><ProjectionAdjustment points={delta} label={`${team} score`} /></span>
     </div>)}
-    {rows.length ? <div className="ncaamCompactMarkets"><div className="ncaamColumnHeads"><span>Market / selection</span><span>Model</span><span>Line</span><span>Edge</span></div>
-      {rows.map(row => <div className="ncaamCompactMarket" key={row.name}><span><b>{row.name}</b><small>{row.pick}</small></span><strong>{row.model}<ProjectionAdjustment points={row.delta} label={row.label} /></strong><span>{row.market}</span><span>{row.edge == null || !Number.isFinite(row.edge) ? "—" : `${Math.abs(row.edge).toFixed(1)}`}<small>pts</small></span></div>)}
+    <div className="ncaamCompactMeta"><span>{status}{game.Status === "STATUS_IN_PROGRESS" ? " · In progress" : ""}</span></div>
+    {rows.length ? <div className="ncaamCompactMarkets">
+      {rows.map(row => <div className="ncaamCompactMarket" key={row.name}><span className="ncaamMarketLabel">{row.name}</span><strong>{row.pick}</strong><span className="ncaamEdge">{row.edge == null || !Number.isFinite(row.edge) ? "Edge unavailable" : `${Math.abs(row.edge).toFixed(1)} pt edge`}</span></div>)}
     </div> : <p className="ncaamPending">Pending · No saved model forecast</p>}
     {final && <p className="ncaamFinal">Final score · {game["Away Score"] || "—"} – {game["Home Score"] || "—"}</p>}
     <button ref={trigger} className="ncaamOpen" type="button" aria-haspopup="dialog" onClick={() => {
       returnY.current = window.scrollY;
       window.history.pushState({ ...window.history.state, ezpzMatchup: game["Game ID"] }, "", window.location.href);
       setOpen(true);
-    }}>Matchup details <span aria-hidden="true">↗</span><span className="ez-sr-only"> for {away} at {home}</span></button>
+    }}>Matchup details <span aria-hidden="true">›</span><span className="ez-sr-only"> for {away} at {home}</span></button>
     {open && <dialog ref={dialog} className="ncaamSheet" aria-label={`${away} at ${home} matchup details`} onCancel={event => { event.preventDefault(); close(); }}>
       <div className="ncaamSheetHeader"><span>Matchup details</span><button type="button" onClick={close} autoFocus>Back to slate</button></div>
       {children}

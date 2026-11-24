@@ -22,6 +22,7 @@ export function SiteHeader({ sport, onSportChange, dates, date, onDateChange, re
 }) {
   return <>
     <header className="ez-header">
+      <div className="ez-trial-brand" aria-label="EZPZ Picks"><svg viewBox="0 0 92 44" aria-hidden="true"><path fill="currentColor" d="M16 2h34l-5 10H25l-3 6h17l-5 9H18l-3 6h22l-5 10H0zM55 2h37l-5 10-30 21h22l-5 10H37l5-10 30-21H50z" /></svg><span>EZPZ PICKS</span></div>
       <div className="ez-brand"><img src="/ezpz_logo.png" width={44} height={44} alt="EZPZ Picks logo" /><h1>EZPZ Picks</h1></div>
       <button type="button" className="ez-refresh" onClick={onRefresh} disabled={refreshing} aria-label={`Refresh ${sport} public board`}>
         <RefreshCw size={21} className={refreshing ? "ez-refreshing" : ""} aria-hidden="true" />
