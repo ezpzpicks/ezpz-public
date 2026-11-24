@@ -78,3 +78,19 @@ test('NFL Full Slate routes to open forecast cards while Model Plays keeps expan
  const plays=render(React.createElement(Board,{sport:'NFL',tab:'Today’s Model Plays',data:{...data,bestPlays:[{game:r.Game,gameTime:r['Game Time'],role:'Player Prop',playType:'B Prop',play:'Player Over 50',playerName:'Player',propMarket:'Receiving Yards',propSide:'Over',propLine:50}]}}));
  assert.match(plays,/fgtModelGame/);assert.match(plays,/<details/);
 });
+
+test('abbreviated NFL selections keep the headline, signed numbers and arrow on the same team',()=>{
+ const r={...row('NFL'),Game:'Cincinnati Bengals @ Washington Commanders','Away Team':'Cincinnati Bengals','Home Team':'Washington Commanders',
+  'Projected Margin':'-10.8','Market Home Spread':'6','Spread Pick':'CIN -6','Spread Edge':'4.8'};
+ const html=render(React.createElement(Ncaaf,{sport:'NFL',fullSlate:true,rows:[r],groups:[]}));
+ const spread=require('linkedom').parseHTML(html).document.querySelector('[aria-label="Spread forecast"]');
+ assert.equal(spread.querySelectorAll('dd')[0].childNodes[0].textContent,'-10.8');
+ assert.equal(spread.querySelectorAll('dd')[1].textContent,'-6');
+ assert.equal(spread.querySelectorAll('dd')[0].getAttribute('title'),'Cincinnati Bengals');
+ assert.match(spread.innerHTML,/Cincinnati Bengals strength decreased/);
+ assert.doesNotMatch(spread.innerHTML,/Washington Commanders strength/);
+ const home=render(React.createElement(Ncaaf,{sport:'NFL',fullSlate:true,rows:[{...r,'Spread Pick':'WSH +6'}],groups:[]}));
+ const homeSpread=require('linkedom').parseHTML(home).document.querySelector('[aria-label="Spread forecast"]');
+ assert.equal(homeSpread.querySelectorAll('dd')[0].childNodes[0].textContent,'+10.8');
+ assert.equal(homeSpread.querySelectorAll('dd')[1].textContent,'+6');
+});

@@ -21,6 +21,7 @@ import { ncaamTrackingGradesPending } from "../lib/ncaamMarketTrackingPolicy";
 import { ncaamProjectionAdjustments } from "../lib/ncaamProjectionAdjustments";
 import ProjectionAdjustment from "./ProjectionAdjustment";
 import { marketProjectionPending, projectionAdjustments } from "../lib/marketProjectionPolicy";
+import { selectedSpreadSide } from "../lib/selectionSide";
 
 const PublicSplits = dynamic(() => import("./NbaPublicSplits"), { loading: () => <div className="fs-empty">Loading NBA markets…</div> });
 const Signals = dynamic(() => import("./FootballSignalsBoard"), { loading: () => <div className="fs-empty">Loading signals…</div> });
@@ -72,8 +73,8 @@ function ForecastCard({ forecast, game, qualifiedOnly = false, sport = "NBA" }: 
   const spreadGrade = sport === "NCAAM" && !gradingPending ? ncaamSpreadGrade(forecast) : null;
   const newPointModel = sport === "NCAAM" && isNcaamPointModel(forecast.modelVersion);
   const point = newPointModel ? ncaamPointProjection(forecast) : null;
-  const awaySpread = forecast.spread_pick?.startsWith(`${forecast.away_team} `)
-    ?? (forecast.home_spread_edge != null && forecast.home_spread_edge < 0);
+  const awaySpread = selectedSpreadSide(sport, forecast.spread_pick, forecast.away_team, forecast.home_team,
+    -forecast.fair_home_spread, forecast.market?.home_spread ?? null) === "away";
   const spreadSign = awaySpread ? -1 : 1;
   const spreadTeam = awaySpread ? forecast.away_team : forecast.home_team;
   const markets = [
@@ -89,12 +90,8 @@ function ForecastCard({ forecast, game, qualifiedOnly = false, sport = "NBA" }: 
   if (gradingPending) for (const market of markets) market.grade = "Ungraded";
   return <article className="nbaCard" data-game-id={forecast.gameId}>
     <h3><MatchupWithLogos sport={sport} game={`${forecast.away_team} @ ${forecast.home_team}`} /></h3>
-    <p className="nbaMeta"><time dateTime={forecast.tipoff}>{time(forecast.tipoff)}</time><span>{forecast.phase === "pregame" ? "Pregame refresh" : forecast.phase === "early" ? "Early forecast" : "Manual forecast"}</span>
-      {gameStatus(game) && <span>{gameStatus(game)}</span>}</p>
-    {forecast.availability_mode === "expected_rotation" && <p className="nbaNotice">Expected rotation · Injury availability unchecked · Starters unconfirmed</p>}
-    {forecast.availability_mode === "rotowire_html" && <p className="nbaNotice">RotoWire availability checked · {forecast.starters_confirmed ? "Starting fives confirmed" : "Projected starting fives"} · Unresolved statuses remain conditional</p>}
-    <NbaGameLineups gameId={forecast.gameId} sport={sport} />
-    {sport === "NCAAM" && <NcaamModelDetails forecast={forecast} />}
+    <p className="nbaMeta"><time dateTime={forecast.tipoff}>{time(forecast.tipoff)}</time>
+      {gameStatus(game) && <span className="gameStatus" data-status={gameStatus(game)}>{gameStatus(game)}</span>}</p>
     <Score away={forecast.away_team} home={forecast.home_team} awayScore={forecast.away_score.toFixed(1)} homeScore={forecast.home_score.toFixed(1)} label="Projected score" adjustments={adjustments} />
     <div className="nbaMarkets">{markets.filter(market => !qualifiedOnly || ["A", "B"].includes(market.grade || "")).map(market => <section className="nbaMarketCard" key={market.name} aria-label={`${market.name} forecast`}>
       <div className="nbaMarketHeading"><h4>{market.name}</h4><span className="nbaGrade" data-grade={market.grade}>{gradingPending ? "Ungraded" : `Grade ${market.grade || "—"}`}</span></div>
@@ -114,7 +111,11 @@ function ForecastCard({ forecast, game, qualifiedOnly = false, sport = "NBA" }: 
       {!gradingPending && market.result && <p className="nbaSmall">Result: <strong>{market.result}</strong></p>}
     </section>)}</div>
     <GameScore game={game} />
-    <p className="nbaSmall">{gradingPending ? "Updated" : "Locked"} {time(forecast.lockedAt)}{forecast.market ? ` · ${forecast.market.source || "ScoresAndOdds"} ${time(forecast.market.as_of)} · assumed -110` : ""}</p>
+    <NbaGameLineups gameId={forecast.gameId} sport={sport} notice={forecast.availability_mode === "expected_rotation"
+      ? "Expected rotation · Injury availability unchecked · Starters unconfirmed"
+      : forecast.availability_mode === "rotowire_html" ? `RotoWire availability checked · ${forecast.starters_confirmed ? "Starting fives confirmed" : "Projected starting fives"} · Unresolved statuses remain conditional` : undefined} />
+    {sport === "NCAAM" && <NcaamModelDetails forecast={forecast} />}
+    <p className="nbaSmall forecastTimestamp">{gradingPending ? "Updated" : "Locked"} {time(forecast.lockedAt)}{forecast.market ? ` · ${forecast.market.source || "ScoresAndOdds"} ${time(forecast.market.as_of)} · assumed -110` : ""}</p>
   </article>;
 }
 
@@ -128,11 +129,11 @@ function MissingForecastCard({ game, splits, sport = "NBA" }: { game: Row; split
     <p className="nbaMeta"><time dateTime={game["Game Time"]}>{time(game["Game Time"])}</time>{gameStatus(game) && <span>{gameStatus(game)}</span>}</p>
     <GameScore game={game} />
     <p className="nbaNotice">No saved model forecast for this matchup.</p>
-    <NbaGameLineups gameId={game["Game ID"]} sport={sport} />
     <dl className="nbaMarketQuotes">
       <div><dt>Market home spread · {game["Home Team"]}</dt><dd>{line(homeSpread, true)}</dd></div>
       <div><dt>Market total</dt><dd>{line(total)}</dd></div>
     </dl>
+    <NbaGameLineups gameId={game["Game ID"]} sport={sport} />
   </article>;
 }
 
@@ -145,13 +146,22 @@ function ModelSlate({ tab, data }: { tab: string; data: NbaMarketPayload }) {
     : [forecast.spread_grade, forecast.total_grade].some(grade => grade === "A" || grade === "B"));
   const games = [...data.games].sort((a, b) => Date.parse(a["Game Time"]) - Date.parse(b["Game Time"]));
   const fullSlate = tab === "Full Slate";
+  const completed = games.filter(game => gameStatus(game) === "Final");
+  const activeGames = games.filter(game => gameStatus(game) !== "Final")
+    .sort((a, b) => Number(gameStatus(b) === "In progress") - Number(gameStatus(a) === "In progress"));
+  const gameCard = (game: Row) => {
+    const forecast = latestByGame.get(game["Game ID"]);
+    return forecast ? <ForecastCard key={game["Game ID"]} forecast={forecast} game={game} sport={sport} />
+      : <MissingForecastCard key={game["Game ID"]} game={game} splits={data.splits} sport={sport} />;
+  };
   return <section className="nbaBoard">
     <div className="nbaIntro"><h2>{fullSlate ? `${sport} Full Slate` : `${sport} Model Plays`}</h2></div>
-    {fullSlate ? games.map(game => {
-      const forecast = latestByGame.get(game["Game ID"]);
-      return forecast ? <ForecastCard key={game["Game ID"]} forecast={forecast} game={game} sport={sport} />
-        : <MissingForecastCard key={game["Game ID"]} game={game} splits={data.splits} sport={sport} />;
-    }) : qualified.map(forecast => <ForecastCard key={`${forecast.gameId}-${forecast.modelVersion}-${forecast.lockedAt}`}
+    {fullSlate ? <>{activeGames.map(gameCard)}
+      {completed.length ? <details className="completedGames" open={!activeGames.length}>
+        <summary>Completed games <span>{completed.length}</span></summary>
+        <div className="completedGamesList">{completed.map(gameCard)}</div>
+      </details> : null}
+    </> : qualified.map(forecast => <ForecastCard key={`${forecast.gameId}-${forecast.modelVersion}-${forecast.lockedAt}`}
       forecast={forecast} sport={sport} qualifiedOnly game={games.find(game => game["Game ID"] === forecast.gameId)} />)}
     {!fullSlate && !qualified.length && <div className="nbaCard">{latest.some(f => marketProjectionPending(f) || (sport === "NCAAM" && ncaamTrackingGradesPending(f)))
       ? `New ${sport} grades are pending. Updated projections are available in Full Slate.`

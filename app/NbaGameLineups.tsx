@@ -27,12 +27,12 @@ function Team({ lineup, sport }: { lineup: NbaLineupTeam; sport: "NBA" | "NCAAM"
   </section>;
 }
 
-export default function NbaGameLineups({ gameId, game, date, lineups, sport = "NBA" }: { gameId?: string; game?: string; date?: string; lineups?: NbaGameLineup[]; sport?: "NBA" | "NCAAM" }) {
+export default function NbaGameLineups({ gameId, game, date, lineups, sport = "NBA", notice }: { gameId?: string; game?: string; date?: string; lineups?: NbaGameLineup[]; sport?: "NBA" | "NCAAM"; notice?: string }) {
   const shared = useContext(LineupContext), lineup = findNbaLineup(lineups || shared, { gameId, game, date });
   const final = lineupFinal(lineup), college = sport === "NCAAM" || lineup?.sport === "NCAAM";
   return <details className="nbaLineups" data-game-id={gameId || lineup?.gameId}>
     <summary><span>Lineups</span><span className="nbaLineupStatus" data-final={final}>{college ? lineup ? "Projected" : "Unavailable" : final ? "Final" : "Pending"}</span><span className="nbaLineupChevron" aria-hidden="true">⌄</span></summary>
-    <div className="nbaLineupBody">{lineup ? <>
+    <div className="nbaLineupBody">{notice ? <p className="nbaLineupEmpty">{notice}</p> : null}{lineup ? <>
       <div className="nbaLineupTeams"><Team lineup={lineup.away} sport={college ? "NCAAM" : "NBA"} /><Team lineup={lineup.home} sport={college ? "NCAAM" : "NBA"} /></div>
       {college && <p className="nbaLineupEmpty">College lineups are depth-chart projections. Unlisted injuries remain unknown; incomplete fives stay incomplete.</p>}
       <p className="nbaLineupSource"><a href={lineup.sourceUrl} target="_blank" rel="noreferrer">RotoWire</a> · Updated {new Date(lineup.observedAt).toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" })} ET</p>

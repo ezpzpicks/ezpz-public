@@ -14,9 +14,10 @@ function harness(clock = '2026-10-27T12:00:00Z') {
   function load(file) {
     const filename = path.resolve(root, file);
     if (cache.has(filename)) return cache.get(filename);
+    if (filename.endsWith('.json')) return JSON.parse(fs.readFileSync(filename, 'utf8'));
     const exports = {}; cache.set(filename, exports);
     const source = ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
-      compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+      compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
     }).outputText;
     vm.runInNewContext(source, { exports, Date: Clock, Intl, console, URL,
       require: name => name.endsWith('/tursoStore') || name === './tursoStore' ? {
@@ -26,7 +27,7 @@ function harness(clock = '2026-10-27T12:00:00Z') {
           return (datasets.get(`${sport}:${dataset}`) || []).filter(row => dates.includes(row.Date));
         },
       } : name === 'next/server' ? { NextResponse: { json: (body, options) => ({ body, ...options }) } }
-        : name.startsWith('.') ? load(path.relative(root, path.resolve(path.dirname(filename), `${name}.ts`))) : require(name),
+        : name.startsWith('.') ? load(path.relative(root, path.resolve(path.dirname(filename), name.endsWith('.json') ? name : `${name}.ts`))) : require(name),
     }, { filename });
     return exports;
   }

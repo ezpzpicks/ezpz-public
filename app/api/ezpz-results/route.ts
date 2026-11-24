@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { EZPZ_RESULT_SPORTS, readSavedEzpzResults } from "../../../lib/ezpzSavedResults";
-import { getApprovedManualPicks, MANUAL_EZPZ_EFFECTIVE_DATE } from "../../../lib/manualEzpzPicks";
+import { MANUAL_EZPZ_EFFECTIVE_DATE } from "../../../lib/manualEzpzPicks";
+import { readApprovedManualPickResults } from "../../../lib/manualEzpzResults";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,7 +25,7 @@ export async function GET(request: NextRequest) {
     // pre-migration dates without being promoted into the new record.
     const manualPolicy = date >= MANUAL_EZPZ_EFFECTIVE_DATE;
     const picks = manualPolicy
-      ? getApprovedManualPicks(sport as typeof EZPZ_RESULT_SPORTS[number], date).map(pick => ({
+      ? (await readApprovedManualPickResults(sport as typeof EZPZ_RESULT_SPORTS[number], date)).map(pick => ({
           ...pick, pickCategory: "manual", pickLabel: "EZPZ PICK",
           result: pick.result || "PENDING", units: pick.netUnits ?? null,
           finalizedAt: pick.approvedAt, snapshotStatus: "FINAL_PREGAME",

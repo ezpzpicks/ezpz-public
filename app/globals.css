@@ -17,6 +17,59 @@
 
 * { box-sizing: border-box; }
 
+/* Shared, restrained presentation for forecasts and official results. */
+.modelViewActions { display: flex; justify-content: flex-end; margin: 8px 0 14px; }
+.fullSlateShortcut { min-height: 44px; padding: 10px 16px; border: 1px solid #3a6388; border-radius: 12px; background: #10243a; color: #c8e7ff; font: inherit; font-size: 14px; font-weight: 650; cursor: pointer; }
+.fullSlateShortcut:hover { background: #17324e; border-color: #70b9f5; }
+.fullSlateShortcut:focus-visible, .officialRecordDay > summary:focus-visible, .completedGames > summary:focus-visible { outline: 2px solid #8ac6ff; outline-offset: 3px; }
+.gameStatus { display: inline-flex; align-items: center; padding: 3px 8px; border: 1px solid #35485e; border-radius: 999px; color: #c4d2e0; font-size: 12px; line-height: 1.4; }
+.gameStatus[data-status="In progress"] { color: #95e9c2; border-color: #2d7059; background: #102c25; }
+.forecastDetails { margin-top: 14px; border: 1px solid #29405b; border-radius: 10px; }
+.forecastDetails > summary { min-height: 44px; padding: 11px 13px; color: #b4c7dc; font-size: 14px; cursor: pointer; }
+.forecastDetails > p { padding: 0 13px 10px; }
+.completedGames { min-width: 0; border: 1px solid #29405b; border-radius: 16px; overflow: hidden; }
+.completedGames > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 52px; padding: 14px 18px; color: #c7d7e8; background: #0c1828; font-size: 15px; cursor: pointer; }
+.completedGames > summary > span { margin-left: auto; font-variant-numeric: tabular-nums; color: #9eb5cc; }
+.completedGamesList { display: grid; gap: 16px; padding: 16px; }
+.officialRecords { --fs-dim: #a7b8cc; }
+.officialRecords .fs-heading h2 { margin-bottom: 18px; }
+.officialRecordSummary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.officialRecordSummary > div { display: grid; gap: 9px; min-width: 0; padding: 18px; border: 1px solid #29405b; border-radius: 16px; background: #0c1828; }
+.officialRecordSummary span { color: #a7b8cc; font-size: 14px; }
+.officialRecordSummary strong { color: #f1f7ff; font-size: clamp(21px, 3vw, 27px); line-height: 1.2; font-variant-numeric: tabular-nums; }
+.officialRecordNote { margin: 14px 0 24px; color: #a7b8cc; font-size: 13px; line-height: 1.6; }
+.officialRecordPending { margin-bottom: 24px; }
+.officialRecordPending h3 { display: flex; justify-content: space-between; font-size: 16px; font-weight: 650; }
+.officialRecordDay { margin-top: 14px; border: 1px solid #29405b; border-radius: 16px; background: #0b1420; overflow: hidden; }
+.officialRecordDay > summary { display: flex; align-items: center; gap: 16px; padding: 16px 18px; min-height: 54px; color: #e5eef9; font-size: 15px; cursor: pointer; }
+.officialRecordDay > summary > span:first-child { margin-right: auto; font-weight: 650; }
+.officialRecordDay > summary > span:nth-child(2) { font-variant-numeric: tabular-nums; }
+.officialRecordDayCount { color: #a7b8cc; font-size: 13px; }
+.officialRecordDay > summary::-webkit-details-marker, .completedGames > summary::-webkit-details-marker { display: none; }
+.officialRecordDay > summary::after, .completedGames > summary::after { content: "⌄"; flex: 0 0 auto; color: #a7b8cc; font-size: 18px; line-height: 1; transition: transform .15s; }
+.officialRecordDay[open] > summary::after, .completedGames[open] > summary::after { transform: rotate(180deg); }
+.officialRecordDay > div { padding: 0 16px 16px; }
+.officialRecordCard { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-top: 12px; padding: 18px; border: 1px solid #243b54; border-radius: 13px; background: #101e30; }
+.officialRecordCard > div:first-child { min-width: 0; }
+.officialRecordCard strong { display: block; color: #f1f7ff; font-size: 17px; line-height: 1.45; overflow-wrap: anywhere; }
+.officialRecordCard p { margin: 7px 0; color: #b6c7da; font-size: 14px; line-height: 1.6; overflow-wrap: anywhere; }
+.officialFinalScore { color: #a7b8cc; font-size: 13px; font-variant-numeric: tabular-nums; }
+.officialRecordOutcome { display: grid; justify-items: end; gap: 9px; flex: 0 0 auto; }
+.officialRecordOutcome small { color: #b6c7da; font-size: 13px; font-variant-numeric: tabular-nums; }
+.officialResult { display: inline-flex; align-items: center; padding: 5px 9px; border: 1px solid #485467; border-radius: 8px; color: #d4dde8; font-size: 13px; line-height: 1.4; font-weight: 650; }
+.officialResult[data-result="W"] { border-color: #29644c; color: #9ce8c0; background: #143327; }
+.officialResult[data-result="L"] { border-color: #6b3c49; color: #ffb3c0; background: #361e29; }
+.officialResult[data-result="PENDING"] { border-color: #6c5c39; color: #e6d29f; background: #302817; }
+@media (max-width: 640px) {
+  .officialRecordSummary { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .officialRecordSummary > div { padding: 16px; }
+  .officialRecordCard { padding: 15px; gap: 10px; }
+  .officialRecordCard strong { font-size: 16px; }
+  .officialRecordDay > div { padding: 0 10px 10px; }
+  .officialRecordDay > summary { padding: 15px; gap: 12px; }
+  .completedGamesList { padding: 10px; gap: 12px; }
+}
+
 /* One shared, collapsed lineup panel on each NBA matchup. */
 .nbaLineups { min-width: 0; margin: 12px 0; border: 1px solid #29405b; border-radius: 10px; background: #0b1727; color: #d6e5f4; overflow: hidden; }
 .nbaLineups > summary { display: flex; align-items: center; gap: 10px; padding: 11px 13px; min-height: 44px; cursor: pointer; list-style: none; font-size: 13px; font-weight: 700; }
@@ -51,9 +104,9 @@
 .nbaBoard .nbaIntro p, .nbaBoard .nbaCard p { color: #99aec5; margin: 8px 0; line-height: 1.5; }
 .nbaBoard .nbaCard { min-width: 0; border: 1px solid #203650; border-radius: 16px; background: #0b1420; padding: 20px; overflow-wrap: anywhere; }
 .nbaBoard .nbaCard h3 { margin: 0 0 10px; font-size: 18px; line-height: 1.4; }
-.nbaBoard .nbaMeta { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; }
+.nbaBoard .nbaMeta { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 14px; font-size: 14px; }
 .nbaBoard strong, .nbaBoard dd { color: #b7e2ff; }
-.nbaBoard .nbaSmall { font-size: 12px; color: #8ca9c8; }
+.nbaBoard .nbaSmall { font-size: 13px; color: #a7b8cc; }
 .nbaBoard .nbaScoreBlock { margin: 16px 0; }
 .nbaBoard .nbaScore { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .nbaBoard .nbaScore > div { display: flex; flex-direction: column; justify-content: space-between; gap: 6px; min-width: 0; padding: 12px; border-radius: 10px; background: #101e30; }
@@ -80,8 +133,8 @@
 .nbaBoard :is(.ncaafPlayMix, .ncaamPlayMix) .nbaMetrics { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .nbaBoard :is(.ncaafPlayMix, .ncaamPlayMix) dd small { font-size: 11px; color: #8ca9c8; font-weight: 500; }
 @media (max-width: 640px) { .nbaBoard :is(.ncaafPlayMix, .ncaamPlayMix) .nbaMetrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-.nbaBoard dt { font-size: 11px; line-height: 1.4; color: #8ca9c8; }
-.nbaBoard dd { margin: 5px 0 0; font-size: 15px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.nbaBoard dt { font-size: 13px; line-height: 1.5; color: #a7b8cc; }
+.nbaBoard dd { margin: 6px 0 0; font-size: 16px; font-weight: 750; font-variant-numeric: tabular-nums; }
 .nbaBoard .nbaMarketQuotes { margin: 16px 0 0; }
 .nbaBoard .nbaNotice, .nbaBoard .nbaCard p.nbaNotice { border: 1px solid #81632c; background: #2c2415; padding: 12px; border-radius: 12px; color: #e5cb8f; font-size: 13px; line-height: 1.5; }
 .nbaControls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 8px 0 16px; }

@@ -31,6 +31,9 @@ export type ManualApprovedPick = {
   result?: "W" | "L" | "P" | "VOID" | "PENDING";
   netUnits?: number;
   resultSource?: string;
+  resultUpdated?: string;
+  resultGameId?: string;
+  finalScore?: { away: number; home: number };
 };
 
 const SPORTS = new Set<string>(["MLB", "NFL", "NCAAF", "NBA", "NCAAM"]);
@@ -83,7 +86,14 @@ export function getApprovedManualPicks(sport?: McpSport, date?: string, now = Da
       ...(typeof row.reviewedWithMuse === "boolean" ? { reviewedWithMuse: row.reviewedWithMuse } : {}),
       ...(typeof row.notes === "string" && row.notes.trim() ? { notes: row.notes.trim() } : {}),
       result: result as ManualApprovedPick["result"],
-      ...(result !== "PENDING" ? { netUnits: row.netUnits as number, resultSource: String(row.resultSource) } : {}),
+      ...(result !== "PENDING" ? { netUnits: row.netUnits as number, resultSource: String(row.resultSource),
+        ...(typeof row.resultUpdated === "string" ? { resultUpdated: row.resultUpdated } : {}),
+        ...(typeof row.resultGameId === "string" ? { resultGameId: row.resultGameId } : {}),
+        ...(row.finalScore && typeof row.finalScore === "object"
+          && ["away", "home"].every(side => Number.isSafeInteger((row.finalScore as Record<string, unknown>)[side])
+            && Number((row.finalScore as Record<string, unknown>)[side]) >= 0)
+          ? { finalScore: row.finalScore as { away: number; home: number } } : {}),
+      } : {}),
     };
     if ((!sport || pick.sport === sport) && (!date || pick.date === date)) output.push(pick);
   }
@@ -94,6 +104,6 @@ export function manualPickForMcp(pick: ManualApprovedPick) {
   return {
     ...pick, gameKey: pick.id, pickCategory: "manual" as const,
     snapshotStatus: "FINAL_PREGAME" as const, lockedAt: pick.approvedAt,
-    selected: true, result: "", source: "ryan-selected-manual-approval",
+    selected: true, result: pick.result || "PENDING", source: "ryan-selected-manual-approval",
   };
 }

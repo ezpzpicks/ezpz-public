@@ -18,8 +18,16 @@
       "reviewedWithMuse": true,
       "status": "approved",
       "notes": "Manually selected after ChatGPT/Muse research and user review.",
-      "result": "PENDING",
-      "selectedBy": "Ryan"
+      "result": "W",
+      "selectedBy": "Ryan",
+      "netUnits": 0.8333333333333334,
+      "resultSource": "ESPN official scoreboard: https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=20261112",
+      "resultUpdated": "2026-11-24T05:38:43.858Z",
+      "resultGameId": "401922239",
+      "finalScore": {
+        "away": 62,
+        "home": 75
+      }
     },
     {
       "id": "manual_20261112_ncaam_umes_rhodeisland_spread_ri_minus22p5",
@@ -36,8 +44,16 @@
       "reviewedWithMuse": true,
       "status": "approved",
       "notes": "Manually selected after ChatGPT/Muse research and user review.",
-      "result": "PENDING",
-      "selectedBy": "Ryan"
+      "result": "L",
+      "selectedBy": "Ryan",
+      "netUnits": -1,
+      "resultSource": "ESPN official scoreboard: https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=20261112",
+      "resultUpdated": "2026-11-24T05:38:43.858Z",
+      "resultGameId": "401920064",
+      "finalScore": {
+        "away": 47,
+        "home": 67
+      }
     },
     {
       "id": "manual_20261112_ncaam_okstate_tamu_spread_okstate_plus8p5",
@@ -54,8 +70,16 @@
       "reviewedWithMuse": true,
       "status": "approved",
       "notes": "Manually selected after ChatGPT/Muse research and user review.",
-      "result": "PENDING",
-      "selectedBy": "Ryan"
+      "result": "L",
+      "selectedBy": "Ryan",
+      "netUnits": -1,
+      "resultSource": "ESPN official scoreboard: https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=20261112",
+      "resultUpdated": "2026-11-24T05:38:43.858Z",
+      "resultGameId": "401919041",
+      "finalScore": {
+        "away": 69,
+        "home": 88
+      }
     },
     {
       "id": "manual_20261112_ncaaf_memphis_usf_total_over50p5",
@@ -72,8 +96,16 @@
       "reviewedWithMuse": true,
       "status": "approved",
       "notes": "Manually selected after ChatGPT/Muse research and user review.",
-      "result": "PENDING",
-      "selectedBy": "Ryan"
+      "result": "W",
+      "selectedBy": "Ryan",
+      "netUnits": 0.9090909090909091,
+      "resultSource": "ESPN official scoreboard: https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard?dates=20261112",
+      "resultUpdated": "2026-11-24T05:38:43.858Z",
+      "resultGameId": "401862824",
+      "finalScore": {
+        "away": 52,
+        "home": 41
+      }
     },
     {
       "id": "manual_20261112_ncaam_nmstate_utep_spread_nmsu_plus5p5",
@@ -90,8 +122,16 @@
       "reviewedWithMuse": true,
       "status": "approved",
       "notes": "Manually selected after ChatGPT/Muse research and user review.",
-      "result": "PENDING",
-      "selectedBy": "Ryan"
+      "result": "W",
+      "selectedBy": "Ryan",
+      "netUnits": 0.8333333333333334,
+      "resultSource": "ESPN official scoreboard: https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=20261112",
+      "resultUpdated": "2026-11-24T05:38:43.858Z",
+      "resultGameId": "401911533",
+      "finalScore": {
+        "away": 58,
+        "home": 60
+      }
     },
     {
       "id": "manual_20261112_ncaam_ucr_sjsu_spread_ucr_plus8p5",
@@ -108,8 +148,16 @@
       "reviewedWithMuse": true,
       "status": "approved",
       "notes": "Manually selected after ChatGPT/Muse research and user review.",
-      "result": "PENDING",
-      "selectedBy": "Ryan"
+      "result": "W",
+      "selectedBy": "Ryan",
+      "netUnits": 0.9090909090909091,
+      "resultSource": "ESPN official scoreboard: https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=20261112",
+      "resultUpdated": "2026-11-24T05:38:43.858Z",
+      "resultGameId": "401911471",
+      "finalScore": {
+        "away": 80,
+        "home": 75
+      }
     },
     {
       "id": "manual_20261113_ncaam_401921721_total_under_152_5",
@@ -126,7 +174,15 @@
       "selectedBy": "Ryan",
       "status": "approved",
       "notes": "Explicitly selected by Ryan in the 19335.jpg screenshot before kickoff. Pregame approval documented by the X thread published at 2026-11-13T21:23:09.185Z: https://twitter.com/EZPZPICKS/status/2121353191556059281 (Buffer post 6af77fbc9257ce3398108c64). Website entry recorded after that publication; do not repost.",
-      "result": "PENDING"
+      "result": "W",
+      "netUnits": 0.9174311926605505,
+      "resultSource": "ESPN official scoreboard: https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=20261113",
+      "resultUpdated": "2026-11-24T05:38:43.858Z",
+      "resultGameId": "401921721",
+      "finalScore": {
+        "away": 52,
+        "home": 94
+      }
     },
     {
       "id": "manual_20261113_ncaam_401909696_total_under_149_5",
@@ -143,7 +199,15 @@
       "selectedBy": "Ryan",
       "status": "approved",
       "notes": "Explicitly selected by Ryan in the 19335.jpg screenshot before kickoff. Pregame approval documented by the X thread published at 2026-11-13T21:23:09.185Z: https://twitter.com/EZPZPICKS/status/2121353191556059281 (Buffer post 6af77fbc9257ce3398108c64). Website entry recorded after that publication; do not repost.",
-      "result": "PENDING"
+      "result": "W",
+      "netUnits": 0.9174311926605505,
+      "resultSource": "ESPN official scoreboard: https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=20261113",
+      "resultUpdated": "2026-11-24T05:38:43.858Z",
+      "resultGameId": "401909696",
+      "finalScore": {
+        "away": 60,
+        "home": 84
+      }
     },
     {
       "id": "manual_20261113_ncaam_401923270_spread_rutgers_minus21_5",
@@ -160,7 +224,15 @@
       "selectedBy": "Ryan",
       "status": "approved",
       "notes": "Explicitly selected by Ryan in the 19335.jpg screenshot before kickoff. Pregame approval documented by the X thread published at 2026-11-13T21:23:09.185Z: https://twitter.com/EZPZPICKS/status/2121353191556059281 (Buffer post 6af77fbc9257ce3398108c64). Website entry recorded after that publication; do not repost.",
-      "result": "PENDING"
+      "result": "L",
+      "netUnits": -1,
+      "resultSource": "ESPN official scoreboard: https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=20261113",
+      "resultUpdated": "2026-11-24T05:38:43.858Z",
+      "resultGameId": "401923270",
+      "finalScore": {
+        "away": 51,
+        "home": 72
+      }
     },
     {
       "id": "manual_20261113_ncaam_401906850_total_under_157_5",
@@ -177,7 +249,15 @@
       "selectedBy": "Ryan",
       "status": "approved",
       "notes": "Explicitly selected by Ryan in the 19335.jpg screenshot before kickoff. Pregame approval documented by the X thread published at 2026-11-13T21:23:09.185Z: https://twitter.com/EZPZPICKS/status/2121353191556059281 (Buffer post 6af77fbc9257ce3398108c64). Website entry recorded after that publication; do not repost.",
-      "result": "PENDING"
+      "result": "L",
+      "netUnits": -1,
+      "resultSource": "ESPN official scoreboard: https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=20261113",
+      "resultUpdated": "2026-11-24T05:38:43.858Z",
+      "resultGameId": "401906850",
+      "finalScore": {
+        "away": 78,
+        "home": 83
+      }
     },
     {
       "id": "manual_20261113_ncaam_401922211_spread_fiu_plus2_5",
@@ -194,7 +274,15 @@
       "selectedBy": "Ryan",
       "status": "approved",
       "notes": "Explicitly selected by Ryan in the 19335.jpg screenshot before kickoff. Pregame approval documented by the X thread published at 2026-11-13T21:23:09.185Z: https://twitter.com/EZPZPICKS/status/2121353191556059281 (Buffer post 6af77fbc9257ce3398108c64). Website entry recorded after that publication; do not repost.",
-      "result": "PENDING"
+      "result": "W",
+      "netUnits": 0.8695652173913043,
+      "resultSource": "ESPN official scoreboard: https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=20261113",
+      "resultUpdated": "2026-11-24T05:38:43.858Z",
+      "resultGameId": "401922211",
+      "finalScore": {
+        "away": 89,
+        "home": 80
+      }
     },
     {
       "id": "manual_20261113_ncaam_401927363_total_over_158_5",
@@ -211,7 +299,15 @@
       "selectedBy": "Ryan",
       "status": "approved",
       "notes": "Explicitly selected by Ryan in the 19335.jpg screenshot before kickoff. Pregame approval documented by the X thread published at 2026-11-13T21:23:09.185Z: https://twitter.com/EZPZPICKS/status/2121353191556059281 (Buffer post 6af77fbc9257ce3398108c64). Website entry recorded after that publication; do not repost.",
-      "result": "PENDING"
+      "result": "L",
+      "netUnits": -1,
+      "resultSource": "ESPN official scoreboard: https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=20261113",
+      "resultUpdated": "2026-11-24T05:38:43.858Z",
+      "resultGameId": "401927363",
+      "finalScore": {
+        "away": 72,
+        "home": 81
+      }
     },
     {
       "id": "manual_20261113_ncaam_401926152_total_under_148_5",
@@ -228,7 +324,15 @@
       "selectedBy": "Ryan",
       "status": "approved",
       "notes": "Explicitly selected by Ryan in the 19335.jpg screenshot before kickoff. Pregame approval documented by the X thread published at 2026-11-13T21:23:09.185Z: https://twitter.com/EZPZPICKS/status/2121353191556059281 (Buffer post 6af77fbc9257ce3398108c64). Website entry recorded after that publication; do not repost.",
-      "result": "PENDING"
+      "result": "L",
+      "netUnits": -1,
+      "resultSource": "ESPN official scoreboard: https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=20261113",
+      "resultUpdated": "2026-11-24T05:38:43.858Z",
+      "resultGameId": "401926152",
+      "finalScore": {
+        "away": 75,
+        "home": 88
+      }
     },
     {
       "id": "manual_20261113_ncaam_401926117_total_under_157_5",
@@ -245,7 +349,15 @@
       "selectedBy": "Ryan",
       "status": "approved",
       "notes": "Explicitly selected by Ryan in the 19335.jpg screenshot before kickoff. Pregame approval documented by the X thread published at 2026-11-13T21:23:09.185Z: https://twitter.com/EZPZPICKS/status/2121353191556059281 (Buffer post 6af77fbc9257ce3398108c64). Website entry recorded after that publication; do not repost.",
-      "result": "PENDING"
+      "result": "W",
+      "netUnits": 0.9090909090909091,
+      "resultSource": "ESPN official scoreboard: https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=20261113",
+      "resultUpdated": "2026-11-24T05:38:43.858Z",
+      "resultGameId": "401926117",
+      "finalScore": {
+        "away": 90,
+        "home": 66
+      }
     },
     {
       "id": "manual_20261113_ncaaf_401858526_total_under_48_5",
@@ -262,7 +374,15 @@
       "selectedBy": "Ryan",
       "status": "approved",
       "notes": "Explicitly selected by Ryan in the 19335.jpg screenshot before kickoff. Pregame approval documented by the X thread published at 2026-11-13T21:23:09.185Z: https://twitter.com/EZPZPICKS/status/2121353191556059281 (Buffer post 6af77fbc9257ce3398108c64). Website entry recorded after that publication; do not repost.",
-      "result": "PENDING"
+      "result": "W",
+      "netUnits": 0.8849557522123894,
+      "resultSource": "ESPN official scoreboard: https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard?dates=20261113",
+      "resultUpdated": "2026-11-24T05:38:43.858Z",
+      "resultGameId": "401858526",
+      "finalScore": {
+        "away": 14,
+        "home": 22
+      }
     },
     {
       "id": "manual_20261113_ncaam_401920123_spread_cal_poly_plus2_5",
@@ -279,7 +399,15 @@
       "selectedBy": "Ryan",
       "status": "approved",
       "notes": "Explicitly selected by Ryan in the 19335.jpg screenshot before kickoff. Pregame approval documented by the X thread published at 2026-11-13T21:23:09.185Z: https://twitter.com/EZPZPICKS/status/2121353191556059281 (Buffer post 6af77fbc9257ce3398108c64). Website entry recorded after that publication; do not repost.",
-      "result": "PENDING"
+      "result": "W",
+      "netUnits": 0.8333333333333334,
+      "resultSource": "ESPN official scoreboard: https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=20261113",
+      "resultUpdated": "2026-11-24T05:38:43.858Z",
+      "resultGameId": "401920123",
+      "finalScore": {
+        "away": 83,
+        "home": 74
+      }
     },
     {
       "id": "manual_20261113_ncaam_401917980_total_over_148_5",
@@ -296,7 +424,15 @@
       "selectedBy": "Ryan",
       "status": "approved",
       "notes": "Explicitly selected by Ryan in the 19335.jpg screenshot before kickoff. Pregame approval documented by the X thread published at 2026-11-13T21:23:09.185Z: https://twitter.com/EZPZPICKS/status/2121353191556059281 (Buffer post 6af77fbc9257ce3398108c64). Website entry recorded after that publication; do not repost.",
-      "result": "PENDING"
+      "result": "W",
+      "netUnits": 0.9090909090909091,
+      "resultSource": "ESPN official scoreboard: https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=20261113",
+      "resultUpdated": "2026-11-24T05:38:43.858Z",
+      "resultGameId": "401917980",
+      "finalScore": {
+        "away": 62,
+        "home": 92
+      }
     },
     {
       "id": "manual_20261113_ncaaf_401856860_spread_houston_minus7_5",
@@ -313,7 +449,15 @@
       "selectedBy": "Ryan",
       "status": "approved",
       "notes": "Explicitly selected by Ryan in the 19335.jpg screenshot before kickoff. Pregame approval documented by the X thread published at 2026-11-13T21:23:09.185Z: https://twitter.com/EZPZPICKS/status/2121353191556059281 (Buffer post 6af77fbc9257ce3398108c64). Website entry recorded after that publication; do not repost.",
-      "result": "PENDING"
+      "result": "L",
+      "netUnits": -1,
+      "resultSource": "ESPN official scoreboard: https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard?dates=20261113",
+      "resultUpdated": "2026-11-24T05:38:43.858Z",
+      "resultGameId": "401856860",
+      "finalScore": {
+        "away": 32,
+        "home": 42
+      }
     },
     {
       "id": "manual_20261114_ncaaf_401861967_spread_james_madison_minus4_5",
@@ -330,7 +474,15 @@
       "selectedBy": "Ryan",
       "status": "approved",
       "notes": "Explicitly selected and authorized for website publication and one X thread by Ryan in the 19366.jpg and 19368.jpg screenshots on November 14, 2026. Exact screenshot line and odds retained; 1 unit per play. Check the November 14 daily card thread in Buffer before any repost.",
-      "result": "PENDING"
+      "result": "L",
+      "netUnits": -1,
+      "resultSource": "ESPN official scoreboard: https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard?dates=20261114",
+      "resultUpdated": "2026-11-24T05:38:43.858Z",
+      "resultGameId": "401861967",
+      "finalScore": {
+        "away": 22,
+        "home": 46
+      }
     },
     {
       "id": "manual_20261114_ncaaf_401858297_spread_georgia_tech_plus15_5",
@@ -347,7 +499,15 @@
       "selectedBy": "Ryan",
       "status": "approved",
       "notes": "Explicitly selected and authorized for website publication and one X thread by Ryan in the 19366.jpg and 19368.jpg screenshots on November 14, 2026. Exact screenshot line and odds retained; 1 unit per play. Check the November 14 daily card thread in Buffer before any repost.",
-      "result": "PENDING"
+      "result": "W",
+      "netUnits": 0.9090909090909091,
+      "resultSource": "ESPN official scoreboard: https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard?dates=20261114",
+      "resultUpdated": "2026-11-24T05:38:43.858Z",
+      "resultGameId": "401858297",
+      "finalScore": {
+        "away": 20,
+        "home": 6
+      }
     },
     {
       "id": "manual_20261114_ncaaf_401862825_spread_east_carolina_minus10_5",
@@ -364,7 +524,15 @@
       "selectedBy": "Ryan",
       "status": "approved",
       "notes": "Explicitly selected and authorized for website publication and one X thread by Ryan in the 19366.jpg and 19368.jpg screenshots on November 14, 2026. Exact screenshot line and odds retained; 1 unit per play. Check the November 14 daily card thread in Buffer before any repost.",
-      "result": "PENDING"
+      "result": "L",
+      "netUnits": -1,
+      "resultSource": "ESPN official scoreboard: https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard?dates=20261114",
+      "resultUpdated": "2026-11-24T05:38:43.858Z",
+      "resultGameId": "401862825",
+      "finalScore": {
+        "away": 17,
+        "home": 16
+      }
     },
     {
       "id": "manual_20261114_ncaam_401911015_spread_miami_oh_minus8_5",
@@ -381,7 +549,15 @@
       "selectedBy": "Ryan",
       "status": "approved",
       "notes": "Explicitly selected and authorized for website publication and one X thread by Ryan in the 19366.jpg and 19368.jpg screenshots on November 14, 2026. Exact screenshot line and odds retained; 1 unit per play. Check the November 14 daily card thread in Buffer before any repost.",
-      "result": "PENDING"
+      "result": "L",
+      "netUnits": -1,
+      "resultSource": "ESPN official scoreboard: https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=20261114",
+      "resultUpdated": "2026-11-24T05:38:43.858Z",
+      "resultGameId": "401911015",
+      "finalScore": {
+        "away": 86,
+        "home": 78
+      }
     },
     {
       "id": "manual_20261114_ncaam_401922220_spread_north_florida_minus3_5",
@@ -398,7 +574,15 @@
       "selectedBy": "Ryan",
       "status": "approved",
       "notes": "Explicitly selected and authorized for website publication and one X thread by Ryan in the 19366.jpg and 19368.jpg screenshots on November 14, 2026. Exact screenshot line and odds retained; 1 unit per play. Check the November 14 daily card thread in Buffer before any repost.",
-      "result": "PENDING"
+      "result": "L",
+      "netUnits": -1,
+      "resultSource": "ESPN official scoreboard: https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=20261114",
+      "resultUpdated": "2026-11-24T05:38:43.858Z",
+      "resultGameId": "401922220",
+      "finalScore": {
+        "away": 77,
+        "home": 74
+      }
     },
     {
       "id": "manual_20261114_ncaam_401921038_spread_jackson_state_plus9_5",
@@ -415,7 +599,15 @@
       "selectedBy": "Ryan",
       "status": "approved",
       "notes": "Explicitly selected and authorized for website publication and one X thread by Ryan in the 19366.jpg and 19368.jpg screenshots on November 14, 2026. Exact screenshot line and odds retained; 1 unit per play. Check the November 14 daily card thread in Buffer before any repost.",
-      "result": "PENDING"
+      "result": "W",
+      "netUnits": 0.8849557522123894,
+      "resultSource": "ESPN official scoreboard: https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=20261114",
+      "resultUpdated": "2026-11-24T05:38:43.858Z",
+      "resultGameId": "401921038",
+      "finalScore": {
+        "away": 76,
+        "home": 72
+      }
     },
     {
       "id": "manual_20261114_ncaaf_401870796_total_under_49_5",
@@ -432,7 +624,15 @@
       "selectedBy": "Ryan",
       "status": "approved",
       "notes": "Explicitly selected and authorized for website publication and one X thread by Ryan in the 19366.jpg and 19368.jpg screenshots on November 14, 2026. Exact screenshot line and odds retained; 1 unit per play. Check the November 14 daily card thread in Buffer before any repost.",
-      "result": "PENDING"
+      "result": "W",
+      "netUnits": 0.9090909090909091,
+      "resultSource": "ESPN official final: https://site.api.espn.com/apis/site/v2/sports/football/college-football/summary?event=401870796",
+      "resultUpdated": "2026-11-24T05:38:43.858Z",
+      "resultGameId": "401870796",
+      "finalScore": {
+        "away": 21,
+        "home": 27
+      }
     },
     {
       "id": "manual_20261114_ncaaf_401858523_spread_oregon_minus10_5",
@@ -449,7 +649,15 @@
       "selectedBy": "Ryan",
       "status": "approved",
       "notes": "Explicitly selected and authorized for website publication and one X thread by Ryan in the 19366.jpg and 19368.jpg screenshots on November 14, 2026. Exact screenshot line and odds retained; 1 unit per play. Check the November 14 daily card thread in Buffer before any repost.",
-      "result": "PENDING"
+      "result": "W",
+      "netUnits": 0.9523809523809523,
+      "resultSource": "ESPN official scoreboard: https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard?dates=20261114",
+      "resultUpdated": "2026-11-24T05:38:43.858Z",
+      "resultGameId": "401858523",
+      "finalScore": {
+        "away": 7,
+        "home": 31
+      }
     },
     {
       "id": "manual_20261114_ncaam_401920307_total_under_157_5",
@@ -466,7 +674,15 @@
       "selectedBy": "Ryan",
       "status": "approved",
       "notes": "Explicitly selected and authorized for website publication and one X thread by Ryan in the 19366.jpg and 19368.jpg screenshots on November 14, 2026. Exact screenshot line and odds retained; 1 unit per play. Check the November 14 daily card thread in Buffer before any repost.",
-      "result": "PENDING"
+      "result": "W",
+      "netUnits": 0.8928571428571429,
+      "resultSource": "ESPN official scoreboard: https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=20261114",
+      "resultUpdated": "2026-11-24T05:38:43.858Z",
+      "resultGameId": "401920307",
+      "finalScore": {
+        "away": 74,
+        "home": 75
+      }
     },
     {
       "id": "manual_20261114_ncaam_401909728_total_under_156_5",
@@ -483,7 +699,15 @@
       "selectedBy": "Ryan",
       "status": "approved",
       "notes": "Explicitly selected and authorized for website publication and one X thread by Ryan in the 19366.jpg and 19368.jpg screenshots on November 14, 2026. Exact screenshot line and odds retained; 1 unit per play. Check the November 14 daily card thread in Buffer before any repost.",
-      "result": "PENDING"
+      "result": "W",
+      "netUnits": 0.8695652173913043,
+      "resultSource": "ESPN official scoreboard: https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=20261114",
+      "resultUpdated": "2026-11-24T05:38:43.858Z",
+      "resultGameId": "401909728",
+      "finalScore": {
+        "away": 51,
+        "home": 89
+      }
     },
     {
       "id": "manual_20261114_ncaam_401919782_moneyline_le_moyne_ml",
@@ -500,7 +724,15 @@
       "selectedBy": "Ryan",
       "status": "approved",
       "notes": "Explicitly selected and authorized for website publication and one X thread by Ryan in the 19366.jpg and 19368.jpg screenshots on November 14, 2026. Exact screenshot line and odds retained; 1 unit per play. Check the November 14 daily card thread in Buffer before any repost.",
-      "result": "PENDING"
+      "result": "W",
+      "netUnits": 0.8,
+      "resultSource": "ESPN official scoreboard: https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=20261114",
+      "resultUpdated": "2026-11-24T05:38:43.858Z",
+      "resultGameId": "401919782",
+      "finalScore": {
+        "away": 62,
+        "home": 76
+      }
     },
     {
       "id": "manual_20261114_ncaam_401925827_spread_north_texas_minus8_5",
@@ -517,7 +749,15 @@
       "selectedBy": "Ryan",
       "status": "approved",
       "notes": "Explicitly selected and authorized for website publication and one X thread by Ryan in the 19366.jpg and 19368.jpg screenshots on November 14, 2026. Exact screenshot line and odds retained; 1 unit per play. Check the November 14 daily card thread in Buffer before any repost.",
-      "result": "PENDING"
+      "result": "L",
+      "netUnits": -1,
+      "resultSource": "ESPN official scoreboard: https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=20261114",
+      "resultUpdated": "2026-11-24T05:38:43.858Z",
+      "resultGameId": "401925827",
+      "finalScore": {
+        "away": 65,
+        "home": 66
+      }
     },
     {
       "id": "manual_20261114_ncaam_401920193_spread_pennsylvania_plus4_5",
@@ -534,7 +774,15 @@
       "selectedBy": "Ryan",
       "status": "approved",
       "notes": "Explicitly selected and authorized for website publication and one X thread by Ryan in the 19366.jpg and 19368.jpg screenshots on November 14, 2026. Exact screenshot line and odds retained; 1 unit per play. Check the November 14 daily card thread in Buffer before any repost.",
-      "result": "PENDING"
+      "result": "L",
+      "netUnits": -1,
+      "resultSource": "ESPN official scoreboard: https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=20261114",
+      "resultUpdated": "2026-11-24T05:38:43.858Z",
+      "resultGameId": "401920193",
+      "finalScore": {
+        "away": 77,
+        "home": 83
+      }
     },
     {
       "id": "manual_20261114_ncaam_401911308_total_under_160_5",
@@ -551,7 +799,15 @@
       "selectedBy": "Ryan",
       "status": "approved",
       "notes": "Explicitly selected and authorized for website publication and one X thread by Ryan in the 19366.jpg and 19368.jpg screenshots on November 14, 2026. Exact screenshot line and odds retained; 1 unit per play. Check the November 14 daily card thread in Buffer before any repost.",
-      "result": "PENDING"
+      "result": "W",
+      "netUnits": 0.9009009009009009,
+      "resultSource": "ESPN official scoreboard: https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=20261114",
+      "resultUpdated": "2026-11-24T05:38:43.858Z",
+      "resultGameId": "401911308",
+      "finalScore": {
+        "away": 74,
+        "home": 79
+      }
     },
     {
       "id": "manual_20261114_ncaam_401919017_moneyline_uab_ml",
@@ -568,7 +824,15 @@
       "selectedBy": "Ryan",
       "status": "approved",
       "notes": "Explicitly selected and authorized for website publication and one X thread by Ryan in the 19366.jpg and 19368.jpg screenshots on November 14, 2026. Exact screenshot line and odds retained; 1 unit per play. Check the November 14 daily card thread in Buffer before any repost.",
-      "result": "PENDING"
+      "result": "L",
+      "netUnits": -1,
+      "resultSource": "ESPN official scoreboard: https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=20261114",
+      "resultUpdated": "2026-11-24T05:38:43.858Z",
+      "resultGameId": "401919017",
+      "finalScore": {
+        "away": 68,
+        "home": 71
+      }
     },
     {
       "id": "manual_20261114_ncaam_401921063_spread_portland_state_plus10_5",
@@ -585,7 +849,15 @@
       "selectedBy": "Ryan",
       "status": "approved",
       "notes": "Explicitly selected and authorized for website publication and one X thread by Ryan in the 19366.jpg and 19368.jpg screenshots on November 14, 2026. Exact screenshot line and odds retained; 1 unit per play. Check the November 14 daily card thread in Buffer before any repost.",
-      "result": "PENDING"
+      "result": "W",
+      "netUnits": 0.9090909090909091,
+      "resultSource": "ESPN official scoreboard: https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=20261114",
+      "resultUpdated": "2026-11-24T05:38:43.858Z",
+      "resultGameId": "401921063",
+      "finalScore": {
+        "away": 84,
+        "home": 68
+      }
     },
     {
       "id": "manual_20261114_ncaam_401917951_spread_wichita_state_minus12_5",
@@ -602,7 +874,15 @@
       "selectedBy": "Ryan",
       "status": "approved",
       "notes": "Explicitly selected and authorized for website publication and one X thread by Ryan in the 19366.jpg and 19368.jpg screenshots on November 14, 2026. Exact screenshot line and odds retained; 1 unit per play. Check the November 14 daily card thread in Buffer before any repost.",
-      "result": "PENDING"
+      "result": "W",
+      "netUnits": 0.9090909090909091,
+      "resultSource": "ESPN official scoreboard: https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=20261114",
+      "resultUpdated": "2026-11-24T05:38:43.858Z",
+      "resultGameId": "401917951",
+      "finalScore": {
+        "away": 60,
+        "home": 76
+      }
     },
     {
       "id": "manual_20261114_ncaam_401920568_total_under_146_5",
@@ -619,7 +899,15 @@
       "selectedBy": "Ryan",
       "status": "approved",
       "notes": "Explicitly selected and authorized for website publication and one X thread by Ryan in the 19366.jpg and 19368.jpg screenshots on November 14, 2026. Exact screenshot line and odds retained; 1 unit per play. Check the November 14 daily card thread in Buffer before any repost.",
-      "result": "PENDING"
+      "result": "W",
+      "netUnits": 0.9259259259259259,
+      "resultSource": "ESPN official scoreboard: https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=20261114",
+      "resultUpdated": "2026-11-24T05:38:43.858Z",
+      "resultGameId": "401920568",
+      "finalScore": {
+        "away": 42,
+        "home": 68
+      }
     },
     {
       "id": "manual_20261114_ncaam_401925079_spread_northwestern_state_plus9_5",
@@ -636,7 +924,15 @@
       "selectedBy": "Ryan",
       "status": "approved",
       "notes": "Explicitly selected and authorized for website publication and one X thread by Ryan in the 19366.jpg and 19368.jpg screenshots on November 14, 2026. Exact screenshot line and odds retained; 1 unit per play. Check the November 14 daily card thread in Buffer before any repost.",
-      "result": "PENDING"
+      "result": "W",
+      "netUnits": 0.9523809523809523,
+      "resultSource": "ESPN official scoreboard: https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=20261114",
+      "resultUpdated": "2026-11-24T05:38:43.858Z",
+      "resultGameId": "401925079",
+      "finalScore": {
+        "away": 83,
+        "home": 84
+      }
     },
     {
       "id": "manual_20261114_ncaaf_401860915_total_under_44_5",
@@ -653,7 +949,15 @@
       "selectedBy": "Ryan",
       "status": "approved",
       "notes": "Explicitly selected and authorized for website publication and one X thread by Ryan in the 19366.jpg and 19368.jpg screenshots on November 14, 2026. Exact screenshot line and odds retained; 1 unit per play. Check the November 14 daily card thread in Buffer before any repost.",
-      "result": "PENDING"
+      "result": "W",
+      "netUnits": 0.9523809523809523,
+      "resultSource": "ESPN official final: https://site.api.espn.com/apis/site/v2/sports/football/college-football/summary?event=401860915",
+      "resultUpdated": "2026-11-24T05:38:43.858Z",
+      "resultGameId": "401860915",
+      "finalScore": {
+        "away": 13,
+        "home": 30
+      }
     },
     {
       "id": "manual_20261116_ncaam_401929419_spread_florida_am_plus20_5",
@@ -670,7 +974,15 @@
       "selectedBy": "Ryan",
       "status": "approved",
       "notes": "Explicitly selected by Ryan in chat on November 16, 2026: EZPZ pick Florida a and m +20.5. Exact approved spread retained; -110 default odds. Publish once through Buffer after confirming eligibility and checking for duplicates.",
-      "result": "PENDING"
+      "result": "L",
+      "netUnits": -1,
+      "resultSource": "ESPN official scoreboard: https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=20261116",
+      "resultUpdated": "2026-11-24T05:38:43.858Z",
+      "resultGameId": "401929419",
+      "finalScore": {
+        "away": 46,
+        "home": 79
+      }
     },
     {
       "id": "manual_20261116_ncaam_401916317_total_over_154_5",
@@ -687,7 +999,15 @@
       "selectedBy": "Ryan",
       "status": "approved",
       "notes": "Explicitly selected by Ryan in chat on November 16, 2026: Ohio State prairie view over 154.5 EZPZ pick. Exact approved total retained; -110 default odds. Publish once through Buffer after confirming eligibility and checking for duplicates.",
-      "result": "PENDING"
+      "result": "L",
+      "netUnits": -1,
+      "resultSource": "ESPN official scoreboard: https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=20261116",
+      "resultUpdated": "2026-11-24T05:38:43.858Z",
+      "resultGameId": "401916317",
+      "finalScore": {
+        "away": 59,
+        "home": 86
+      }
     },
     {
       "id": "manual_20261116_ncaam_401918075_spread_clemson_minus24_5",
@@ -704,7 +1024,15 @@
       "selectedBy": "Ryan",
       "status": "approved",
       "notes": "Explicitly selected by Ryan in chat on November 16, 2026 as an EZPZ Pick. Exact approved selection retained: Clemson -24.5 (The Citadel @ Clemson); -110 default odds. Publish once through Buffer after confirming eligibility and checking for duplicates.",
-      "result": "PENDING"
+      "result": "W",
+      "netUnits": 0.9090909090909091,
+      "resultSource": "ESPN official scoreboard: https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=20261116",
+      "resultUpdated": "2026-11-24T05:38:43.858Z",
+      "resultGameId": "401918075",
+      "finalScore": {
+        "away": 51,
+        "home": 87
+      }
     },
     {
       "id": "manual_20261116_ncaam_401927364_spread_tarleton_state_plus9_5",
@@ -721,7 +1049,15 @@
       "selectedBy": "Ryan",
       "status": "approved",
       "notes": "Explicitly selected by Ryan in chat on November 16, 2026 as an EZPZ Pick. Exact approved selection retained: Tarleton State +9.5 (Tarleton State @ Drake); -110 default odds. Publish once through Buffer after confirming eligibility and checking for duplicates.",
-      "result": "PENDING"
+      "result": "W",
+      "netUnits": 0.9090909090909091,
+      "resultSource": "ESPN official scoreboard: https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=20261116",
+      "resultUpdated": "2026-11-24T05:38:43.858Z",
+      "resultGameId": "401927364",
+      "finalScore": {
+        "away": 83,
+        "home": 79
+      }
     },
     {
       "id": "manual_20261116_ncaam_401917917_spread_oklahoma_state_minus18_5",
@@ -738,7 +1074,15 @@
       "selectedBy": "Ryan",
       "status": "approved",
       "notes": "Explicitly selected by Ryan in chat on November 16, 2026 as an EZPZ Pick. Exact approved selection retained: Oklahoma State -18.5 (Central Arkansas @ Oklahoma State); -110 default odds. Publish once through Buffer after confirming eligibility and checking for duplicates.",
-      "result": "PENDING"
+      "result": "W",
+      "netUnits": 0.9090909090909091,
+      "resultSource": "ESPN official scoreboard: https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=20261116",
+      "resultUpdated": "2026-11-24T05:38:43.858Z",
+      "resultGameId": "401917917",
+      "finalScore": {
+        "away": 66,
+        "home": 99
+      }
     },
     {
       "id": "manual_20261116_ncaam_401916298_total_over_153_5",
@@ -755,7 +1099,15 @@
       "selectedBy": "Ryan",
       "status": "approved",
       "notes": "Explicitly selected by Ryan in chat on November 16, 2026 as an EZPZ Pick. Exact approved selection retained: Over 153.5 (Alcorn State @ Maryland); -110 default odds. Publish once through Buffer after confirming eligibility and checking for duplicates.",
-      "result": "PENDING"
+      "result": "W",
+      "netUnits": 0.9090909090909091,
+      "resultSource": "ESPN official scoreboard: https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=20261116",
+      "resultUpdated": "2026-11-24T05:38:43.858Z",
+      "resultGameId": "401916298",
+      "finalScore": {
+        "away": 57,
+        "home": 117
+      }
     },
     {
       "id": "manual_20261117_ncaam_401921722_spread_miami_minus41_5",
@@ -772,7 +1124,15 @@
       "selectedBy": "Ryan",
       "status": "approved",
       "notes": "Explicitly selected by Ryan as today's official EZPZ Picks in the 19468.jpg screenshot on November 17, 2026. Exact screenshot selection, line and odds retained; 1 unit per play. Matchup and ET tipoff verified against the saved November 17 Full Slate. Publish together once as one X thread through Buffer; check for an existing November 17 card before any repost.",
-      "result": "PENDING"
+      "result": "W",
+      "netUnits": 0.9174311926605505,
+      "resultSource": "ESPN official scoreboard: https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=20261117",
+      "resultUpdated": "2026-11-24T05:38:43.858Z",
+      "resultGameId": "401921722",
+      "finalScore": {
+        "away": 48,
+        "home": 95
+      }
     },
     {
       "id": "manual_20261117_ncaam_401921722_total_over_148_5",
@@ -789,7 +1149,15 @@
       "selectedBy": "Ryan",
       "status": "approved",
       "notes": "Explicitly selected by Ryan as today's official EZPZ Picks in the 19468.jpg screenshot on November 17, 2026. Exact screenshot selection, line and odds retained; 1 unit per play. Matchup and ET tipoff verified against the saved November 17 Full Slate. Publish together once as one X thread through Buffer; check for an existing November 17 card before any repost.",
-      "result": "PENDING"
+      "result": "L",
+      "netUnits": -1,
+      "resultSource": "ESPN official scoreboard: https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=20261117",
+      "resultUpdated": "2026-11-24T05:38:43.858Z",
+      "resultGameId": "401921722",
+      "finalScore": {
+        "away": 48,
+        "home": 95
+      }
     },
     {
       "id": "manual_20261117_ncaam_401909708_moneyline_villanova",
@@ -806,7 +1174,15 @@
       "selectedBy": "Ryan",
       "status": "approved",
       "notes": "Explicitly selected by Ryan as today's official EZPZ Picks in the 19468.jpg screenshot on November 17, 2026. Exact screenshot selection, line and odds retained; 1 unit per play. Matchup and ET tipoff verified against the saved November 17 Full Slate. Publish together once as one X thread through Buffer; check for an existing November 17 card before any repost.",
-      "result": "PENDING"
+      "result": "L",
+      "netUnits": -1,
+      "resultSource": "ESPN official scoreboard: https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=20261117",
+      "resultUpdated": "2026-11-24T05:38:43.858Z",
+      "resultGameId": "401909708",
+      "finalScore": {
+        "away": 61,
+        "home": 81
+      }
     },
     {
       "id": "manual_20261117_ncaam_401924941_spread_akron_minus15_5",
@@ -823,7 +1199,15 @@
       "selectedBy": "Ryan",
       "status": "approved",
       "notes": "Explicitly selected by Ryan as today's official EZPZ Picks in the 19468.jpg screenshot on November 17, 2026. Exact screenshot selection, line and odds retained; 1 unit per play. Matchup and ET tipoff verified against the saved November 17 Full Slate. Publish together once as one X thread through Buffer; check for an existing November 17 card before any repost.",
-      "result": "PENDING"
+      "result": "L",
+      "netUnits": -1,
+      "resultSource": "ESPN official scoreboard: https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=20261117",
+      "resultUpdated": "2026-11-24T05:38:43.858Z",
+      "resultGameId": "401924941",
+      "finalScore": {
+        "away": 49,
+        "home": 53
+      }
     },
     {
       "id": "manual_20261117_ncaam_401920308_spread_georgia_tech_minus20_5",
@@ -840,7 +1224,15 @@
       "selectedBy": "Ryan",
       "status": "approved",
       "notes": "Explicitly selected by Ryan as today's official EZPZ Picks in the 19468.jpg screenshot on November 17, 2026. Exact screenshot selection, line and odds retained; 1 unit per play. Matchup and ET tipoff verified against the saved November 17 Full Slate. Publish together once as one X thread through Buffer; check for an existing November 17 card before any repost.",
-      "result": "PENDING"
+      "result": "L",
+      "netUnits": -1,
+      "resultSource": "ESPN official scoreboard: https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=20261117",
+      "resultUpdated": "2026-11-24T05:38:43.858Z",
+      "resultGameId": "401920308",
+      "finalScore": {
+        "away": 79,
+        "home": 93
+      }
     },
     {
       "id": "manual_20261117_ncaam_401911020_spread_umass_minus9_5",
@@ -857,7 +1249,15 @@
       "selectedBy": "Ryan",
       "status": "approved",
       "notes": "Explicitly selected by Ryan as today's official EZPZ Picks in the 19468.jpg screenshot on November 17, 2026. Exact screenshot selection, line and odds retained; 1 unit per play. Matchup and ET tipoff verified against the saved November 17 Full Slate. Publish together once as one X thread through Buffer; check for an existing November 17 card before any repost.",
-      "result": "PENDING"
+      "result": "L",
+      "netUnits": -1,
+      "resultSource": "ESPN official scoreboard: https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=20261117",
+      "resultUpdated": "2026-11-24T05:38:43.858Z",
+      "resultGameId": "401911020",
+      "finalScore": {
+        "away": 83,
+        "home": 79
+      }
     },
     {
       "id": "manual_20261117_ncaam_401921729_spread_uc_irvine_plus6_5",
@@ -874,7 +1274,15 @@
       "selectedBy": "Ryan",
       "status": "approved",
       "notes": "Explicitly selected by Ryan as today's official EZPZ Picks in the 19468.jpg screenshot on November 17, 2026. Exact screenshot selection, line and odds retained; 1 unit per play. Matchup and ET tipoff verified against the saved November 17 Full Slate. Publish together once as one X thread through Buffer; check for an existing November 17 card before any repost.",
-      "result": "PENDING"
+      "result": "W",
+      "netUnits": 0.9090909090909091,
+      "resultSource": "ESPN official scoreboard: https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=20261117",
+      "resultUpdated": "2026-11-24T05:38:43.858Z",
+      "resultGameId": "401921729",
+      "finalScore": {
+        "away": 61,
+        "home": 65
+      }
     },
     {
       "id": "manual_20261118_ncaam_401920751_total_under_153_5",
@@ -891,7 +1299,15 @@
       "selectedBy": "Ryan",
       "status": "approved",
       "notes": "Explicitly selected by Ryan as today's official EZPZ Picks in the 19488.jpg screenshot on November 18, 2026. Exact screenshot selection, line and odds retained; 1 unit per play. Matchup and ET tipoff verified against the saved November 18 Full Slate. Publish together once in a single X post through Buffer after checking eligibility and duplicates.",
-      "result": "PENDING"
+      "result": "W",
+      "netUnits": 0.8928571428571429,
+      "resultSource": "ESPN official scoreboard: https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=20261118",
+      "resultUpdated": "2026-11-24T05:38:43.858Z",
+      "resultGameId": "401920751",
+      "finalScore": {
+        "away": 54,
+        "home": 91
+      }
     },
     {
       "id": "manual_20261118_ncaam_401926064_total_over_155_5",
@@ -908,7 +1324,15 @@
       "selectedBy": "Ryan",
       "status": "approved",
       "notes": "Explicitly selected by Ryan as today's official EZPZ Picks in the 19488.jpg screenshot on November 18, 2026. Exact screenshot selection, line and odds retained; 1 unit per play. Matchup and ET tipoff verified against the saved November 18 Full Slate. Publish together once in a single X post through Buffer after checking eligibility and duplicates.",
-      "result": "PENDING"
+      "result": "L",
+      "netUnits": -1,
+      "resultSource": "ESPN official scoreboard: https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=20261118",
+      "resultUpdated": "2026-11-24T05:38:43.858Z",
+      "resultGameId": "401926064",
+      "finalScore": {
+        "away": 47,
+        "home": 73
+      }
     },
     {
       "id": "manual_20261118_ncaam_401921816_total_over_153_5",
@@ -925,7 +1349,15 @@
       "selectedBy": "Ryan",
       "status": "approved",
       "notes": "Explicitly selected by Ryan as today's official EZPZ Picks in the 19488.jpg screenshot on November 18, 2026. Exact screenshot selection, line and odds retained; 1 unit per play. Matchup and ET tipoff verified against the saved November 18 Full Slate. Publish together once in a single X post through Buffer after checking eligibility and duplicates.",
-      "result": "PENDING"
+      "result": "L",
+      "netUnits": -1,
+      "resultSource": "ESPN official scoreboard: https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=20261118",
+      "resultUpdated": "2026-11-24T05:38:43.858Z",
+      "resultGameId": "401921816",
+      "finalScore": {
+        "away": 41,
+        "home": 102
+      }
     }
   ]
 }
