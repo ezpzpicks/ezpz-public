@@ -32,11 +32,25 @@ export async function appendMarketProjectionRows(sport: TrackingSport, dataset: 
   for (let start = 0; start < rows.length; start += 10) {
     const batch = rows.slice(start, start + 10), statements: string[] = [];
     for (const row of batch) {
+      const ncaafFinal = sport === "NCAAF" && dataset === UPDATES && row.Market === "Final Forecast";
+      const finalInfo = ncaafFinal ? JSON.parse(row["Details JSON"]).market_tracking : null;
+      if (ncaafFinal) {
+        const base = finalInfo?.baseline;
+        if (base?.sourceDataset !== "daily_slate" || base?.original?.["Build Phase"] === "preview")
+          throw new Error("NCAAF final locks require an authoritative daily_slate baseline.");
+      }
+      const authorityGate = ncaafFinal
+        ? ` AND EXISTS(SELECT 1 FROM dataset_rows WHERE sport='NCAAF' AND dataset='daily_slate' AND date_key=${q(row.Date)} AND game_key=${q(row["Game ID"])}
+          AND COALESCE(json_extract(payload_json,'$."Build Phase"'),'')<>'preview'
+          AND json_extract(payload_json,'$."Model Version"')=${q(finalInfo.baseline.modelVersion)}
+          AND CAST(json_extract(payload_json,'$."Projected Home"') AS REAL)=${Number(finalInfo.baseline.original["Projected Home"])}
+          AND CAST(json_extract(payload_json,'$."Projected Away"') AS REAL)=${Number(finalInfo.baseline.original["Projected Away"])}
+          AND datetime(COALESCE(NULLIF(json_extract(payload_json,'$."Build At"'),''),json_extract(payload_json,'$."Build Captured At"')))<=datetime(${q(finalInfo.decision_as_of)}))` : "";
       const where = `sport=${q(sport)} AND dataset=${q(dataset)} AND date_key=${q(row.Date)} AND game_key=${q(row["Game Key"])} AND market=${q(row.Market)} AND selection=${q(row.Selection)}`;
       const freezeGate = dataset === UPDATES ? ` AND NOT EXISTS(SELECT 1 FROM dataset_rows WHERE sport=${q(sport)} AND dataset=${q(dataset)} AND date_key=${q(row.Date)} AND game_key=${q(row["Game Key"])} AND market='Final Forecast')` : "";
       const values = [q(sport), q(dataset), `(SELECT COALESCE(MAX(row_index),0)+1 FROM dataset_rows WHERE sport=${q(sport)} AND dataset=${q(dataset)})`, q(JSON.stringify(row)), "''",
         q(row.Date), q(row["Game Key"]), q(row.Game), q(row.Market), q(row.Selection), "''", q(row["Snapshot Time ET"] || row["Updated At"]), q(row["Updated At"])];
-      statements.push(`INSERT INTO dataset_rows (sport,dataset,row_index,payload_json,source_hash,date_key,game_key,game,market,selection,result,snapshot_time,imported_at) SELECT ${values.join(",")} WHERE NOT EXISTS(SELECT 1 FROM dataset_rows WHERE ${where})${freezeGate}`);
+      statements.push(`INSERT INTO dataset_rows (sport,dataset,row_index,payload_json,source_hash,date_key,game_key,game,market,selection,result,snapshot_time,imported_at) SELECT ${values.join(",")} WHERE NOT EXISTS(SELECT 1 FROM dataset_rows WHERE ${where})${freezeGate}${authorityGate}`);
     }
     statements.push(`INSERT INTO dataset_manifest (sport,dataset,source_workbook,source_worksheet,headers_json,row_count,imported_at,source_kind) VALUES (${q(sport)},${q(dataset)},'turso-native',${q(dataset)},${q(JSON.stringify([...new Set(batch.flatMap(Object.keys))]))},(SELECT COALESCE(MAX(row_index),0) FROM dataset_rows WHERE sport=${q(sport)} AND dataset=${q(dataset)}),${q(batch[0]["Updated At"])},'turso') ON CONFLICT(sport,dataset) DO UPDATE SET headers_json=excluded.headers_json,row_count=excluded.row_count,imported_at=excluded.imported_at`);
     try { await runTursoAtomicSql(statements); } finally { invalidateTursoDatasetReadCache(sport, dataset); }
@@ -74,11 +88,13 @@ export async function refreshMarketProjections(sport: TrackingSport, baselines: 
   for (const [key, candidates] of grouped) {
     const old = previous.get(key); if (old?.market_tracking.final_pregame) { frozen++; continue; }
     try {
-      const ordered = candidates.sort((a,b) => projectionTime(b.lockedAt) - projectionTime(a.lockedAt) || b.recordId.localeCompare(a.recordId));
+      const ordered = candidates.sort((a,b) => (sport === "NCAAF" ? Number(b.sourceDataset === "daily_slate") - Number(a.sourceDataset === "daily_slate") : 0) || projectionTime(b.lockedAt) - projectionTime(a.lockedAt) || b.recordId.localeCompare(a.recordId));
       let base = ordered[0];
       const inputs = projectionTrackingInputs(base, splits, now), cutoff = inputs.finalPregame ? projectionTime(inputs.observedAt) : now;
-      const eligible = ordered.filter(b => projectionTime(b.lockedAt) <= cutoff && now - projectionTime(b.lockedAt) <= 30 * 3600000);
-      if (!eligible.length) { waitingForBaseline++; continue; } base = eligible[0];
+      const eligible = ordered.filter(b => (!(sport === "NCAAF" && inputs.finalPregame) || (b.sourceDataset === "daily_slate" && b.original["Build Phase"] !== "preview")) && projectionTime(b.lockedAt) <= cutoff && now - projectionTime(b.lockedAt) <= 30 * 3600000);
+      if (!eligible.length) { waitingForBaseline++; continue; }
+      if (sport === "NCAAF" && inputs.finalPregame) eligible.sort((a,b) => projectionTime(a.lockedAt)-projectionTime(b.lockedAt) || a.recordId.localeCompare(b.recordId));
+      base = eligible[0];
       if (projectionTime(base.tipoff) - now < 10 * 60000 && !inputs.finalPregame) continue;
       const digest = projectionDigest(projectionFingerprint(base, inputs));
       if (old?.market_tracking.input_digest === digest) continue;

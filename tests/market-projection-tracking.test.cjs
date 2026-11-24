@@ -20,7 +20,7 @@ function activation(sport){return {sport,policy:policy.MARKET_PROJECTION_POLICY,
 function native(sport){return sport==='NBA'?{recordId:'native',gameId:'one',modelVersion:'nba-v0.5',lockedAt:iso(lock),tipoff:iso(tip),away_team:'Away',home_team:'Home',away_score:100,home_score:110,total:210,fair_home_spread:-10,
  spread_grade:'A',total_grade:'B',spread_pick:'Home -10',total_pick:'Over 210',market:{home_spread:-10,total:210,source:'ScoresAndOdds',as_of:iso(lock)}}
  :{Date:date,'Game ID':'one','Game Time':iso(tip),'Away Team':'Away','Home Team':'Home',Game:'Away @ Home','Build At':iso(lock),'Build Captured At':iso(lock),'Model Version':sport.toLowerCase()+'-native','Projected Home':'30','Projected Away':'20','Projected Total':'50','Projected Margin':'10','Spread Grade':'A Spread','Total Grade':'Over'};}
-const baseline=s=>core.normalizeProjectionBaseline(s,native(s),date,iso(tip));
+const baseline=s=>({...core.normalizeProjectionBaseline(s,native(s),date,iso(tip)),...(s==='NCAAF'?{sourceDataset:'daily_slate'}:{})});
 const point=(t,line,bets=50,money=50)=>({snapshotTime:iso(t),line,betsPct:bets,moneyPct:money});
 function rows(sport,{spread,total,at=clock,final=false}={}){
  spread=spread||[point(lock,-10),point(at,-12,60,70)];total=total||[point(lock,sport==='NBA'?210:50),point(at,sport==='NBA'?212:52,60,70)];
@@ -123,6 +123,7 @@ test('insert-only collector isolates sports, dedupes refreshes, saves material c
    assert.equal((await store.refreshMarketProjections(sport,[b],rows(sport),[date],clock)).captured,0);
    const later=clock+300000,r=rows(sport,{at:later,total:[point(lock,50),point(clock,52,60,70),point(later,51,55,60)]});
    assert.equal((await store.refreshMarketProjections(sport,[b],r,[date],later)).captured,1);
+   if(sport==='NCAAF') sqlite.prepare("INSERT INTO dataset_rows(sport,dataset,row_index,payload_json,date_key,game_key) VALUES('NCAAF','daily_slate',1,?,?,?)").run(JSON.stringify(native(sport)),date,'one');
    const final=tip-15*60000;
    assert.equal((await store.refreshMarketProjections(sport,[b],rows(sport,{at:final,final:true}),[date],final)).captured,1);
    const before=sqlite.prepare('SELECT payload_json FROM dataset_rows WHERE sport=? ORDER BY dataset,row_index').all(sport);
@@ -177,4 +178,67 @@ test('NCAAF preview adapter reads a bounded dataset and never casts a graded mod
   assert.equal(result.board.sides.length,4);
   for(const side of result.board.sides){assert.equal(side.signals.find(s=>s.key==='model').active,false);assert.equal(side.modelContext.grade,'Ungraded');}
  }finally{db.readTursoDatasetByDateKeys=old.read;store.readMarketProjectionBundle=old.bundle;store.refreshMarketProjections=old.refresh;}
+});
+
+test('NCAAF real storage: preview cannot freeze; authoritative baseline wins and its final stays immutable',async(t)=>{
+ const adapter=require('../lib/footballMarketProjection.ts'),sqlite=new DatabaseSync(':memory:');
+ sqlite.exec(`CREATE TABLE dataset_rows(sport TEXT,dataset TEXT,row_index INTEGER,payload_json TEXT,source_hash TEXT,date_key TEXT,game_key TEXT,game TEXT,market TEXT,selection TEXT,result TEXT,snapshot_time TEXT,imported_at TEXT,PRIMARY KEY(sport,dataset,row_index));CREATE TABLE dataset_manifest(sport TEXT,dataset TEXT,source_workbook TEXT,source_worksheet TEXT,headers_json TEXT,row_count INTEGER,imported_at TEXT,source_kind TEXT,PRIMARY KEY(sport,dataset));`);
+ const old={read:db.readTursoDatasetByDateKeys,sql:db.runTursoSql,atomic:db.runTursoAtomicSql,invalidate:db.invalidateTursoDatasetReadCache},queries=[];
+ const query=sql=>{queries.push(sql);return sqlite.prepare(sql).all().map(r=>Object.fromEntries(Object.entries(r).map(([k,v])=>[k,String(v??'')])));};
+ db.runTursoSql=async sql=>sql.map(query);db.runTursoAtomicSql=async sql=>{sqlite.exec('BEGIN IMMEDIATE');try{const out=sql.map(query);sqlite.exec('COMMIT');return out;}catch(e){sqlite.exec('ROLLBACK');throw e;}};
+ db.readTursoDatasetByDateKeys=async(s,d,dates)=>sqlite.prepare(`SELECT payload_json FROM dataset_rows WHERE sport=? AND dataset=? AND date_key IN (${dates.map(()=>'?').join(',')})`).all(s,d,...dates).map(r=>JSON.parse(r.payload_json));db.invalidateTursoDatasetReadCache=()=>{};
+ t.after(()=>{db.readTursoDatasetByDateKeys=old.read;db.runTursoSql=old.sql;db.runTursoAtomicSql=old.atomic;db.invalidateTursoDatasetReadCache=old.invalidate;sqlite.close();});
+ const put=(dataset,items,indexedDate=date)=>{sqlite.prepare('DELETE FROM dataset_rows WHERE sport=? AND dataset=?').run('NCAAF',dataset);items.forEach((r,i)=>sqlite.prepare('INSERT INTO dataset_rows(sport,dataset,row_index,payload_json,date_key,game_key) VALUES(?,?,?,?,?,?)').run('NCAAF',dataset,i+1,JSON.stringify(r),indexedDate,r['Game ID']||'one'));};
+ const preview={...native('NCAAF'),'Build Phase':'preview','Build At':iso(clock-30*60000)};
+ put('game_previews',[preview]);put('weekly_market_trends',rows('NCAAF'));
+ assert.equal((await adapter.refreshFootballMarketProjections('NCAAF',clock)).captured,1);
+ const final=tip-15*60000;
+ put('weekly_market_trends',rows('NCAAF',{at:final,final:true}));
+ assert.equal((await adapter.refreshFootballMarketProjections('NCAAF',final)).waitingForBaseline,1);
+ const finalCount=()=>sqlite.prepare("SELECT COUNT(*) n FROM dataset_rows WHERE market='Final Forecast'").get().n;
+ assert.equal(finalCount(),0,'preview-only final quote must not mint immutable lock');
+ // Legacy persisted schedule has Game Date, blank date_key, and indexed Game ID.
+ put('schedule',[{'Game ID':'one','Game Date':date,'Game Time':iso(tip),'Away Team':'Away','Home Team':'Home','Away Classification':'fbs','Home Classification':'fbs',Completed:'False'}],'');
+ const authoritative={...native('NCAAF'),'Projected Home':'31','Projected Away':'21','Projected Total':'52'};
+ delete authoritative['Game Time'];
+ put('daily_slate',[{...authoritative,'Build At':iso(final+60000)}]);
+ assert.equal((await adapter.refreshFootballMarketProjections('NCAAF',final+60000)).waitingForBaseline,1,'later build cannot look back into frozen quote');
+ assert.equal(finalCount(),0);
+ // Clock is older than preview but the authoritative source must win.
+ put('daily_slate',[authoritative]);put('weekly_market_trends',rows('NCAAF'));
+ const before=await adapter.applyFootballMarketProjections('NCAAF',{today:date,slateToday:[{...authoritative,'Game Time':iso(tip)}],bestPlays:[]},clock);
+ assert.equal(before.slateToday[0]['Projected Home'],'31','old preview overlay must not replace authoritative display');
+ assert.equal((await adapter.refreshFootballMarketProjections('NCAAF',clock)).captured,1);
+ let saved=await store.readMarketProjectionUpdates('NCAAF',[date]);
+ assert.equal(saved[0].market_tracking.baseline.sourceDataset,'daily_slate');
+ assert.equal(saved[0].market_tracking.baseline.home_score,31);
+ assert(queries.some(q=>q.includes("dataset='schedule'")&&q.includes('game_key IN')),'schedule lookup uses Game ID, not missing date index');
+ // If multiple saved authoritative captures exist, final uses the earliest
+ // eligible one, never a revision that arrived after the frozen quote.
+ put('daily_slate',[authoritative,{...authoritative,'Build At':iso(clock-10*60000),'Projected Home':'32','Projected Away':'22','Projected Total':'54'},
+   {...authoritative,'Build At':iso(final+60000),'Projected Home':'33','Projected Away':'23','Projected Total':'56'}]);
+ put('weekly_market_trends',rows('NCAAF',{at:final,final:true}));
+ assert.equal((await adapter.refreshFootballMarketProjections('NCAAF',final)).captured,1);
+ assert.equal(finalCount(),1);
+ const frozen=sqlite.prepare("SELECT payload_json FROM dataset_rows WHERE market='Final Forecast'").get().payload_json;
+ assert.equal(JSON.parse(JSON.parse(frozen)['Details JSON']).market_tracking.baseline.home_score,31);
+ assert.equal((await adapter.refreshFootballMarketProjections('NCAAF',final+60000)).captured,0);
+ assert.equal((await adapter.refreshFootballMarketProjections('NCAAF',tip+1)).captured,0);
+ assert.equal(sqlite.prepare("SELECT payload_json FROM dataset_rows WHERE market='Final Forecast'").get().payload_json,frozen);
+ // Direct insertion also requires actual persisted authority, not a provenance tag alone.
+ const row=JSON.parse(frozen);sqlite.exec("DELETE FROM dataset_rows WHERE market='Final Forecast' OR dataset='daily_slate'");
+ await store.appendMarketProjectionRows('NCAAF',policy.MARKET_PROJECTION_UPDATES,[row]);
+ assert.equal(finalCount(),0);
+ put('daily_slate',[{...authoritative,'Build At':iso(final+60000)}]);
+ await store.appendMarketProjectionRows('NCAAF',policy.MARKET_PROJECTION_UPDATES,[row]);assert.equal(finalCount(),0);
+ const forged=JSON.parse(row['Details JSON']);forged.market_tracking.baseline.sourceDataset='game_previews';
+ await assert.rejects(store.appendMarketProjectionRows('NCAAF',policy.MARKET_PROJECTION_UPDATES,[{...row,'Details JSON':JSON.stringify(forged)}]),/authoritative/);
+});
+
+test('NCAAF saved schedule clock rejects wrong identity, ambiguity and midnight placeholders',()=>{
+ const {withNcaafScheduleClock}=require('../lib/footballMarketProjection.ts');
+ const row={...native('NCAAF')};delete row['Game Time'];
+ const schedule={'Game ID':'one','Game Date':date,'Game Time':iso(tip),'Away Team':'Away','Home Team':'Home'};
+ assert.equal(withNcaafScheduleClock(row,[schedule])['Game Time'],iso(tip));
+ for(const list of [[{...schedule,'Game ID':'other'}],[{...schedule,'Away Team':'Other'}],[{...schedule,'Game Date':'2035-11-22'}],[schedule,{...schedule,'Game Time':iso(tip+3600000)}],[{...schedule,'Game Time':date+'T00:00:00-05:00'}]])assert.equal(withNcaafScheduleClock(row,list)['Game Time'],undefined);
 });

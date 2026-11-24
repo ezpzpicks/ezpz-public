@@ -1,4 +1,4 @@
-import { readTursoDatasetByDateKeys } from "./tursoStore";
+import { readTursoDatasetByDateKeys, runTursoSql } from "./tursoStore";
 import { nflKickoffIso } from "./footballWeeklyMarket";
 import { footballTeamGameKey } from "./footballTeamTrends";
 import { readMarketProjectionBundle, refreshMarketProjections } from "./marketProjectionStore";
@@ -19,7 +19,18 @@ export async function refreshFootballMarketProjections(sport: Sport, now: number
     readTursoDatasetByDateKeys(sport,"game_previews",dateKeys),
     readTursoDatasetByDateKeys(sport,"weekly_market_trends",dateKeys),
   ]);
-  const bases = [...slate,...previews].flatMap(r => {const b=normalizeProjectionBaseline(sport,r,isoDay(r.Date || r["Game Date"]),kickoff(r));return b?[b]:[];});
+  // Schedule rows use Game Date, which the admin's legacy metadata does not
+  // index as date_key. Resolve only missing slate clocks by indexed Game ID.
+  const missingIds = sport === "NCAAF" ? [...new Set(slate.filter(r => !Number.isFinite(projectionTime(kickoff(r))))
+    .map(r => String(r["Game ID"] || "")).filter(Boolean))].slice(0,200) : [];
+  const q = (v: string) => `'${v.replaceAll("'", "''")}'`;
+  const schedule = missingIds.length ? (await runTursoSql([`SELECT payload_json FROM dataset_rows WHERE sport='NCAAF' AND dataset='schedule' AND game_key IN (${missingIds.map(q).join(",")}) LIMIT 400`]))[0].map(r => JSON.parse(r.payload_json)) : [];
+  const bases = ([...slate.map(r => ({row:r,sourceDataset:"daily_slate" as const})),
+    ...previews.map(r => ({row:r,sourceDataset:"game_previews" as const}))]).flatMap(({row,sourceDataset}) => {
+    const r = sport === "NCAAF" ? withNcaafScheduleClock(row,schedule) : row;
+    const b=normalizeProjectionBaseline(sport,r,isoDay(r.Date || r["Game Date"]),kickoff(r));
+    return b ? [{...b,...(sport === "NCAAF" ? {sourceDataset} : {})}] : [];
+  });
   const markets = splits.map(r => ({...r,Date:isoDay(r.Date),"Game Time":nflKickoffIso(isoDay(r.Date),r["Game Time"])}));
   return refreshMarketProjections(sport,bases,markets,dates,now);
 }
@@ -40,7 +51,11 @@ export async function applyFootballMarketProjections(sport: Sport, core: Row, no
   const slateToday = (core.slateToday || []).map((row: Row) => {
     if (projectionTime(kickoff(row)) <= projectionTime(activation.activatedAt)) return row;
     held.add(footballTeamGameKey(row,sport));
-    return trackedFootballRow(row,byGame.get(key(sport,row)),activation);
+    const forecast = byGame.get(key(sport,row));
+    const baseline = forecast?.market_tracking?.baseline;
+    const previewOverlay = sport === "NCAAF" && (baseline?.sourceDataset === "game_previews" || baseline?.original?.["Build Phase"] === "preview");
+    const authoritativeRow = row["Build Phase"] !== "preview" && row["Model Version"] && row["Projected Away"];
+    return trackedFootballRow(row,previewOverlay && authoritativeRow ? undefined : forecast,activation);
   });
   const bestPlays = (core.bestPlays || []).filter((p:Row) => p.playerName || p.propMarket || !["Spread","Total"].includes(p.role)
     || !held.has(footballTeamGameKey({...p,date:isoDay(p.date || core.today)},sport)));
@@ -64,4 +79,18 @@ export function mergeNcaafPreviews(slate: Row[], previews: Row[], now: number): 
     else result.push(preview);
   }
   return result;
+}
+
+/** Resolve legacy slate clocks only from one matching saved schedule identity. */
+export function withNcaafScheduleClock(row: Row, schedule: Row[]): Row {
+  if (Number.isFinite(projectionTime(kickoff(row)))) return row;
+  const date = isoDay(row.Date || row["Game Date"]);
+  const matches = schedule.filter(s => String(s["Game ID"]) === String(row["Game ID"])
+    && isoDay(s["Game Date"] || s.Date) === date
+    && footballTeamGameKey({...s,Date:date},"NCAAF") === footballTeamGameKey({...row,Date:date},"NCAAF"));
+  const times = [...new Set(matches.map(kickoff).filter(t => Number.isFinite(projectionTime(t))))];
+  if (times.length !== 1 || matches.some(s => /^(true|1|yes)$/i.test(String(s.Completed || "")))) return row;
+  // Midnight is the schedule import's unknown-time placeholder, not evidence.
+  const local = new Intl.DateTimeFormat("en-US",{timeZone:"America/New_York",hourCycle:"h23",hour:"2-digit",minute:"2-digit"}).format(new Date(times[0]));
+  return local === "00:00" ? row : {...row,"Game Time":times[0]};
 }
