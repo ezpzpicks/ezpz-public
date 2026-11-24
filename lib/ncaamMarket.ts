@@ -1,11 +1,11 @@
 import { loadScoresAndOddsConsensus } from "./scoresAndOddsBettingSplits";
 import { readTursoDatasetByDateKeys } from "./tursoStore";
-import { advanceNcaamMarkets, bindNcaamSplits, NCAAM_MARKET_POLICY, ncaamDate, normalizeNcaamSlate, settleNcaamForecast } from "./ncaamMarketCore";
+import { advanceNcaamMarkets, bindNcaamSplits, NCAAM_MARKET_POLICY, ncaamDate, settleNcaamForecast } from "./ncaamMarketCore";
 import { saveNcaamMarketRows } from "./ncaamMarketStore";
 import { readNcaamForecastBundle } from "./ncaamForecasts";
 import { refreshNcaamMarketTracking } from "./ncaamMarketTrackingStore";
 import { NCAAM_MARKET_TRACKING } from "./ncaamMarketTrackingPolicy";
-import { ncaamScheduleRows, readNcaamAnalysis, refreshNcaamAnalysis } from "./ncaamAnalysis";
+import { ncaamScheduleRows, readNcaamAnalysis, refreshNcaamAnalysis, refreshNcaamPendingSchedules } from "./ncaamAnalysis";
 import { buildNcaamSignals } from "./ncaamAnalysisCore";
 import { NCAAM_SIGNALS_TAB } from "./ncaamTrendLeaderboard";
 import { NCAAM_POINT_MODEL_RECORD_POLICY as NCAAM_MODEL_RECORD_POLICY, ncaamEzpzSelections, ncaamModelPlays, ncaamRecordTotals, summarizeNcaamModelRecords, updateNcaamModelRecords } from "./ncaamRecords";
@@ -18,22 +18,28 @@ import { attachSituationBoard } from "./situationStore";
 import { readNcaamSavedLineups, refreshNcaamLineups } from "./ncaamLineups";
 import { mergeNbaLineups } from "./nbaLineupsCore";
 import { ncaamDivisionOneSchedule } from "./ncaamDivisionOne";
+import { createNcaamEspnScheduleReader } from "./ncaamEspnSchedule";
 
 export async function collectNcaamMarket({ persist = true, now = Date.now(), refresh }: {
   persist?: boolean; now?: number; refresh?: { policy: string; intervalMinutes: number };
 } = {}) {
   const date = ncaamDate(now);
-  const response = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=${date.replaceAll("-", "")}&groups=50&limit=1000`, {
-    cache: "no-store", signal: AbortSignal.timeout(12_000), headers: { Accept: "application/json" },
+  const readSchedule = createNcaamEspnScheduleReader();
+  const slate = await readSchedule(date).catch(async error => {
+    if (persist) {
+      try { await refreshNcaamPendingSchedules(date, Date.now(), readSchedule); }
+      catch (recoveryError) { console.error("NCAAM pending result recovery deferred", recoveryError); }
+    }
+    throw error;
   });
-  if (!response.ok) throw new Error(`ESPN NCAAM schedule request failed: ${response.status}`);
-  const games = normalizeNcaamSlate(await response.json(), date);
+  const { games, following, warning } = slate;
   const schedule = ncaamScheduleRows(games, now);
-  // Persist the verified schedule even while lines are unpublished. Otherwise
-  // a cold/new-date collector cannot know when to enter the final countdown.
+  // Persist verified next-day rollover events on their own Eastern date, but
+  // only today's rows can enter today's markets/forecast processing.
   if (persist) {
-    await saveNcaamMarketRows("schedule", schedule);
-    await saveNcaamMarketRows("posted_games", schedule);
+    const records = [...schedule, ...ncaamScheduleRows(following, now)];
+    await saveNcaamMarketRows("schedule", records);
+    await saveNcaamMarketRows("posted_games", records);
   }
   // A split-provider outage must not prevent schedule/result/SOS updates.
   let sourceError = "";
@@ -53,15 +59,15 @@ export async function collectNcaamMarket({ persist = true, now = Date.now(), ref
     await saveNcaamMarketRows("odds_snapshot", advanced.history, true);
     await saveNcaamMarketRows("public_split_snapshots", advanced.finals);
     marketTracking = await refreshNcaamMarketTracking(date, schedule, capturedAt);
-    analysis = await refreshNcaamAnalysis(date, schedule, capturedAt, refresh);
+    analysis = await refreshNcaamAnalysis(date, schedule, capturedAt, refresh, readSchedule);
     lineups = await refreshNcaamLineups(date, games, persist, capturedAt);
   }
   return { ok: true, sport: "NCAAM", date, source: "ScoresAndOdds", sourceUrl: loaded.url,
     policy: NCAAM_MARKET_POLICY, capturedAt: new Date(capturedAt).toISOString(), dryRun: !persist,
     games: games.length, matchedGames: bound.rows.length / 4, updatedSides: advanced.latest.length,
     finalSides: advanced.finals.length, historySides: advanced.history.length,
-    missingMarkets: bound.missing, errors: [...bound.errors, ...(sourceError ? [sourceError] : []), ...(marketTracking?.errors.map(e=>`Projection ${e.gameId}: ${e.reason}`) || [])], partial: Boolean(sourceError) || bound.missing.length > 0 || Boolean(marketTracking?.errors.length),
-    refreshCompleted: !sourceError && bound.missing.length === 0 && !marketTracking?.errors.length, analysis, lineups, marketTracking };
+    missingMarkets: bound.missing, errors: [...bound.errors, ...(warning ? [warning] : []), ...(sourceError ? [sourceError] : []), ...(marketTracking?.errors.map(e=>`Projection ${e.gameId}: ${e.reason}`) || [])], partial: Boolean(sourceError || warning) || bound.missing.length > 0 || Boolean(marketTracking?.errors.length),
+    refreshCompleted: !sourceError && !warning && bound.missing.length === 0 && !marketTracking?.errors.length, analysis, lineups, marketTracking };
 }
 
 export async function readNcaamPublicData(date = ncaamDate()) {
