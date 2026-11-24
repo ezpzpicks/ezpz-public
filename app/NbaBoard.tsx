@@ -20,6 +20,7 @@ import { ncaamPointProjection, isNcaamPointModel } from "../lib/ncaamPointEdges"
 import { ncaamTrackingGradesPending } from "../lib/ncaamMarketTrackingPolicy";
 import { ncaamProjectionAdjustments } from "../lib/ncaamProjectionAdjustments";
 import ProjectionAdjustment from "./ProjectionAdjustment";
+import NcaamMobileMatchup from "./NcaamMobileMatchup";
 import { marketProjectionPending, projectionAdjustments } from "../lib/marketProjectionPolicy";
 import { selectedSpreadSide } from "../lib/selectionSide";
 
@@ -151,10 +152,11 @@ function ModelSlate({ tab, data }: { tab: string; data: NbaMarketPayload }) {
     .sort((a, b) => Number(gameStatus(b) === "In progress") - Number(gameStatus(a) === "In progress"));
   const gameCard = (game: Row) => {
     const forecast = latestByGame.get(game["Game ID"]);
-    return forecast ? <ForecastCard key={game["Game ID"]} forecast={forecast} game={game} sport={sport} />
+    const card = forecast ? <ForecastCard key={game["Game ID"]} forecast={forecast} game={game} sport={sport} />
       : <MissingForecastCard key={game["Game ID"]} game={game} splits={data.splits} sport={sport} />;
+    return fullSlate && sport === "NCAAM" ? <NcaamMobileMatchup key={game["Game ID"]} game={game} forecast={forecast}>{card}</NcaamMobileMatchup> : card;
   };
-  return <section className="nbaBoard">
+  return <section className={`nbaBoard${fullSlate && sport === "NCAAM" ? " ncaamSlateTrial" : ""}`}>
     <div className="nbaIntro"><h2>{fullSlate ? `${sport} Full Slate` : `${sport} Model Plays`}</h2></div>
     {fullSlate ? <>{activeGames.map(gameCard)}
       {completed.length ? <details className="completedGames" open={!activeGames.length}>
