@@ -3,7 +3,7 @@ import { readTursoDatasetByDateKeys, runTursoSql, type TursoRow } from "./tursoS
 import { saveNcaamMarketRows } from "./ncaamMarketStore";
 import { readNcaamForecasts, readNcaamForecastHistory } from "./ncaamForecasts";
 import { NCAAM_POINT_MODEL_RECORD_POLICY as NCAAM_MODEL_RECORD_POLICY, updateNcaamModelRecords } from "./ncaamRecords";
-import { ncaamDate, ncaamRowKey, normalizeNcaamSlate, type NcaamGame } from "./ncaamMarketCore";
+import { ncaamDate, ncaamRowKey, type NcaamGame } from "./ncaamMarketCore";
 import { buildNcaamSignals, buildNcaamSignalTests, emptyNcaamAnalysis, mergeNcaamTeamHistory, ncaamSeason, settleNcaamTrendRows, ncaamRowsToPlays, NCAAM_ANALYSIS_VERSION, type NcaamAnalysisState } from "./ncaamAnalysisCore";
 import { buildNcaamTrendLeaderboard, NCAAM_ANALYSIS_TAB, NCAAM_SIGNALS_TAB, NCAAM_TREND_RECORDS_TAB, NCAAM_SIGNALS_POLICY } from "./ncaamTrendLeaderboard";
 import { readSavedFootballSignalsForDate } from "./footballSignals";
@@ -18,6 +18,7 @@ import type { TrialSide } from "./selectionTrial";
 import { updateBasketballConsolidation } from "./basketballConsolidation";
 import { consolidatedVersion, CONSOLIDATED_SPORT_EFFECTIVE_AT } from "./catalog/consolidatedSportCatalog";
 import { ncaamDivisionOneSchedule } from "./ncaamDivisionOne";
+import { createNcaamEspnScheduleReader, type NcaamEspnScheduleReader } from "./ncaamEspnSchedule";
 
 const q = (value: string) => `'${value.replaceAll("'", "''")}'`;
 export function ncaamScheduleRows(games: NcaamGame[], observedAt: number): TursoRow[] {
@@ -43,10 +44,39 @@ async function readSeasonRecords(season: string) {
   return result[0].map(row => JSON.parse(row.payload_json) as TursoRow);
 }
 
+/** Save authoritative pending-game scores even if discovery for today fails. */
+export async function refreshNcaamPendingSchedules(date: string, now: number,
+  readSchedule: NcaamEspnScheduleReader, pending?: string[]) {
+  const previous = [...new Set(pending ?? (await readNcaamAnalysis(date)).pendingDates)].filter(day => day < date);
+  const results = await Promise.all(previous.map(async day => {
+    try {
+      const [{ games, warning }, saved] = await Promise.all([
+        readSchedule(day), readTursoDatasetByDateKeys("NCAAM", "schedule", [day]),
+      ]);
+      const savedById = new Map(saved.map(row => [row["Game ID"], row]));
+      const rows = ncaamScheduleRows(games, now).map(row => {
+        const old = savedById.get(row["Game ID"]);
+        return old?.Status === "STATUS_FINAL" && old.Completed === "TRUE"
+          && (row.Status !== "STATUS_FINAL" || row.Completed !== "TRUE") ? old : row;
+      });
+      const refreshed = new Set(rows.map(row => row["Game ID"]));
+      const missingPending = saved.some(row => !/FINAL|CANCEL|POSTPON/i.test(row.Status) && !refreshed.has(row["Game ID"]));
+      await saveNcaamMarketRows("schedule", rows);
+      if (warning) console.warn("NCAAM pending result adjacent schedule unavailable", warning);
+      return { day, rows, deferred: Boolean(warning) || missingPending };
+    } catch (error) {
+      console.warn("NCAAM pending result schedule deferred", { day, error });
+      return { day, rows: [] as TursoRow[], deferred: true };
+    }
+  }));
+  return { rows: results.flatMap(result => result.rows), deferred: results.filter(result => result.deferred).map(result => result.day) };
+}
+
 /** Called only by the existing paced collector. Public page reads never write. */
 export async function refreshNcaamAnalysis(date: string, currentSchedule: TursoRow[], now = Date.now(),
-  refresh: { policy?: string; intervalMinutes?: number } = {}) {
+  refresh: { policy?: string; intervalMinutes?: number } = {}, readSchedule = createNcaamEspnScheduleReader()) {
   const state = await readNcaamAnalysis(date);
+  const previous = await refreshNcaamPendingSchedules(date, now, readSchedule, state.pendingDates);
   const sos = await loadNcaamSos(Number(state.season) + 1, true, now);
   const dates = [...new Set([...state.pendingDates, date])].sort();
   // Seed existing frozen observations once. Ordinary ticks keep the same bounded
@@ -56,13 +86,7 @@ export async function refreshNcaamAnalysis(date: string, currentSchedule: TursoR
   const seedSelections = state.selectionThreshold !== signalPickThreshold("NCAAM");
   const signalDates = seedConsolidation || seedResearch || seedSelections ? [...new Set([...state.archiveDates, ...dates])].sort() : dates;
   const schedule = ncaamDivisionOneSchedule(currentSchedule);
-  const previousDays = await Promise.all(dates.filter(day => day !== date).map(async day => {
-    const response = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=${day.replaceAll("-", "")}&groups=50&limit=1000`,
-      { cache: "no-store", signal: AbortSignal.timeout(12_000), headers: { Accept: "application/json" } });
-    if (!response.ok) throw new Error(`NCAAM pending-result schedule request failed: ${response.status}`);
-    return ncaamScheduleRows(normalizeNcaamSlate(await response.json(), day), now);
-  }));
-  schedule.push(...previousDays.flat());
+  schedule.push(...previous.rows);
   const [snapshots, existingRecords, storedSignals, splits, forecasts] = await Promise.all([
     readTursoDatasetByDateKeys("NCAAM", "public_split_snapshots", dates),
     readTursoDatasetByDateKeys("NCAAM", NCAAM_TREND_RECORDS_TAB, dates),
@@ -86,7 +110,6 @@ export async function refreshNcaamAnalysis(date: string, currentSchedule: TursoR
     state.leaderboardAsOf = new Date(now).toISOString();
     state.teamHistory = mergeNcaamTeamHistory(state.teamHistory, records, schedule);
   } else state.teamHistory = mergeNcaamTeamHistory(state.teamHistory, existingRecords, schedule);
-  for (const rows of previousDays) await saveNcaamMarketRows("schedule", rows);
   const forecastDates = new Map(forecasts);
   // Once per threshold change, rebuild only the compact test rollup from saved
   // observations. Do not rerank trends, run models or rewrite captured evidence.
@@ -127,7 +150,7 @@ export async function refreshNcaamAnalysis(date: string, currentSchedule: TursoR
     state.legacySignalResearch = result.legacySignalResearch;
   }
   state.archiveDates = [...new Set([...state.archiveDates, ...schedule.map(row => row.Date)])].sort();
-  state.pendingDates = dates.filter(day => schedule.some(row => row.Date === day && !/FINAL|CANCEL|POSTPON/i.test(row.Status)));
+  state.pendingDates = dates.filter(day => previous.deferred.includes(day) || schedule.some(row => row.Date === day && !/FINAL|CANCEL|POSTPON/i.test(row.Status)));
   await saveNcaamMarketRows(NCAAM_ANALYSIS_TAB, [{ Date: `season-${state.season}`, "Game Key": `ncaam-analysis|${state.season}`,
     Market: "State", Selection: "NCAAM", "Details JSON": JSON.stringify(state) }]);
   // Reuse the just-saved signal board; no extra collection, model run, history

@@ -1,6 +1,8 @@
 import { readTursoDatasetByDateKeys, runTursoAtomicSql, invalidateTursoDatasetReadCache, type TursoRow } from "./tursoStore";
 import { ncaamRowKey } from "./ncaamMarketCore";
 
+const isSavedFinal = (row?: TursoRow) => row?.Status === "STATUS_FINAL" && row.Completed === "TRUE";
+
 const q = (value: unknown) => `'${String(value ?? "").replaceAll("'", "''")}'`;
 
 /** Date-indexed, atomic upserts. Unrelated dates and builder rows stay intact. */
@@ -12,7 +14,9 @@ export async function saveNcaamMarketRows(dataset: string, rows: TursoRow[], his
   const canonical = (r: TursoRow) => JSON.stringify(Object.fromEntries(Object.entries(r).sort(([a],[b]) => a.localeCompare(b))));
   const before = new Map(existing.map(r => [key(r), canonical(r)]));
   const previousRows = new Map(existing.map(r => [key(r), r]));
-  const changed = rows.filter(r => before.get(key(r)) !== canonical(r));
+  const schedule = dataset === "schedule" || dataset === "posted_games";
+  const changed = rows.filter(r => before.get(key(r)) !== canonical(r)
+    && !(schedule && isSavedFinal(previousRows.get(key(r))) && !isSavedFinal(r)));
   if (!changed.length) return;
   const statements: string[] = [];
   for (const row of changed) {
@@ -26,7 +30,11 @@ export async function saveNcaamMarketRows(dataset: string, rows: TursoRow[], his
     // Keep stable indexed identity columns out of ordinary freshness updates.
     const old = previousRows.get(key(row));
     const resultUpdate = (old?.Result || old?.Status || "") !== (row.Result || row.Status || "") ? `,result=${q(row.Result || row.Status)}` : "";
-    statements.push(`UPDATE dataset_rows SET payload_json=${q(payload)},source_hash='',imported_at=${q(saved)}${resultUpdate} WHERE ${identity} AND payload_json!=${q(payload)}`);
+    // Also guard under the write lock: a parallel tick may have saved the
+    // verified final after the initial lookup above.
+    const preserveFinal = schedule && !isSavedFinal(row)
+      ? ` AND NOT (COALESCE(json_extract(payload_json,'$.Status'),'')='STATUS_FINAL' AND COALESCE(json_extract(payload_json,'$.Completed'),'')='TRUE')` : "";
+    statements.push(`UPDATE dataset_rows SET payload_json=${q(payload)},source_hash='',imported_at=${q(saved)}${resultUpdate} WHERE ${identity} AND payload_json!=${q(payload)}${preserveFinal}`);
   }
   const headers = [...new Set(rows.flatMap(Object.keys))];
   // These append/upsert-only datasets allocate contiguous positions under the
