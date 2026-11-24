@@ -58,7 +58,7 @@ const gameStatus = (game?: Row) => game?.Completed === "TRUE" || game?.Status ==
   : game?.Status === "STATUS_IN_PROGRESS" ? "In progress" : game?.Status === "STATUS_SCHEDULED" ? "Scheduled" : "";
 function Score({ away, home, awayScore, homeScore, label, adjustments }: { away: string; home: string; awayScore: string; homeScore: string; label: string;
   adjustments?: ReturnType<typeof ncaamProjectionAdjustments> }) {
-  return <div className="nbaScoreBlock"><p className="nbaSmall">{label}</p><div className="nbaScore">
+  return <div className={`nbaScoreBlock ${label === "Final score" ? "actualFinalScore" : ""}`}><p className="nbaSmall">{label}</p><div className="nbaScore">
     <div><span>{away}</span><strong>{awayScore}<ProjectionAdjustment points={adjustments?.awayScore} label={`${away} score`} /></strong></div>
     <div><span>{home}</span><strong>{homeScore}<ProjectionAdjustment points={adjustments?.homeScore} label={`${home} score`} /></strong></div>
   </div></div>;
@@ -89,7 +89,7 @@ function ForecastCard({ forecast, game, qualifiedOnly = false, sport = "NBA" }: 
     market.grade = point && captured ? qualifiedOnly ? captured.grade : captured.edge_grade : "Research";
   }
   if (gradingPending) for (const market of markets) market.grade = "Ungraded";
-  return <article className="nbaCard" data-game-id={forecast.gameId}>
+  const card = <article className="nbaCard" data-game-id={forecast.gameId}>
     <h3><MatchupWithLogos sport={sport} game={`${forecast.away_team} @ ${forecast.home_team}`} /></h3>
     <p className="nbaMeta"><time dateTime={forecast.tipoff}>{time(forecast.tipoff)}</time>
       {gameStatus(game) && <span className="gameStatus" data-status={gameStatus(game)}>{gameStatus(game)}</span>}</p>
@@ -118,6 +118,8 @@ function ForecastCard({ forecast, game, qualifiedOnly = false, sport = "NBA" }: 
     {sport === "NCAAM" && <NcaamModelDetails forecast={forecast} />}
     <p className="nbaSmall forecastTimestamp">{gradingPending ? "Updated" : "Locked"} {time(forecast.lockedAt)}{forecast.market ? ` · ${forecast.market.source || "ScoresAndOdds"} ${time(forecast.market.as_of)} · assumed -110` : ""}</p>
   </article>;
+  return <NcaamMobileMatchup sport={sport} forecast={forecast} game={game || {"Game ID": forecast.gameId, "Away Team":forecast.away_team, "Home Team":forecast.home_team, "Game Time":forecast.tipoff}} modelPlays={qualifiedOnly}
+    markets={qualifiedOnly ? markets.filter(market => ["A", "B"].includes(market.grade || "")).map(market => ({name:market.name, selection:market.pick || "No market line", detail:market.edge == null ? "Edge unavailable" : `${Math.abs(market.edge).toFixed(1)} pt edge`, grade:`Grade ${market.grade}`, result:gradingPending ? undefined : market.result})) : undefined}>{card}</NcaamMobileMatchup>;
 }
 
 function MissingForecastCard({ game, splits, sport = "NBA" }: { game: Row; splits: Row[]; sport?: "NBA" | "NCAAM" }) {
@@ -154,7 +156,7 @@ function ModelSlate({ tab, data }: { tab: string; data: NbaMarketPayload }) {
     const forecast = latestByGame.get(game["Game ID"]);
     const card = forecast ? <ForecastCard key={game["Game ID"]} forecast={forecast} game={game} sport={sport} />
       : <MissingForecastCard key={game["Game ID"]} game={game} splits={data.splits} sport={sport} />;
-    return fullSlate && sport === "NCAAM" ? <NcaamMobileMatchup key={game["Game ID"]} game={game} forecast={forecast}>{card}</NcaamMobileMatchup> : card;
+    return !forecast ? <NcaamMobileMatchup key={game["Game ID"]} sport={sport} game={game}>{card}</NcaamMobileMatchup> : card;
   };
   const timedCards = (items: Row[]) => items.map((game, index) => <Fragment key={game["Game ID"]}>
     {sport === "NCAAM" && (index === 0 || time(items[index - 1]["Game Time"]) !== time(game["Game Time"])) && <h3 className="ncaamStartTime"><time dateTime={game["Game Time"]}>{time(game["Game Time"])}</time></h3>}

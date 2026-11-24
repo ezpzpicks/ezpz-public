@@ -1,3 +1,4 @@
+import CompactMatchup, { savedNumber } from "./CompactMatchup";
 import { MatchupWithLogos, SelectionWithTeamLogo } from "./TeamLogoName";
 import FootballModelFormBadges from "./FootballModelFormBadges";
 import NcaafModelDetails from "./NcaafModelDetails";
@@ -45,7 +46,7 @@ function Score({ row, game, actual = false }: { row: Row; game: string; actual?:
   const away = actual ? numeric(row["Away Score"]) ?? numeric(row["Actual Away"]) : numeric(row["Projected Away"]);
   const home = actual ? numeric(row["Home Score"]) ?? numeric(row["Actual Home"]) : numeric(row["Projected Home"]);
   if (actual && (away == null || home == null)) return null;
-  return <div className="nbaScoreBlock"><p className="nbaSmall">{actual ? status(row) === "Final" ? "Final score" : "Current score" : "Projected score"}</p>
+  return <div className={`nbaScoreBlock ${actual && status(row) === "Final" ? "actualFinalScore" : ""}`}><p className="nbaSmall">{actual ? status(row) === "Final" ? "Final score" : "Current score" : "Projected score"}</p>
     <div className="nbaScore"><div><span>{pair.away}</span><strong>{away == null ? "—" : actual ? String(away) : away.toFixed(1)}<ProjectionAdjustment points={adjustment?.awayScore} label={`${pair.away} score`} /></strong></div>
       <div><span>{pair.home}</span><strong>{home == null ? "—" : actual ? String(home) : home.toFixed(1)}<ProjectionAdjustment points={adjustment?.homeScore} label={`${pair.home} score`} /></strong></div></div>
   </div>;
@@ -94,7 +95,7 @@ function ForecastCard({ group, sport, qualifiedOnly = false, tracker, today }: {
       probability: pending ? null : numeric(row[`${name} Probability`]) ?? numeric(play?.score) }];
   });
   const gameStatus = status(row);
-  return <article className="nbaCard" data-game-id={row["Game ID"] || group.game}>
+  const card = <article className="nbaCard" data-game-id={row["Game ID"] || group.game}>
     <h3><MatchupWithLogos sport={sport} game={`${pair.away} @ ${pair.home}`} /></h3>
     <p className="nbaMeta"><time>{time(group.time)}</time>{gameStatus ? <span className="gameStatus" data-status={gameStatus}>{gameStatus}</span> : null}</p>
     {hasForecast || qualifiedOnly ? <>
@@ -125,6 +126,11 @@ function ForecastCard({ group, sport, qualifiedOnly = false, tracker, today }: {
     <Score row={row} game={group.game} actual />
     {context ? <p className="nbaSmall">SP+ inputs captured {time(context.factors.observed_at)}</p> : null}
   </article>;
+  return <CompactMatchup id={row["Game ID"] || group.game} sport={sport} away={pair.away} home={pair.home} awayScore={savedNumber(row["Projected Away"])} homeScore={savedNumber(row["Projected Home"])} awayAdjustment={adjustments?.awayScore} homeAdjustment={adjustments?.homeScore}
+    time={time(group.time)} status={gameStatus || (hasForecast ? "Preview" : "Pending")}
+    markets={hasForecast || qualifiedOnly ? markets.map(market => ({name:market.name, selection:market.selection || "No market line", detail:market.edge == null ? "Edge unavailable" : `${Math.abs(market.edge).toFixed(1)} pt edge`, grade:qualifiedOnly ? pending ? "Ungraded" : `Grade ${market.grade}` : undefined, result:market.result})) : []}
+    finalScore={gameStatus === "Final" ? {away:row["Away Score"] || row["Actual Away"] || "—", home:row["Home Score"] || row["Actual Home"] || "—"} : undefined}
+    returnLabel={qualifiedOnly ? "Back to Model Plays" : "Back to slate"}>{card}</CompactMatchup>;
 }
 
 export default function NcaafModelBoard({ sport = "NCAAF", fullSlate, rows, groups, tracker = [], today }: {

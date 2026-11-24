@@ -41,9 +41,7 @@ export function SiteHeader({ sport, onSportChange, dates, date, onDateChange, re
 
 export default function SiteNavigation({ active, onChange, sport }: { active: BoardTab; onChange: (tab: BoardTab) => void; sport: BoardSport }) {
   const [moreOpen, setMoreOpen] = useState(false);
-  const [mobile, setMobile] = useState(false);
-  useEffect(() => { const media = window.matchMedia("(max-width: 760px)"); const change = () => setMobile(media.matches); change(); media.addEventListener("change", change); return () => media.removeEventListener("change", change); }, []);
-  const mobileTrial = mobile && sport === "NCAAM";
+  const mobileTrial = true;
   const primaryPages = mobileTrial ? [{ tab: "EZPZ Picks" as const, label: "Picks", Icon: Zap }, { tab: "Full Slate" as const, label: "Full Slate", Icon: List }, primary[2]] : primary;
   const supportPages = mobileTrial ? [{ tab: "Signals" as const, label: "Signals" }, ...supporting.filter(item => item.tab !== "Full Slate")] : supporting;
   const menu = useRef<HTMLDivElement>(null);

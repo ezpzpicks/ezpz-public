@@ -1,5 +1,7 @@
 "use client";
 
+import CompactMatchup, { savedNumber } from "./CompactMatchup";
+import { projectionAdjustments } from "../lib/marketProjectionPolicy";
 import { useEffect, useMemo, useState } from "react";
 import { MatchupWithLogos, SelectionWithTeamLogo } from "./TeamLogoName";
 import FootballModelFormBadges from "./FootballModelFormBadges";
@@ -471,10 +473,18 @@ export default function FootballGameTabs({ sport, tab, data }: { sport: Sport; t
       {sport === "NFL" && tab === "Today’s Model Plays" && previewError ? <p className="fgtRefreshError" role="status">{previewError}</p> : null}
 
       {
-        groups.length ? <div className="fgtStack">{groups.map(group => <details className="fgtGame fgtModelGame" key={`${teamKey(playTeams(group.plays[0]).away, sport)}-${teamKey(playTeams(group.plays[0]).home, sport)}`}>
+        groups.length ? <div className="fgtStack">{groups.map(group => { const pair = playTeams(group.plays[0]); const row = group.row || {}; const adjustment = projectionAdjustments(row);
+          return <CompactMatchup key={group.game} id={`nfl-model-${group.game}`} sport={sport} away={pair.away} home={pair.home}
+            awayScore={savedNumber(row["Projected Away"])} homeScore={savedNumber(row["Projected Home"])} awayAdjustment={adjustment?.awayScore} homeAdjustment={adjustment?.homeScore}
+            status={group.plays.some(play => play.pending) ? "Pending" : "Preview"} time={group.time} returnLabel="Back to Model Plays"
+            markets={group.plays.map(play => ({name:play.propMarket || play.role || "Model play", selection:play.play || "Selection unavailable",
+              projection:savedNumber(play.propProjection ?? play.modelProjection) == null ? undefined : String(play.propProjection ?? play.modelProjection),
+              adjustment:play.modelProjectionAdjustment, detail:play.marketLine != null ? `Market line ${play.marketLine}` : play.oddsLine ? `Odds ${play.oddsLine}` : undefined,
+              grade:play.pending ? "Pending" : play.playType}))}>
+          <details className="fgtGame fgtModelGame" key={`${teamKey(playTeams(group.plays[0]).away, sport)}-${teamKey(playTeams(group.plays[0]).home, sport)}`}>
           <GameSummary sport={sport} game={group.game} time={group.time} count={group.plays.length} pending={group.plays.some(play => play.pending)} noun={group.plays.length === 1 ? "play" : "plays"} />
           <div className="fgtModelBody">{group.plays.map((play, index) => <ModelPlayRow key={`${play.play}-${play.playerName}-${play.propMarket}-${index}`} play={play} sport={sport} data={data} />)}</div>
-        </details>)}</div> : <div className="fgtEmpty">{sport === "NFL" && previewsLoading ? "Loading model plays…" : `No graded ${sport} Model Plays are saved for ${data.today || "today"}.`}</div>
+        </details></CompactMatchup>; })}</div> : <div className="fgtEmpty">{sport === "NFL" && previewsLoading ? "Loading model plays…" : `No graded ${sport} Model Plays are saved for ${data.today || "today"}.`}</div>
       }
 
       <style jsx global>{`
