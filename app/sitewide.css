@@ -48,3 +48,5 @@ body:has(.ez-sitewide)::before{display:none}
  .ez-sitewide .ncaamSheet .fgtModelBody{padding:10px 0}
  .ez-sitewide .ncaamSheet .fgtGame{border:0}
 }
+.ez-sitewide .nbaBoard :is(.nbaScore strong,.nbaSelection,.nbaMetrics dd){color:#eef0f3}
+.ez-sitewide .nbaBoard .nbaMarketCard{border-radius:0;border-width:1px 0 0!important}
