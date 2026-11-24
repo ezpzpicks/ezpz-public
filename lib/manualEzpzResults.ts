@@ -1,3 +1,4 @@
+import { standardOfficialTracking } from "./officialTracking";
 import { getApprovedManualPicks, type ManualApprovedPick } from "./manualEzpzPicks";
 import { settleApprovedManualPick, type ManualFinal } from "./manualEzpzSettlement";
 import { readTursoDatasetByDateKeys } from "./tursoStore";
@@ -34,14 +35,14 @@ export async function readApprovedManualPickResults(sport: McpSport, date?: stri
   const picks = getApprovedManualPicks(sport, date, now);
   const dates = [...new Set(picks.filter(pick => (!pick.result || pick.result === "PENDING")
     && Date.parse(pick.gameTime) < now).map(pick => pick.date))].sort();
-  if (!dates.length) return picks;
+  if (!dates.length) return picks.map(standardOfficialTracking);
   try {
     const finals: ManualFinal[] = [];
     for (let offset = 0; offset < dates.length; offset += 30)
       finals.push(...await savedFinals(sport, dates.slice(offset, offset + 30), now));
-    return picks.map(pick => settleApprovedManualPick(pick, finals, now));
+    return picks.map(pick => standardOfficialTracking(settleApprovedManualPick(pick, finals, now)));
   } catch {
     // A results outage cannot hide an approved selection or fabricate a settlement.
-    return picks;
+    return picks.map(standardOfficialTracking);
   }
 }

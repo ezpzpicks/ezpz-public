@@ -1,0 +1,23 @@
+name: Official picks and launch checks
+on:
+  pull_request:
+    paths: ['lib/manualEzpz*.ts', 'lib/officialTracking.ts', 'app/ManualEzpz*.tsx', 'app/api/ezpz-picks/**', 'app/api/ezpz-results/**', 'app/layout.tsx', 'app/share-image/**', 'app/page.tsx', 'app/SiteNavigation.tsx', 'tests/manual-ezpz*.cjs', '.github/workflows/official-launch-checks.yml']
+  push:
+    branches: [main]
+    paths: ['lib/manualEzpz*.ts', 'lib/officialTracking.ts', 'app/ManualEzpz*.tsx', 'app/api/ezpz-picks/**', 'app/api/ezpz-results/**', 'app/layout.tsx', 'app/share-image/**', 'app/page.tsx', 'app/SiteNavigation.tsx', 'tests/manual-ezpz*.cjs', '.github/workflows/official-launch-checks.yml']
+permissions:
+  contents: read
+jobs:
+  official-launch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: node --test tests/manual-ezpz-approval.test.cjs tests/manual-ezpz-settlement.test.cjs tests/ezpz-saved-results.test.cjs
+      - run: npx tsc --noEmit
+      - run: npx next build
