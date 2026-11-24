@@ -115,6 +115,9 @@ test("the public feed accepts upcoming games and retains its date-match guard", 
     '<span data-role="localtime" data-value="2026-10-02T00:00:00Z"></span>'));
   const core = loadModule("lib/footballPublicDataCore.ts", {
     "./sportSheets": {},
+    "./footballScheduleSource": {
+      loadFootballWeekSchedule: async () => assert.fail("Split-feed validation must not fetch the schedule"),
+    },
     "./ncaafEzpzPolicy": {},
     "./ncaafTrendRecordPolicy": {},
     "./nflTrendIdentity": {},
