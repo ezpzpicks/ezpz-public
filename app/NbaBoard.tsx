@@ -1,10 +1,11 @@
 "use client";
 
+import { formatFullSlateDate } from "../lib/fullSlateDate";
 import { MatchupWithLogos } from "./TeamLogoName";
 import dynamic from "next/dynamic";
 import type { FootballSignalsBoard } from "../lib/footballSignals";
 import type { NcaafEzpzSubtype } from "../lib/ncaafEzpzWilson";
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { latestNbaForecasts, type NbaModelPlay, type NbaModelRecords, type NbaRecordTotals } from "../lib/nbaRecords";
 import type { FootballSignalSide } from "../lib/footballSignals";
 import type { NbaSignalTest } from "../lib/nbaAnalysisCore";
@@ -20,6 +21,7 @@ import { ncaamPointProjection, isNcaamPointModel } from "../lib/ncaamPointEdges"
 import { ncaamTrackingGradesPending } from "../lib/ncaamMarketTrackingPolicy";
 import { ncaamProjectionAdjustments } from "../lib/ncaamProjectionAdjustments";
 import ProjectionAdjustment from "./ProjectionAdjustment";
+import NcaamMobileMatchup from "./NcaamMobileMatchup";
 import { marketProjectionPending, projectionAdjustments } from "../lib/marketProjectionPolicy";
 import { selectedSpreadSide } from "../lib/selectionSide";
 
@@ -57,7 +59,7 @@ const gameStatus = (game?: Row) => game?.Completed === "TRUE" || game?.Status ==
   : game?.Status === "STATUS_IN_PROGRESS" ? "In progress" : game?.Status === "STATUS_SCHEDULED" ? "Scheduled" : "";
 function Score({ away, home, awayScore, homeScore, label, adjustments }: { away: string; home: string; awayScore: string; homeScore: string; label: string;
   adjustments?: ReturnType<typeof ncaamProjectionAdjustments> }) {
-  return <div className="nbaScoreBlock"><p className="nbaSmall">{label}</p><div className="nbaScore">
+  return <div className={`nbaScoreBlock ${label === "Final score" ? "actualFinalScore" : ""}`}><p className="nbaSmall">{label}</p><div className="nbaScore">
     <div><span>{away}</span><strong>{awayScore}<ProjectionAdjustment points={adjustments?.awayScore} label={`${away} score`} /></strong></div>
     <div><span>{home}</span><strong>{homeScore}<ProjectionAdjustment points={adjustments?.homeScore} label={`${home} score`} /></strong></div>
   </div></div>;
@@ -88,7 +90,7 @@ function ForecastCard({ forecast, game, qualifiedOnly = false, sport = "NBA" }: 
     market.grade = point && captured ? qualifiedOnly ? captured.grade : captured.edge_grade : "Research";
   }
   if (gradingPending) for (const market of markets) market.grade = "Ungraded";
-  return <article className="nbaCard" data-game-id={forecast.gameId}>
+  const card = <article className="nbaCard" data-game-id={forecast.gameId}>
     <h3><MatchupWithLogos sport={sport} game={`${forecast.away_team} @ ${forecast.home_team}`} /></h3>
     <p className="nbaMeta"><time dateTime={forecast.tipoff}>{time(forecast.tipoff)}</time>
       {gameStatus(game) && <span className="gameStatus" data-status={gameStatus(game)}>{gameStatus(game)}</span>}</p>
@@ -117,6 +119,8 @@ function ForecastCard({ forecast, game, qualifiedOnly = false, sport = "NBA" }: 
     {sport === "NCAAM" && <NcaamModelDetails forecast={forecast} />}
     <p className="nbaSmall forecastTimestamp">{gradingPending ? "Updated" : "Locked"} {time(forecast.lockedAt)}{forecast.market ? ` · ${forecast.market.source || "ScoresAndOdds"} ${time(forecast.market.as_of)} · assumed -110` : ""}</p>
   </article>;
+  return <NcaamMobileMatchup sport={sport} forecast={forecast} game={game || {"Game ID": forecast.gameId, "Away Team":forecast.away_team, "Home Team":forecast.home_team, "Game Time":forecast.tipoff}} modelPlays={qualifiedOnly}
+    markets={qualifiedOnly ? markets.filter(market => ["A", "B"].includes(market.grade || "")).map(market => ({name:market.name, selection:market.pick || "No market line", detail:market.edge == null ? "Edge unavailable" : `${Math.abs(market.edge).toFixed(1)} pt edge`, grade:`Grade ${market.grade}`, result:gradingPending ? undefined : market.result})) : undefined}>{card}</NcaamMobileMatchup>;
 }
 
 function MissingForecastCard({ game, splits, sport = "NBA" }: { game: Row; splits: Row[]; sport?: "NBA" | "NCAAM" }) {
@@ -151,15 +155,20 @@ function ModelSlate({ tab, data }: { tab: string; data: NbaMarketPayload }) {
     .sort((a, b) => Number(gameStatus(b) === "In progress") - Number(gameStatus(a) === "In progress"));
   const gameCard = (game: Row) => {
     const forecast = latestByGame.get(game["Game ID"]);
-    return forecast ? <ForecastCard key={game["Game ID"]} forecast={forecast} game={game} sport={sport} />
+    const card = forecast ? <ForecastCard key={game["Game ID"]} forecast={forecast} game={game} sport={sport} />
       : <MissingForecastCard key={game["Game ID"]} game={game} splits={data.splits} sport={sport} />;
+    return !forecast ? <NcaamMobileMatchup key={game["Game ID"]} sport={sport} game={game}>{card}</NcaamMobileMatchup> : card;
   };
-  return <section className="nbaBoard">
-    <div className="nbaIntro"><h2>{fullSlate ? `${sport} Full Slate` : `${sport} Model Plays`}</h2></div>
-    {fullSlate ? <>{activeGames.map(gameCard)}
+  const timedCards = (items: Row[]) => items.map((game, index) => <Fragment key={game["Game ID"]}>
+    {sport === "NCAAM" && (index === 0 || time(items[index - 1]["Game Time"]) !== time(game["Game Time"])) && <h3 className="ncaamStartTime"><time dateTime={game["Game Time"]}>{time(game["Game Time"])}</time></h3>}
+    {gameCard(game)}
+  </Fragment>);
+  return <section className={`nbaBoard${fullSlate && sport === "NCAAM" ? " ncaamSlateTrial" : ""}`}>
+    <div className="nbaIntro"><h2>{fullSlate ? <><span className="ncaamTitleSport">{sport} </span>Full Slate</> : `${sport} Model Plays`}</h2></div>
+    {fullSlate ? <>{timedCards(activeGames)}
       {completed.length ? <details className="completedGames" open={!activeGames.length}>
         <summary>Completed games <span>{completed.length}</span></summary>
-        <div className="completedGamesList">{completed.map(gameCard)}</div>
+        <div className="completedGamesList">{timedCards(completed)}</div>
       </details> : null}
     </> : qualified.map(forecast => <ForecastCard key={`${forecast.gameId}-${forecast.modelVersion}-${forecast.lockedAt}`}
       forecast={forecast} sport={sport} qualifiedOnly game={games.find(game => game["Game ID"] === forecast.gameId)} />)}
@@ -187,10 +196,10 @@ function ArchivedSlate({ data, picks = false }: { data: NbaMarketPayload; picks?
     return () => controller.abort();
   }, [selected, current, retry, sport, field]);
   const view = selected === current ? data : archive?.date === selected ? archive.data : undefined;
-  return <><div className="nbaControls"><label>{picks ?  `View ${sport} picks slate` : `View ${sport} slate`} <select aria-label={picks ? `View ${sport} picks slate` : `View ${sport} full slate`} value={selected} onChange={event => setDate(event.target.value)} disabled={!dates.length}>
-    {dates.map(day => <option key={day} value={day}>{day}</option>)}</select></label></div>
+  return <div className={sport === "NCAAM" && !picks ? "ncaamArchive" : undefined}><div className="nbaControls"><label><span className="nbaDateLabel">{picks ?  `View ${sport} picks slate` : `View ${sport} slate`}</span> <select aria-label={picks ? `View ${sport} picks slate` : `View ${sport} full slate`} value={selected} onChange={event => setDate(event.target.value)} disabled={!dates.length}>
+    {dates.map(day => <option key={day} value={day}>{picks ? day : formatFullSlateDate(day)}</option>)}</select></label></div>
     {view ? <NbaLineupProvider lineups={view.lineups}>{picks ? <NbaEzpzPicks data={view} /> : <ModelSlate tab="Full Slate" data={view} />}</NbaLineupProvider> : <div className="nbaBoard"><p className="nbaCard" role={archive?.error ? "alert" : "status"}>
-      {archive?.error ? <>The saved slate could not be loaded. <button type="button" onClick={() => setRetry(n => n + 1)}>Try again</button></> : `Loading saved ${sport} slate…`}</p></div>}</>;
+      {archive?.error ? <>The saved slate could not be loaded. <button type="button" onClick={() => setRetry(n => n + 1)}>Try again</button></> : `Loading saved ${sport} slate…`}</p></div>}</div>;
 }
 
 export default function NbaBoard({ tab, data }: { tab: string; data: NbaMarketPayload }) {

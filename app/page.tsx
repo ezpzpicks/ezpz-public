@@ -1,5 +1,7 @@
 "use client";
 
+import { formatFullSlateDate } from "../lib/fullSlateDate";
+import CompactMatchup, { savedNumber } from "./CompactMatchup";
 import FootballBoard from "./FootballBoard";
 import SiteNavigation, { SiteHeader } from "./SiteNavigation";
 import type { FootballSignalsBoard } from "../lib/footballSignals";
@@ -4811,7 +4813,7 @@ function BestPlayCard({
       ]),
   );
 
-  return (
+  const card = (
     <article
       className={`card green fade-in best ${topPlay ? "top" : ""} ${handpicked ? "handpicked" : ""}`}
     >
@@ -5004,6 +5006,17 @@ function BestPlayCard({
       </div>
     </article>
   );
+  const away = play.awayTeam || row?.["Away Team"] || play.game?.split(/\s+(?:@|at)\s+/i)[0] || "Away";
+  const home = play.homeTeam || row?.["Home Team"] || play.game?.split(/\s+(?:@|at)\s+/i)[1] || "Home";
+  return <CompactMatchup sport="MLB" id={`mlb-model-${index}-${play.game}`} away={away} home={home}
+    awayScore={savedNumber(row?.["Away Runs Projection"])} homeScore={savedNumber(row?.["Home Runs Projection"])}
+    status="Preview" returnLabel="Back to Model Plays" markets={[{
+      name:kPlay ? "Pitcher strikeouts" : totalPlay ? "Total runs" : moneylinePlay ? "Moneyline" : firstInningPlay ? "First inning" : "Model play",
+      selection:totalPlay ? getTotalPickLabel(play, slateRows) : play.play || "Selection unavailable",
+      projection:kPlay ? `${getProjectedKs(play)} Ks` : totalPlay ? String(getTotalProjection(play, slateRows)) : undefined,
+      detail:moneylinePlay ? `Model win ${modelPct} · Odds ${moneylineOdds}` : `Odds ${getPlayableOdds(play)}`,
+      grade:diagnostics.grade,
+    }]}>{card}</CompactMatchup>;
 }
 
 function isQualifiedKSummary(summary: string) {
@@ -7457,7 +7470,7 @@ export default function Home() {
         return <section className="nbaBoard mlbModelBoard">
           <div className="nbaIntro"><h2>MLB Full Slate</h2></div>
           {rows.map((row, index) => <SlateCard key={`${row["Game ID"] || row["Game Key"] || row["Game Label"]}-${index}`} row={row} draftKings={slateMarket} />)}
-          {!rows.length ? <div className="nbaCard">No games saved for {slateData.today}.</div> : null}
+          {!rows.length ? <div className="nbaCard">No games saved for {formatFullSlateDate(slateData.today || "")}.</div> : null}
         </section>;
       }}</FullSlateHistory>;
     }
@@ -7581,7 +7594,7 @@ export default function Home() {
   ]);
 
   return (
-    <main className="shell ez-mobile-shell">
+    <main className="shell ez-mobile-shell ez-sitewide">
       <SiteHeader sport={activeSport} onSportChange={changeSport} dates={signalPage ? signalDates : []} date={signalDate} onDateChange={setSelectedSignalDate} refreshing={refreshing} onRefresh={() => void loadData(false, true)} />
       <SiteNavigation active={active} onChange={changeTab} sport={activeSport} />
 

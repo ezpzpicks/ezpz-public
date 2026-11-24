@@ -1,0 +1,52 @@
+/* Public board only: V3 surfaces and type; admin and builders are outside this scope. */
+body:has(.ez-sitewide){background:#0c1015;color:#eef0f3}
+body:has(.ez-sitewide)::before{display:none}
+.shell.ez-sitewide{--ez-panel:#101112;--ez-panel-2:#171a1e;--ez-border:#343b43;--ez-muted:#b6beca;--ez-text:#eef0f3;font-family:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+.ez-sitewide .ez-header{border:0;padding:6px 0;min-height:56px}
+.ez-sitewide .ez-brand{display:none}
+.ez-sitewide .ez-trial-brand{display:flex;align-items:center;gap:12px;color:#168fff;min-width:0}
+.ez-sitewide .ez-trial-brand svg{width:43px;height:30px;flex:none}
+.ez-sitewide .ez-trial-brand>span{border-left:1px solid #59616c;padding-left:12px;color:#f7f8fa;font-size:20px;font-weight:850;letter-spacing:-.04em;white-space:nowrap}
+.ez-sitewide .ez-refresh{background:none;border:0;color:#aab1bd}
+.ez-sitewide .ez-context{margin:10px 0 18px;max-width:480px}
+.ez-sitewide .ez-context label:first-child{flex:0 1 122px}
+.ez-sitewide .ez-context select{border:1px solid #5c6876;border-radius:24px;background:#171e26;font-size:15px;font-weight:700;min-height:44px}
+.ez-sitewide .ez-nav{background:#111820;border-color:#303c49;box-shadow:none}
+.ez-sitewide .ez-nav .ez-nav-active{background:transparent;border-color:transparent;border-radius:0;color:#3ea6ff;box-shadow:inset 0 -3px #3ea6ff}
+.ez-sitewide .ez-more-menu{background:#171a1e;border-color:#48515b}
+.ez-sitewide :is(.nbaCard,.card,.fgtGame,.fgtEmpty,.officialRecordCard,.ep-pick-card,.fs-game,.fs-panel,.fs-card,.propsCard){background:#101112!important;border-color:#343b43!important;box-shadow:none!important}
+.ez-sitewide :is(.nbaMarketCard,.bubble,.miniBubble,.fgtPlayRow,.fgtMarketCard,.fgtProps,.fgtDk,.fgtPropRow){background:transparent!important;border-color:#343b43!important;box-shadow:none!important}
+.ez-sitewide :is(.nbaScore>div,.fgtTeamScore,.fgtMetrics>div){background:transparent!important;border-color:#343b43!important}
+.ez-sitewide :is(.nbaSelection,.fgtMarketCard>strong,.fgtPropSelection){line-height:1.35;font-family:inherit;font-size:14px;font-weight:700}
+.ez-sitewide :is(.nbaMetrics dd,.ncaamEdge,.fgtPlayMetrics b){font-variant-numeric:tabular-nums}
+.ez-sitewide :is(.nbaIntro h2,.fgtHead h2){letter-spacing:-.035em}
+.ez-sitewide .nbaScore strong{font-variant-numeric:tabular-nums}
+.ez-sitewide .actualFinalScore .nbaScore>div{display:flex;flex-direction:column;justify-content:flex-start;align-items:flex-start;gap:4px}
+.ez-sitewide .compactFinalTeams{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:6px}
+.ez-sitewide .compactFinalTeams>div{display:flex;flex-direction:column;gap:3px;min-width:0}
+.ez-sitewide .compactFinalTeams span{overflow-wrap:anywhere;line-height:1.35}
+.ez-sitewide .compactFinalTeams strong{font-size:inherit;font-weight:700;font-variant-numeric:tabular-nums}
+.ez-sitewide .compactTime{font-size:12px;color:#b6beca;margin:0 0 8px}
+.ez-sitewide .compactMarketProjection{font-size:12px;line-height:1.5;text-align:left!important;color:#d5dbe3}
+.ez-sitewide .compactMarketProjection b{font-size:16px;font-variant-numeric:tabular-nums}
+.ez-sitewide .ncaamCompactMarkets{row-gap:14px}
+.ez-sitewide .ncaamCompactMarket:nth-child(odd){border-left:0;padding-left:0;padding-right:10px}
+.ez-sitewide .ncaamCompactMarket:nth-child(even){border-left:1px solid #485462;padding-left:14px;padding-right:0}
+.ez-sitewide .ncaamSheet .nbaCard{padding:16px 0;border:0;background:none!important;border-radius:0}
+.ez-sitewide .ep-pick-card{border-radius:9px}
+.ez-sitewide :is(button,select,a,summary):focus-visible{outline:2px solid #83c9ff;outline-offset:3px}
+@media(max-width:760px){
+ .ez-sitewide .ez-nav{border-radius:0}
+ .ez-sitewide :is(.nbaBoard,.footballGameTabs,.slateHistory,.fs-board,.card,.nbaCard){min-width:0;max-width:100%}
+ .ez-sitewide .ncaamCompact{scroll-margin-bottom:100px}
+ .ez-sitewide .ncaamOpen{scroll-margin-bottom:100px}
+ .ez-sitewide .ncaamCompactTeam>strong{font-weight:700}
+ .ez-sitewide .nbaMarkets{grid-template-columns:1fr}
+ .ez-sitewide .fgtPlayRow{grid-template-columns:minmax(0,1fr)}
+ .ez-sitewide .fgtPlayMetrics{justify-content:flex-start;flex-wrap:wrap}
+ .ez-sitewide .ncaamSheet .fgtSummary{padding-left:0;padding-right:0}
+ .ez-sitewide .ncaamSheet .fgtModelBody{padding:10px 0}
+ .ez-sitewide .ncaamSheet .fgtGame{border:0}
+}
+.ez-sitewide .nbaBoard :is(.nbaScore strong,.nbaSelection,.nbaMetrics dd){color:#eef0f3}
+.ez-sitewide .nbaBoard .nbaMarketCard{border-radius:0;border-width:1px 0 0!important}

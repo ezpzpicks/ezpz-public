@@ -1,3 +1,4 @@
+import CompactMatchup, { savedNumber } from "./CompactMatchup";
 import type { ReactNode } from "react";
 import { MatchupWithLogos } from "./TeamLogoName";
 
@@ -13,7 +14,7 @@ export default function MlbSlateCard({ row, time, modelBuilt, markets, children 
 }) {
   const game = row["Game Label"] || `${row["Away Team"]} @ ${row["Home Team"]}`;
   const awayRuns = runs(row["Away Runs Projection"]), homeRuns = runs(row["Home Runs Projection"]);
-  return <article className="nbaCard" data-game-id={row["Game ID"] || row["Game Key"] || game}>
+  const card = <article className="nbaCard" data-game-id={row["Game ID"] || row["Game Key"] || game}>
     <h3><MatchupWithLogos sport="MLB" game={game} /></h3>
     <p className="nbaMeta"><time>{time ? `${time} ET` : "Time unavailable"}</time><span>{modelBuilt ? "Saved forecast" : "Scheduled"}</span></p>
     {!modelBuilt ? <p className="nbaNotice">No saved model forecast for this matchup.</p> : null}
@@ -24,6 +25,12 @@ export default function MlbSlateCard({ row, time, modelBuilt, markets, children 
     <div className="nbaMarkets">{markets}</div>
     {children}
   </article>;
+  return <CompactMatchup sport="MLB" id={row["Game ID"] || row["Game Key"] || game} away={row["Away Team"] || game.split(/\s+(?:@|at)\s+/i)[0]} home={row["Home Team"] || game.split(/\s+(?:@|at)\s+/i)[1] || "Home"}
+    awayScore={savedNumber(awayRuns)} homeScore={savedNumber(homeRuns)} time={time ? `${time} ET` : "Time unavailable"} status={modelBuilt ? "Preview" : "Pending"}
+    markets={[
+      ...(row["Better ML"] ? [{name:"Moneyline", selection:row["Better ML"], detail:row["ML Odds"] ? `Odds ${row["ML Odds"]}` : undefined}] : []),
+      ...(row["Total Runs Projection"] ? [{name:"Total runs", selection:row["Total Runs Line"] ? `Line ${row["Total Runs Line"]}` : "Line unavailable", projection:row["Total Runs Projection"]}] : []),
+    ]}>{card}</CompactMatchup>;
 }
 
 export function MlbMarketPanel({ title, grade, isGreen, metrics, children }: {

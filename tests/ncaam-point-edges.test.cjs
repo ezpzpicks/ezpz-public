@@ -306,7 +306,7 @@ test('play mix counts each eligible market once and preserves an uneven slate',(
  assert.equal(api.ncaamPointPlayMix([a,revised]).total,0,'a revised game time cannot retain an older qualifying capture');
 });
 
-test('basketball slates go straight from the heading to forecast cards and retain numeric edges',()=>{
+test('basketball slates retain numeric cards with correctly associated NCAAM time headings',()=>{
  const fs=require('node:fs'),vm=require('node:vm'),ts=require('typescript'),React=require('react');
  const {renderToStaticMarkup}=require('react-dom/server');
  function component(file) {
@@ -315,7 +315,7 @@ test('basketball slates go straight from the heading to forecast cards and retai
   if(file==='app/NbaBoard.tsx')code+='\nexports.testSlate=ModelSlate;';
   vm.runInNewContext(code,{exports,Date,Intl,console,require:name=>name==='./ProjectionAdjustment'?component('app/ProjectionAdjustment.tsx'):name==='next/dynamic'?{default:()=>()=>null}
    :name==='./TeamLogoName'?{MatchupWithLogos:p=>p.game}:name==='./NbaGameLineups'?{default:()=>null}
-   :name==='./NbaEzpzPicks'?{default:()=>null}:name.startsWith('./Ncaam')?component(`app/${name.slice(2)}.tsx`)
+   :name==='./NbaEzpzPicks'?{default:()=>null}:(name.startsWith('./Ncaam') || name==='./CompactMatchup')?component(`app/${name.slice(2)}.tsx`)
    :name.startsWith('../lib/')?load(path.join(__dirname,'../app',name+'.ts')):require(name)});
   return exports;
  }
@@ -325,10 +325,35 @@ test('basketball slates go straight from the heading to forecast cards and retai
    {tab,data:{sport,forecasts:[f],games:[{'Game ID':f.gameId,'Game Time':f.tipoff}],splits:[],stale:true}}));
   const {document}=require('linkedom').parseHTML(html),board=document.querySelector('.nbaBoard');
   assert.equal(board.children[0].querySelector('h2').textContent,`${sport} ${tab==='Full Slate'?'Full Slate':'Model Plays'}`);
-  assert.equal(board.children[1].tagName,'ARTICLE');
+  const firstCard=board.querySelector(':scope > article');
+  if(sport==='NCAAM' && tab==='Full Slate') {
+   const timeHeading=board.children[1];
+   assert(timeHeading.matches('h3.ncaamStartTime'));
+   assert.equal(timeHeading.querySelector('time').getAttribute('dateTime'),f.tipoff);
+   assert.equal(timeHeading.nextElementSibling,firstCard);
+  } else assert.equal(board.children[1],firstCard);
+  assert.equal(firstCard.getAttribute('data-game-id'),String(f.gameId));
   assert.equal(board.querySelectorAll(':scope > article').length,1);
   for(const text of ['Play mix','Spread tiers','Point-edge grade','Confidence flags','Matchup strength is already included','Saved forecasts remain visible'])assert(!html.includes(text),text);
   assert(html.includes('<dt>Edge</dt>'));assert(!html.includes('<dt>Point-model lean</dt>'));
   assert(html.includes('Projected score'));assert(html.includes(f.spread_pick));assert(html.includes(f.total_pick));
  }
+ // Reversed input must still group each game beneath its own Eastern kickoff.
+ const later={...f,gameId:'later-game',tipoff:new Date(Date.parse(f.tipoff)+3600000).toISOString()};
+ const html=renderToStaticMarkup(React.createElement(component('app/NbaBoard.tsx').testSlate,
+  {tab:'Full Slate',data:{sport:'NCAAM',forecasts:[later,f],games:[later,f].map(g=>({'Game ID':g.gameId,'Game Time':g.tipoff})),splits:[],stale:true}}));
+ const {document}=require('linkedom').parseHTML(html),board=document.querySelector('.nbaBoard');
+ function assertOrderedTimes(section) {
+  const cards=[...section.querySelectorAll(':scope > article')];
+  assert.deepEqual(cards.map(c=>c.getAttribute('data-game-id')),[String(f.gameId),later.gameId]);
+  for(const [index,game] of [f,later].entries()) {
+   const heading=cards[index].previousElementSibling;
+   assert(heading.matches('h3.ncaamStartTime'));
+   const time=heading.querySelector('time');assert.equal(time.getAttribute('dateTime'),game.tipoff);
+   assert.equal(time.textContent,new Date(game.tipoff).toLocaleTimeString('en-US',{timeZone:'America/New_York',hour:'numeric',minute:'2-digit'})+' ET');
+  }
+ }
+ assertOrderedTimes(board);
+ const mislabeled=board.cloneNode(true);mislabeled.querySelector('time').setAttribute('dateTime',later.tipoff);
+ assert.throws(()=>assertOrderedTimes(mislabeled),assert.AssertionError,'a kickoff attached to the wrong game must fail');
 });
