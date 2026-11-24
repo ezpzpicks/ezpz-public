@@ -91,7 +91,7 @@ test('NCAAF Full Slate keeps numerical grades and eligibility with cards directl
    {compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText;
   vm.runInNewContext(source,{exports,Date,Intl,console,require:name=>name==='./TeamLogoName'
    ?{MatchupWithLogos:p=>p.game,SelectionWithTeamLogo:p=>p.selection}
-   :name==='./ProjectionAdjustment'?component('app/ProjectionAdjustment.tsx')
+   :['./ProjectionAdjustment','./CompactMatchup','./SlateDisplayFinals'].includes(name)?component(`app/${name.slice(2)}.tsx`)
    :name==='./FootballModelFormBadges'?{default:()=>null}:name==='./NcaafModelDetails'?component('app/NcaafModelDetails.tsx')
    :name.startsWith('../lib/')?load(path.join(__dirname,'../app',name+'.ts')):require(name)});
   return exports;

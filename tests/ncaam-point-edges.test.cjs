@@ -315,7 +315,7 @@ test('basketball slates go straight from the heading to forecast cards and retai
   if(file==='app/NbaBoard.tsx')code+='\nexports.testSlate=ModelSlate;';
   vm.runInNewContext(code,{exports,Date,Intl,console,require:name=>name==='./ProjectionAdjustment'?component('app/ProjectionAdjustment.tsx'):name==='next/dynamic'?{default:()=>()=>null}
    :name==='./TeamLogoName'?{MatchupWithLogos:p=>p.game}:name==='./NbaGameLineups'?{default:()=>null}
-   :name==='./NbaEzpzPicks'?{default:()=>null}:name.startsWith('./Ncaam')?component(`app/${name.slice(2)}.tsx`)
+   :name==='./NbaEzpzPicks'?{default:()=>null}:(name.startsWith('./Ncaam') || name==='./CompactMatchup')?component(`app/${name.slice(2)}.tsx`)
    :name.startsWith('../lib/')?load(path.join(__dirname,'../app',name+'.ts')):require(name)});
   return exports;
  }
