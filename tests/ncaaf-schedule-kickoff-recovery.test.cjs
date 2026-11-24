@@ -72,9 +72,9 @@ test('ESPN school names replace the stale Buffalo–Miami kickoff before final s
     exports.loadSchedule = loadFootballWeekSchedule;
     exports.mergeSchedule = mergeFootballSchedules;
     exports.mergeSlate = mergeFootballTrackingSlate;
-  `, { './footballWeeklyMarket': weekly }, {
+  `, { './footballWeeklyMarket': weekly, './footballScheduleSource': load('lib/footballScheduleSource.ts','',{}, {
     fetch: async () => ({ ok: true, json: async () => scoreboard }),
-  });
+  }) });
   const live = await source.loadSchedule('NCAAF', date, date);
   assert.equal(live[0]['Away Team'], 'Buffalo');
   assert.equal(live[0]['Home Team'], 'Miami OH');
