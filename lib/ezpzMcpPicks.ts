@@ -120,7 +120,7 @@ export function normalizeMcpPick(sport: McpSport, pick: AnyPick, now = Date.now(
     lastSeven: manual || teamTrend || signalTest ? null : lastSeven(pick), snapshotStatus: status,
     finalizedAt: status === "FINAL_PREGAME" && Number.isFinite(frozen) ? new Date(frozen).toISOString() : null,
     eligibleForPosting: status === "FINAL_PREGAME" && gameStart > now && (!Number.isFinite(frozen) || frozen <= now)
-      && !/^(?:W|L|P|WIN|LOSS|PUSH|WON|LOST)$/i.test(result),
+      && !/^(?:W|L|P|WIN|LOSS|PUSH|WON|LOST|VOID)$/i.test(result),
     sourceUrl: "https://ezpzpicks.com",
   };
 }

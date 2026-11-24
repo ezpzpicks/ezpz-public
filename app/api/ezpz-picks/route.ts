@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { MCP_SPORTS, normalizeMcpPick, type McpSport } from "../../../lib/ezpzMcpPicks";
-import { getApprovedManualPicks, manualPickForMcp, MANUAL_EZPZ_EFFECTIVE_DATE } from "../../../lib/manualEzpzPicks";
+import { manualPickForMcp, MANUAL_EZPZ_EFFECTIVE_DATE } from "../../../lib/manualEzpzPicks";
+import { readApprovedManualPickResults } from "../../../lib/manualEzpzResults";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -22,7 +23,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ ok: false, error: "Invalid game date." }, { status: 400, headers });
   }
   const now = Date.now();
-  const picks = getApprovedManualPicks(sport, date || undefined, now).map(row => ({
+  const picks = (await readApprovedManualPickResults(sport, date || undefined, now)).map(row => ({
     ...row, ...normalizeMcpPick(sport, manualPickForMcp(row), now),
   }));
   return NextResponse.json({

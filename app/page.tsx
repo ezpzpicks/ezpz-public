@@ -7585,114 +7585,26 @@ export default function Home() {
       <SiteHeader sport={activeSport} onSportChange={changeSport} dates={signalPage ? signalDates : []} date={signalDate} onDateChange={setSelectedSignalDate} refreshing={refreshing} onRefresh={() => void loadData(false, true)} />
       <SiteNavigation active={active} onChange={changeTab} sport={activeSport} />
 
-      {error && data ? (
+      {error && data && active !== "EZPZ Picks" && active !== "Records" ? (
         <div className="staleBanner">
           Showing the last successful update. Refresh failed: {error}
         </div>
       ) : null}
 
-      {data?.publicBoard?.stale && !error ? (
+      {data?.publicBoard?.stale && !error && active !== "EZPZ Picks" && active !== "Records" ? (
         <div className="staleBanner" role="status">
           Showing the saved {activeSport} board for {data.publicBoard.sourceDate}. A background update is pending.
         </div>
       ) : null}
 
-      {data && active !== "Signals" && active !== "EZPZ Picks" && active !== "Records" && active !== "Player Props" ? (
-        <section className="tileGrid">
-          {activeSport === "MLB" ? (
-            <>
-              <Tile
-                label="Model Plays - Last 7 Days"
-                value={visibleLast7Totals.record}
-                meta={`${visibleLast7Totals.winPct}% • ${visibleLast7Totals.unitsWon}u • ROI ${visibleLast7Totals.roiPct}%`}
-                green
-              />
-              <Tile
-                label="Model Plays - Running Total"
-                value={visibleOverallTotals.record}
-                meta={`${visibleOverallTotals.winPct}% • ${visibleOverallTotals.unitsWon}u • ROI ${visibleOverallTotals.roiPct}%`}
-                green
-              />
-              <Tile
-                label="Today’s Handpicked"
-                value={String(handpickedTodayCount)}
-                meta="Your conviction plays"
-                green={handpickedTodayCount > 0}
-              />
-              <Tile
-                label="Handpicked - Last 7 Days"
-                value={handpickedLast7.record}
-                meta={`${handpickedLast7.winPct}% • ${handpickedLast7.unitsWon}u • ROI ${handpickedLast7.roiPct}%`}
-                green={
-                  handpickedLast7.wins >= handpickedLast7.losses &&
-                  handpickedLast7.totalBets > 0
-                }
-              />
-              <Tile
-                label="Handpicked - Running Total"
-                value={handpickedOverall.record}
-                meta={`${handpickedOverall.winPct}% • ${handpickedOverall.unitsWon}u • ROI ${handpickedOverall.roiPct}%`}
-                green={
-                  handpickedOverall.wins >= handpickedOverall.losses &&
-                  handpickedOverall.totalBets > 0
-                }
-              />
-              <Tile
-                label="Today’s Model Plays"
-                value={String(bestPlays.length)}
-                meta="Pending Model Plays"
-                green={bestPlays.length > 0}
-              />
-            </>
-          ) : activeSport === "NBA" || activeSport === "NCAAM" ? (
-            <>
-              <Tile label="Model Plays - Last 7 Days" value={basketballMarket?.modelRecords?.last7Days.record || "0-0-0"}
-                meta={basketballMarket?.modelRecords?.last7Days.winPct == null ? "No settled plays" : `${basketballMarket?.modelRecords?.last7Days.winPct}% • ${basketballMarket?.modelRecords?.last7Days.unitsWon}u • ROI ${basketballMarket?.modelRecords?.last7Days.roiPct}%`}
-                green={Boolean(basketballMarket?.modelRecords?.last7Days.totalBets)} />
-              <Tile label="Model Plays - Running Total" value={basketballMarket?.modelRecords?.overall.record || "0-0-0"}
-                meta={basketballMarket?.modelRecords?.overall.winPct == null ? "No settled plays" : `${basketballMarket?.modelRecords?.overall.winPct}% • ${basketballMarket?.modelRecords?.overall.unitsWon}u • ROI ${basketballMarket?.modelRecords?.overall.roiPct}%`}
-                green={Boolean(basketballMarket?.modelRecords?.overall.totalBets)} />
-              <Tile label="Today’s Model Plays" value={String(basketballMarket?.modelPlays?.length || 0)} meta="A/B spreads + totals" />
-              <Tile label="Public Betting Splits" value={String(new Set(basketballMarket?.splits.map(r => r["Game ID"]) || []).size)} meta="Games with market lines" />
-              <Tile label={activeSport === "NCAAM" ? "Matchup Grades" : "Model Stage"} value={activeSport === "NCAAM" ? "A/B" : "LIVE"} meta={activeSport === "NCAAM" ? "Offense • defense • tempo" : "Lineup-aware model"} green />
-              <Tile label="Published Matchups" value={String(basketballMarket?.games.length || 0)} meta={`${activeSport} slate`} />
-            </>
-          ) : activeSport === "NFL" || activeSport === "NCAAF" ? (
-            <>
-              <Tile
-                label={nflEzpzRecords ? "EZPZ Picks - Last 7 Days" : "Model Plays - Last 7 Days"}
-                value={(nflEzpzRecords?.last7Days || data.tiles.last7Days).record}
-                meta={`${(nflEzpzRecords?.last7Days || data.tiles.last7Days).winPct}% • ${(nflEzpzRecords?.last7Days || data.tiles.last7Days).unitsWon}u • ROI ${(nflEzpzRecords?.last7Days || data.tiles.last7Days).roiPct}%`}
-                green={(nflEzpzRecords?.last7Days || data.tiles.last7Days).totalBets > 0}
-              />
-              <Tile
-                label={nflEzpzRecords ? "EZPZ Picks - Running Total" : "Model Plays - Running Total"}
-                value={(nflEzpzRecords?.overall || data.tiles.overallGreen).record}
-                meta={`${(nflEzpzRecords?.overall || data.tiles.overallGreen).winPct}% • ${(nflEzpzRecords?.overall || data.tiles.overallGreen).unitsWon}u • ROI ${(nflEzpzRecords?.overall || data.tiles.overallGreen).roiPct}%`}
-                green={(nflEzpzRecords?.overall || data.tiles.overallGreen).totalBets > 0}
-              />
-              <Tile label="Today’s Model Plays" value={String(data.bestPlays.length)} meta="Spread + Total" green={data.bestPlays.length > 0} />
-              <Tile label="Public Betting Splits" value={String((data.trendPlays || []).filter((play) => play.tier !== "Pass").length)} meta="Sport-specific ScoresAndOdds records" />
-              <Tile label="Model Stage" value="LIVE" meta={activeSportMeta.status} green />
-              <Tile label="Published Matchups" value={String(data.slateToday.length)} meta="Separate sport database" green={data.slateToday.length > 0} />
-            </>
-          ) : (
-            <>
-              <Tile label="Model Plays - Last 7 Days" value="0-0-0" meta="0.0% • 0.00u • ROI 0.0%" />
-              <Tile label="Model Plays - Running Total" value="0-0-0" meta="Tracking begins with official plays" />
-              <Tile label="Today’s Handpicked" value="0" meta="No selections posted" />
-              <Tile label="Model Stage" value="PRESEASON" meta={activeSportMeta.status} />
-              <Tile label="Today’s Model Plays" value="0" meta="Public format is ready" />
-              <Tile label="Published Matchups" value="0" meta="Slate connection pending" />
-            </>
-          )}
-        </section>
-      ) : null}
+      {active === "Today’s Model Plays" ? <div className="modelViewActions">
+        <button type="button" className="fullSlateShortcut" onClick={() => changeTab("Full Slate")}>View Full Slate</button>
+      </div> : null}
 
       {active === "Records" ? <>
         <ManualEzpzRecords key={activeSport} sport={activeSport} />
         <details className="ep-method">
-          <summary>Historical automated model and signal records (legacy, not manual EZPZ Picks)</summary>
+          <summary>Model and signal history</summary>
           {content}
           <SignalResearch key={activeSport} board={signalBoard} />
         </details>

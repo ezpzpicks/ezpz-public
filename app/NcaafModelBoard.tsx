@@ -5,6 +5,7 @@ import { ncaafMatchupContext, NCAAF_PROJECTION_MODEL, type NcaafMatchupContext }
 import { modelFactorLabel } from "../lib/modelFactorLabels";
 import { marketProjectionPending, projectionAdjustments } from "../lib/marketProjectionPolicy";
 import ProjectionAdjustment from "./ProjectionAdjustment";
+import { selectedSpreadSide } from "../lib/selectionSide";
 
 type Row = Record<string, string>;
 type Play = { playType?: string; play?: string; role?: string; marketOdds?: string; oddsLine?: string;
@@ -75,8 +76,8 @@ function ForecastCard({ group, sport, qualifiedOnly = false, tracker, today }: {
     if (qualifiedOnly && !play) return [];
     const margin = numeric(row["Projected Margin"]);
     const selection = qualifiedOnly ? play?.play || row[`${name} Pick`] : row[`${name} Pick`];
-    const awaySpread = selection?.startsWith(`${pair.away} `)
-      ?? (margin != null && margin + (numeric(row["Market Home Spread"]) ?? 0) < 0);
+    const awaySpread = selectedSpreadSide(sport, selection, pair.away, pair.home,
+      margin, numeric(row["Market Home Spread"])) === "away";
     const spreadSign = awaySpread ? -1 : 1;
     const result = tracker.find(record => record["Game ID"] && record["Game ID"] === row["Game ID"]
       && record["Bet Type"] === name && record.Selection === selection)?.Result;
@@ -94,10 +95,9 @@ function ForecastCard({ group, sport, qualifiedOnly = false, tracker, today }: {
   const gameStatus = status(row);
   return <article className="nbaCard" data-game-id={row["Game ID"] || group.game}>
     <h3><MatchupWithLogos sport={sport} game={`${pair.away} @ ${pair.home}`} /></h3>
-    <p className="nbaMeta"><time>{time(group.time)}</time><span>{hasForecast || qualifiedOnly ? "Saved forecast" : "Scheduled"}</span>{gameStatus ? <span>{gameStatus}</span> : null}</p>
+    <p className="nbaMeta"><time>{time(group.time)}</time>{gameStatus ? <span className="gameStatus" data-status={gameStatus}>{gameStatus}</span> : null}</p>
     {hasForecast || qualifiedOnly ? <>
       {row["Projection Engine"] === "legacy_fallback" ? <p className="nbaSmall">Matchup inputs unavailable</p> : null}
-      {sport === "NCAAF" ? <NcaafModelDetails row={row} /> : null}
       <Score row={row} game={group.game} />
       <div className="nbaMarkets">{markets.map(market => <section className="nbaMarketCard" key={market.name} aria-label={`${market.name} forecast`}>
         <div className="nbaMarketHeading"><h4>{market.name}</h4><span className="nbaGrade" data-grade={market.grade}>{pending ? "Ungraded" : `Grade ${market.grade}`}</span></div>
@@ -113,7 +113,8 @@ function ForecastCard({ group, sport, qualifiedOnly = false, tracker, today }: {
           today={today} grade={market.play.playType} market={market.name} selection={market.selection} /> : null}
         {market.result ? <p className="nbaSmall">Result: <strong>{market.result}</strong></p> : null}
       </section>)}</div>
-      {sport === "NFL" && row.Reliability ? <p className="nbaSmall">Reliability {row.Reliability}</p> : null}
+      {sport === "NCAAF" ? <NcaafModelDetails row={row} /> : null}
+      {sport === "NFL" && row.Reliability ? <details className="forecastDetails"><summary>Model details</summary><p className="nbaSmall">Reliability {row.Reliability}</p></details> : null}
     </> : <>
       <p className="nbaNotice">No saved model forecast for this matchup.</p>
       <dl className="nbaMarketQuotes"><div><dt>Market home spread · {pair.home}</dt><dd>{signed(row["Market Home Spread"] || row["Home Spread"])}</dd></div>
@@ -129,9 +130,15 @@ export default function NcaafModelBoard({ sport = "NCAAF", fullSlate, rows, grou
 }) {
   const cards = fullSlate ? rows.map(row => ({ row, game: row.Game || `${row["Away Team"]} @ ${row["Home Team"]}`,
     time: row["Game Time"] || row.Time || row["Start Time"] || row["Game Time ET"] || "", plays: [] })) : groups;
+  const completed = cards.filter(group => status(group.row || {}) === "Final");
+  const activeCards = cards.filter(group => status(group.row || {}) !== "Final")
+    .sort((a, b) => Number(status(b.row || {}) === "In progress") - Number(status(a.row || {}) === "In progress"));
+  const card = (group: Group) => <ForecastCard key={group.row?.["Game ID"] || group.game} sport={sport} group={group} qualifiedOnly={!fullSlate} tracker={tracker} today={today} />;
   return <section className={`nbaBoard ${sport === "NCAAF" ? "ncaafModelBoard" : "nflModelBoard"}`}>
     <div className="nbaIntro"><h2>{sport} {fullSlate ? "Full Slate" : "Model Plays"}</h2></div>
-    {cards.map(group => <ForecastCard key={group.row?.["Game ID"] || group.game} sport={sport} group={group} qualifiedOnly={!fullSlate} tracker={tracker} today={today} />)}
+    {fullSlate ? <>{activeCards.map(card)}{completed.length ? <details className="completedGames" open={!activeCards.length}>
+      <summary>Completed games <span>{completed.length}</span></summary><div className="completedGamesList">{completed.map(card)}</div>
+    </details> : null}</> : cards.map(card)}
     {!cards.length ? <div className="nbaCard">{fullSlate ? `No ${sport} games have been collected for this date.` : rows.some(marketProjectionPending)
       ? `New ${sport} grades are pending. Updated projections are available in Full Slate.` : `No ${sport} model plays for this slate.`}</div> : null}
   </section>;

@@ -169,7 +169,12 @@ test('NCAAM spread cards keep projected cover, role and matchup factors without 
 test('NBA Full Slate includes scheduled games without a forecast, their actual scores and captured market lines', () => {
   const html = renderNba('Full Slate');
   assert.equal((html.match(/<article /g) || []).length, 2);
-  assert(html.indexOf('data-game-id="first"') < html.indexOf('data-game-id="second"'));
+  const { document } = require('linkedom').parseHTML(html);
+  const completed = document.querySelector('details.completedGames');
+  assert(completed && !completed.hasAttribute('open'));
+  assert(completed.querySelector('[data-game-id="first"]'));
+  assert(!completed.querySelector('[data-game-id="second"]'));
+  assert(html.indexOf('data-game-id="second"') < html.indexOf('Completed games'));
   for (const text of ['NBA Full Slate', 'Cleveland Cavaliers @ Philadelphia 76ers', 'Final score', '106', '114',
     'No saved model forecast for this matchup.', 'Market home spread · Philadelphia 76ers', '-2.5', 'Denver Nuggets @ Oklahoma City Thunder', 'Under 236.5']) assert(html.includes(text), text);
   assert.equal((html.match(/aria-label="Spread forecast"/g) || []).length, 1);
@@ -183,12 +188,14 @@ test('NBA model cards keep all comparisons and grades in labeled panels without 
   assert.doesNotMatch(html, /<table|nbaScroll|Cleveland Cavaliers|Grade Pass|Spread forecast|Research model/);
 });
 test('NBA model and Full Slate choose the newest lock regardless of API response order; Records show official summaries', () => {
-  for (const forecasts of [[early, pregame], [pregame, early]]) {
+  const staleForecast = { ...early, away_score: 98.7, total: 218.1 };
+  for (const forecasts of [[staleForecast, pregame], [pregame, staleForecast]]) {
     for (const tab of ['Today’s Model Plays', 'Full Slate']) {
       const html = renderNba(tab, { ...forecastData, forecasts });
-      assert.match(html, /Pregame refresh/);
+      assert.match(html, /111\.2/);
+      assert.match(html, /230\.6/);
       assert.match(html, /Under 236.5/);
-      assert.doesNotMatch(html, /Early forecast|Under 237.5/);
+      assert.doesNotMatch(html, /98\.7|218\.1|Under 237.5|Early forecast|Pregame refresh/);
     }
   }
   const html = renderNba('Records');
