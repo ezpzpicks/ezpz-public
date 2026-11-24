@@ -175,7 +175,8 @@ test('NBA Full Slate includes scheduled games without a forecast, their actual s
   assert(completed.querySelector('[data-game-id="first"]'));
   assert(!completed.querySelector('[data-game-id="second"]'));
   assert(html.indexOf('data-game-id="second"') < html.indexOf('Completed games'));
-  for (const text of ['NBA Full Slate', 'Cleveland Cavaliers @ Philadelphia 76ers', 'Final score', '106', '114',
+  assert.equal(document.querySelector('.nbaIntro h2').textContent, 'NBA Full Slate');
+  for (const text of ['Cleveland Cavaliers @ Philadelphia 76ers', 'Final score', '106', '114',
     'No saved model forecast for this matchup.', 'Market home spread · Philadelphia 76ers', '-2.5', 'Denver Nuggets @ Oklahoma City Thunder', 'Under 236.5']) assert(html.includes(text), text);
   assert.equal((html.match(/aria-label="Spread forecast"/g) || []).length, 1);
 });
@@ -233,7 +234,10 @@ test('RotoWire forecasts identify source-checked availability and distinguish ex
 test('NCAAM reuses basketball pages with research status and its own pending qualification, without NBA labels', () => {
   const data={...forecastData,sport:'NCAAM',forecasts:[{...pregame,spread_grade:'Research',total_grade:'Research',availability_mode:'team_ratings'}]};
   const full=renderNba('Full Slate',data);
-  assert.match(full,/NCAAM Full Slate/);assert.match(full,/Grade Research/);assert.match(full,/Player availability unchecked/);
+  const {document}=require('linkedom').parseHTML(full);
+  assert.equal(document.querySelector('.nbaIntro h2').textContent,'NCAAM Full Slate');
+  assert.doesNotMatch(document.querySelector('.nbaBoard').textContent,/NBA Full Slate/);
+  assert.match(full,/Grade Research/);assert.match(full,/Player availability unchecked/);
   assert.doesNotMatch(full,/NBA Full Slate|Lineup-aware projections/);
   const picksHtml=render(React.createElement(ezpz.default,{data:{...data,signals:{...board,sport:'NCAAM',today:'2026-11-01',sides:[]}}}));
   assert.match(picksHtml,/NCAAM EZPZ Picks/);
