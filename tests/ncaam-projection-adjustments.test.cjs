@@ -104,7 +104,7 @@ test('Projections shows reversed total and arrows while keeping the saved spread
  const html=slate(f), {document}=parseHTML(html);
  const total=document.querySelector('[aria-label="Total forecast"]');
  assert.equal(total.querySelector('.nbaSelection').textContent,'Over 150');
- assert.match(total.textContent,/Experimental total/);
+ assert.doesNotMatch(total.textContent,/experimental/i);assert.match(total.textContent,/Reversed 2× market adjustment/);
  assert.match(total.querySelector('dd').textContent,/158\.0/);
  assert.match(total.innerHTML,/total increased by 8\.0/);
  const spread=document.querySelector('[aria-label="Spread forecast"]');

@@ -100,7 +100,7 @@ function ForecastCard({ forecast, game, qualifiedOnly = false, sport = "NBA" }: 
     <div className="nbaMarkets">{markets.filter(market => !qualifiedOnly || ["A", "B"].includes(market.grade || "")).map(market => <section className="nbaMarketCard" key={market.name} aria-label={`${market.name} forecast`}>
       <div className="nbaMarketHeading"><h4>{market.name}</h4><span className="nbaGrade" data-grade={market.grade}>{gradingPending ? "Ungraded" : `Grade ${market.grade || "—"}`}</span></div>
       <strong className="nbaSelection">{market.pick || "No market line"}</strong>
-      {market.name === "Total" && totalView && <p className="nbaSmall">Experimental total · Reversed 2× market adjustment</p>}
+      {market.name === "Total" && totalView && <p className="nbaSmall">Total · Reversed 2× market adjustment</p>}
       <dl className="nbaMetrics">
         <div><dt>{market.name === "Spread" ? "Model spread" : "Model total"}</dt><dd title={market.name === "Spread" ? spreadTeam : undefined}>{market.model}
           <ProjectionAdjustment points={market.name === "Spread" ? awaySpread ? adjustments?.awaySpread : adjustments?.homeSpread : adjustments?.total}
