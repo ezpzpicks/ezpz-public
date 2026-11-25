@@ -4,7 +4,7 @@ import { nflKickoffIso } from "./footballWeeklyMarket";
 import { footballTeamGameKey } from "./footballTeamTrends";
 import { readMarketProjectionBundle, refreshMarketProjections } from "./marketProjectionStore";
 import { normalizeProjectionBaseline, projectionTime, projectionGameKey, trackedFootballRow } from "./marketProjectionTracking";
-import { trackingModelVersion } from "./marketProjectionPolicy";
+import { reversedMarketForCapture, REVERSED_MARKET_FROM, trackingModelVersion } from "./marketProjectionPolicy";
 
 type Sport = "NFL" | "NCAAF";
 type Row = Record<string, any>;
@@ -54,7 +54,7 @@ export async function applyFootballMarketProjections(sport: Sport, core: Row, no
   const dates = [...new Set<string>((core.slateToday || []).map((r:Row) => isoDay(r.Date || r["Game Date"])))].filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d)).slice(0,8);
   if (!dates.length) dates.push(day(now));
   const {activation,forecasts} = await readMarketProjectionBundle(sport,dates,now);
-  const marketTracking = {modelVersion:trackingModelVersion(sport),profile:"balanced",activatedAt:activation?.activatedAt || null,gradingStatus:"ungraded",historicalRecordsRegraded:false};
+  const marketTracking = {modelVersion:trackingModelVersion(sport,reversedMarketForCapture(now)), adjustmentPolicyEffectiveAt: REVERSED_MARKET_FROM,profile:"balanced",activatedAt:activation?.activatedAt || null,gradingStatus:"ungraded",historicalRecordsRegraded:false};
   if (!activation) return {...core,marketTracking};
   const byGame = new Map(forecasts.map(f => [projectionGameKey(sport,f.market_tracking.baseline.date,f.away_team,f.home_team,f.tipoff),f]));
   const held = new Set<string>();

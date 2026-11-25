@@ -1,6 +1,6 @@
 import { footballTeamKey } from "./footballTeamTrends";
 import { ncaamFlowFeatures, ncaamMarketAdjustment, sameInputCappedComparator, validateMarketCapPolicy, type MarketCapPolicy, type MarketPoint, type MarketName } from "./ncaamMarketFlow";
-import { MARKET_PROJECTION_PARAMETERS as P, MARKET_PROJECTION_POLICY, trackingModelVersion,
+import { MARKET_PROJECTION_PARAMETERS as P, MARKET_PROJECTION_POLICY, trackingModelVersion, REVERSED_MARKET_FROM, REVERSED_MARKET_POLICY,
   type TrackingSport, type MarketProjectionActivation } from "./marketProjectionPolicy";
 
 type Row = Record<string, any>;
@@ -102,7 +102,7 @@ export function projectionFingerprint(base: ProjectionBaseline, inputs: Projecti
   const material = (h: MarketPoint[]) => h.filter((p, i) => !i || JSON.stringify([p.line, p.betsPct, p.moneyPct]) !== JSON.stringify([h[i-1].line, h[i-1].betsPct, h[i-1].moneyPct]));
   return { policy: MARKET_PROJECTION_POLICY, parameters: P, baseline: base, spread: material(inputs.histories.Spread), total: material(inputs.histories.Total), final: inputs.finalPregame, ...(capPolicy ? { adjustment_cap_policy: capPolicy } : {}) };
 }
-export function buildMarketTrackedProjection(base: ProjectionBaseline, inputs: ProjectionInputs, activation: MarketProjectionActivation, now: number, digest: string, capPolicy?: MarketCapPolicy): Row {
+export function buildMarketTrackedProjection(base: ProjectionBaseline, inputs: ProjectionInputs, activation: MarketProjectionActivation, now: number, digest: string, capPolicy?: MarketCapPolicy, reversed = false): Row {
   validateMarketCapPolicy(capPolicy);
   const tip = projectionTime(base.tipoff), observed = projectionTime(inputs.observedAt), captured = projectionTime(base.lockedAt);
   if (base.sport === "NCAAF" && inputs.finalPregame && (base.sourceDataset === "game_previews" || base.original["Build Phase"] === "preview"))
@@ -117,24 +117,38 @@ export function buildMarketTrackedProjection(base: ProjectionBaseline, inputs: P
   }
   if (inputs.finalPregame && ((tip - observed) / 60000 < 10 || (tip - observed) / 60000 > 20)) throw new Error("Invalid final pregame capture.");
   const at = new Date(now).toISOString(), spreadFlow = ncaamFlowFeatures(inputs.histories.Spread, at, base.tipoff, "Spread", P), totalFlow = ncaamFlowFeatures(inputs.histories.Total, at, base.tipoff, "Total", P);
-  const spread = ncaamMarketAdjustment(-base.fair_home_spread, spreadFlow, P, capPolicy), total = ncaamMarketAdjustment(base.total, totalFlow, P, capPolicy);
+  const originalSpread = ncaamMarketAdjustment(-base.fair_home_spread, spreadFlow, P, capPolicy), originalTotal = ncaamMarketAdjustment(base.total, totalFlow, P, capPolicy);
+  if (reversed && (observed < Date.parse(REVERSED_MARKET_FROM) || inputs.source !== "ScoresAndOdds")) throw new Error("Ineligible reversed projection observation.");
+  const reverse = (model: typeof originalSpread) => {
+    const adjustment = -2*model.adjustment || 0;
+    return { ...model, adjustment, projection: model.baseline+adjustment };
+  };
+  const spread = reversed ? reverse(originalSpread) : originalSpread;
+  const total = reversed ? reverse(originalTotal) : originalTotal;
+  const version = trackingModelVersion(base.sport,reversed);
   const sizing = capPolicy ? { adjustment_cap_policy: capPolicy, ...(capPolicy === "uncapped-v1" ?
     { capped_comparator: sameInputCappedComparator(ncaamMarketAdjustment(-base.fair_home_spread, spreadFlow, P), ncaamMarketAdjustment(base.total, totalFlow, P)) } : {}) } : {};
   const home = (total.projection + spread.projection) / 2, away = (total.projection - spread.projection) / 2;
   if (!(home > 0 && away > 0)) throw new Error("Adjusted team scores must remain positive.");
   const homeLine = inputs.histories.Spread.at(-1)!.line, totalLine = inputs.histories.Total.at(-1)!.line;
   const spreadEdge = spread.projection + homeLine, totalEdge = total.projection - totalLine, homePick = spreadEdge >= 0, line = homePick ? homeLine : -homeLine;
+  const side = (edge: number) => Math.abs(edge)<1e-9 ? 0 : Math.sign(edge);
+  const shadow = (model: typeof originalSpread, edge: number, appliedEdge: number) => ({ ...model, edge,
+    original_side: side(edge), applied_side: side(appliedEdge), discordant: side(edge)!==side(appliedEdge) });
   const info = { policy: MARKET_PROJECTION_POLICY, sport: base.sport, profile: "balanced", status: spreadFlow.observations > 1 || totalFlow.observations > 1 ? "applied" : "waiting_for_history",
     grade_status: "ungraded", baseline_forecast_record_id: base.recordId, baseline_model_version: base.modelVersion, baseline_captured_at: base.lockedAt,
     baseline_margin: -base.fair_home_spread, baseline_total: base.total, baseline_home: base.home_score, baseline_away: base.away_score,
     decision_as_of: inputs.observedAt, published_at: at, spread_adjustment: spread.adjustment, total_adjustment: total.adjustment,
     final_pregame: inputs.finalPregame, input_digest: digest, parameters: P, histories: inputs.histories, baseline: base, source: inputs.source,
+    ...(reversed ? { adjustment_policy: REVERSED_MARKET_POLICY, adjustment_policy_effective_at: REVERSED_MARKET_FROM,
+      original_spread_shadow: { ...shadow(originalSpread,originalSpread.projection+homeLine,spreadEdge), home_line: homeLine },
+      original_total_shadow: { ...shadow(originalTotal,originalTotal.projection-totalLine,totalEdge), line: totalLine } } : {}),
     market_models: { spread, total }, ...sizing };
-  return { ...base.original, sport: base.sport, gameId: base.gameId, recordId: `${base.gameId}|${trackingModelVersion(base.sport)}|${digest}`,
-    modelVersion: trackingModelVersion(base.sport), tipoff: base.tipoff, lockedAt: at, phase: inputs.finalPregame || tip - now <= 90 * 60000 ? "pregame" : "early",
+  return { ...base.original, sport: base.sport, gameId: base.gameId, recordId: `${base.gameId}|${version}|${digest}`,
+    modelVersion: version, tipoff: base.tipoff, lockedAt: at, phase: inputs.finalPregame || tip - now <= 90 * 60000 ? "pregame" : "early",
     away_team: base.away_team, home_team: base.home_team, home_score: home, away_score: away, home_margin: spread.projection,
     fair_home_spread: -spread.projection, total: total.projection, home_spread_edge: spreadEdge, total_edge: totalEdge,
-    spread_pick: `${homePick ? base.home_team : base.away_team} ${line > 0 ? "+" : ""}${line}`, total_pick: `${totalEdge >= 0 ? "Over" : "Under"} ${totalLine}`,
+    spread_pick: reversed && !side(spreadEdge) ? "No spread edge" : `${homePick ? base.home_team : base.away_team} ${line > 0 ? "+" : ""}${line}`, total_pick: reversed && !side(totalEdge) ? "No total edge" : `${totalEdge >= 0 ? "Over" : "Under"} ${totalLine}`,
     market: { home_spread: homeLine, total: totalLine, as_of: inputs.observedAt, source: inputs.source, odds: -110 },
     spread_grade: "Ungraded", total_grade: "Ungraded", grading_status: "awaiting_market_tracking_grades", legacy_grade_eligible: false,
     grade_policy: MARKET_PROJECTION_POLICY, official_pick_eligible: false, eligible_for_posting: false,
@@ -144,11 +158,13 @@ export function buildMarketTrackedProjection(base: ProjectionBaseline, inputs: P
 export function validMarketTrackedProjection(value: Row, activation: MarketProjectionActivation, now: number) {
   try {
     const info = value.market_tracking, base = info.baseline as ProjectionBaseline;
-    if (value.sport !== activation.sport || value.modelVersion !== activation.modelVersion || projectionTime(value.lockedAt) > now
+    const reversed = value.modelVersion === trackingModelVersion(activation.sport,true);
+    if (value.sport !== activation.sport || (!reversed && value.modelVersion !== activation.modelVersion) || projectionTime(value.lockedAt) > now
       || value.spread_grade !== "Ungraded" || value.total_grade !== "Ungraded" || value.official_pick_eligible !== false
       || base.sport !== activation.sport || value.tipoff !== base.tipoff || value.gameId !== base.gameId
       || value.home_team !== base.home_team || value.away_team !== base.away_team) return false;
-    const rebuilt = buildMarketTrackedProjection(base, { histories: info.histories, observedAt: info.decision_as_of, finalPregame: info.final_pregame, source: info.source }, activation, projectionTime(value.lockedAt), info.input_digest, info.adjustment_cap_policy);
+    const rebuilt = buildMarketTrackedProjection(base, { histories: info.histories, observedAt: info.decision_as_of, finalPregame: info.final_pregame, source: info.source }, activation, projectionTime(value.lockedAt), info.input_digest, info.adjustment_cap_policy,reversed);
+    if (reversed && ["spread_pick","total_pick","home_margin","legacy_grade_eligible","eligible_for_posting"].some(k=>value[k]!==rebuilt[k])) return false;
     return ["total", "fair_home_spread", "home_score", "away_score", "home_spread_edge", "total_edge", "recordId", "market", "market_tracking"].every(k => JSON.stringify(value[k]) === JSON.stringify(rebuilt[k]));
   } catch { return false; }
 }

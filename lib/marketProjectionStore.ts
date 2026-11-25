@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { readTursoDatasetByDateKeys, runTursoSql, runTursoAtomicSql, invalidateTursoDatasetReadCache, type TursoRow } from "./tursoStore";
 import { MARKET_PROJECTION_POLICY as POLICY, MARKET_PROJECTION_PARAMETERS as P, MARKET_PROJECTION_ACTIVATION as ACTIVATION,
-  MARKET_PROJECTION_UPDATES as UPDATES, trackingModelVersion, type TrackingSport, type MarketProjectionActivation } from "./marketProjectionPolicy";
+  MARKET_PROJECTION_UPDATES as UPDATES, trackingModelVersion, reversedMarketForCapture, REVERSED_MARKET_FROM, type TrackingSport, type MarketProjectionActivation } from "./marketProjectionPolicy";
 import { buildMarketTrackedProjection, validMarketTrackedProjection, projectionTrackingInputs, projectionFingerprint,
   ProjectionDataPending, projectionTime, projectionGameKey, type ProjectionBaseline } from "./marketProjectionTracking";
 
@@ -101,7 +101,7 @@ export async function refreshMarketProjections(sport: TrackingSport, baselines: 
       if (projectionTime(base.tipoff) - now < 10 * 60000 && !inputs.finalPregame) continue;
       const digest = projectionDigest(projectionFingerprint(base, inputs, capPolicy));
       if (old?.market_tracking.input_digest === digest) continue;
-      const f = buildMarketTrackedProjection(base, inputs, activation, now, digest, capPolicy);
+      const f = buildMarketTrackedProjection(base, inputs, activation, now, digest, capPolicy, reversedMarketForCapture(projectionTime(inputs.observedAt)));
       rows.push({ Date: base.date, "Game Key": key, "Game ID": base.gameId, Game: `${base.away_team} @ ${base.home_team}`,
         Market: inputs.finalPregame ? "Final Forecast" : "Forecast", Selection: f.recordId, "Snapshot Time ET": f.lockedAt, "Updated At": f.lockedAt, "Details JSON": JSON.stringify(f) });
     } catch (error) {
@@ -110,7 +110,7 @@ export async function refreshMarketProjections(sport: TrackingSport, baselines: 
     }
   }
   await appendMarketProjectionRows(sport, UPDATES, rows);
-  const result = { sport, modelVersion: activation.modelVersion, activatedAt: activation.activatedAt, gradingStatus: "ungraded",
+  const result = { sport, modelVersion: trackingModelVersion(sport,reversedMarketForCapture(now)), adjustmentPolicyEffectiveAt: REVERSED_MARKET_FROM, activatedAt: activation.activatedAt, gradingStatus: "ungraded",
     captured: rows.length, baselineGames: grouped.size, waitingForFreshMarket, waitingForBaseline, frozen, errors };
   console.info("[market-projection]", JSON.stringify(result)); return result;
 }
