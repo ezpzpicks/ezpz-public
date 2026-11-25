@@ -204,6 +204,21 @@ test('forward total model reuses sizing, retains the original shadow and renders
  const view=require('../lib/ncaamTotalDisplay.ts').ncaamReversedTotalView(next);
  assert.equal(view.total,next.total);assert.equal(view.pick,next.total_pick);assert.equal(view.homeScore,next.home_score);
  assert.throws(()=>build(true,shifted(paired,-1)),/predates/);
+ assert.throws(()=>build(true,{...paired,source:'unverified'}),/source/);
+ const extreme=structuredClone(paired);extreme.histories.Total.at(-1).line+=500;
+ assert.throws(()=>build(true,extreme),/positive/);
+ const switchBefore=process.env.NCAAM_TOTAL_REVERSAL_DISABLED;
+ try {
+   delete process.env.NCAAM_TOTAL_REVERSAL_DISABLED;
+   assert.equal(store.reversedTotalForNewCapture(boundary-1),false);
+   assert.equal(store.reversedTotalForNewCapture(boundary),true);
+   process.env.NCAAM_TOTAL_REVERSAL_DISABLED='1';
+   assert.equal(store.reversedTotalForNewCapture(boundary),false);
+   assert(core.validNcaamTrackingForecast(next,base,activation,boundary));
+ } finally {
+   if(switchBefore===undefined) delete process.env.NCAAM_TOTAL_REVERSAL_DISABLED;
+   else process.env.NCAAM_TOTAL_REVERSAL_DISABLED=switchBefore;
+ }
  const flat=structuredClone(paired);flat.histories.Total=flat.histories.Total.slice(-1);
  assert.equal(build(true,flat).total,base.total);
 });

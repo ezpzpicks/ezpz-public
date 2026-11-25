@@ -2,7 +2,7 @@
 import { ncaamPointProjection, NCAAM_POINT_MODEL } from "./ncaamPointEdges";
 import { ncaamDate, ncaamTeamKey, NCAAM_MARKET_POLICY } from "./ncaamMarketCore";
 import { ncaamFlowFeatures, ncaamMarketAdjustment, sameInputCappedComparator, validateMarketCapPolicy, marketNumber, marketTime, type MarketCapPolicy, type MarketPoint, type MarketName } from "./ncaamMarketFlow";
-import { NCAAM_MARKET_TRACKING as P, NCAAM_REVERSED_TOTAL_MODEL, NCAAM_REVERSED_TOTAL_FROM, NCAAM_MARKET_TRACKING_MODEL, isNcaamMarketTracked,
+import { NCAAM_MARKET_TRACKING as P, NCAAM_REVERSED_TOTAL_MODEL, NCAAM_REVERSED_TOTAL_FROM, isNcaamMarketTracked,
   type NcaamTrackingActivation, type NcaamTrackingInfo } from "./ncaamMarketTrackingPolicy";
 type Row = Record<string, any>;
 export type TrackingInputs = { histories: Record<MarketName, MarketPoint[]>; observedAt: string; finalPregame: boolean; source: string; sourceUrl?: string };
@@ -115,6 +115,7 @@ export function buildNcaamTrackedForecast(base: Row, inputs: TrackingInputs, act
   const flows = { spread: ncaamFlowFeatures(inputs.histories.Spread, clock, base.tipoff, "Spread"), total: ncaamFlowFeatures(inputs.histories.Total, clock, base.tipoff, "Total") };
   const spread = ncaamMarketAdjustment(p.margin, flows.spread, P, capPolicy), originalTotal = ncaamMarketAdjustment(p.total, flows.total, P, capPolicy);
   if (reversed && Math.min(observed,now)<Date.parse(NCAAM_REVERSED_TOTAL_FROM)) throw new Error("Observation predates total policy.");
+  if (reversed && inputs.source!=="ScoresAndOdds" && (!base.market?.source || inputs.source!==base.market.source)) throw new Error("Unverified total adjustment source.");
   const version = reversed ? NCAAM_REVERSED_TOTAL_MODEL : P.model_version;
   const delta = -2 * originalTotal.adjustment || 0;
   const total = reversed ? { ...originalTotal, adjustment: delta, projection: p.total + delta } : originalTotal;
