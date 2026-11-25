@@ -111,3 +111,11 @@ test('Projections shows reversed total and arrows while keeping the saved spread
  assert.equal(spread.outerHTML,parseHTML(slate(forecast())).document.querySelector('[aria-label="Spread forecast"]').outerHTML);
  assert.doesNotMatch(slate(f,'NBA'),/Experimental total/);
 });
+test('mobile and expanded canonical projections render the legacy bridge result without a second inversion',()=>{
+ const legacy=nov25(), view=ncaamReversedTotalView(legacy);
+ const current={...legacy,modelVersion:require('../lib/ncaamMarketTrackingPolicy.ts').NCAAM_REVERSED_TOTAL_MODEL,
+  total:view.total,total_edge:view.edge,total_pick:view.pick,home_score:view.homeScore,away_score:view.awayScore,
+  market_tracking:{...legacy.market_tracking,total_adjustment:view.adjustments.total}};
+ assert.deepEqual(ncaamReversedTotalView(current),view);
+ assert.equal(slate(current),slate(legacy));
+});

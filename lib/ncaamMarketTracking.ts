@@ -125,6 +125,7 @@ export function buildNcaamTrackedForecast(base: Row, inputs: TrackingInputs, act
   if (!(home>0 && away>0)) throw new Error("Adjusted team scores must remain positive.");
   const homeLine = inputs.histories.Spread.at(-1)!.line, totalLine = inputs.histories.Total.at(-1)!.line;
   const spreadEdge = spread.projection+homeLine, totalEdge = total.projection-totalLine;
+  const auditSide = (edge: number) => Math.abs(edge)<1e-9 ? 0 : Math.sign(edge);
   const homePick = spreadEdge>0, pickedLine = homePick ? homeLine : -homeLine;
   const market_tracking: NcaamTrackingInfo = { policy: P.flow_policy, profile: P.profile,
     status: flows.spread.observations>1 || flows.total.observations>1 ? "applied" : "waiting_for_history", grade_status: "ungraded",
@@ -134,8 +135,8 @@ export function buildNcaamTrackedForecast(base: Row, inputs: TrackingInputs, act
     final_pregame: inputs.finalPregame, input_digest: digest, parameters: P, histories: inputs.histories,
     ...(reversed ? { total_policy_effective_at: NCAAM_REVERSED_TOTAL_FROM,
       original_total_shadow: { ...originalTotal, line: totalLine, edge: originalTotal.projection-totalLine,
-        original_side: Math.sign(originalTotal.projection-totalLine), applied_side: Math.sign(totalEdge),
-        discordant: Math.sign(originalTotal.projection-totalLine)!==Math.sign(totalEdge) } } : {}),
+        original_side: auditSide(originalTotal.projection-totalLine), applied_side: auditSide(totalEdge),
+        discordant: auditSide(originalTotal.projection-totalLine)!==auditSide(totalEdge) } } : {}),
     market_models: { spread, total }, source: inputs.source, source_url: inputs.sourceUrl, ...sizing };
   const f = { ...base, modelVersion: version, projection_engine: version,
     recordId: `${base.gameId}|${version}|${digest}`, lockedAt: clock, phase: inputs.finalPregame ? "pregame" : (tip-now)/60_000<=90 ? "pregame" : "early",
