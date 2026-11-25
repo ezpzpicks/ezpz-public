@@ -23,7 +23,7 @@ import { ncaamSpreadDisplay, ncaamReversedTotalView } from "../lib/ncaamTotalDis
 import { ncaamProjectionAdjustments } from "../lib/ncaamProjectionAdjustments";
 import ProjectionAdjustment from "./ProjectionAdjustment";
 import NcaamMobileMatchup from "./NcaamMobileMatchup";
-import { marketProjectionPending, projectionAdjustments } from "../lib/marketProjectionPolicy";
+import { marketProjectionPending, projectionAdjustments, trackingModelVersion } from "../lib/marketProjectionPolicy";
 import { selectedSpreadSide } from "../lib/selectionSide";
 
 const PublicSplits = dynamic(() => import("./NbaPublicSplits"), { loading: () => <div className="fs-empty">Loading NBA markets…</div> });
@@ -125,7 +125,10 @@ function ForecastCard({ forecast: saved, game, qualifiedOnly = false, sport = "N
   </article>;
   return <NcaamMobileMatchup sport={sport} forecast={forecast} totalView={totalView}
     spreadProjection={totalView && Number.isFinite(forecast.market_tracking?.baseline_margin) ? { projection: markets[0].model, adjustment: awaySpread ? adjustments?.awaySpread : adjustments?.homeSpread } : undefined} game={game || {"Game ID": forecast.gameId, "Away Team":forecast.away_team, "Home Team":forecast.home_team, "Game Time":forecast.tipoff}} modelPlays={qualifiedOnly}
-    markets={qualifiedOnly ? markets.filter(market => ["A", "B"].includes(market.grade || "")).map(market => ({name:market.name, selection:market.pick || "No market line", detail:market.edge == null ? "Edge unavailable" : `${Math.abs(market.edge).toFixed(1)} pt edge`, grade:`Grade ${market.grade}`, result:gradingPending ? undefined : market.result})) : undefined}>{card}</NcaamMobileMatchup>;
+    markets={qualifiedOnly ? markets.filter(market => ["A", "B"].includes(market.grade || "")).map(market => ({name:market.name, selection:market.pick || "No market line", detail:market.edge == null ? "Edge unavailable" : `${Math.abs(market.edge).toFixed(1)} pt edge`, grade:`Grade ${market.grade}`, result:gradingPending ? undefined : market.result})) : sport==="NBA" && forecast.modelVersion===trackingModelVersion("NBA",true)
+      ? markets.map(market=>({name:market.name,selection:market.pick || "No market line",projection:market.model,
+        adjustment:market.name==="Total" ? adjustments?.total : awaySpread ? adjustments?.awaySpread : adjustments?.homeSpread,
+        detail:market.edge==null ? "Edge unavailable" : `${Math.abs(market.edge).toFixed(1)} pt edge`})) : undefined}>{card}</NcaamMobileMatchup>;
 }
 
 function MissingForecastCard({ game, splits, sport = "NBA" }: { game: Row; splits: Row[]; sport?: "NBA" | "NCAAM" }) {
