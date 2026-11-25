@@ -19,6 +19,7 @@ import { ncaamSpreadGrade } from "../lib/ncaamSpreadGrades";
 import NcaamSpreadGrade from "./NcaamSpreadGrade";
 import { ncaamPointProjection, isNcaamPointModel } from "../lib/ncaamPointEdges";
 import { ncaamTrackingGradesPending } from "../lib/ncaamMarketTrackingPolicy";
+import { ncaamReversedTotalView } from "../lib/ncaamTotalDisplay";
 import { ncaamProjectionAdjustments } from "../lib/ncaamProjectionAdjustments";
 import ProjectionAdjustment from "./ProjectionAdjustment";
 import NcaamMobileMatchup from "./NcaamMobileMatchup";
@@ -70,7 +71,8 @@ function GameScore({ game }: { game?: Row }) {
 }
 function ForecastCard({ forecast, game, qualifiedOnly = false, sport = "NBA" }: { forecast: Forecast; game?: Row; qualifiedOnly?: boolean; sport?: "NBA" | "NCAAM" }) {
   const gradingPending = marketProjectionPending(forecast) || (sport === "NCAAM" && ncaamTrackingGradesPending(forecast));
-  const adjustments = sport === "NCAAM" ? ncaamProjectionAdjustments(forecast) : projectionAdjustments(forecast);
+  const totalView = sport === "NCAAM" && !qualifiedOnly ? ncaamReversedTotalView(forecast) : null;
+  const adjustments = sport === "NCAAM" ? totalView?.adjustments ?? ncaamProjectionAdjustments(forecast) : projectionAdjustments(forecast);
   const matchupGrade = sport === "NCAAM" && !gradingPending ? ncaamMatchupGrade(forecast) : null;
   const spreadGrade = sport === "NCAAM" && !gradingPending ? ncaamSpreadGrade(forecast) : null;
   const newPointModel = sport === "NCAAM" && isNcaamPointModel(forecast.modelVersion);
@@ -82,8 +84,8 @@ function ForecastCard({ forecast, game, qualifiedOnly = false, sport = "NBA" }: 
   const markets = [
     { name: "Spread", pick: forecast.spread_pick, grade: forecast.spread_grade, model: signed(spreadSign * forecast.fair_home_spread),
       line: forecast.market ? signed(spreadSign * forecast.market.home_spread) : "—", edge: forecast.home_spread_edge, result: forecast.spreadResult },
-    { name: "Total", pick: forecast.total_pick, grade: forecast.total_grade, model: forecast.total.toFixed(1),
-      line: forecast.market ? String(forecast.market.total) : "—", edge: forecast.total_edge, result: forecast.totalResult },
+    { name: "Total", pick: totalView?.pick ?? forecast.total_pick, grade: forecast.total_grade, model: (totalView?.total ?? forecast.total).toFixed(1),
+      line: forecast.market ? String(forecast.market.total) : "—", edge: totalView?.edge ?? forecast.total_edge, result: totalView ? undefined : forecast.totalResult },
   ];
   if (newPointModel) for (const market of markets) {
     const captured = market.name === "Spread" ? spreadGrade : matchupGrade;
@@ -94,10 +96,11 @@ function ForecastCard({ forecast, game, qualifiedOnly = false, sport = "NBA" }: 
     <h3><MatchupWithLogos sport={sport} game={`${forecast.away_team} @ ${forecast.home_team}`} /></h3>
     <p className="nbaMeta"><time dateTime={forecast.tipoff}>{time(forecast.tipoff)}</time>
       {gameStatus(game) && <span className="gameStatus" data-status={gameStatus(game)}>{gameStatus(game)}</span>}</p>
-    <Score away={forecast.away_team} home={forecast.home_team} awayScore={forecast.away_score.toFixed(1)} homeScore={forecast.home_score.toFixed(1)} label="Projected score" adjustments={adjustments} />
+    <Score away={forecast.away_team} home={forecast.home_team} awayScore={(totalView?.awayScore ?? forecast.away_score).toFixed(1)} homeScore={(totalView?.homeScore ?? forecast.home_score).toFixed(1)} label="Projected score" adjustments={adjustments} />
     <div className="nbaMarkets">{markets.filter(market => !qualifiedOnly || ["A", "B"].includes(market.grade || "")).map(market => <section className="nbaMarketCard" key={market.name} aria-label={`${market.name} forecast`}>
       <div className="nbaMarketHeading"><h4>{market.name}</h4><span className="nbaGrade" data-grade={market.grade}>{gradingPending ? "Ungraded" : `Grade ${market.grade || "—"}`}</span></div>
       <strong className="nbaSelection">{market.pick || "No market line"}</strong>
+      {market.name === "Total" && totalView && <p className="nbaSmall">Experimental total · Reversed 2× market adjustment</p>}
       <dl className="nbaMetrics">
         <div><dt>{market.name === "Spread" ? "Model spread" : "Model total"}</dt><dd title={market.name === "Spread" ? spreadTeam : undefined}>{market.model}
           <ProjectionAdjustment points={market.name === "Spread" ? awaySpread ? adjustments?.awaySpread : adjustments?.homeSpread : adjustments?.total}
@@ -116,10 +119,10 @@ function ForecastCard({ forecast, game, qualifiedOnly = false, sport = "NBA" }: 
     <NbaGameLineups gameId={forecast.gameId} sport={sport} notice={forecast.availability_mode === "expected_rotation"
       ? "Expected rotation · Injury availability unchecked · Starters unconfirmed"
       : forecast.availability_mode === "rotowire_html" ? `RotoWire availability checked · ${forecast.starters_confirmed ? "Starting fives confirmed" : "Projected starting fives"} · Unresolved statuses remain conditional` : undefined} />
-    {sport === "NCAAM" && <NcaamModelDetails forecast={forecast} />}
+    {sport === "NCAAM" && <NcaamModelDetails forecast={forecast} displayedTotalAdjustment={totalView?.adjustments.total} />}
     <p className="nbaSmall forecastTimestamp">{gradingPending ? "Updated" : "Locked"} {time(forecast.lockedAt)}{forecast.market ? ` · ${forecast.market.source || "ScoresAndOdds"} ${time(forecast.market.as_of)} · assumed -110` : ""}</p>
   </article>;
-  return <NcaamMobileMatchup sport={sport} forecast={forecast} game={game || {"Game ID": forecast.gameId, "Away Team":forecast.away_team, "Home Team":forecast.home_team, "Game Time":forecast.tipoff}} modelPlays={qualifiedOnly}
+  return <NcaamMobileMatchup sport={sport} forecast={forecast} totalView={totalView} game={game || {"Game ID": forecast.gameId, "Away Team":forecast.away_team, "Home Team":forecast.home_team, "Game Time":forecast.tipoff}} modelPlays={qualifiedOnly}
     markets={qualifiedOnly ? markets.filter(market => ["A", "B"].includes(market.grade || "")).map(market => ({name:market.name, selection:market.pick || "No market line", detail:market.edge == null ? "Edge unavailable" : `${Math.abs(market.edge).toFixed(1)} pt edge`, grade:`Grade ${market.grade}`, result:gradingPending ? undefined : market.result})) : undefined}>{card}</NcaamMobileMatchup>;
 }
 

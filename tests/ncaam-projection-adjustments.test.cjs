@@ -78,3 +78,36 @@ test('both spread sides and both total choices retain the correct adjustment in 
   assert.equal(result.active,false);assert.equal(result.context.grade,'Ungraded');
  }
 });
+
+const { ncaamReversedTotalView } = require('../lib/ncaamTotalDisplay.ts');
+const nov25 = overrides => ({...forecast(),tipoff:'2026-11-25T05:00:00Z',total:146,
+ market_tracking:{...forecast().market_tracking,baseline_total:150},...overrides});
+test('experimental total reverses and doubles the saved delta without changing spread or stored forecast',()=>{
+ const f=nov25(),copy=JSON.stringify(f),v=ncaamReversedTotalView(f);
+ assert.deepEqual(v,{total:158,edge:8,awayScore:73,homeScore:85,pick:'Over 150',
+  adjustments:{homeSpread:2,awaySpread:-2,total:8,homeScore:5,awayScore:3}});
+ assert.equal(v.homeScore-v.awayScore,12);
+ assert.equal(JSON.stringify(f),copy);
+ const positive=nov25({total:154,market_tracking:{...f.market_tracking,total_adjustment:4}});
+ assert.equal(ncaamReversedTotalView(positive).pick,'Under 150');
+ const zero=nov25({total:150,market_tracking:{...f.market_tracking,total_adjustment:0}});
+ assert.equal(ncaamReversedTotalView(zero).pick,'No total edge');
+});
+test('excludes prior Eastern date, missing or inconsistent data and invalid scores',()=>{
+ const f=nov25();
+ for (const row of [nov25({tipoff:'2026-11-25T04:59:59.999Z'}),nov25({modelVersion:'legacy'}),
+  nov25({total:147}),nov25({market:null}),nov25({tipoff:'bad'}),nov25({fair_home_spread:-160}),
+  nov25({market_tracking:{...f.market_tracking,status:'waiting_for_history'}})]) assert.equal(ncaamReversedTotalView(row),null);
+});
+test('Projections shows reversed total and arrows while keeping the saved spread; NBA is unchanged',()=>{
+ const f=nov25(), {parseHTML}=require('linkedom');
+ const html=slate(f), {document}=parseHTML(html);
+ const total=document.querySelector('[aria-label="Total forecast"]');
+ assert.equal(total.querySelector('.nbaSelection').textContent,'Over 150');
+ assert.match(total.textContent,/Experimental total/);
+ assert.match(total.querySelector('dd').textContent,/158\.0/);
+ assert.match(total.innerHTML,/total increased by 8\.0/);
+ const spread=document.querySelector('[aria-label="Spread forecast"]');
+ assert.equal(spread.outerHTML,parseHTML(slate(forecast())).document.querySelector('[aria-label="Spread forecast"]').outerHTML);
+ assert.doesNotMatch(slate(f,'NBA'),/Experimental total/);
+});
