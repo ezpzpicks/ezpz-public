@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { readTursoDatasetByDateKeys, runTursoSql, runTursoAtomicSql, invalidateTursoDatasetReadCache, type TursoRow } from "./tursoStore";
 import { ncaamDate, ncaamTeamKey } from "./ncaamMarketCore";
 import { ncaamTrackingInputs, ncaamBaselineTrackingInputs, ncaamTrackingFingerprint, buildNcaamTrackedForecast, validNcaamTrackingForecast, NcaamTrackingDataPending } from "./ncaamMarketTracking";
-import { NCAAM_MARKET_TRACKING as P, NCAAM_TRACKING_ACTIVATION_TAB, NCAAM_TRACKING_FORECAST_TAB,
+import { NCAAM_MARKET_TRACKING as P, NCAAM_REVERSED_TOTAL_MODEL, NCAAM_REVERSED_TOTAL_FROM, NCAAM_TRACKING_ACTIVATION_TAB, NCAAM_TRACKING_FORECAST_TAB,
   type NcaamTrackingActivation } from "./ncaamMarketTrackingPolicy";
 import { marketCapPolicyForNewCapture, marketTime } from "./ncaamMarketFlow";
 type Row = Record<string, any>;
@@ -80,9 +80,10 @@ export async function refreshNcaamMarketTracking(date: string, schedule: TursoRo
       // Leave the established final window intact if the collector missed it.
       if (marketTime(game["Game Time"])-now<10*60_000 && !inputs.finalPregame) continue;
       const digest = ncaamTrackingDigest(ncaamTrackingFingerprint(base,inputs,capPolicy));
-      const id = `${gid}|${P.model_version}|${digest}`;
+      const reversed = process.env.NCAAM_TOTAL_REVERSAL_DISABLED !== "1" && marketTime(inputs.observedAt)>=Date.parse(NCAAM_REVERSED_TOTAL_FROM);
+      const id = `${gid}|${reversed ? NCAAM_REVERSED_TOTAL_MODEL : P.model_version}|${digest}`;
       if (identities.has(id)) continue;
-      const forecast = buildNcaamTrackedForecast(base,inputs,activation,now,digest,capPolicy);
+      const forecast = buildNcaamTrackedForecast(base,inputs,activation,now,digest,capPolicy,reversed);
       newRows.push({ Date:date,"Game Key":`${date}|ncaam|${gid}`,"Game ID":gid,Game:`${base.away_team} @ ${base.home_team}`,Market:"Forecast",Selection:forecast.recordId,"Snapshot Time ET":forecast.lockedAt,"Updated At":forecast.lockedAt,"Details JSON":JSON.stringify(forecast) });
     } catch (error) {
       if (error instanceof NcaamTrackingDataPending) waitingForFreshMarket++;
