@@ -119,3 +119,19 @@ test('mobile and expanded canonical projections render the legacy bridge result 
  assert.deepEqual(ncaamReversedTotalView(current),view);
  assert.equal(slate(current),slate(legacy));
 });
+
+test('November spread bridge turns a home lean into the away lean, keeps the total and bypasses canonical rows',()=>{
+ const {ncaamSpreadDisplay}=require('../lib/ncaamTotalDisplay.ts');
+ const {NCAAM_REVERSED_SPREAD_MODEL}=require('../lib/ncaamMarketTrackingPolicy.ts');
+ const old=nov25();old.market_tracking={...old.market_tracking,baseline_margin:10};
+ const json=JSON.stringify(old),v=ncaamSpreadDisplay(old),display=ncaamReversedTotalView(v);
+ assert.equal(v.fair_home_spread,-6);assert.equal(v.spread_pick,'Away +10');assert.equal(v.home_spread_edge,-4);
+ assert.equal(display.total,158);assert.equal(display.homeScore-display.awayScore,6);
+ assert.equal(display.adjustments.awaySpread,4);assert.equal(JSON.stringify(old),json);
+ assert.equal(ncaamSpreadDisplay({...old,tipoff:'2026-11-24T20:00:00Z'}).fair_home_spread,old.fair_home_spread);
+ const canonical={...v,modelVersion:NCAAM_REVERSED_SPREAD_MODEL,total:158,total_edge:8,total_pick:'Over 150',
+   away_score:display.awayScore,home_score:display.homeScore,market_tracking:{...v.market_tracking,total_adjustment:8}};
+ assert.strictEqual(ncaamSpreadDisplay(canonical),canonical);
+ assert.equal(slate(old),slate(canonical));
+ assert.match(slate(old),/Away strength increased by 4\.0/);
+});

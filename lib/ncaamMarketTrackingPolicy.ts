@@ -48,7 +48,9 @@ export type NcaamTrackingInfo = { policy: string; profile: string; status: "appl
   spread_adjustment: number; total_adjustment: number; final_pregame: boolean;
   input_digest: string; [key: string]: unknown };
 export const NCAAM_REVERSED_TOTAL_MODEL = "ncaam-v0.18-total-reversal-2026-11-25";
+export const NCAAM_REVERSED_SPREAD_MODEL = "ncaam-v0.19-spread-reversal-2026-11-25";
+export const NCAAM_REVERSED_SPREAD_FROM = "2026-11-25T21:45:00.000Z";
 export const NCAAM_REVERSED_TOTAL_FROM = "2026-11-25T21:30:00.000Z";
-export const isNcaamMarketTracked = (forecast: Record<string, any> | undefined) => forecast?.modelVersion === NCAAM_MARKET_TRACKING_MODEL || forecast?.modelVersion === NCAAM_REVERSED_TOTAL_MODEL;
+export const isNcaamMarketTracked = (forecast: Record<string, any> | undefined) => forecast?.modelVersion === NCAAM_MARKET_TRACKING_MODEL || forecast?.modelVersion === NCAAM_REVERSED_TOTAL_MODEL || forecast?.modelVersion === NCAAM_REVERSED_SPREAD_MODEL;
 export const ncaamTrackingGradesPending = (forecast: Record<string, any> | undefined) =>
   isNcaamMarketTracked(forecast) || forecast?.grading_status === "awaiting_market_tracking_grades";
