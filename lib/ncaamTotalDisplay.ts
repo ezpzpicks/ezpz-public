@@ -1,3 +1,4 @@
+import { NCAAM_REVERSED_TOTAL_MODEL } from "./ncaamMarketTrackingPolicy";
 import { ncaamProjectionAdjustments } from "./ncaamProjectionAdjustments";
 
 export const NCAAM_REVERSED_TOTAL_DISPLAY_FROM_ET = "2026-11-25";
@@ -16,6 +17,10 @@ export function ncaamReversedTotalView(forecast: Record<string, any> | undefined
   if (![base, margin, line, forecast!.total].every(n => typeof n === "number" && Number.isFinite(n))
     || line <= 0 || Math.abs(forecast!.total - base - original.total) > 1e-6) return null;
 
+  if (forecast!.modelVersion === NCAAM_REVERSED_TOTAL_MODEL) {
+    return { total: forecast!.total, edge: forecast!.total_edge, awayScore: forecast!.away_score,
+      homeScore: forecast!.home_score, pick: forecast!.total_pick, adjustments: original };
+  }
   const delta = -2 * original.total || 0;
   const total = base + delta;
   const away = (total - margin) / 2, home = (total + margin) / 2;

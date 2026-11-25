@@ -185,3 +185,40 @@ test('NCAAM saves a same-input capped comparator only for uncapped rows and repl
  assert.equal(core.validNcaamTrackingForecast(corrupt,source,activation,clock),false);
  assert.equal(b.spread_grade,'Ungraded');assert.equal(b.official_pick_eligible,false);
 });
+
+test('forward total model reuses sizing, retains the original shadow and renders the saved total exactly once',()=>{
+ const inputs=core.ncaamTrackingInputs(game,splitRows(),clock);
+ const boundary=Date.parse(policy.NCAAM_REVERSED_TOTAL_FROM);
+ const shifted=(object,offset)=>JSON.parse(JSON.stringify(object),(_,v)=>
+   typeof v==='string' && /^\d{4}-\d\d-\d\dT/.test(v) && Number.isFinite(Date.parse(v)) ? iso(Date.parse(v)+offset) : v);
+ const base=shifted(source,boundary-clock), paired=shifted(inputs,boundary-clock);
+ base.matchup_projection.market_models.spread.calibration.parameters=structuredClone(source.matchup_projection.market_models.spread.calibration.parameters);
+ const build=(reverse,obs=paired)=>core.buildNcaamTrackedForecast(base,obs,activation,boundary,'a'.repeat(64),'uncapped-v1',reverse);
+ const old=build(false),next=build(true),shadow=next.market_tracking.original_total_shadow;
+ assert.equal(next.modelVersion,policy.NCAAM_REVERSED_TOTAL_MODEL);
+ assert.equal(shadow.projection,old.total);assert.equal(shadow.adjustment,old.market_tracking.total_adjustment);
+ assert.equal(next.total,base.total-2*shadow.adjustment);assert.equal(next.fair_home_spread,old.fair_home_spread);
+ assert.equal(next.market.total,shadow.line);assert.deepEqual(next.market_tracking.histories,old.market_tracking.histories);
+ assert(core.validNcaamTrackingForecast(next,base,activation,boundary));assert(core.validNcaamTrackingForecast(old,base,activation,boundary));
+ assert(!core.validNcaamTrackingForecast({...next,market_tracking:{...next.market_tracking,original_total_shadow:null}},base,activation,boundary));
+ const view=require('../lib/ncaamTotalDisplay.ts').ncaamReversedTotalView(next);
+ assert.equal(view.total,next.total);assert.equal(view.pick,next.total_pick);assert.equal(view.homeScore,next.home_score);
+ assert.throws(()=>build(true,shifted(paired,-1)),/predates/);
+ assert.throws(()=>build(true,{...paired,source:'unverified'}),/source/);
+ const extreme=structuredClone(paired);extreme.histories.Total.at(-1).line+=500;
+ assert.throws(()=>build(true,extreme),/positive/);
+ const switchBefore=process.env.NCAAM_TOTAL_REVERSAL_DISABLED;
+ try {
+   delete process.env.NCAAM_TOTAL_REVERSAL_DISABLED;
+   assert.equal(store.reversedTotalForNewCapture(boundary-1),false);
+   assert.equal(store.reversedTotalForNewCapture(boundary),true);
+   process.env.NCAAM_TOTAL_REVERSAL_DISABLED='1';
+   assert.equal(store.reversedTotalForNewCapture(boundary),false);
+   assert(core.validNcaamTrackingForecast(next,base,activation,boundary));
+ } finally {
+   if(switchBefore===undefined) delete process.env.NCAAM_TOTAL_REVERSAL_DISABLED;
+   else process.env.NCAAM_TOTAL_REVERSAL_DISABLED=switchBefore;
+ }
+ const flat=structuredClone(paired);flat.histories.Total=flat.histories.Total.slice(-1);
+ assert.equal(build(true,flat).total,base.total);
+});
