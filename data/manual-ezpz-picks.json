@@ -1422,6 +1422,22 @@
       "selectedBy": "Ryan",
       "status": "approved",
       "result": "PENDING"
+    },
+    {
+      "id": "manual_20261125_ncaam_401920858_spread_prairie_view_am_plus_13_5",
+      "sport": "NCAAM",
+      "game": "Prairie View A&M @ Marshall",
+      "gameTime": "2026-11-25T21:00:00.000Z",
+      "market": "Spread",
+      "selection": "Prairie View A&M +13.5",
+      "line": 13.5,
+      "odds": null,
+      "date": "2026-11-25",
+      "approvedAt": "2026-11-25T20:37:26.392Z",
+      "approvedBy": "ChatGPT",
+      "selectedBy": "Ryan",
+      "status": "approved",
+      "result": "PENDING"
     }
   ]
 }
