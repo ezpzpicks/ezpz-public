@@ -2,7 +2,7 @@
 import { ncaamPointProjection, NCAAM_POINT_MODEL } from "./ncaamPointEdges";
 import { ncaamDate, ncaamTeamKey, NCAAM_MARKET_POLICY } from "./ncaamMarketCore";
 import { ncaamFlowFeatures, ncaamMarketAdjustment, sameInputCappedComparator, validateMarketCapPolicy, marketNumber, marketTime, type MarketCapPolicy, type MarketPoint, type MarketName } from "./ncaamMarketFlow";
-import { NCAAM_MARKET_TRACKING as P, NCAAM_REVERSED_TOTAL_MODEL, NCAAM_REVERSED_TOTAL_FROM, isNcaamMarketTracked,
+import { NCAAM_MARKET_TRACKING as P, NCAAM_REVERSED_SPREAD_MODEL, NCAAM_REVERSED_SPREAD_FROM, NCAAM_REVERSED_TOTAL_MODEL, NCAAM_REVERSED_TOTAL_FROM, isNcaamMarketTracked,
   type NcaamTrackingActivation, type NcaamTrackingInfo } from "./ncaamMarketTrackingPolicy";
 type Row = Record<string, any>;
 export type TrackingInputs = { histories: Record<MarketName, MarketPoint[]>; observedAt: string; finalPregame: boolean; source: string; sourceUrl?: string };
@@ -98,7 +98,7 @@ export function ncaamTrackingFingerprint(base: Row, inputs: TrackingInputs, capP
   return { parameters: P, baselineRecordId: base.recordId,
     spread: materialNcaamHistory(inputs.histories.Spread), total: materialNcaamHistory(inputs.histories.Total), finalPregame: inputs.finalPregame, ...(capPolicy ? { adjustment_cap_policy: capPolicy } : {}) };
 }
-export function buildNcaamTrackedForecast(base: Row, inputs: TrackingInputs, activation: NcaamTrackingActivation, now: number, digest: string, capPolicy?: MarketCapPolicy, reversed = false): Row {
+export function buildNcaamTrackedForecast(base: Row, inputs: TrackingInputs, activation: NcaamTrackingActivation, now: number, digest: string, capPolicy?: MarketCapPolicy, reversed = false, reversedSpread = false): Row {
   validateMarketCapPolicy(capPolicy);
   const p = ncaamPointProjection(base), tip = marketTime(base.tipoff), lock = marketTime(base.lockedAt);
   if (!p || base.modelVersion !== NCAAM_POINT_MODEL || now < marketTime(activation.activatedAt) || !(lock<=now && now<tip)
@@ -113,10 +113,13 @@ export function buildNcaamTrackedForecast(base: Row, inputs: TrackingInputs, act
   }
   const clock = new Date(now).toISOString();
   const flows = { spread: ncaamFlowFeatures(inputs.histories.Spread, clock, base.tipoff, "Spread"), total: ncaamFlowFeatures(inputs.histories.Total, clock, base.tipoff, "Total") };
-  const spread = ncaamMarketAdjustment(p.margin, flows.spread, P, capPolicy), originalTotal = ncaamMarketAdjustment(p.total, flows.total, P, capPolicy);
+  const originalSpread = ncaamMarketAdjustment(p.margin, flows.spread, P, capPolicy), originalTotal = ncaamMarketAdjustment(p.total, flows.total, P, capPolicy);
   if (reversed && Math.min(observed,now)<Date.parse(NCAAM_REVERSED_TOTAL_FROM)) throw new Error("Observation predates total policy.");
   if (reversed && inputs.source!=="ScoresAndOdds" && (!base.market?.source || inputs.source!==base.market.source)) throw new Error("Unverified total adjustment source.");
-  const version = reversed ? NCAAM_REVERSED_TOTAL_MODEL : P.model_version;
+  if (reversedSpread && (!reversed || Math.min(now,observed)<Date.parse(NCAAM_REVERSED_SPREAD_FROM))) throw new Error("Spread policy is not active.");
+  const spreadDelta = -2 * originalSpread.adjustment || 0;
+  const spread = reversedSpread ? { ...originalSpread, adjustment: spreadDelta, projection: p.margin + spreadDelta } : originalSpread;
+  const version = reversedSpread ? NCAAM_REVERSED_SPREAD_MODEL : reversed ? NCAAM_REVERSED_TOTAL_MODEL : P.model_version;
   const delta = -2 * originalTotal.adjustment || 0;
   const total = reversed ? { ...originalTotal, adjustment: delta, projection: p.total + delta } : originalTotal;
   const sizing = capPolicy ? { adjustment_cap_policy: capPolicy, ...(capPolicy === "uncapped-v1" ?
@@ -133,6 +136,10 @@ export function buildNcaamTrackedForecast(base: Row, inputs: TrackingInputs, act
     baseline_projection_sha256: p.sha256, baseline_margin: p.margin, baseline_total: p.total, baseline_home: p.home_points, baseline_away: p.away_points,
     decision_as_of: inputs.observedAt, published_at: clock, spread_adjustment: spread.adjustment, total_adjustment: total.adjustment,
     final_pregame: inputs.finalPregame, input_digest: digest, parameters: P, histories: inputs.histories,
+    ...(reversedSpread ? { spread_policy_effective_at: NCAAM_REVERSED_SPREAD_FROM,
+      original_spread_shadow: { ...originalSpread, home_line: homeLine, edge: originalSpread.projection+homeLine,
+        original_side: auditSide(originalSpread.projection+homeLine), applied_side: auditSide(spreadEdge),
+        discordant: auditSide(originalSpread.projection+homeLine)!==auditSide(spreadEdge) } } : {}),
     ...(reversed ? { total_policy_effective_at: NCAAM_REVERSED_TOTAL_FROM,
       original_total_shadow: { ...originalTotal, line: totalLine, edge: originalTotal.projection-totalLine,
         original_side: auditSide(originalTotal.projection-totalLine), applied_side: auditSide(totalEdge),
@@ -143,7 +150,7 @@ export function buildNcaamTrackedForecast(base: Row, inputs: TrackingInputs, act
     inputDigest: digest, away_score: away, home_score: home, fair_home_spread: -spread.projection, total: total.projection,
     home_spread_edge: spreadEdge, total_edge: totalEdge,
     market: { ...base.market, home_spread: homeLine, total: totalLine, as_of: inputs.observedAt, source: inputs.source, source_url:inputs.sourceUrl, odds: -110 },
-    spread_pick: `${homePick ? base.home_team : base.away_team} ${pickedLine>0?"+":""}${pickedLine}`,
+    spread_pick: reversedSpread && !auditSide(spreadEdge) ? "No spread edge" : `${homePick ? base.home_team : base.away_team} ${pickedLine>0?"+":""}${pickedLine}`,
     total_pick: reversed && Math.abs(totalEdge)<1e-9 ? "No total edge" : `${totalEdge>=0?"Over":"Under"} ${totalLine}`, spread_grade: "Ungraded", total_grade: "Ungraded",
     grade_policy: P.grade_policy, grading_status: "awaiting_market_tracking_grades", official_pick_eligible: false,
     legacy_grade_eligible: false, market_tracking_effective_at: activation.activatedAt, market_tracking,
@@ -160,12 +167,16 @@ export function validNcaamTrackingForecast(f: Row, base: Row, activation: NcaamT
     const inputs = { histories: track.histories, observedAt: track.decision_as_of, finalPregame: track.final_pregame, source: track.source, sourceUrl:track.source_url } as TrackingInputs;
     const capPolicy = track.adjustment_cap_policy;
     validateMarketCapPolicy(capPolicy);
-    const expected = buildNcaamTrackedForecast(base, inputs, activation, marketTime(f.lockedAt), track.input_digest, capPolicy, f.modelVersion===NCAAM_REVERSED_TOTAL_MODEL);
+    const reversedSpread = f.modelVersion===NCAAM_REVERSED_SPREAD_MODEL;
+    const reversedTotal = reversedSpread || f.modelVersion===NCAAM_REVERSED_TOTAL_MODEL;
+    const expected = buildNcaamTrackedForecast(base, inputs, activation, marketTime(f.lockedAt), track.input_digest, capPolicy,reversedTotal,reversedSpread);
     return ["total", "fair_home_spread", "away_score", "home_score", "home_spread_edge", "total_edge"].every(k =>
       typeof f[k]==="number" && Math.abs(f[k]-expected[k])<1e-7) && f.recordId===expected.recordId
       && f.market?.home_spread===expected.market.home_spread && f.market?.total===expected.market.total
       && ["policy","profile","baseline_model_version","baseline_captured_at","baseline_projection_sha256","baseline_margin","baseline_total","spread_adjustment","total_adjustment"].every(k=>track[k]===expected.market_tracking[k])
-      && (f.modelVersion!==NCAAM_REVERSED_TOTAL_MODEL || (track.total_policy_effective_at===NCAAM_REVERSED_TOTAL_FROM
+      && (!reversedSpread || (track.spread_policy_effective_at===NCAAM_REVERSED_SPREAD_FROM
+        && f.spread_pick===expected.spread_pick && JSON.stringify(track.original_spread_shadow)===JSON.stringify(expected.market_tracking.original_spread_shadow)))
+      && (!reversedTotal || (track.total_policy_effective_at===NCAAM_REVERSED_TOTAL_FROM
         && f.total_pick===expected.total_pick && f.total_grade==="Ungraded" && f.legacy_grade_eligible===false
         && JSON.stringify(track.original_total_shadow)===JSON.stringify(expected.market_tracking.original_total_shadow)
         && JSON.stringify(track.market_models)===JSON.stringify(expected.market_tracking.market_models)))

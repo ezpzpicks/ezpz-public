@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { readTursoDatasetByDateKeys, runTursoSql, runTursoAtomicSql, invalidateTursoDatasetReadCache, type TursoRow } from "./tursoStore";
 import { ncaamDate, ncaamTeamKey } from "./ncaamMarketCore";
 import { ncaamTrackingInputs, ncaamBaselineTrackingInputs, ncaamTrackingFingerprint, buildNcaamTrackedForecast, validNcaamTrackingForecast, NcaamTrackingDataPending } from "./ncaamMarketTracking";
-import { NCAAM_MARKET_TRACKING as P, NCAAM_REVERSED_TOTAL_MODEL, NCAAM_REVERSED_TOTAL_FROM, NCAAM_TRACKING_ACTIVATION_TAB, NCAAM_TRACKING_FORECAST_TAB,
+import { NCAAM_MARKET_TRACKING as P, NCAAM_REVERSED_SPREAD_FROM, NCAAM_REVERSED_SPREAD_MODEL, NCAAM_REVERSED_TOTAL_MODEL, NCAAM_REVERSED_TOTAL_FROM, NCAAM_TRACKING_ACTIVATION_TAB, NCAAM_TRACKING_FORECAST_TAB,
   type NcaamTrackingActivation } from "./ncaamMarketTrackingPolicy";
 import { marketCapPolicyForNewCapture, marketTime } from "./ncaamMarketFlow";
 type Row = Record<string, any>;
@@ -51,6 +51,9 @@ async function activate(now: number) {
 export function reversedTotalForNewCapture(observed: number) {
   return process.env.NCAAM_TOTAL_REVERSAL_DISABLED !== "1" && observed >= Date.parse(NCAAM_REVERSED_TOTAL_FROM);
 }
+export function reversedSpreadForNewCapture(observed: number) {
+  return reversedTotalForNewCapture(observed) && process.env.NCAAM_SPREAD_REVERSAL_DISABLED !== "1" && observed >= Date.parse(NCAAM_REVERSED_SPREAD_FROM);
+}
 export async function refreshNcaamMarketTracking(date: string, schedule: TursoRow[], now: number) {
   const capPolicy = marketCapPolicyForNewCapture();
   const activation = await activate(now);
@@ -84,9 +87,10 @@ export async function refreshNcaamMarketTracking(date: string, schedule: TursoRo
       if (marketTime(game["Game Time"])-now<10*60_000 && !inputs.finalPregame) continue;
       const digest = ncaamTrackingDigest(ncaamTrackingFingerprint(base,inputs,capPolicy));
       const reversed = reversedTotalForNewCapture(marketTime(inputs.observedAt));
-      const id = `${gid}|${reversed ? NCAAM_REVERSED_TOTAL_MODEL : P.model_version}|${digest}`;
+      const reversedSpread = reversedSpreadForNewCapture(marketTime(inputs.observedAt));
+      const id = `${gid}|${reversedSpread ? NCAAM_REVERSED_SPREAD_MODEL : reversed ? NCAAM_REVERSED_TOTAL_MODEL : P.model_version}|${digest}`;
       if (identities.has(id)) continue;
-      const forecast = buildNcaamTrackedForecast(base,inputs,activation,now,digest,capPolicy,reversed);
+      const forecast = buildNcaamTrackedForecast(base,inputs,activation,now,digest,capPolicy,reversed,reversedSpread);
       newRows.push({ Date:date,"Game Key":`${date}|ncaam|${gid}`,"Game ID":gid,Game:`${base.away_team} @ ${base.home_team}`,Market:"Forecast",Selection:forecast.recordId,"Snapshot Time ET":forecast.lockedAt,"Updated At":forecast.lockedAt,"Details JSON":JSON.stringify(forecast) });
     } catch (error) {
       if (error instanceof NcaamTrackingDataPending) waitingForFreshMarket++;
@@ -94,7 +98,7 @@ export async function refreshNcaamMarketTracking(date: string, schedule: TursoRo
     }
   }
   await appendNcaamTrackingRows(NCAAM_TRACKING_FORECAST_TAB,newRows);
-  const modelVersion = reversedTotalForNewCapture(now) ? NCAAM_REVERSED_TOTAL_MODEL : P.model_version;
+  const modelVersion = reversedSpreadForNewCapture(now) ? NCAAM_REVERSED_SPREAD_MODEL : reversedTotalForNewCapture(now) ? NCAAM_REVERSED_TOTAL_MODEL : P.model_version;
   console.info("[ncaam-market-projection]",JSON.stringify({date,model:modelVersion,captured:newRows.length,waitingForBaseline,waitingForFreshMarket,errors}));
-  return { modelVersion,activatedAt:activation.activatedAt,totalPolicyEffectiveAt:NCAAM_REVERSED_TOTAL_FROM,gradingStatus:"ungraded",captured:newRows.length,waitingForBaseline,waitingForFreshMarket,errors };
+  return { modelVersion,activatedAt:activation.activatedAt,spreadPolicyEffectiveAt:NCAAM_REVERSED_SPREAD_FROM,totalPolicyEffectiveAt:NCAAM_REVERSED_TOTAL_FROM,gradingStatus:"ungraded",captured:newRows.length,waitingForBaseline,waitingForFreshMarket,errors };
 }

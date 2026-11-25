@@ -19,7 +19,7 @@ import { ncaamSpreadGrade } from "../lib/ncaamSpreadGrades";
 import NcaamSpreadGrade from "./NcaamSpreadGrade";
 import { ncaamPointProjection, isNcaamPointModel } from "../lib/ncaamPointEdges";
 import { ncaamTrackingGradesPending } from "../lib/ncaamMarketTrackingPolicy";
-import { ncaamReversedTotalView } from "../lib/ncaamTotalDisplay";
+import { ncaamSpreadDisplay, ncaamReversedTotalView } from "../lib/ncaamTotalDisplay";
 import { ncaamProjectionAdjustments } from "../lib/ncaamProjectionAdjustments";
 import ProjectionAdjustment from "./ProjectionAdjustment";
 import NcaamMobileMatchup from "./NcaamMobileMatchup";
@@ -69,7 +69,8 @@ function GameScore({ game }: { game?: Row }) {
   return game?.["Away Score"] && game?.["Home Score"] ? <Score away={game["Away Team"]} home={game["Home Team"]}
     awayScore={game["Away Score"]} homeScore={game["Home Score"]} label={gameStatus(game) === "Final" ? "Final score" : "Current score"} /> : null;
 }
-function ForecastCard({ forecast, game, qualifiedOnly = false, sport = "NBA" }: { forecast: Forecast; game?: Row; qualifiedOnly?: boolean; sport?: "NBA" | "NCAAM" }) {
+function ForecastCard({ forecast: saved, game, qualifiedOnly = false, sport = "NBA" }: { forecast: Forecast; game?: Row; qualifiedOnly?: boolean; sport?: "NBA" | "NCAAM" }) {
+  const forecast = sport==="NCAAM" && !qualifiedOnly ? ncaamSpreadDisplay(saved) : saved;
   const gradingPending = marketProjectionPending(forecast) || (sport === "NCAAM" && ncaamTrackingGradesPending(forecast));
   const totalView = sport === "NCAAM" && !qualifiedOnly ? ncaamReversedTotalView(forecast) : null;
   const adjustments = sport === "NCAAM" ? totalView?.adjustments ?? ncaamProjectionAdjustments(forecast) : projectionAdjustments(forecast);
@@ -122,7 +123,8 @@ function ForecastCard({ forecast, game, qualifiedOnly = false, sport = "NBA" }: 
     {sport === "NCAAM" && <NcaamModelDetails forecast={forecast} displayedTotalAdjustment={totalView?.adjustments.total} />}
     <p className="nbaSmall forecastTimestamp">{gradingPending ? "Updated" : "Locked"} {time(forecast.lockedAt)}{forecast.market ? ` · ${forecast.market.source || "ScoresAndOdds"} ${time(forecast.market.as_of)} · assumed -110` : ""}</p>
   </article>;
-  return <NcaamMobileMatchup sport={sport} forecast={forecast} totalView={totalView} game={game || {"Game ID": forecast.gameId, "Away Team":forecast.away_team, "Home Team":forecast.home_team, "Game Time":forecast.tipoff}} modelPlays={qualifiedOnly}
+  return <NcaamMobileMatchup sport={sport} forecast={forecast} totalView={totalView}
+    spreadProjection={totalView && Number.isFinite(forecast.market_tracking?.baseline_margin) ? { projection: markets[0].model, adjustment: awaySpread ? adjustments?.awaySpread : adjustments?.homeSpread } : undefined} game={game || {"Game ID": forecast.gameId, "Away Team":forecast.away_team, "Home Team":forecast.home_team, "Game Time":forecast.tipoff}} modelPlays={qualifiedOnly}
     markets={qualifiedOnly ? markets.filter(market => ["A", "B"].includes(market.grade || "")).map(market => ({name:market.name, selection:market.pick || "No market line", detail:market.edge == null ? "Edge unavailable" : `${Math.abs(market.edge).toFixed(1)} pt edge`, grade:`Grade ${market.grade}`, result:gradingPending ? undefined : market.result})) : undefined}>{card}</NcaamMobileMatchup>;
 }
 
