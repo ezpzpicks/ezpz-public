@@ -315,3 +315,32 @@ test('cap rollback switch is writer-only and preserves the one-point floor and z
   for(const raw of [0,0.1,-0.1])assert.equal(scorer.ncaamMarketAdjustment(100,{policy:p.flow_policy,market:'Total',features:[raw,0,0,0,0,0]},p,'uncapped-v1').adjustment,Math.sign(raw));
  }finally{if(prior===undefined)delete process.env.EZPZ_MARKET_PROJECTION_CAPS;else process.env.EZPZ_MARKET_PROJECTION_CAPS=prior;}
 });
+
+for(const sport of ['NBA','NFL','NCAAF']) test(sport+' forward reversal and same-line shadows reproduce both saved directions',()=>{
+ const base=baseline(sport),a=activation(sport),input=core.projectionTrackingInputs(base,rows(sport),clock),cap='uncapped-v1';
+ const digest=store.projectionDigest(core.projectionFingerprint(base,input,cap));
+ const build=(reversed,inputs=input)=>core.buildMarketTrackedProjection(base,inputs,a,clock,digest,cap,reversed);
+ const old=build(false),f=build(true),t=f.market_tracking;
+ assert.equal(f.modelVersion,policy.trackingModelVersion(sport,true));assert.notEqual(f.recordId,old.recordId);
+ for(const [market,shadow,edge] of [['spread',t.original_spread_shadow,f.home_spread_edge],['total',t.original_total_shadow,f.total_edge]]){
+  const original=old.market_tracking.market_models[market],applied=t.market_models[market];
+  close(shadow.projection,original.projection);close(shadow.adjustment,original.adjustment);
+  close(applied.adjustment,-2*original.adjustment);close(applied.projection,original.baseline-2*original.adjustment);
+  assert.equal(shadow.applied_side,Math.sign(edge));assert.deepEqual(shadow.contributions,original.contributions);
+ }
+ close(t.original_spread_shadow.home_line,f.market.home_spread);close(t.original_total_shadow.line,f.market.total);
+ close(f.home_score+f.away_score,f.total);close(f.home_score-f.away_score,-f.fair_home_spread);
+ assert.deepEqual(t.capped_comparator,old.market_tracking.capped_comparator);assert.equal(f.official_pick_eligible,false);
+ assert.equal(store.verifiedMarketProjections([old,f],a,clock).length,2);
+ const corrupt=structuredClone(f);corrupt.market_tracking.original_total_shadow.projection++;
+ assert(!core.validMarketTrackedProjection(corrupt,a,clock));assert.equal(core.normalizeProjectionBaseline(sport,f,date,iso(tip)),null);
+ assert.throws(()=>build(true,{...input,source:'unknown'}));
+ const prior=process.env.EZPZ_THREE_SPORT_REVERSAL_DISABLED;
+ try{
+  delete process.env.EZPZ_THREE_SPORT_REVERSAL_DISABLED;
+  assert.equal(policy.reversedMarketForCapture(Date.parse(policy.REVERSED_MARKET_FROM)-1),false);
+  assert.equal(policy.reversedMarketForCapture(Date.parse(policy.REVERSED_MARKET_FROM)),true);
+  process.env.EZPZ_THREE_SPORT_REVERSAL_DISABLED='1';
+  assert.equal(policy.reversedMarketForCapture(clock),false);assert(core.validMarketTrackedProjection(f,a,clock));
+ }finally{if(prior===undefined)delete process.env.EZPZ_THREE_SPORT_REVERSAL_DISABLED;else process.env.EZPZ_THREE_SPORT_REVERSAL_DISABLED=prior;}
+});

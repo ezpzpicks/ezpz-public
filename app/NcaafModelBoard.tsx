@@ -6,7 +6,7 @@ import FootballModelFormBadges from "./FootballModelFormBadges";
 import NcaafModelDetails from "./NcaafModelDetails";
 import { ncaafMatchupContext, NCAAF_PROJECTION_MODEL, type NcaafMatchupContext } from "../lib/ncaafMatchupFactors";
 import { modelFactorLabel } from "../lib/modelFactorLabels";
-import { marketProjectionPending, projectionAdjustments } from "../lib/marketProjectionPolicy";
+import { marketProjectionPending, projectionAdjustments, trackingModelVersion } from "../lib/marketProjectionPolicy";
 import ProjectionAdjustment from "./ProjectionAdjustment";
 import { selectedSpreadSide } from "../lib/selectionSide";
 
@@ -132,7 +132,7 @@ function ForecastCard({ group, sport, qualifiedOnly = false, tracker, today }: {
   </article>;
   return <CompactMatchup id={row["Game ID"] || group.game} sport={sport} away={pair.away} home={pair.home} awayScore={savedNumber(row["Projected Away"])} homeScore={savedNumber(row["Projected Home"])} awayAdjustment={adjustments?.awayScore} homeAdjustment={adjustments?.homeScore}
     time={time(group.time)} status={gameStatus || (hasForecast ? "Preview" : "Pending")}
-    markets={hasForecast || qualifiedOnly ? markets.map(market => ({name:market.name, selection:market.selection || "No market line", detail:market.edge == null ? "Edge unavailable" : `${Math.abs(market.edge).toFixed(1)} pt edge`, grade:qualifiedOnly ? pending ? "Ungraded" : `Grade ${market.grade}` : undefined, result:market.result})) : []}
+    markets={hasForecast || qualifiedOnly ? markets.map(market => ({name:market.name, selection:market.selection || "No market line", ...(!qualifiedOnly && row["Model Version"]===trackingModelVersion(sport,true) ? {projection:market.model,adjustment:market.adjustment} : {}), detail:market.edge == null ? "Edge unavailable" : `${Math.abs(market.edge).toFixed(1)} pt edge`, grade:qualifiedOnly ? pending ? "Ungraded" : `Grade ${market.grade}` : undefined, result:market.result})) : []}
     finalScore={final ? {away:final.awayScore,home:final.homeScore,awayTeam:final.awayTeam,homeTeam:final.homeTeam} : gameStatus === "Final" ? {away:row["Away Score"] || row["Actual Away"] || "—", home:row["Home Score"] || row["Actual Home"] || "—"} : undefined}
     returnLabel={qualifiedOnly ? "Back to Model Plays" : "Back to slate"}>{card}</CompactMatchup>;
 }

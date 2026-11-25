@@ -2,7 +2,12 @@ export type TrackingSport = "NBA" | "NFL" | "NCAAF";
 export const MARKET_PROJECTION_POLICY = "directional-market-tracking-2026-11-23-v1";
 export const MARKET_PROJECTION_ACTIVATION = "market_projection_activation";
 export const MARKET_PROJECTION_UPDATES = "market_projection_updates";
-export const trackingModelVersion = (sport: TrackingSport) => `${sport.toLowerCase()}-market-tracking-2026-11-23-v1`;
+export const REVERSED_MARKET_FROM = "2026-11-25T22:30:00.000Z";
+export const REVERSED_MARKET_POLICY = "original-adjustments-minus-2x-v1";
+export const reversedMarketForCapture = (observed: number) =>
+  observed >= Date.parse(REVERSED_MARKET_FROM) && process.env.EZPZ_THREE_SPORT_REVERSAL_DISABLED !== "1";
+export const trackingModelVersion = (sport: TrackingSport, reversed = false) => reversed
+  ? `${sport.toLowerCase()}-market-tracking-2026-11-25-v2` : `${sport.toLowerCase()}-market-tracking-2026-11-23-v1`;
 // The approved NCAAM balanced rules are the fixed starting weights for point markets.
 export const MARKET_PROJECTION_PARAMETERS = {
   flow_policy: MARKET_PROJECTION_POLICY,

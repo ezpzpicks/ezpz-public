@@ -5,7 +5,7 @@ import { saveNbaMarketRows } from "./nbaMarketStore";
 import { readNbaForecastBundle, readNativeNbaForecasts } from "./nbaForecasts";
 import { refreshMarketProjections } from "./marketProjectionStore";
 import { normalizeProjectionBaseline, publicTrackedProjection } from "./marketProjectionTracking";
-import { trackingModelVersion } from "./marketProjectionPolicy";
+import { reversedMarketForCapture, REVERSED_MARKET_FROM, trackingModelVersion } from "./marketProjectionPolicy";
 import { nbaScheduleRows, readNbaAnalysis, refreshNbaAnalysis } from "./nbaAnalysis";
 import { buildNbaSignals } from "./nbaAnalysisCore";
 import { NBA_SIGNALS_TAB } from "./nbaTrendLeaderboard";
@@ -102,7 +102,7 @@ export async function readNbaPublicData(date = nbaDate()) {
     bestPlays: modelPlays, slateToday: games, betTrackerRows: [], trendPlays: analysis.plays, recordSummary: [], last7RecordSummary: [],
     nbaMarket: { consolidation: state.consolidation, source: "ScoresAndOdds", date, availableDates: [...new Set([date, ...state.archiveDates])].sort(), games, splits,
       forecasts: forecasts.map(({ lineup, ...forecast }) => forecast.market_tracking ? publicTrackedProjection(forecast) : forecast),
-      marketTracking: { modelVersion: trackingModelVersion("NBA"), profile: "balanced", activatedAt: bundle.activation?.activatedAt || null,
+      marketTracking: { modelVersion: trackingModelVersion("NBA",reversedMarketForCapture(Date.now())), adjustmentPolicyEffectiveAt: REVERSED_MARKET_FROM, profile: "balanced", activatedAt: bundle.activation?.activatedAt || null,
         gradingStatus: "ungraded", historicalRecordsRegraded: false },
       modelRecords, modelPlays, ezpzSelections, ezpzRecords, lineups,
       trendPlays: analysis.plays, leaderboard: state.leaderboard, signals: analysis.board, stale: analysis.stale,
