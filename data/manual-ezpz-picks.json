@@ -1406,6 +1406,22 @@
       "selectedBy": "Ryan",
       "status": "approved",
       "result": "PENDING"
+    },
+    {
+      "id": "manual_20261125_ncaam_401929406_total_over_150_5",
+      "sport": "NCAAM",
+      "game": "Arkansas-Pine Bluff @ South Dakota",
+      "gameTime": "2026-11-25T19:00:00.000Z",
+      "market": "Total",
+      "selection": "Over 150.5",
+      "line": 150.5,
+      "odds": null,
+      "date": "2026-11-25",
+      "approvedAt": "2026-11-25T18:16:58.495Z",
+      "approvedBy": "ChatGPT",
+      "selectedBy": "Ryan",
+      "status": "approved",
+      "result": "PENDING"
     }
   ]
 }
