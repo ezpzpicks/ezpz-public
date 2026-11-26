@@ -135,3 +135,23 @@ test('November spread bridge turns a home lean into the away lean, keeps the tot
  assert.equal(slate(old),slate(canonical));
  assert.match(slate(old),/Away strength increased by 4\.0/);
 });
+
+test('v0.19 displays flipped 1x from the matching shadow and leaves the saved 2x row and total intact',()=>{
+ const {ncaamSpreadDisplay}=require('../lib/ncaamTotalDisplay.ts');
+ const f=nov25({modelVersion:require('../lib/ncaamMarketTrackingPolicy.ts').NCAAM_REVERSED_SPREAD_MODEL,
+   fair_home_spread:-8,home_spread_edge:-2,spread_pick:'Away +10',home_score:77,away_score:69});
+ f.market_tracking={...f.market_tracking,baseline_margin:14,spread_adjustment:-6,
+   original_spread_shadow:{baseline:14,adjustment:3,projection:17,home_line:-10}};
+ const game={'Game ID':'one','Game Time':f.tipoff,'Away Team':'Away','Home Team':'Home'};
+ const before=JSON.stringify(f),v=ncaamSpreadDisplay(f,game);
+ assert.equal(v.spread_pick,'Home -10');assert.equal(v.fair_home_spread,-11);assert.equal(v.home_spread_edge,1);
+ assert.equal(v.home_score-v.away_score,11);assert.equal(v.home_score+v.away_score,f.total);
+ assert.equal(v.market_tracking.spread_adjustment,-3);assert.equal(v.total_pick,f.total_pick);
+ assert.match(slate(f),/Home strength decreased by 3.0/);assert.equal(JSON.stringify(f),before);
+ for(const mismatch of [{'Game ID':'other'},{'Home Team':'Away'},{'Game Time':'bad'}])
+   assert.strictEqual(ncaamSpreadDisplay(f,{...game,...mismatch}),f);
+ for(const mismatch of [{home_line:10},{adjustment:1},{baseline:13},{projection:null}]) {
+   const row={...f,market_tracking:{...f.market_tracking,original_spread_shadow:{...f.market_tracking.original_spread_shadow,...mismatch}}};
+   assert.strictEqual(ncaamSpreadDisplay(row,game),row);
+ }
+});

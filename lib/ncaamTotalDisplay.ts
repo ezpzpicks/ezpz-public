@@ -33,15 +33,26 @@ export function ncaamReversedTotalView(forecast: Record<string, any> | undefined
   };
 }
 
-/** Read-only spread bridge for approved Projections slates. Canonical v0.19 rows pass through. */
-export function ncaamSpreadDisplay<T extends Record<string, any>>(saved: T): T {
+/** Read-only spread bridge for approved Projections slates. The v0.19 view uses the same-line original spread shadow. */
+export function ncaamSpreadDisplay<T extends Record<string, any>>(saved: T, game?: Record<string, string>): T {
   const adjustments = ncaamProjectionAdjustments(saved), tip = Date.parse(saved.tipoff);
-  if (!adjustments || saved.modelVersion===NCAAM_REVERSED_SPREAD_MODEL || !Number.isFinite(tip)
+  if (!adjustments || !Number.isFinite(tip)
     || easternDate.format(tip)<NCAAM_REVERSED_TOTAL_DISPLAY_FROM_ET) return saved;
   const base = saved.market_tracking.baseline_margin, line = saved.market?.home_spread;
   if (![base,line,saved.total,saved.fair_home_spread].every(Number.isFinite)
     || Math.abs(base+adjustments.homeSpread+saved.fair_home_spread)>1e-6) return saved;
-  const delta = -2*adjustments.homeSpread || 0, margin = base+delta, edge = margin+line;
+  let delta = -2 * adjustments.homeSpread;
+  if (saved.modelVersion === NCAAM_REVERSED_SPREAD_MODEL) {
+    const shadow = saved.market_tracking.original_spread_shadow;
+    if (!game || game["Game ID"] !== saved.gameId || game["Home Team"] !== saved.home_team
+      || game["Away Team"] !== saved.away_team || Date.parse(game["Game Time"]) !== tip
+      || !shadow || ![shadow.baseline, shadow.adjustment, shadow.projection, shadow.home_line].every(Number.isFinite)
+      || shadow.home_line !== line || Math.abs(shadow.baseline - base) > 1e-6
+      || Math.abs(shadow.projection - base - shadow.adjustment) > 1e-6
+      || Math.abs(adjustments.homeSpread + 2 * shadow.adjustment) > 1e-6) return saved;
+    delta = -shadow.adjustment;
+  }
+  const margin = base + delta, edge = margin + line;
   const total = ncaamReversedTotalView(saved)?.total ?? saved.total;
   if (Math.min(total,saved.total)<=Math.abs(margin)) return saved;
   const selectedLine = edge>0 ? line : -line;
