@@ -344,3 +344,21 @@ for(const sport of ['NBA','NFL','NCAAF']) test(sport+' forward reversal and same
   assert.equal(policy.reversedMarketForCapture(clock),false);assert(core.validMarketTrackedProjection(f,a,clock));
  }finally{if(prior===undefined)delete process.env.EZPZ_THREE_SPORT_REVERSAL_DISABLED;else process.env.EZPZ_THREE_SPORT_REVERSAL_DISABLED=prior;}
 });
+
+test('football Projections uses matched original shadows once and preserves the canonical row',()=>{
+ const view=require('../lib/footballProjectionDisplay.ts').footballProjectionDisplay;
+ for(const sport of ['NFL','NCAAF']){
+  const row={'Model Version':policy.trackingModelVersion(sport,true),'Game Date':date,'Game Time':'2:00 PM','Source Game Time':new Date(tip).toISOString(),
+   'Away Team':'Chicago','Home Team':'Detroit','Projected Margin':'-1','Projected Total':'40','Projected Away':'20.5','Projected Home':'19.5','Market Home Spread':'-1','Market Total':'43'};
+  const info={sport,policy:policy.MARKET_PROJECTION_POLICY,status:'applied',adjustment_policy:policy.REVERSED_MARKET_POLICY,
+   adjustment_policy_effective_at:policy.REVERSED_MARKET_FROM,baseline_forecast_record_id:core.projectionGameKey(sport,date,'Chicago','Detroit',row['Source Game Time'])+'|base',
+   baseline_margin:5,baseline_total:46,spread_adjustment:-6,total_adjustment:-6,
+   original_spread_shadow:{baseline:5,adjustment:3,projection:8,home_line:-1},original_total_shadow:{baseline:46,adjustment:3,projection:49,line:43}};
+  row['Market Tracking JSON']=JSON.stringify(info);const original=JSON.stringify(row),v=view(row,sport);
+  assert.equal(v['Spread Pick'],'Detroit -1');assert.equal(v['Total Pick'],'No total edge');assert.equal(v['Projected Home'],'22.5');assert.equal(v['Projected Away'],'20.5');
+  assert.equal(policy.projectionAdjustments(v).homeSpread,-3);assert.equal(JSON.stringify(row),original);
+  for(const bad of [{'Market Home Spread':'0'},{'Market Total':'42'},{'Home Team':'Other'},{'Market Tracking JSON':'{}'},{'Projected Total':'41'},{'Model Version':'legacy'}]){
+   const r={...row,...bad};assert.strictEqual(view(r,sport),r);
+  }
+ }
+});

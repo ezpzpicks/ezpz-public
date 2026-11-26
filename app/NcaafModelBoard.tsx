@@ -1,3 +1,4 @@
+import { footballProjectionDisplay } from "../lib/footballProjectionDisplay";
 import { useSlateDisplayFinals } from "./SlateDisplayFinals";
 import { displayFinalForRow, type SlateDisplayFinal } from "../lib/slateDisplayFinals";
 import CompactMatchup, { savedNumber } from "./CompactMatchup";
@@ -69,7 +70,8 @@ function MatchupGrade({ context, market, row }: { context: NcaafMatchupContext; 
   </div>;
 }
 function ForecastCard({ group, sport, qualifiedOnly = false, tracker, today }: { group: Group; sport: Sport; qualifiedOnly?: boolean; tracker: Row[]; today?: string }) {
-  const row = group.row || {}, pair = teams(row, group.game);
+  const saved = group.row || {};
+  const row = qualifiedOnly ? saved : footballProjectionDisplay(saved, sport), pair = teams(row, group.game);
   const preview = sport === "NCAAF" && row["Build Phase"] === "preview";
   const pending = preview || marketProjectionPending(row), adjustments = projectionAdjustments(row);
   const hasForecast = numeric(row["Projected Away"]) != null && numeric(row["Projected Home"]) != null;
