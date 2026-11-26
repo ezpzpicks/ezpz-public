@@ -1470,6 +1470,38 @@
       "selectedBy": "Ryan",
       "status": "approved",
       "result": "PENDING"
+    },
+    {
+      "id": "manual_20261126_ncaam_401906807_total_over_140_5",
+      "sport": "NCAAM",
+      "game": "Oklahoma @ Purdue",
+      "gameTime": "2026-11-26T17:00:00.000Z",
+      "market": "Total",
+      "selection": "Over 140.5",
+      "line": 140.5,
+      "odds": null,
+      "date": "2026-11-26",
+      "approvedAt": "2026-11-26T16:35:13.830Z",
+      "approvedBy": "ChatGPT",
+      "selectedBy": "Ryan",
+      "status": "approved",
+      "result": "PENDING"
+    },
+    {
+      "id": "manual_20261126_ncaam_401912231_spread_utsa_minus_11_5",
+      "sport": "NCAAM",
+      "game": "Army @ UTSA",
+      "gameTime": "2026-11-26T17:00:00.000Z",
+      "market": "Spread",
+      "selection": "UTSA -11.5",
+      "line": 11.5,
+      "odds": null,
+      "date": "2026-11-26",
+      "approvedAt": "2026-11-26T16:35:13.830Z",
+      "approvedBy": "ChatGPT",
+      "selectedBy": "Ryan",
+      "status": "approved",
+      "result": "PENDING"
     }
   ]
 }
