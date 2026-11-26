@@ -70,7 +70,7 @@ function GameScore({ game }: { game?: Row }) {
     awayScore={game["Away Score"]} homeScore={game["Home Score"]} label={gameStatus(game) === "Final" ? "Final score" : "Current score"} /> : null;
 }
 function ForecastCard({ forecast: saved, game, qualifiedOnly = false, sport = "NBA" }: { forecast: Forecast; game?: Row; qualifiedOnly?: boolean; sport?: "NBA" | "NCAAM" }) {
-  const forecast = sport==="NCAAM" && !qualifiedOnly ? ncaamSpreadDisplay(saved) : saved;
+  const forecast = sport==="NCAAM" && !qualifiedOnly ? ncaamSpreadDisplay(saved, game) : saved;
   const gradingPending = marketProjectionPending(forecast) || (sport === "NCAAM" && ncaamTrackingGradesPending(forecast));
   const totalView = sport === "NCAAM" && !qualifiedOnly ? ncaamReversedTotalView(forecast) : null;
   const adjustments = sport === "NCAAM" ? totalView?.adjustments ?? ncaamProjectionAdjustments(forecast) : projectionAdjustments(forecast);
