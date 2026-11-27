@@ -1566,6 +1566,22 @@
       "selectedBy": "Ryan",
       "status": "approved",
       "result": "PENDING"
+    },
+    {
+      "id": "manual_20261127_ncaam_401924845_spread_niagara_plus_5_5",
+      "sport": "NCAAM",
+      "game": "Niagara @ Lafayette",
+      "gameTime": "2026-11-27T21:30:00.000Z",
+      "market": "Spread",
+      "selection": "Niagara +5.5",
+      "line": 5.5,
+      "odds": null,
+      "date": "2026-11-27",
+      "approvedAt": "2026-11-27T21:21:57.138Z",
+      "approvedBy": "ChatGPT",
+      "selectedBy": "Ryan",
+      "status": "approved",
+      "result": "PENDING"
     }
   ]
 }
