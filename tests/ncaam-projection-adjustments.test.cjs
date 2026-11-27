@@ -155,3 +155,20 @@ test('v0.19 displays flipped 1x from the matching shadow and leaves the saved 2x
    assert.strictEqual(ncaamSpreadDisplay(row,game),row);
  }
 });
+
+test('normal 2x display reconciles each original shadow at the saved decision line and clock',()=>{
+ const {ncaamNormalDisplay}=require('../lib/ncaamTotalDisplay.ts');
+ const policy=require('../lib/ncaamMarketTrackingPolicy.ts'), tipoff='2026-11-26T17:00:00Z',lock='2026-11-26T16:40:00Z';
+ const f=nov25({tipoff,lockedAt:lock,modelVersion:policy.NCAAM_REVERSED_SPREAD_MODEL,fair_home_spread:-8,
+  market:{home_spread:-10,total:150,source:'ScoresAndOdds',as_of:lock}});
+ Object.assign(f.market_tracking,{baseline_margin:14,baseline_forecast_record_id:'one|native',decision_as_of:lock,published_at:lock,
+  baseline_captured_at:lock,source:'ScoresAndOdds',spread_adjustment:-6,spread_policy_effective_at:policy.NCAAM_REVERSED_SPREAD_FROM,
+  total_policy_effective_at:policy.NCAAM_REVERSED_TOTAL_FROM,original_spread_shadow:{baseline:14,adjustment:3,projection:17,home_line:-10},
+  original_total_shadow:{baseline:150,adjustment:2,projection:152,line:150}});
+ const game={'Game ID':'one','Game Time':tipoff,'Away Team':'Away','Home Team':'Home'},before=JSON.stringify(f);
+ const v=ncaamNormalDisplay(f,game).forecast;
+ assert.deepEqual([v.fair_home_spread,v.spread_pick,v.home_spread_edge,v.total,v.total_pick,v.total_edge,v.away_score,v.home_score],[-20,'Home -10',10,154,'Over 150',4,67,87]);
+ assert.equal(JSON.stringify(f),before);assert.match(slate(f),/Normal 2× market adjustment/);
+ f.market_tracking.original_total_shadow.line=149;assert.equal(ncaamNormalDisplay(f,game).forecast.total,146);
+ f.market_tracking.published_at=tipoff;assert.equal(ncaamNormalDisplay(f,game).normalTotal,false);
+});

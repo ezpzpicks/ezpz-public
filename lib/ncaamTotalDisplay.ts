@@ -1,4 +1,4 @@
-import { NCAAM_REVERSED_SPREAD_MODEL, NCAAM_REVERSED_TOTAL_MODEL } from "./ncaamMarketTrackingPolicy";
+import { NCAAM_REVERSED_SPREAD_FROM, NCAAM_REVERSED_TOTAL_FROM, NCAAM_REVERSED_SPREAD_MODEL, NCAAM_REVERSED_TOTAL_MODEL } from "./ncaamMarketTrackingPolicy";
 import { ncaamProjectionAdjustments } from "./ncaamProjectionAdjustments";
 
 export const NCAAM_REVERSED_TOTAL_DISPLAY_FROM_ET = "2026-11-25";
@@ -60,4 +60,45 @@ export function ncaamSpreadDisplay<T extends Record<string, any>>(saved: T, game
     spread_pick:Math.abs(edge)<1e-9 ? "No spread edge" : `${edge>0?saved.home_team:saved.away_team} ${selectedLine>0?"+":""}${selectedLine}`,
     home_score:(saved.total+margin)/2, away_score:(saved.total-margin)/2,
     market_tracking:{...saved.market_tracking,spread_adjustment:delta}};
+}
+
+/** Verify each market against the saved capture before deriving a Projections-only copy. */
+export function ncaamNormalDisplay<T extends Record<string, any>>(saved: T, game?: Record<string, string>) {
+  const fallback = ncaamSpreadDisplay(saved, game);
+  const previous = { forecast: fallback, normalTotal: false };
+  const t = saved.market_tracking, market = saved.market;
+  if (![NCAAM_REVERSED_SPREAD_MODEL, NCAAM_REVERSED_TOTAL_MODEL].includes(saved.modelVersion)
+    || !ncaamProjectionAdjustments(saved) || !market || !game || game["Game ID"] !== saved.gameId
+    || game["Away Team"] !== saved.away_team || game["Home Team"] !== saved.home_team
+    || String(t.baseline_forecast_record_id || "").split("|")[0] !== saved.gameId) return previous;
+  const tip = Date.parse(saved.tipoff), quote = Date.parse(market.as_of), published = Date.parse(t.published_at);
+  if (!(tip === Date.parse(game["Game Time"]) && quote === Date.parse(t.decision_as_of)
+    && Date.parse(t.baseline_captured_at) <= published && quote <= published && published < tip
+    && Date.parse(saved.lockedAt) === quote && market.source === t.source && market.source === "ScoresAndOdds")) return previous;
+  const close = (a: number, b: number) => Number.isFinite(a) && Number.isFinite(b) && Math.abs(a-b) <= 1e-6;
+  function normalDelta(name: "spread" | "total", base: number, canonical: number, line: number) {
+    const spread = name === "spread", shadow = t[`original_${name}_shadow`], applied = t[`${name}_adjustment`];
+    const from = spread ? NCAAM_REVERSED_SPREAD_FROM : NCAAM_REVERSED_TOTAL_FROM;
+    if (!shadow || t[`${name}_policy_effective_at`] !== from || quote < Date.parse(from)
+      || ![shadow.adjustment,line,base,applied].every(Number.isFinite)
+      || shadow[spread ? "home_line" : "line"] !== line || !close(shadow.baseline, base)
+      || !close(shadow.projection, base+shadow.adjustment) || !close(applied,-2*shadow.adjustment)
+      || !close(canonical,base+applied)) return null;
+    return 2*shadow.adjustment;
+  }
+  const spread = saved.modelVersion === NCAAM_REVERSED_SPREAD_MODEL
+    ? normalDelta("spread",t.baseline_margin,-saved.fair_home_spread,market.home_spread) : null;
+  const points = normalDelta("total",t.baseline_total,saved.total,market.total);
+  if (spread === null && points === null) return previous;
+  const margin = spread === null ? -fallback.fair_home_spread : t.baseline_margin+spread;
+  const total = points === null ? saved.total : t.baseline_total+points;
+  if (!(total > Math.abs(margin))) return previous;
+  const spreadEdge = margin+market.home_spread, totalEdge = total-market.total;
+  const selectedLine = spreadEdge > 0 ? market.home_spread : -market.home_spread;
+  return { normalTotal: points !== null, forecast: {...fallback,
+    ...(spread === null ? {} : {fair_home_spread:-margin, home_spread_edge:spreadEdge,
+      spread_pick:Math.abs(spreadEdge)<1e-9 ? "No spread edge" : `${spreadEdge>0?saved.home_team:saved.away_team} ${selectedLine>0?"+":""}${selectedLine}`}),
+    ...(points === null ? {} : {total, total_edge:totalEdge, total_pick:Math.abs(totalEdge)<1e-9 ? "No total edge" : `${totalEdge>0?"Over":"Under"} ${market.total}`}),
+    home_score:(total+margin)/2, away_score:(total-margin)/2, market_tracking:{...fallback.market_tracking,
+      spread_adjustment:spread ?? fallback.market_tracking.spread_adjustment, total_adjustment:points ?? t.total_adjustment}} };
 }
