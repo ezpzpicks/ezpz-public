@@ -1550,6 +1550,22 @@
       "selectedBy": "Ryan",
       "status": "approved",
       "result": "PENDING"
+    },
+    {
+      "id": "manual_20261127_ncaam_401912213_total_over_142_5",
+      "sport": "NCAAM",
+      "game": "Radford @ American",
+      "gameTime": "2026-11-27T21:00:00.000Z",
+      "market": "Total",
+      "selection": "Over 142.5",
+      "line": 142.5,
+      "odds": null,
+      "date": "2026-11-27",
+      "approvedAt": "2026-11-27T20:31:29.813Z",
+      "approvedBy": "ChatGPT",
+      "selectedBy": "Ryan",
+      "status": "approved",
+      "result": "PENDING"
     }
   ]
 }
