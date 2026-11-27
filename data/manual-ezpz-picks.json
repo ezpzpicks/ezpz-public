@@ -1534,6 +1534,22 @@
       "selectedBy": "Ryan",
       "status": "approved",
       "result": "PENDING"
+    },
+    {
+      "id": "manual_20261127_ncaam_401920542_total_over_148_5",
+      "sport": "NCAAM",
+      "game": "TCU @ Baylor",
+      "gameTime": "2026-11-27T20:00:00.000Z",
+      "market": "Total",
+      "selection": "Over 148.5",
+      "line": 148.5,
+      "odds": null,
+      "date": "2026-11-27",
+      "approvedAt": "2026-11-27T19:36:53.914Z",
+      "approvedBy": "ChatGPT",
+      "selectedBy": "Ryan",
+      "status": "approved",
+      "result": "PENDING"
     }
   ]
 }
