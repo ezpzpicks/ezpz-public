@@ -1599,6 +1599,23 @@
       "selectedBy": "ChatGPT",
       "status": "approved",
       "result": "PENDING"
+    },
+    {
+      "id": "manual_20261127_ncaam_401929284_total_over_161_5",
+      "sport": "NCAAM",
+      "game": "UCF @ Georgia",
+      "gameTime": "2026-11-28T00:00:00.000Z",
+      "market": "Total",
+      "selection": "Over 161.5",
+      "line": 161.5,
+      "odds": null,
+      "date": "2026-11-27",
+      "approvedAt": "2026-11-27T23:30:20.173Z",
+      "delegation": "ncaam-private-qualifiers-2026-11-27",
+      "approvedBy": "Ryan",
+      "selectedBy": "ChatGPT",
+      "status": "approved",
+      "result": "PENDING"
     }
   ]
 }
