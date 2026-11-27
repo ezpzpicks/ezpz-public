@@ -1518,6 +1518,22 @@
       "selectedBy": "Ryan",
       "status": "approved",
       "result": "PENDING"
+    },
+    {
+      "id": "manual_20261127_ncaam_401919786_moneyline_le_moyne",
+      "sport": "NCAAM",
+      "game": "Maine @ Le Moyne",
+      "gameTime": "2026-11-27T19:00:00.000Z",
+      "market": "Moneyline",
+      "selection": "Le Moyne ML",
+      "line": null,
+      "odds": null,
+      "date": "2026-11-27",
+      "approvedAt": "2026-11-27T18:32:21.979Z",
+      "approvedBy": "ChatGPT",
+      "selectedBy": "Ryan",
+      "status": "approved",
+      "result": "PENDING"
     }
   ]
 }
