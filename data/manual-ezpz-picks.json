@@ -1502,6 +1502,22 @@
       "selectedBy": "Ryan",
       "status": "approved",
       "result": "PENDING"
+    },
+    {
+      "id": "manual_20261127_ncaam_401920848_moneyline_st_thomas",
+      "sport": "NCAAM",
+      "game": "Liberty @ St. Thomas",
+      "gameTime": "2026-11-27T17:00:00.000Z",
+      "market": "Moneyline",
+      "selection": "St. Thomas ML",
+      "line": null,
+      "odds": null,
+      "date": "2026-11-27",
+      "approvedAt": "2026-11-27T16:33:03.829Z",
+      "approvedBy": "ChatGPT",
+      "selectedBy": "Ryan",
+      "status": "approved",
+      "result": "PENDING"
     }
   ]
 }
