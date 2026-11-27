@@ -3,8 +3,8 @@
  *
  * An approved row is intentionally a Git-reviewed, manually entered decision.
  * Research shortlists, model grades, signals and situation rules cannot write
- * to this manifest. Ryan alone chooses official picks; ChatGPT records his
- * explicit selections here and publishes them. No research comparison is an
+ * to this manifest. Ryan selects picks directly or explicitly delegates individual NCAAM
+ * qualifier decisions to ChatGPT. Both paths require a reviewed manifest row. No research comparison is an
  * approval requirement. Historical automatic signal ledgers remain untouched.
  */
 import manifest from "../data/manual-ezpz-picks.json";
@@ -23,8 +23,9 @@ export type ManualApprovedPick = {
   line: number | string | null;
   odds: string | null;
   approvedAt: string;
-  approvedBy: "ChatGPT";
-  selectedBy: "Ryan";
+  approvedBy: "ChatGPT" | "Ryan";
+  selectedBy: "Ryan" | "ChatGPT";
+  delegation?: "ncaam-private-qualifiers-2026-11-27";
   reviewedWithMuse?: boolean; // Historical context only; never an approval requirement.
   status: "approved";
   notes?: string;
@@ -65,12 +66,16 @@ export function getApprovedManualPicks(sport?: McpSport, date?: string, now = Da
     const approvedAt = Date.parse(String(row.approvedAt || ""));
     const numericLine = row.line === null ? null : typeof row.line === "number" && Number.isFinite(row.line)
       ? row.line : typeof row.line === "string" && row.line.trim() ? row.line.trim() : undefined;
+    const direct = row.selectedBy === "Ryan" && row.approvedBy === "ChatGPT";
+    const delegated = selectedSport === "NCAAM" && row.selectedBy === "ChatGPT" && row.approvedBy === "Ryan"
+      && row.delegation === "ncaam-private-qualifiers-2026-11-27"
+      && approvedAt >= Date.parse("2026-11-27T21:32:52.862Z") && approvedAt < gameTime;
     if (!ID.test(id) || used.has(id) || !SPORTS.has(selectedSport)
       || !DATE.test(selectedDate) || selectedDate < MANUAL_EZPZ_EFFECTIVE_DATE
       || !game || !market || !selection || numericLine === undefined
       || !Number.isFinite(gameTime) || !Number.isFinite(approvedAt)
       || easternDate(gameTime) !== selectedDate || approvedAt > gameTime || approvedAt > now
-      || row.status !== "approved" || row.approvedBy !== "ChatGPT" || row.selectedBy !== "Ryan") continue;
+      || row.status !== "approved" || (!direct && !delegated)) continue;
     if (row.odds !== null && row.odds !== undefined && typeof row.odds !== "string") continue;
     const result = String(row.result || "PENDING").toUpperCase();
     if (!["W", "L", "P", "VOID", "PENDING"].includes(result)) continue;
@@ -85,7 +90,8 @@ export function getApprovedManualPicks(sport?: McpSport, date?: string, now = Da
       market, selection, line: numericLine,
       odds: row.odds == null ? null : String(row.odds),
       approvedAt: new Date(approvedAt).toISOString(),
-      approvedBy: "ChatGPT", selectedBy: "Ryan", status: "approved",
+      ...(delegated ? { approvedBy: "Ryan" as const, selectedBy: "ChatGPT" as const, delegation: "ncaam-private-qualifiers-2026-11-27" as const }
+        : { approvedBy: "ChatGPT" as const, selectedBy: "Ryan" as const }), status: "approved",
       ...(typeof row.reviewedWithMuse === "boolean" ? { reviewedWithMuse: row.reviewedWithMuse } : {}),
       ...(typeof row.notes === "string" && row.notes.trim() ? { notes: row.notes.trim() } : {}),
       result: result as ManualApprovedPick["result"],
@@ -107,6 +113,6 @@ export function manualPickForMcp(pick: ManualApprovedPick) {
   return {
     ...pick, gameKey: pick.id, pickCategory: "manual" as const,
     snapshotStatus: "FINAL_PREGAME" as const, lockedAt: pick.approvedAt,
-    selected: true, result: pick.result || "PENDING", source: "ryan-selected-manual-approval",
+    selected: true, result: pick.result || "PENDING", source: pick.delegation ? "ryan-delegated-chatgpt-selection" : "ryan-selected-manual-approval",
   };
 }

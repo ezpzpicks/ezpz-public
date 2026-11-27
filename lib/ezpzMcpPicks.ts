@@ -113,7 +113,8 @@ export function normalizeMcpPick(sport: McpSport, pick: AnyPick, now = Date.now(
     pickLabel: manual ? "EZPZ PICK" : signalTest ? "EZPZ Signal Pick" : teamTrend ? "EZPZ Team Trend" : "EZPZ Public Bet Trend",
     teamTrendScore: teamTrend ? pick.teamTrendScore.score : null,
     teamTrendRecords: teamTrend ? capturedTeamRecords(pick) : null,
-    pickType: manual ? "Selected by Ryan; manually recorded by ChatGPT" : signalTest ? pick.selectionMethod === "combo_score" ? `Combo score ${Number(pick.score).toFixed(1)}/100 (minimum ${pick.scoreThreshold})`
+    pickType: manual ? (pick.source === "ryan-delegated-chatgpt-selection"
+      ? "Selected by ChatGPT under Ryan’s NCAAM delegation" : "Selected by Ryan; manually recorded by ChatGPT") : signalTest ? pick.selectionMethod === "combo_score" ? `Combo score ${Number(pick.score).toFixed(1)}/100 (minimum ${pick.scoreThreshold})`
       : pick.selectionMethod === "situation_rule" ? String(pick.qualification) : `${pick.signalCount} signals: ${pick.qualification}` : teamTrend ? `Team Trend (score >= ${pick.threshold}/100)`
       : String(pick.tier || pick.trendTier || pick.bestPlayType || pick.source || "").trim(),
     // Team records used by the score are not the strategy's last seven bets.
