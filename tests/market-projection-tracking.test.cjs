@@ -354,11 +354,25 @@ test('football Projections uses matched original shadows once and preserves the 
    adjustment_policy_effective_at:policy.REVERSED_MARKET_FROM,baseline_forecast_record_id:core.projectionGameKey(sport,date,'Chicago','Detroit',row['Source Game Time'])+'|base',
    baseline_margin:5,baseline_total:46,spread_adjustment:-6,total_adjustment:-6,
    original_spread_shadow:{baseline:5,adjustment:3,projection:8,home_line:-1},original_total_shadow:{baseline:46,adjustment:3,projection:49,line:43}};
+  row['Market Tracking JSON']=JSON.stringify(info);row['Market Tracking Updated At']=new Date(clock).toISOString();
+  Object.assign(info,{decision_as_of:new Date(clock).toISOString(),published_at:new Date(clock).toISOString(),baseline_captured_at:new Date(lock).toISOString(),source:'ScoresAndOdds'});
   row['Market Tracking JSON']=JSON.stringify(info);const original=JSON.stringify(row),v=view(row,sport);
-  assert.equal(v['Spread Pick'],'Detroit -1');assert.equal(v['Total Pick'],'No total edge');assert.equal(v['Projected Home'],'22.5');assert.equal(v['Projected Away'],'20.5');
-  assert.equal(policy.projectionAdjustments(v).homeSpread,-3);assert.equal(JSON.stringify(row),original);
+  assert.equal(v['Spread Pick'],'Detroit -1');assert.equal(v['Total Pick'],'Over 43');assert.equal(v['Projected Margin'],'11');assert.equal(v['Projected Total'],'52');assert.equal(v['Projected Home'],'31.5');assert.equal(v['Projected Away'],'20.5');
+  assert.equal(policy.projectionAdjustments(v).homeSpread,6);assert.equal(JSON.stringify(row),original);
   for(const bad of [{'Market Home Spread':'0'},{'Market Total':'42'},{'Home Team':'Other'},{'Market Tracking JSON':'{}'},{'Projected Total':'41'},{'Model Version':'legacy'}]){
    const r={...row,...bad};assert.strictEqual(view(r,sport),r);
   }
  }
+});
+
+test('NBA normal display uses original signed shadows from the selected pretip capture',()=>{
+ const sport='NBA',base=baseline(sport),input=core.projectionTrackingInputs(base,rows(sport),clock);
+ const f=core.buildMarketTrackedProjection(base,input,activation(sport),clock,store.projectionDigest(core.projectionFingerprint(base,input)),'uncapped-v1',true);
+ const game={'Away Team':f.away_team,'Home Team':f.home_team,'Game ID':f.gameId,'Game Time':f.tipoff};
+ const {nbaNormalDisplay:view}=require('../lib/normalMarketDisplay.ts'),before=JSON.stringify(f),v=view(f,game);
+ close(v.home_margin,f.market_tracking.baseline_margin+2*f.market_tracking.original_spread_shadow.adjustment);
+ close(v.total,f.market_tracking.baseline_total+2*f.market_tracking.original_total_shadow.adjustment);
+ assert.notStrictEqual(v,f);assert.equal(JSON.stringify(f),before);
+ for(const bad of [{...f,market:{...f.market,as_of:f.tipoff}},{...f,lockedAt:f.tipoff},{...f,modelVersion:'legacy'}]) assert.strictEqual(view(bad,game),bad);
+ assert.strictEqual(view(f,{...game,'Game ID':'other'}),f);
 });

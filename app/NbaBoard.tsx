@@ -19,6 +19,7 @@ import { ncaamSpreadGrade } from "../lib/ncaamSpreadGrades";
 import NcaamSpreadGrade from "./NcaamSpreadGrade";
 import { ncaamPointProjection, isNcaamPointModel } from "../lib/ncaamPointEdges";
 import { ncaamTrackingGradesPending } from "../lib/ncaamMarketTrackingPolicy";
+import { nbaNormalDisplay } from "../lib/normalMarketDisplay";
 import { ncaamNormalDisplay, ncaamReversedTotalView } from "../lib/ncaamTotalDisplay";
 import { ncaamProjectionAdjustments } from "../lib/ncaamProjectionAdjustments";
 import ProjectionAdjustment from "./ProjectionAdjustment";
@@ -71,7 +72,7 @@ function GameScore({ game }: { game?: Row }) {
 }
 function ForecastCard({ forecast: saved, game, qualifiedOnly = false, sport = "NBA" }: { forecast: Forecast; game?: Row; qualifiedOnly?: boolean; sport?: "NBA" | "NCAAM" }) {
   const display = sport === "NCAAM" && !qualifiedOnly ? ncaamNormalDisplay(saved, game) : null;
-  const forecast = display?.forecast ?? saved;
+  const forecast = display?.forecast ?? (sport === "NBA" && !qualifiedOnly ? nbaNormalDisplay(saved, game) : saved);
   const gradingPending = marketProjectionPending(forecast) || (sport === "NCAAM" && ncaamTrackingGradesPending(forecast));
   const totalView = sport === "NCAAM" && !qualifiedOnly ? ncaamReversedTotalView(forecast) : null;
   const adjustments = sport === "NCAAM" ? totalView?.adjustments ?? ncaamProjectionAdjustments(forecast) : projectionAdjustments(forecast);
