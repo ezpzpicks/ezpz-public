@@ -1582,6 +1582,22 @@
       "selectedBy": "Ryan",
       "status": "approved",
       "result": "PENDING"
+    },
+    {
+      "id": "manual_20261127_ncaam_401921718_total_over_160_5",
+      "sport": "NCAAM",
+      "game": "Texas @ Saint Mary's",
+      "gameTime": "2026-11-27T22:00:00.000Z",
+      "market": "Total",
+      "selection": "Over 160.5",
+      "line": 160.5,
+      "odds": null,
+      "date": "2026-11-27",
+      "approvedAt": "2026-11-27T21:32:52.862Z",
+      "approvedBy": "Ryan",
+      "selectedBy": "ChatGPT",
+      "status": "approved",
+      "result": "PENDING"
     }
   ]
 }
