@@ -10,7 +10,9 @@ type Pick = {
   trackingOdds?: number; trackingBasis?: string;
   odds: string | null; gameTime: string; approvedAt: string;
   pickCategory: "manual"; pickLabel: "EZPZ PICK"; eligibleForPosting: boolean;
-  selectedBy: "Ryan";
+  selectedBy: "Ryan" | "ChatGPT";
+  approvedBy: "ChatGPT" | "Ryan";
+  delegation?: string;
   notes?: string;
 };
 
@@ -60,7 +62,9 @@ export default function ManualEzpzPicks({ sport }: { sport: LogoSport }) {
           throw new Error("The approved-pick feed is unavailable.");
         }
         if (!controller.signal.aborted) setPicks(data.picks.filter(
-          (pick: Pick) => pick.pickCategory === "manual" && pick.pickLabel === "EZPZ PICK" && pick.selectedBy === "Ryan"));
+          (pick: Pick) => pick.pickCategory === "manual" && pick.pickLabel === "EZPZ PICK" && (
+            (pick.selectedBy === "Ryan" && pick.approvedBy === "ChatGPT") ||
+            (pick.selectedBy === "ChatGPT" && pick.approvedBy === "Ryan" && pick.delegation === "ncaam-private-qualifiers-2026-11-27"))));
       } catch {
         if (!controller.signal.aborted) setError("Could not load EZPZ Picks. Please try again.");
       } finally {

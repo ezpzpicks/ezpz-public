@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "policy": "Only plays explicitly selected by Ryan and manually recorded by ChatGPT may be official EZPZ Picks. ChatGPT/Muse research or comparison is not required. Signals, models, situations and research lists are never automatically promoted.",
+  "policy": "Official picks require a reviewed manual row recording either Ryan’s selection or ChatGPT’s individual NCAAM qualifier selection under Ryan’s explicit delegation. ChatGPT/Muse research or comparison is not required. Signals, models, situations and research lists are never automatically promoted.",
   "effectiveDate": "2026-11-12",
   "picks": [
     {
@@ -1594,6 +1594,7 @@
       "odds": null,
       "date": "2026-11-27",
       "approvedAt": "2026-11-27T21:32:52.862Z",
+      "delegation": "ncaam-private-qualifiers-2026-11-27",
       "approvedBy": "Ryan",
       "selectedBy": "ChatGPT",
       "status": "approved",

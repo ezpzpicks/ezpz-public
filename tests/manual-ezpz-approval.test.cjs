@@ -17,10 +17,10 @@ const row = {
   approvedAt: "2026-11-12T23:40:00Z", approvedBy: "ChatGPT",
   selectedBy: "Ryan", status: "approved", result: "PENDING",
 };
-function picks(rows) {
+function picks(rows, clock = now) {
   const context = { fixture: { picks: rows }, Intl, Date };
   vm.runInNewContext(source + "\nthis.read = getApprovedManualPicks; this.mcp = manualPickForMcp;", context);
-  return { rows: context.read(undefined, undefined, now), mcp: context.mcp };
+  return { rows: context.read(undefined, undefined, clock), mcp: context.mcp };
 }
 test("Ryan can select an official pick without ChatGPT/Muse research", () => {
   const { rows, mcp } = picks([row]);
@@ -44,4 +44,18 @@ test("new policy preserves approval timing and duplicate safeguards", () => {
   assert.equal(picks([{ ...row, approvedAt: "2026-11-12T23:55:00Z" }]).rows.length, 0);
   assert.equal(picks([{ ...row, approvedAt: "2026-11-13T00:01:00Z" }]).rows.length, 0);
   assert.equal(picks([{ ...row, status: "candidate" }]).rows.length, 0);
+});
+
+test("delegated NCAAM selection requires the reviewed mandate and accurate pregame provenance", () => {
+  const entry = require("../data/manual-ezpz-picks.json").picks.find(p => p.id === "manual_20261127_ncaam_401921718_total_over_160_5");
+  const clock = Date.parse(entry.approvedAt);
+  const read = changes => picks([{ ...entry, ...changes }], clock);
+  const verified = read({});
+  assert.equal(verified.rows.length, 1);
+  assert.equal(verified.rows[0].approvedBy, "Ryan");
+  assert.equal(verified.rows[0].selectedBy, "ChatGPT");
+  assert.equal(verified.mcp(verified.rows[0]).source, "ryan-delegated-chatgpt-selection");
+  for (const change of [{ delegation: undefined }, { sport: "NBA" }, { selectedBy: "model" },
+    { status: "candidate" }, { approvedBy: "ChatGPT" }, { approvedAt: "2026-11-26T21:00:00Z" },
+    { gameTime: entry.approvedAt }]) assert.equal(read(change).rows.length, 0);
 });
