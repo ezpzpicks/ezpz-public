@@ -115,3 +115,38 @@ test('ESPN school names replace the stale Buffalo–Miami kickoff before final s
   assert.equal(selected[0].comboScore.score, 70);
   assert.equal(fixed.board.summary.pending, 1);
 });
+
+test('flex slate follows stable ID and ordered teams across ET dates, never carrying Friday odds or forecasts', () => {
+  const api = load('lib/footballPublicDataCore.ts', 'exports.schedule=mergeFootballSchedules; exports.slate=mergeFootballTrackingSlate; exports.split=findSlateForSplit;', {'./footballWeeklyMarket': weekly});
+  for (const [id,away,home,kickoff] of [
+    ['401862837','Florida Atlantic','East Carolina','2026-11-28T18:00Z'],
+    ['401862839','Tulane','South Florida','2026-11-28T20:30Z'],
+  ]) {
+    const saved = {'Game ID':id,'Game Date':'2026-11-27','Game Time':'2026-11-27T00:00:00-05:00','Away Team':away,'Home Team':home,'Home Classification':'fbs','Total':'44.5'};
+    const posted = {'Game ID':id,Date:'2026-11-28','Game Date':'2026-11-28','Game Time':id.endsWith('9')?'3:30 PM':'1:00 PM','Source Game Time':kickoff,'Time Valid':'TRUE','Away Team':away,'Home Team':home};
+    const result=api.schedule([saved,saved],[posted],'NCAAF');
+    assert.equal(result.length,1);
+    assert.equal(result[0]['Home Classification'],'fbs');
+    assert.equal(result[0].Date,'2026-11-28'); assert.equal(result[0].Total,undefined);
+    const slate=api.slate([{...saved,'Projected Away':'9'}],result,'NCAAF','2026-11-28');
+    assert.equal(slate[0]['Source Game Time'],kickoff); assert.equal(slate[0]['Projected Away'],undefined);
+    assert.equal(api.split({date:'2026-11-27',awayTeam:away,homeTeam:home},slate,'NCAAF'),undefined);
+    assert.equal(api.split({date:'2026-11-28',awayTeam:home,homeTeam:away},slate,'NCAAF'),undefined);
+    const separate={...saved,'Game ID':'999',Date:'2026-11-28'};
+    assert.equal(api.schedule([separate],[posted],'NCAAF').length,2);
+    assert.equal(api.schedule([{...saved,'Home Team':away,'Away Team':home}],[posted],'NCAAF')[0]['Home Classification'],undefined);
+  }
+});
+
+test('valid midnight conference flex outranks an earlier date shell in either feed order', async () => {
+  const date='2026-11-28', id='401862839';
+  const make=(time,valid)=>({id,date:time,competitions:[{id,date:time,timeValid:valid,competitors:[
+    {homeAway:'away',team:{shortDisplayName:'Tulane'}},{homeAway:'home',team:{shortDisplayName:'South Florida'}}]}]});
+  const shell=make('2026-11-27T05:00Z',false), valid=make('2026-11-28T05:00Z',true);
+  const read=(events)=>load('lib/footballScheduleSource.ts','',{}, {fetch:async()=>({ok:true,json:async()=>({events})})}).loadFootballWeekSchedule('NCAAF',date,date);
+  for(const events of [[valid,shell],[shell,valid],[valid,valid]]) {
+    const rows=await read(events); assert.equal(rows.length,1);assert.equal(rows[0]['Source Game Time'],valid.date);
+  }
+  assert.equal((await read([valid,make('2026-11-28T20:30Z',true)])).length,0);
+  assert.equal((await read([{...valid,competitions:[...valid.competitions,...valid.competitions]}])).length,0);
+});

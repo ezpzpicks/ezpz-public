@@ -739,7 +739,18 @@ async function loadPostedSplits(
         }
         return left.distance - right.distance;
       });
-    const matched = candidates[0]?.row;
+    // A known clock on a different date must never be lent to a quote.
+    // Older, undated provider shells may remain in retained history.
+    const verified = candidates.filter(c => c.row["Kickoff Source"] === "ESPN" && c.row["Verified Event ID"]);
+    const verifiedToday = verified.filter(c => c.date === source.date);
+    if (sport === "NCAAF" && verified.length) {
+      const identities = new Set(verifiedToday.map(c => c.row["Verified Event ID"] + "|" + c.row["Game Time"]));
+      const exact = verifiedToday[0];
+      if (!exact || identities.size !== 1 || !/^([01]\d|2[0-3]):[0-5]\d$/.test(source.eventTime)) continue;
+      const [hour, minute] = source.eventTime.split(":").map(Number);
+      if (ncaafWallClockEpoch(source.date, hour, minute) !== Date.parse(exact.row["Game Time"])) continue;
+    }
+    const matched = verifiedToday[0]?.row || candidates[0]?.row;
     if (!matched) continue;
 
     const awayTeam = String(matched["Away Team"] || source.awayTeam).trim();
@@ -1470,7 +1481,8 @@ async function loadNcaafLiveKickoffAuthorityRows(): Promise<SheetRow[]> {
       }).formatToParts(new Date(parsed));
       const get = (type: string) => dateParts.find((part) => part.type === type)?.value || "";
       const eventDate = `${get("year")}-${get("month")}-${get("day")}`;
-      if (eventDate !== targetDate) continue;
+      if (eventDate !== targetDate || competition.timeValid === false) continue;
+      if (event.competitions.length !== 1 || (competition.id && String(competition.id) !== String(event.id))) continue;
 
       const competitors = Array.isArray(competition?.competitors) ? competition.competitors : [];
       const away = competitors.find((entry: any) => String(entry?.homeAway || "").toLowerCase() === "away");
@@ -1489,6 +1501,8 @@ async function loadNcaafLiveKickoffAuthorityRows(): Promise<SheetRow[]> {
         Date: eventDate,
         "Game Time": rawKickoff,
         "Kickoff Source": "ESPN",
+        ...((competition.timeValid ?? event.timeValid) === true && event.id && String(event.id) === String(competition.id)
+          ? { "Verified Event ID": String(event.id) } : {}),
         Game: `${awayTeam} @ ${homeTeam}`,
         "Away Team": awayTeam,
         "Home Team": homeTeam,
