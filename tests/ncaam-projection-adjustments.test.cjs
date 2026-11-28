@@ -192,3 +192,20 @@ test('Miami–Alabama ESPN last-saved quote uses the normal spread and total wit
  assert.equal(view({...f,lockedAt:f.market.as_of}).normalTotal,false);
  assert.equal(view({...f,market_tracking:{...f.market_tracking,final_pregame:true}}).normalTotal,false);
 });
+
+test('completed slate prefers an exact frozen capture and otherwise labels the last saved pregame row',()=>{
+ const {completedBasketballProjection:select}=require('../lib/completedProjectionDisplay.ts');
+ const f=require('./fixtures/ncaam-miami-alabama-espn-display.json');
+ const game={'Game ID':f.gameId,'Game Time':f.tipoff,'Away Team':f.away_team,'Home Team':f.home_team};
+ const frozen=structuredClone(f), t=frozen.market_tracking;
+ t.source=frozen.market.source='ScoresAndOdds';
+ t.baseline_captured_at='2026-11-28T01:08:00Z';
+ t.decision_as_of=frozen.market.as_of=t.published_at=frozen.lockedAt='2026-11-28T01:10:00Z';
+ t.final_pregame=true;
+ assert.equal(select([frozen,f],game,'NCAAM').saved,frozen);
+ assert.match(select([f],game,'NCAAM').label,/Last saved pregame/);
+ assert.equal(select([f],{...game,'Game Time':f.lockedAt},'NCAAM'),undefined);
+ const bad=structuredClone(f);
+ bad.market_tracking.original_spread_shadow.home_line+=1;
+ assert.equal(select([bad],game,'NCAAM'),undefined);
+});

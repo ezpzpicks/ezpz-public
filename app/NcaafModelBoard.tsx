@@ -1,3 +1,4 @@
+import { missingPregameAdjustment, pregameAdjustmentLabel } from "../lib/completedProjectionDisplay";
 import { footballProjectionDisplay } from "../lib/footballProjectionDisplay";
 import { useSlateDisplayFinals } from "./SlateDisplayFinals";
 import { displayFinalForRow, type SlateDisplayFinal } from "../lib/slateDisplayFinals";
@@ -71,10 +72,26 @@ function MatchupGrade({ context, market, row }: { context: NcaafMatchupContext; 
 }
 function ForecastCard({ group, sport, qualifiedOnly = false, tracker, today }: { group: Group; sport: Sport; qualifiedOnly?: boolean; tracker: Row[]; today?: string }) {
   const saved = group.row || {};
-  const row = qualifiedOnly ? saved : footballProjectionDisplay(saved, sport), pair = teams(row, group.game);
+  const finals = useSlateDisplayFinals();
+  const final = sport === "NFL" ? displayFinalForRow(finals, saved) : undefined;
+  const gameStatus = final ? "Final" : status(saved);
+  const historical = !qualifiedOnly && gameStatus === "Final";
+  let source=saved;
+  if (historical && saved["Completed Projection JSON"]) {
+    try { source={...saved,...JSON.parse(saved["Completed Projection JSON"])}; } catch { /* Missing capture. */ }
+  }
+  const row = qualifiedOnly ? saved : footballProjectionDisplay(source, sport), pair = teams(row, group.game);
+  const tracking = historical && row !== source ? JSON.parse(row["Market Tracking JSON"]) : null;
+  const tip = Number(String(tracking?.baseline_forecast_record_id).split("|")[4]);
+  const lead = tip - Date.parse(tracking?.decision_as_of);
+  const verified = tracking && typeof tracking.final_pregame === "boolean"
+    && (!tracking.final_pregame || (lead >= 600000 && lead <= 1200000));
+  const historyLabel = historical ? verified ? pregameAdjustmentLabel(tracking.final_pregame,tracking.published_at)
+    : missingPregameAdjustment : undefined;
+  const hideOverlay = historical && Boolean(source["Market Tracking JSON"]) && !verified;
   const preview = sport === "NCAAF" && row["Build Phase"] === "preview";
   const pending = preview || marketProjectionPending(row), adjustments = projectionAdjustments(row);
-  const hasForecast = numeric(row["Projected Away"]) != null && numeric(row["Projected Home"]) != null;
+  const hasForecast = !hideOverlay && numeric(row["Projected Away"]) != null && numeric(row["Projected Home"]) != null;
   const context = pending || sport !== "NCAAF" ? null : ncaafMatchupContext(row);
   const matchupDriven = sport === "NCAAF" && row["Projection Engine"] === NCAAF_PROJECTION_MODEL;
   const markets = (["Spread", "Total"] as const).flatMap(name => {
@@ -98,12 +115,10 @@ function ForecastCard({ group, sport, qualifiedOnly = false, tracker, today }: {
       edge: numeric(row[`${name} Edge`]), odds: row[`${name} Odds`] || play?.marketOdds || play?.oddsLine || "",
       probability: pending ? null : numeric(row[`${name} Probability`]) ?? numeric(play?.score) }];
   });
-  const finals = useSlateDisplayFinals();
-  const final = sport === "NFL" ? displayFinalForRow(finals, row) : undefined;
-  const gameStatus = final ? "Final" : status(row);
   const card = <article className="nbaCard" data-game-id={row["Game ID"] || group.game}>
     <h3><MatchupWithLogos sport={sport} game={`${pair.away} @ ${pair.home}`} /></h3>
     <p className="nbaMeta"><time>{time(group.time)}</time>{gameStatus ? <span className="gameStatus" data-status={gameStatus}>{gameStatus}</span> : null}</p>
+    {historyLabel && <p className="nbaSmall">{historyLabel}</p>}
     {hasForecast || qualifiedOnly ? <>
       {row["Projection Engine"] === "legacy_fallback" ? <p className="nbaSmall">Matchup inputs unavailable</p> : null}
       {preview ? <p className="nbaSmall">Morning preview · Ungraded projection; awaiting the normal builder save.</p> : null}
@@ -132,7 +147,7 @@ function ForecastCard({ group, sport, qualifiedOnly = false, tracker, today }: {
     <Score row={row} game={group.game} actual final={final} />
     {context ? <p className="nbaSmall">SP+ inputs captured {time(context.factors.observed_at)}</p> : null}
   </article>;
-  return <CompactMatchup id={row["Game ID"] || group.game} sport={sport} away={pair.away} home={pair.home} awayScore={savedNumber(row["Projected Away"])} homeScore={savedNumber(row["Projected Home"])} awayAdjustment={adjustments?.awayScore} homeAdjustment={adjustments?.homeScore}
+  return <CompactMatchup historyLabel={historyLabel} id={row["Game ID"] || group.game} sport={sport} away={pair.away} home={pair.home} awayScore={hideOverlay ? null : savedNumber(row["Projected Away"])} homeScore={hideOverlay ? null : savedNumber(row["Projected Home"])} awayAdjustment={hideOverlay ? undefined : adjustments?.awayScore} homeAdjustment={hideOverlay ? undefined : adjustments?.homeScore}
     time={time(group.time)} status={gameStatus || (hasForecast ? "Preview" : "Pending")}
     markets={hasForecast || qualifiedOnly ? markets.map(market => ({name:market.name, selection:market.selection || "No market line", ...(!qualifiedOnly && row["Model Version"]===trackingModelVersion(sport,true) ? {projection:market.model,adjustment:market.adjustment} : {}), detail:market.edge == null ? "Edge unavailable" : `${Math.abs(market.edge).toFixed(1)} pt edge`, grade:qualifiedOnly ? pending ? "Ungraded" : `Grade ${market.grade}` : undefined, result:market.result})) : []}
     finalScore={final ? {away:final.awayScore,home:final.homeScore,awayTeam:final.awayTeam,homeTeam:final.homeTeam} : gameStatus === "Final" ? {away:row["Away Score"] || row["Actual Away"] || "—", home:row["Home Score"] || row["Actual Home"] || "—"} : undefined}

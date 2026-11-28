@@ -65,7 +65,7 @@ export function ncaamSpreadDisplay<T extends Record<string, any>>(saved: T, game
 /** Verify each market against the saved capture before deriving a Projections-only copy. */
 export function ncaamNormalDisplay<T extends Record<string, any>>(saved: T, game?: Record<string, string>) {
   const fallback = ncaamSpreadDisplay(saved, game);
-  const previous = { forecast: fallback, normalTotal: false };
+  const previous = { forecast: fallback, normalTotal: false, normalSpread: false };
   const t = saved.market_tracking, market = saved.market;
   if (![NCAAM_REVERSED_SPREAD_MODEL, NCAAM_REVERSED_TOTAL_MODEL].includes(saved.modelVersion)
     || !ncaamProjectionAdjustments(saved) || !market || !game || game["Game ID"] !== saved.gameId
@@ -106,7 +106,7 @@ export function ncaamNormalDisplay<T extends Record<string, any>>(saved: T, game
   if (!(total > Math.abs(margin))) return previous;
   const spreadEdge = margin+market.home_spread, totalEdge = total-market.total;
   const selectedLine = spreadEdge > 0 ? market.home_spread : -market.home_spread;
-  return { normalTotal: points !== null, forecast: {...fallback,
+  return { normalSpread: spread !== null, normalTotal: points !== null, forecast: {...fallback,
     ...(spread === null ? {} : {fair_home_spread:-margin, home_spread_edge:spreadEdge,
       spread_pick:Math.abs(spreadEdge)<1e-9 ? "No spread edge" : `${spreadEdge>0?saved.home_team:saved.away_team} ${selectedLine>0?"+":""}${selectedLine}`}),
     ...(points === null ? {} : {total, total_edge:totalEdge, total_pick:Math.abs(totalEdge)<1e-9 ? "No total edge" : `${totalEdge>0?"Over":"Under"} ${market.total}`}),
