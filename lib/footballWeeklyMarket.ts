@@ -1467,7 +1467,7 @@ async function loadNcaafLiveKickoffAuthorityRows(): Promise<SheetRow[]> {
   const url = new URL("https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard");
   url.searchParams.set("dates", targetDate.replace(/-/g, ""));
   url.searchParams.set("groups", "80");
-  url.searchParams.set("limit", "1000");
+  url.searchParams.set("limit", "200");
 
   try {
     const response = await fetch(url, {

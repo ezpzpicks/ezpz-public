@@ -143,7 +143,7 @@ test('valid midnight conference flex outranks an earlier date shell in either fe
   const make=(time,valid)=>({id,date:time,competitions:[{id,date:time,timeValid:valid,competitors:[
     {homeAway:'away',team:{shortDisplayName:'Tulane'}},{homeAway:'home',team:{shortDisplayName:'South Florida'}}]}]});
   const shell=make('2026-11-27T05:00Z',false), valid=make('2026-11-28T05:00Z',true);
-  const read=(events)=>load('lib/footballScheduleSource.ts','',{}, {fetch:async()=>({ok:true,json:async()=>({events})})}).loadFootballWeekSchedule('NCAAF',date,date);
+  const read=(events)=>load('lib/footballScheduleSource.ts','',{}, {fetch:async url=>{ assert.equal(url.searchParams.get('limit'),'200');return {ok:true,json:async()=>({events})}; }}).loadFootballWeekSchedule('NCAAF',date,date);
   for(const events of [[valid,shell],[shell,valid],[valid,valid]]) {
     const rows=await read(events); assert.equal(rows.length,1);assert.equal(rows[0]['Source Game Time'],valid.date);
   }

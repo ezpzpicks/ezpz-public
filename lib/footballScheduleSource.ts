@@ -29,7 +29,7 @@ export async function loadFootballWeekSchedule(sport: FootballSport, start: stri
   const payloads = await Promise.all(footballWeekDates(start, end).map(async (date) => {
     const url = new URL("https://site.api.espn.com/apis/site/v2/sports/football/" + league + "/scoreboard");
     url.searchParams.set("dates", date.replace(/-/g, ""));
-    url.searchParams.set("limit", "1000");
+    url.searchParams.set("limit", sport === "NCAAF" ? "200" : "1000");
     if (sport === "NCAAF") url.searchParams.set("groups", "80");
     try {
       const response = await fetch(url, { headers: { Accept: "application/json" }, cache: "no-store", signal: AbortSignal.timeout(8_000) });
