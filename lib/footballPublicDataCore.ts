@@ -476,37 +476,50 @@ function reconcileNcaafScheduleKickoffs(rows: SheetRow[], plays: TrendPlay[]) {
   }
   return rows.map((row) => {
     const date = isoDate(row.Date || row["Game Date"] || "");
-    if (!date || nflKickoffIso(date, gameTime(row))) return row;
+    if (!date || verifiedNcaafClock(row) || nflKickoffIso(date, gameTime(row))) return row;
     const times = clocks.get(key(date, row["Away Team"], row["Home Team"]));
     return times?.size === 1 ? { ...row, "Game Time": [...times][0] } : row;
   });
+}
+
+function sameNcaafFixture(a: SheetRow, b: SheetRow) {
+  return Boolean(a["Game ID"] && a["Game ID"] === b["Game ID"]
+    && sameTeam(a["Away Team"], b["Away Team"], "NCAAF") && sameTeam(a["Home Team"], b["Home Team"], "NCAAF"));
+}
+
+function verifiedNcaafClock(row: SheetRow) {
+  const clock = row["Source Game Time"];
+  return row["Time Valid"] === "TRUE" && /(?:Z|[+-]\d{2}:\d{2})$/i.test(clock || "")
+    && etKickoffParts(clock).date === isoDate(row.Date || row["Game Date"] || "");
 }
 
 function mergeFootballSchedules(saved: SheetRow[], live: SheetRow[], sport: FootballSport) {
   const merged = new Map<string, SheetRow>();
 
   if (sport === "NCAAF" && live.length) {
-    // ESPN's current scoreboard is authoritative for kickoff metadata when it
-    // contains the same physical matchup. Saved CFB rows can carry a stale
-    // Game ID and a midnight/TBD placeholder; keying only by Game ID lets that
-    // stale row survive beside the live row and get selected first downstream.
-    // Reconcile by date + teams so the live kickoff replaces the placeholder.
-    for (const row of live) {
-      merged.set(footballScheduleKey(row, sport), row);
-    }
+    for (const row of live) merged.set(footballScheduleKey(row, sport), row);
 
     for (const row of saved) {
       const date = isoDate(row.Date || row["Game Date"] || "");
-      const liveMatch = date
-        ? live.find((candidate) => {
-            const candidateDate = isoDate(candidate.Date || candidate["Game Date"] || "");
-            return (
-              candidateDate === date &&
-              sameTeam(candidate["Away Team"], row["Away Team"], sport) &&
-              sameTeam(candidate["Home Team"], row["Home Team"], sport)
-            );
-          })
-        : undefined;
+      const exactLive = live.find(candidate => candidate["Game ID"] && candidate["Game ID"] === row["Game ID"]);
+      if (exactLive && !sameNcaafFixture(row, exactLive)) continue; // Never enrich a reused/conflicting ID.
+      const crossDate = exactLive && date !== isoDate(exactLive.Date || exactLive["Game Date"] || "");
+      if (crossDate && verifiedNcaafClock(exactLive)) {
+        // Only identity/competition metadata crosses the flex. Stale lines, scores
+        // and model fields must never travel to the newly scheduled pending game.
+        const safe: SheetRow = {};
+        for (const k of ["Season", "Season Type", "Week", "Away Classification", "Home Classification", "Away Conference", "Home Conference"]) {
+          if (row[k]) safe[k] = row[k];
+        }
+        merged.set(footballScheduleKey(exactLive, sport), nonEmptyMerge(safe, exactLive));
+        continue;
+      }
+      const candidates = live.filter(candidate =>
+        (!candidate["Game ID"] || !row["Game ID"] || candidate["Game ID"] === row["Game ID"]) &&
+        isoDate(candidate.Date || candidate["Game Date"] || "") === date &&
+        sameTeam(candidate["Away Team"], row["Away Team"], sport) &&
+        sameTeam(candidate["Home Team"], row["Home Team"], sport));
+      const liveMatch = candidates.length === 1 ? candidates[0] : undefined;
 
       if (liveMatch) {
         const liveKey = footballScheduleKey(liveMatch, sport);
@@ -635,15 +648,22 @@ function mergeFootballTrackingSlate(projected: SheetRow[], schedule: SheetRow[],
       continue;
     }
 
+    if (sport === "NCAAF") {
+      const official = merged.get(key);
+      if (official && verifiedNcaafClock(official) && (!sameNcaafFixture(row, official)
+          || date !== isoDate(official.Date || official["Game Date"] || ""))) continue;
+    }
     if (sport === "NCAAF" && date && authoritativeDates.has(date)) {
-      const scheduleMatch = authoritativeSchedule.find((candidate) => {
+      const candidates = authoritativeSchedule.filter((candidate) => {
         const candidateDate = isoDate(candidate.Date || candidate["Game Date"] || "");
         return (
+          (!candidate["Game ID"] || !row["Game ID"] || candidate["Game ID"] === row["Game ID"]) &&
           candidateDate === date &&
           sameTeam(candidate["Away Team"], row["Away Team"], sport) &&
           sameTeam(candidate["Home Team"], row["Home Team"], sport)
         );
       });
+      const scheduleMatch = candidates.length === 1 ? candidates[0] : undefined;
       if (scheduleMatch) {
         const scheduleKey = footballScheduleKey(scheduleMatch, sport);
         const enriched = nonEmptyMerge(scheduleMatch, row);
@@ -1496,7 +1516,12 @@ function headToHead(plays: TrendPlay[]) {
   });
 }
 
-function findSlateForSplit(split:DraftKingsSplit,slate:SheetRow[],sport:FootballSport){return slate.find((row)=>(!isoDate(row.Date)||isoDate(row.Date)===split.date)&&sameMatchup(row,split,sport));}
+function findSlateForSplit(split: DraftKingsSplit, slate: SheetRow[], sport: FootballSport) {
+  if (sport === "NFL") return slate.find(row => (!isoDate(row.Date) || isoDate(row.Date) === split.date) && sameMatchup(row, split, sport));
+  const matches = slate.filter(row => isoDate(row.Date || row["Game Date"] || "") === split.date
+    && sameTeam(row["Away Team"], split.awayTeam, sport) && sameTeam(row["Home Team"], split.homeTeam, sport));
+  return matches.length === 1 ? matches[0] : undefined;
+}
 function findSplitForSide(row:SheetRow,splits:DraftKingsSplit[],sport:FootballSport,market:FootballMarket,selection:string){return splits.find((split)=>split.market===market&&sameMatchup(row,split,sport)&&(market==="Total"?textKey(split.side)===textKey(selection):sameTeam(split.selectionTeam,selection,sport)));}
 
 function modelTrendShells(row:SheetRow):SheetRow[]{

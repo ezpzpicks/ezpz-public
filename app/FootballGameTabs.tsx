@@ -179,7 +179,8 @@ function rowTeams(row: SheetRow) {
 function rowsSameGame(left: SheetRow, right: SheetRow, sport: Sport) {
   const leftId = stableGameId(left);
   const rightId = stableGameId(right);
-  if (leftId && rightId && leftId === rightId) return true;
+  if (sport === "NCAAF" && left["Game ID"] && right["Game ID"] && left["Game ID"] !== right["Game ID"]) return false;
+  if (sport !== "NCAAF" && leftId && rightId && leftId === rightId) return true;
   const a = rowTeams(left);
   const b = rowTeams(right);
   return Boolean(a.away && a.home && b.away && b.home && sameTeam(a.away, b.away, sport) && sameTeam(a.home, b.home, sport));
@@ -290,6 +291,13 @@ function mergeSlateRows(data: FootballData, weekly: WeeklyData | null, sport: Sp
   for (const row of weekly?.games || []) {
     const date = String(row.Date || row["Game Date"] || "").trim();
     if (data.today && date && date !== data.today) continue;
+    if (sport === "NCAAF") {
+      const matches = primary.filter(candidate => rowsSameGame(candidate, row, sport));
+      if (matches.length > 1) continue;
+      const official = matches[0];
+      if (official?.["Time Valid"] === "TRUE" && official["Source Game Time"]
+        && Date.parse(rowGameTime(row)) !== Date.parse(official["Source Game Time"])) continue;
+    }
     add(row, primary.length === 0, false);
   }
 

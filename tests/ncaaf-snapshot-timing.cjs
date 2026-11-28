@@ -609,15 +609,12 @@ test('source kickoff survives real mapping, persistence, fast reads and lock whe
   assert.equal(read.trendPlays[0].gameTime, stored.sourceKickoff);
 });
 
-test('source date guard preserves canonical fallback and verified midnight differs from a placeholder', async () => {
+test('cross-date market is rejected and verified midnight differs from a placeholder', async () => {
   const h = harness('2026-10-03T16:44:00Z', true);
   const p = { ...play(''), date: '2026-10-03', gameKey: '2026-10-03|army|temple' };
   seed(h, p, []);
   h.setFeed([{ ...p, date: '2026-10-04', eventTime: '13:00' }]);
-  const mapped = await h.timing.loadPostedSplits('NCAAF', h.tables.schedule);
-  assert.equal(mapped.splits[0].date, p.date);
-  assert.equal(mapped.splits[0].eventTime, '');
-  assert.equal(mapped.splits[0].sourceKickoff, undefined);
+  await assert.rejects(h.timing.loadPostedSplits('NCAAF', h.tables.schedule), /no NCAAF market sides/);
   const midnight = '2026-10-04T04:00:00.000Z';
   assert.equal(h.timing.ncaafKickoffEpoch('2026-10-04', midnight, midnight), Date.parse(midnight));
   assert.ok(Number.isNaN(h.timing.ncaafKickoffEpoch('2026-10-04', midnight)));
@@ -658,4 +655,30 @@ test('Eastern kickoff conversion follows the game date across the fall clock cha
   const h = harness();
   assert.equal(h.nflKickoffIso('2026-10-31', '7:30 PM ET'), '2026-10-31T23:30:00.000Z');
   assert.equal(h.nflKickoffIso('2026-11-01', '1:00 PM ET'), '2026-11-01T18:00:00.000Z');
+});
+
+test('collector accepts the flexed exact source quartet and refuses a prior-date, untimed, or wrong-clock quote', async () => {
+  const h=harness('2026-11-28T16:45:00Z',true), date='2026-11-28', kickoff='2026-11-28T18:00:00Z';
+  const p={...play(kickoff),date,awayTeam:'Florida Atlantic',homeTeam:'East Carolina',game:'Florida Atlantic @ East Carolina',gameKey:date+'|florida atlantic|east carolina'};
+  const official={Date:date,'Away Team':p.awayTeam,'Home Team':p.homeTeam,'Kickoff Source':'ESPN','Verified Event ID':'401862837','Game Time':kickoff};
+  const stale={...official,Date:'2026-11-27','Verified Event ID':'','Kickoff Source':'','Game Time':''};
+  for (const [day,clock] of [['2026-11-27','13:00'],[date,''],[date,'12:00']]) {
+    h.setFeed([{...p,date:day,eventTime:clock}]);
+    await assert.rejects(h.timing.loadPostedSplits('NCAAF',[stale,official]),/no NCAAF market sides/);
+  }
+  const inputs=[{market:'Total',side:'Over',line:58.5},{market:'Total',side:'Under',line:58.5},
+    {market:'Spread',selectionTeam:p.awayTeam,line:2.5},{market:'Spread',selectionTeam:p.homeTeam,line:-2.5}];
+  h.setFeed(inputs.map(side=>({...p,...side,eventTime:'13:00'})));
+  const mapped=await h.timing.loadPostedSplits('NCAAF',[stale,official]);
+  assert.equal(mapped.splits.length,4);assert.ok(mapped.splits.every(s=>s.date===date && Date.parse(s.sourceKickoff)===Date.parse(kickoff)));
+});
+
+test('an independently identified future rematch retains its own exact quote', async () => {
+  const h=harness('2026-11-28T16:45:00Z',true);
+  const date='2026-11-29', clock='2026-11-29T18:00:00Z';
+  const today={Date:'2026-11-28','Game Time':'2026-11-28T18:00Z','Kickoff Source':'ESPN','Verified Event ID':'101','Away Team':'Army','Home Team':'Temple'};
+  const again={Date:date,'Game ID':'102','Game Time':clock,'Away Team':'Army','Home Team':'Temple'};
+  h.setFeed([{...play(clock),date,eventTime:'13:00',awayTeam:'Army',homeTeam:'Temple'}]);
+  assert.equal((await h.timing.loadPostedSplits('NCAAF',[today,again])).splits[0].date,date);
+  await assert.rejects(h.timing.loadPostedSplits('NCAAF',[today,{...again,'Game ID':'101'}]),/no NCAAF market sides/);
 });

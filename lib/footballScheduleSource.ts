@@ -29,7 +29,7 @@ export async function loadFootballWeekSchedule(sport: FootballSport, start: stri
   const payloads = await Promise.all(footballWeekDates(start, end).map(async (date) => {
     const url = new URL("https://site.api.espn.com/apis/site/v2/sports/football/" + league + "/scoreboard");
     url.searchParams.set("dates", date.replace(/-/g, ""));
-    url.searchParams.set("limit", "1000");
+    url.searchParams.set("limit", sport === "NCAAF" ? "200" : "1000");
     if (sport === "NCAAF") url.searchParams.set("groups", "80");
     try {
       const response = await fetch(url, { headers: { Accept: "application/json" }, cache: "no-store", signal: AbortSignal.timeout(8_000) });
@@ -41,16 +41,18 @@ export async function loadFootballWeekSchedule(sport: FootballSport, start: stri
   }));
   const rows: SheetRow[] = [];
   const seen = new Set<string>();
+  const conflicts = new Set<string>();
   for (const payload of payloads) {
     for (const event of Array.isArray(payload?.events) ? payload.events : []) {
       const eventId = String(event?.id || "");
-      if (eventId && seen.has(eventId)) continue;
-      if (eventId) seen.add(eventId);
+
       const competition = Array.isArray(event?.competitions) ? event.competitions[0] : null;
       if (!competition) continue;
+      if (sport === "NCAAF" && (!eventId || event.competitions.length !== 1
+        || (competition.id && String(competition.id) !== eventId))) continue;
       const competitors = Array.isArray(competition?.competitors) ? competition.competitors : [];
-      const home = competitors.find((entry: any) => String(entry?.homeAway || "").toLowerCase() === "home") || competitors[0];
-      const away = competitors.find((entry: any) => String(entry?.homeAway || "").toLowerCase() === "away") || competitors[1];
+      const home = competitors.find((entry: any) => String(entry?.homeAway || "").toLowerCase() === "home") || (sport === "NFL" ? competitors[0] : undefined);
+      const away = competitors.find((entry: any) => String(entry?.homeAway || "").toLowerCase() === "away") || (sport === "NFL" ? competitors[1] : undefined);
       // College schedule matching uses school identities. ESPN displayName
       // includes mascots ("Miami (OH) RedHawks"), which cannot match the saved
       // "Miami (OH)" row and would leave its old kickoff in the Signals board.
@@ -64,6 +66,20 @@ export async function loadFootballWeekSchedule(sport: FootballSport, start: stri
       const kickoff = etKickoffParts(competition?.date || event?.date);
       if (!kickoff.date) continue;
       const completed = Boolean(competition?.status?.type?.completed || event?.status?.type?.completed);
+      const validTime = (competition.timeValid ?? event.timeValid) === true;
+      if (eventId && seen.has(eventId)) {
+        if (sport === "NFL") continue;
+        const index = rows.findIndex(row => row["Game ID"] === eventId);
+        const prior = rows[index];
+        if (!prior) continue;
+        if (prior["Away Team"] !== awayTeam || prior["Home Team"] !== homeTeam) { conflicts.add(eventId); continue; }
+        if (prior["Time Valid"] === "TRUE" && validTime && Date.parse(prior["Source Game Time"]) !== Date.parse(competition.date || event.date)) {
+          conflicts.add(eventId); continue;
+        }
+        if (prior["Time Valid"] === "TRUE" || !validTime) continue;
+        rows.splice(index, 1);
+      }
+      if (eventId) seen.add(eventId);
       rows.push({
         Date: kickoff.date,
         "Game Date": kickoff.date,
@@ -75,7 +91,7 @@ export async function loadFootballWeekSchedule(sport: FootballSport, start: stri
         Completed: completed ? "TRUE" : "FALSE",
         ...(sport === "NCAAF" ? {
           "Source Game Time": String(competition?.date || event?.date || ""),
-          "Time Valid": competition?.timeValid === true || event?.timeValid === true ? "TRUE" : "FALSE",
+          "Time Valid": validTime ? "TRUE" : "FALSE",
           Status: String(competition?.status?.type?.name || event?.status?.type?.name || ""),
         } : {}),
         "Neutral Site": competition.neutralSite ? "TRUE" : "FALSE",
@@ -84,6 +100,6 @@ export async function loadFootballWeekSchedule(sport: FootballSport, start: stri
       });
     }
   }
-  return rows;
+  return rows.filter(row => !conflicts.has(row["Game ID"]));
 }
 
