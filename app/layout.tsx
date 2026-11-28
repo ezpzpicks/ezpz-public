@@ -7,6 +7,7 @@ import "./sitewide.css";
 const description = "NBA, NCAAM, NFL, NCAAF and MLB slates, model projections, manually selected EZPZ Picks, and transparent performance tracking.";
 export const metadata: Metadata = {
   metadataBase: new URL("https://ezpzpicks.com"),
+  manifest: "/manifest.webmanifest",
   title: "EZPZ Picks | Multi-Sport Slates & Picks",
   description,
   openGraph: { type: "website", url: "https://ezpzpicks.com", siteName: "EZPZ Picks",
