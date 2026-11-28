@@ -1,7 +1,7 @@
 const {test}=require('node:test'), assert=require('node:assert/strict'), fs=require('node:fs'), path=require('node:path'), vm=require('node:vm');
 const ts=require('typescript'), React=require('react'), {renderToStaticMarkup:render}=require('react-dom/server');
 const root=path.resolve(__dirname,'..');
-function loader(overrides={}) {
+function loader(overrides={}, clock=Date) {
   const cache=new Map();
   function load(file) {
     const full=path.resolve(root,file);
@@ -9,7 +9,7 @@ function loader(overrides={}) {
     if(full.endsWith('.json'))return JSON.parse(fs.readFileSync(full,'utf8'));
     const exports={};cache.set(full,exports);
     const source=ts.transpileModule(fs.readFileSync(full,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX,esModuleInterop:true}}).outputText;
-    vm.runInNewContext(source,{exports,Date,Intl,console,require:name=>overrides[name]||(name.startsWith('.')?load(path.relative(root,path.resolve(path.dirname(full),/\.(?:json|tsx?)$/.test(name)?name:name+'.ts'))):require(name))},{filename:full});
+    vm.runInNewContext(source,{exports,Date:clock,Intl,console,require:name=>overrides[name]||(name.startsWith('.')?load(path.relative(root,path.resolve(path.dirname(full),/\.(?:json|tsx?)$/.test(name)?name:name+'.ts'))):require(name))},{filename:full});
     return exports;
   }
   return load;
@@ -154,4 +154,37 @@ test('historical standard tracking retains quoted prices, recorded units and set
   const View=loader()('app/ManualEzpzRecords.tsx').OfficialRecordView;
   const html=render(React.createElement(View,{sport:'NFL',picks:[row,track({...pick,result:'L',netUnits:-1}),track({...pick,result:'P',netUnits:0})]}));
   assert.match(html,/1–1–1/);assert.match(html,/-0\.09u/);assert.match(html,/-3\.0%/);assert.match(html,/simulated -110, not bookmaker prices/);
+});
+
+test('both dated official routes expose only individually approved game markets with league attribution', async () => {
+  const day = '2035-11-23';
+  const fixtures = ['NBA','NFL','NCAAF'].flatMap(sport =>
+    ['Spread','Total','Player Prop'].map(market => ({
+      ...pick, sport, market, date: day, id: 'manual_route_' + sport + '_' + market.replace(/ /g,''),
+      selectedBy:'ChatGPT', approvedBy:'Ryan', delegation:'ezpz-nba-nfl-ncaaf-2026-11-28',
+      game:'Away @ Home', selection:market === 'Spread' ? 'Home -6' : 'Over 41.5', line:market === 'Spread' ? -6 : 41.5,
+      approvedAt:'2035-11-23T19:00:00.123456Z'
+    })));
+  const clock = Date.parse('2035-11-23T19:01:00Z');
+  class FixtureDate extends Date { static now() { return clock; } }
+  const loadRoutes = loader({'../data/manual-ezpz-picks.json':{picks:fixtures}, './tursoStore':{}}, FixtureDate);
+  for (const route of ['ezpz-picks','ezpz-results']) {
+    const {GET} = loadRoutes('app/api/' + route + '/route.ts');
+    for (const sport of ['NBA','NFL','NCAAF']) {
+      const response = await GET({nextUrl:new URL('https://example.invalid/api/'+route+'?sport='+sport+'&date='+day)});
+      const body = await response.json();
+      assert.equal(response.status,200);
+      assert.deepEqual(body.picks.map(p=>p.market).sort(),['Spread','Total']);
+      for (const row of body.picks) {
+        assert.equal(row.sport,sport);
+        assert.equal(row.finalizedAt,fixtures[0].approvedAt);
+        assert.equal(row.selectedBy,'ChatGPT');
+        assert.equal(row.approvedBy,'Ryan');
+        if (route==='ezpz-picks') {
+          assert.equal(row.pickType,'Selected by ChatGPT under Ryan’s '+sport+' delegation');
+          assert.equal(row.eligibleForPosting,true);
+        }
+      }
+    }
+  }
 });
