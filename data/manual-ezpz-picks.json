@@ -1616,6 +1616,23 @@
       "selectedBy": "ChatGPT",
       "status": "approved",
       "result": "PENDING"
+    },
+    {
+      "id": "manual_20261128_ncaam_401920436_total_over_153_5",
+      "sport": "NCAAM",
+      "game": "San Jose State @ Utah Valley",
+      "gameTime": "2026-11-28T21:00:00.000Z",
+      "market": "Total",
+      "selection": "Over 153.5",
+      "line": 153.5,
+      "odds": null,
+      "date": "2026-11-28",
+      "approvedAt": "2026-11-28T20:45:31.945Z",
+      "delegation": "ncaam-private-qualifiers-2026-11-27",
+      "approvedBy": "Ryan",
+      "selectedBy": "ChatGPT",
+      "status": "approved",
+      "result": "PENDING"
     }
   ]
 }
