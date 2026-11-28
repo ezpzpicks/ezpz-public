@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { isDelegatedGameMarket } from "../lib/manualEzpzGameDelegation";
 import { CalendarDays, Clock3, Zap } from "lucide-react";
 import { MatchupWithLogos, SelectionWithTeamLogo, type LogoSport } from "./TeamLogoName";
 
@@ -64,7 +65,8 @@ export default function ManualEzpzPicks({ sport }: { sport: LogoSport }) {
         if (!controller.signal.aborted) setPicks(data.picks.filter(
           (pick: Pick) => pick.pickCategory === "manual" && pick.pickLabel === "EZPZ PICK" && (
             (pick.selectedBy === "Ryan" && pick.approvedBy === "ChatGPT") ||
-            (pick.selectedBy === "ChatGPT" && pick.approvedBy === "Ryan" && pick.delegation === "ncaam-private-qualifiers-2026-11-27"))));
+            (pick.selectedBy === "ChatGPT" && pick.approvedBy === "Ryan" && pick.delegation === "ncaam-private-qualifiers-2026-11-27") ||
+            (pick.sport === sport && isDelegatedGameMarket(pick)))));
       } catch {
         if (!controller.signal.aborted) setError("Could not load EZPZ Picks. Please try again.");
       } finally {

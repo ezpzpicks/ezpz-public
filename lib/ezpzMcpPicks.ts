@@ -1,3 +1,4 @@
+import { GAME_MARKET_DELEGATION } from "./manualEzpzGameDelegation";
 import { isSignalFeedPick, SIGNAL_NAMES } from "./signalPicks";
 import { createHash } from "node:crypto";
 import { parseGameStart, isoDate } from "./mlbTrendV2";
@@ -97,11 +98,12 @@ export function normalizeMcpPick(sport: McpSport, pick: AnyPick, now = Date.now(
   const status = (manual || pick.snapshotStatus === "FINAL_PREGAME") ? "FINAL_PREGAME" : "LIVE";
   if (!date || !game || !market || !selection || gameStart == null) return null;
   const frozen = Date.parse(String(teamTrend ? pick.savedAt : pick.lockedAt || pick.frozenAt || ""));
+  const preciseManualClock = manual && pick.delegation === GAME_MARKET_DELEGATION;
   const result = String(pick.result || pick.Result || "").trim();
   return {
     pickId: stablePickId(sport, pick), sport, date, game, market, selection,
     line: pick.line ?? pick.propLine ?? null, odds: pick.odds == null || pick.odds === "" ? null : String(pick.odds),
-    gameTime: new Date(gameStart).toISOString(),
+    gameTime: preciseManualClock ? pick.gameTime : new Date(gameStart).toISOString(),
     pickCategory: manual ? "manual" : signalTest ? "signals" : teamTrend ? "team_trend" : "public_bet_trend",
     ...(signalTest ? { signalCount: pick.signalCount, threshold: pick.threshold, selectionMethod: pick.selectionMethod || "signal_count",
       selectorVersion: pick.selectorVersion,
@@ -114,12 +116,12 @@ export function normalizeMcpPick(sport: McpSport, pick: AnyPick, now = Date.now(
     teamTrendScore: teamTrend ? pick.teamTrendScore.score : null,
     teamTrendRecords: teamTrend ? capturedTeamRecords(pick) : null,
     pickType: manual ? (pick.source === "ryan-delegated-chatgpt-selection"
-      ? "Selected by ChatGPT under Ryan’s NCAAM delegation" : "Selected by Ryan; manually recorded by ChatGPT") : signalTest ? pick.selectionMethod === "combo_score" ? `Combo score ${Number(pick.score).toFixed(1)}/100 (minimum ${pick.scoreThreshold})`
+      ? `Selected by ChatGPT under Ryan’s ${sport} delegation` : "Selected by Ryan; manually recorded by ChatGPT") : signalTest ? pick.selectionMethod === "combo_score" ? `Combo score ${Number(pick.score).toFixed(1)}/100 (minimum ${pick.scoreThreshold})`
       : pick.selectionMethod === "situation_rule" ? String(pick.qualification) : `${pick.signalCount} signals: ${pick.qualification}` : teamTrend ? `Team Trend (score >= ${pick.threshold}/100)`
       : String(pick.tier || pick.trendTier || pick.bestPlayType || pick.source || "").trim(),
     // Team records used by the score are not the strategy's last seven bets.
     lastSeven: manual || teamTrend || signalTest ? null : lastSeven(pick), snapshotStatus: status,
-    finalizedAt: status === "FINAL_PREGAME" && Number.isFinite(frozen) ? new Date(frozen).toISOString() : null,
+    finalizedAt: status === "FINAL_PREGAME" && Number.isFinite(frozen) ? (preciseManualClock ? pick.lockedAt : new Date(frozen).toISOString()) : null,
     eligibleForPosting: status === "FINAL_PREGAME" && gameStart > now && (!Number.isFinite(frozen) || frozen <= now)
       && !/^(?:W|L|P|WIN|LOSS|PUSH|WON|LOST|VOID)$/i.test(result),
     sourceUrl: "https://ezpzpicks.com",

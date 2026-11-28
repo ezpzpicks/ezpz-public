@@ -31,7 +31,7 @@ const PICK_SCHEMA = {
 export const EZPZ_MCP_TOOLS = [
   {
     name: "get_ezpz_picks", title: "Read EZPZ Picks",
-    description: "Read ONLY official EZPZ Picks in the reviewed manual ledger, selected by Ryan or individually selected by ChatGPT under Ryan’s explicit NCAAM delegation, effective November 12, 2026. Research comparison is not required. Model/signal/play-type candidates NEVER qualify automatically. Before Buffer posting verify pickCategory=manual, pickLabel=EZPZ PICK, approved final pregame data, exact line, game time and eligibleForPosting.",
+    description: "Read ONLY official EZPZ Picks in the reviewed manual ledger, effective November 12, 2026. Ryan selects directly or explicitly delegates individual selections. The NCAAM qualifier delegation began November 27. The NBA, NFL and NCAAF full-game spread and total delegation began November 28. Research comparison is not required. Model/signal/play-type candidates NEVER qualify automatically. Before Buffer posting verify pickCategory=manual, pickLabel=EZPZ PICK, approved final pregame data, exact line, game time and eligibleForPosting.",
     inputSchema: { type: "object", properties: { sport: SPORT_SCHEMA, finalOnly: { type: "boolean", default: true } }, additionalProperties: false },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   },

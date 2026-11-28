@@ -8,7 +8,11 @@ const { stripTypeScriptTypes } = require("node:module");
 const source = stripTypeScriptTypes(
   fs.readFileSync(path.join(__dirname, "../lib/manualEzpzPicks.ts"), "utf8")
 ).replace(/^import manifest from .*;$/m, "const manifest = fixture;")
+ .replace(/^import .* from "\.\/manualEzpzGameDelegation";$/m, "")
+ .replace(/^import .* from ".*manualEzpzSettlement";$/m, "")
  .replace(/\bexport\s+(?=(?:const|function))/g, "");
+const delegationSource = stripTypeScriptTypes(fs.readFileSync(path.join(__dirname, "../lib/manualEzpzGameDelegation.ts"), "utf8")).replace(/\bexport /g, "");
+const { isMatchupSpreadSelection } = require("./load-typescript.cjs")(path.join(__dirname, "../lib/manualEzpzSettlement.ts"));
 const now = Date.parse("2026-11-12T23:50:00Z");
 const row = {
   id: "manual_test_ryan_approval", sport: "NCAAM", date: "2026-11-12",
@@ -18,8 +22,8 @@ const row = {
   selectedBy: "Ryan", status: "approved", result: "PENDING",
 };
 function picks(rows, clock = now) {
-  const context = { fixture: { picks: rows }, Intl, Date };
-  vm.runInNewContext(source + "\nthis.read = getApprovedManualPicks; this.mcp = manualPickForMcp;", context);
+  const context = { fixture: { picks: rows }, Intl, Date, isMatchupSpreadSelection };
+  vm.runInNewContext(delegationSource + "\n" + source + "\nthis.read = getApprovedManualPicks; this.mcp = manualPickForMcp;", context);
   return { rows: context.read(undefined, undefined, clock), mcp: context.mcp };
 }
 test("Ryan can select an official pick without ChatGPT/Muse research", () => {
@@ -58,4 +62,28 @@ test("delegated NCAAM selection requires the reviewed mandate and accurate prega
   for (const change of [{ delegation: undefined }, { sport: "NBA" }, { selectedBy: "model" },
     { status: "candidate" }, { approvedBy: "ChatGPT" }, { approvedAt: "2026-11-26T21:00:00Z" },
     { gameTime: entry.approvedAt }]) assert.equal(read(change).rows.length, 0);
+});
+
+test("game-market delegation is individual, league-specific and pregame at source precision", () => {
+  const entry = { ...row, date: "2026-11-28", gameTime: "2026-11-28T19:00:00Z",
+    approvedAt: "2026-11-28T16:33:22.566507Z", delegation: "ezpz-nba-nfl-ncaaf-2026-11-28",
+    selectedBy: "ChatGPT", approvedBy: "Ryan", sport: "NFL" };
+  const clock = Date.parse("2026-11-28T18:00:00Z");
+  const read = changes => picks([{ ...entry, ...changes }], clock).rows;
+  for (const sport of ["NBA", "NFL", "NCAAF"]) {
+    for (const market of [{}, { market: "Total", selection: "Under 43.5", line: 43.5 }]) {
+      const [result] = read({ sport, ...market });
+      assert.equal(result.delegation, entry.delegation);
+      assert.equal(result.approvedAt, entry.approvedAt);
+    }
+  }
+  assert.equal(read({approvedAt:"2026-11-28T11:33:22.566507-05:00"})[0].approvedAt, entry.approvedAt);
+  for (const changes of [{ sport: "MLB" }, { sport: "NCAAM" }, { market: "Moneyline" }, { market: "Player Prop" },
+    { market: "Team Total" }, { market: "First Half Spread" }, { selection: "Away Over 1.5", line: 1.5 },
+    { market: "Total", selection: "Home Over 43.5", line: 43.5 }, { selection: "Unrelated Player -3.5" }, { line: null }, { line: 5 },
+    { delegation: "ncaam-private-qualifiers-2026-11-27" }, { delegation: undefined }, { status: "candidate" },
+    { selectedBy: "model" }, { approvedBy: "ChatGPT" }, { approvedAt: "2026-11-28T16:33:22.566506Z" },
+    { approvedAt: "2026-11-28T18:00:00.000001Z" }, { approvedAt: entry.gameTime },
+    { gameTime: "2026-11-28T16:33:22.566506Z" }, { approvedAt:"2026-11-28T17:00:00" }])
+    assert.equal(read(changes).length, 0, JSON.stringify(changes));
 });

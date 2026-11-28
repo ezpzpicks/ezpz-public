@@ -33,7 +33,7 @@ export function manualTeamKey(name: string, sport: Sport) {
     : alias ? aliases[alias] + key.slice(alias.length) : key;
   return sport === "MLB" ? normalized : footballTeamKey(normalized, sport).replace(/\bsaint\b/g, "st");
 }
-function matches(name: string, team: ManualFinalTeam, sport: Sport) {
+function matches(name: string, team: Pick<ManualFinalTeam, "name" | "aliases">, sport: Sport) {
   const key = manualTeamKey(name, sport);
   return Boolean(key) && [team.name, ...(team.aliases || [])].some(alias => {
     const candidate = manualTeamKey(alias, sport);
@@ -43,6 +43,12 @@ function matches(name: string, team: ManualFinalTeam, sport: Sport) {
 function matchup(game: string) {
   const pair = game.split(/\s+(?:@|at|vs\.?|versus)\s+/i).map(s => s.trim());
   return pair.length === 2 && pair.every(Boolean) ? pair : null;
+}
+/** Require one actual team in a delegated game spread, using the settlement aliases. */
+export function isMatchupSpreadSelection(game: string, selection: string, sport: Sport) {
+  const pair = matchup(game);
+  const name = selection.trim().replace(/[−–]/g, "-").match(/^(.+?)\s+[+-]?\d+(?:\.\d+)?$/)?.[1];
+  return !!pair && !!name && pair.filter(team => matches(name, { name: team }, sport)).length === 1;
 }
 function validFinal(game: ManualFinal, now: number) {
   const start = Date.parse(game.gameTime), observed = Date.parse(game.observedAt);

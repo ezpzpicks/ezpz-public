@@ -3,11 +3,13 @@
  *
  * An approved row is intentionally a Git-reviewed, manually entered decision.
  * Research shortlists, model grades, signals and situation rules cannot write
- * to this manifest. Ryan selects picks directly or explicitly delegates individual NCAAM
- * qualifier decisions to ChatGPT. Both paths require a reviewed manifest row. No research comparison is an
+ * to this manifest. Ryan selects picks directly or explicitly delegates individual
+ * game decisions to ChatGPT. Both paths require a reviewed manifest row. No research comparison is an
  * approval requirement. Historical automatic signal ledgers remain untouched.
  */
 import manifest from "../data/manual-ezpz-picks.json";
+import { GAME_MARKET_DELEGATION, gameDecisionUtc, isDelegatedGameMarket } from "./manualEzpzGameDelegation";
+import { isMatchupSpreadSelection } from "./manualEzpzSettlement";
 import type { McpSport } from "./ezpzMcpPicks";
 
 export const MANUAL_EZPZ_EFFECTIVE_DATE = "2026-11-12";
@@ -25,7 +27,7 @@ export type ManualApprovedPick = {
   approvedAt: string;
   approvedBy: "ChatGPT" | "Ryan";
   selectedBy: "Ryan" | "ChatGPT";
-  delegation?: "ncaam-private-qualifiers-2026-11-27";
+  delegation?: "ncaam-private-qualifiers-2026-11-27" | typeof GAME_MARKET_DELEGATION;
   reviewedWithMuse?: boolean; // Historical context only; never an approval requirement.
   status: "approved";
   notes?: string;
@@ -67,15 +69,18 @@ export function getApprovedManualPicks(sport?: McpSport, date?: string, now = Da
     const numericLine = row.line === null ? null : typeof row.line === "number" && Number.isFinite(row.line)
       ? row.line : typeof row.line === "string" && row.line.trim() ? row.line.trim() : undefined;
     const direct = row.selectedBy === "Ryan" && row.approvedBy === "ChatGPT";
-    const delegated = selectedSport === "NCAAM" && row.selectedBy === "ChatGPT" && row.approvedBy === "Ryan"
+    const collegeDelegated = selectedSport === "NCAAM" && row.selectedBy === "ChatGPT" && row.approvedBy === "Ryan"
       && row.delegation === "ncaam-private-qualifiers-2026-11-27"
       && approvedAt >= Date.parse("2026-11-27T21:32:52.862Z") && approvedAt < gameTime;
+    const newDelegated = isDelegatedGameMarket(row, now)
+      && (market !== "Spread" || isMatchupSpreadSelection(game, selection, selectedSport as McpSport));
+    const delegation = collegeDelegated ? "ncaam-private-qualifiers-2026-11-27" : newDelegated ? GAME_MARKET_DELEGATION : undefined;
     if (!ID.test(id) || used.has(id) || !SPORTS.has(selectedSport)
       || !DATE.test(selectedDate) || selectedDate < MANUAL_EZPZ_EFFECTIVE_DATE
       || !game || !market || !selection || numericLine === undefined
       || !Number.isFinite(gameTime) || !Number.isFinite(approvedAt)
       || easternDate(gameTime) !== selectedDate || approvedAt > gameTime || approvedAt > now
-      || row.status !== "approved" || (!direct && !delegated)) continue;
+      || row.status !== "approved" || (!direct && !delegation)) continue;
     if (row.odds !== null && row.odds !== undefined && typeof row.odds !== "string") continue;
     const result = String(row.result || "PENDING").toUpperCase();
     if (!["W", "L", "P", "VOID", "PENDING"].includes(result)) continue;
@@ -86,11 +91,11 @@ export function getApprovedManualPicks(sport?: McpSport, date?: string, now = Da
     used.add(id);
     const pick: ManualApprovedPick = {
       id, sport: selectedSport as McpSport, date: selectedDate,
-      game, gameTime: new Date(gameTime).toISOString(),
+      game, gameTime: newDelegated ? gameDecisionUtc(row.gameTime)! : new Date(gameTime).toISOString(),
       market, selection, line: numericLine,
       odds: row.odds == null ? null : String(row.odds),
-      approvedAt: new Date(approvedAt).toISOString(),
-      ...(delegated ? { approvedBy: "Ryan" as const, selectedBy: "ChatGPT" as const, delegation: "ncaam-private-qualifiers-2026-11-27" as const }
+      approvedAt: newDelegated ? gameDecisionUtc(row.approvedAt)! : new Date(approvedAt).toISOString(),
+      ...(delegation ? { approvedBy: "Ryan" as const, selectedBy: "ChatGPT" as const, delegation }
         : { approvedBy: "ChatGPT" as const, selectedBy: "Ryan" as const }), status: "approved",
       ...(typeof row.reviewedWithMuse === "boolean" ? { reviewedWithMuse: row.reviewedWithMuse } : {}),
       ...(typeof row.notes === "string" && row.notes.trim() ? { notes: row.notes.trim() } : {}),
