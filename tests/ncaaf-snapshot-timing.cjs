@@ -672,3 +672,13 @@ test('collector accepts the flexed exact source quartet and refuses a prior-date
   const mapped=await h.timing.loadPostedSplits('NCAAF',[stale,official]);
   assert.equal(mapped.splits.length,4);assert.ok(mapped.splits.every(s=>s.date===date && Date.parse(s.sourceKickoff)===Date.parse(kickoff)));
 });
+
+test('an independently identified future rematch retains its own exact quote', async () => {
+  const h=harness('2026-11-28T16:45:00Z',true);
+  const date='2026-11-29', clock='2026-11-29T18:00:00Z';
+  const today={Date:'2026-11-28','Game Time':'2026-11-28T18:00Z','Kickoff Source':'ESPN','Verified Event ID':'101','Away Team':'Army','Home Team':'Temple'};
+  const again={Date:date,'Game ID':'102','Game Time':clock,'Away Team':'Army','Home Team':'Temple'};
+  h.setFeed([{...play(clock),date,eventTime:'13:00',awayTeam:'Army',homeTeam:'Temple'}]);
+  assert.equal((await h.timing.loadPostedSplits('NCAAF',[today,again])).splits[0].date,date);
+  await assert.rejects(h.timing.loadPostedSplits('NCAAF',[today,{...again,'Game ID':'101'}]),/no NCAAF market sides/);
+});

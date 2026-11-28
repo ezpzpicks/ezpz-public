@@ -730,9 +730,6 @@ async function loadPostedSplits(
       .filter(candidate => candidate.date && (sport !== "NCAAF" || candidate.date === source.date))
       .sort((left, right) => {
         if (sport === "NCAAF") {
-          const leftSourceDate = left.date === source.date;
-          const rightSourceDate = right.date === source.date;
-          if (leftSourceDate !== rightSourceDate) return leftSourceDate ? -1 : 1;
           const leftReliable = Number.isFinite(ncaafKickoffEpoch(left.date, rowEventTime(left.row)));
           const rightReliable = Number.isFinite(ncaafKickoffEpoch(right.date, rowEventTime(right.row)));
           if (leftReliable !== rightReliable) return rightReliable ? 1 : -1;
@@ -741,17 +738,30 @@ async function loadPostedSplits(
       });
     // A known clock on a different date must never be lent to a quote.
     // Older, undated provider shells may remain in retained history.
-    const verified = sport === "NCAAF" && kickoffAuthorityRows.some(row => row["Kickoff Source"] === "ESPN" && row["Verified Event ID"]
-      && matchesSourceTeams(row, source.awayTeam, source.homeTeam));
-    const verifiedToday = candidates.filter(c => c.row["Kickoff Source"] === "ESPN" && c.row["Verified Event ID"]);
-    if (verified) {
-      const identities = new Set(verifiedToday.map(c => c.row["Verified Event ID"] + "|" + c.row["Game Time"]));
-      const exact = verifiedToday[0];
-      if (!exact || identities.size !== 1 || !/^([01]\d|2[0-3]):[0-5]\d$/.test(source.eventTime)) continue;
-      const [hour, minute] = source.eventTime.split(":").map(Number);
-      if (ncaafWallClockEpoch(source.date, hour, minute) !== Date.parse(exact.row["Game Time"])) continue;
+    let matched = candidates[0]?.row;
+    if (sport === "NCAAF") {
+      const official = kickoffAuthorityRows.filter(row => row["Kickoff Source"] === "ESPN" && row["Verified Event ID"]
+        && matchesSourceTeams(row, source.awayTeam, source.homeTeam));
+      if (official.length) {
+        const sourceClock = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(source.eventTime);
+        if (!sourceClock) continue;
+        const instant = ncaafWallClockEpoch(source.date, Number(sourceClock[1]), Number(sourceClock[2]));
+        const sameDay = official.filter(row => canonicalScheduleDate(row) === source.date);
+        if (sameDay.length) {
+          const matching = sameDay.filter(row => Date.parse(row["Game Time"]) === instant);
+          const ids = new Set(matching.map(row => row["Verified Event ID"]));
+          if (ids.size !== 1 || sameDay.some(row => ids.has(row["Verified Event ID"]) && Date.parse(row["Game Time"]) !== instant)) continue;
+          matched = matching[0];
+        } else {
+          // A separately identified future rematch may have its own exact quote.
+          const officialIds = new Set(official.map(row => row["Verified Event ID"]));
+          const rematches = candidates.filter(({row}) => row["Game ID"] && !officialIds.has(row["Game ID"])
+            && Date.parse(rowEventTime(row)) === instant);
+          if (new Set(rematches.map(({row}) => row["Game ID"])).size !== 1) continue;
+          matched = rematches[0].row;
+        }
+      }
     }
-    const matched = verifiedToday[0]?.row || candidates[0]?.row;
     if (!matched) continue;
 
     const awayTeam = String(matched["Away Team"] || source.awayTeam).trim();
