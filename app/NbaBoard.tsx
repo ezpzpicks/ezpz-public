@@ -1,5 +1,6 @@
 "use client";
 
+import { completedBasketballProjection, missingPregameAdjustment } from "../lib/completedProjectionDisplay";
 import { formatFullSlateDate } from "../lib/fullSlateDate";
 import { MatchupWithLogos } from "./TeamLogoName";
 import dynamic from "next/dynamic";
@@ -70,7 +71,7 @@ function GameScore({ game }: { game?: Row }) {
   return game?.["Away Score"] && game?.["Home Score"] ? <Score away={game["Away Team"]} home={game["Home Team"]}
     awayScore={game["Away Score"]} homeScore={game["Home Score"]} label={gameStatus(game) === "Final" ? "Final score" : "Current score"} /> : null;
 }
-function ForecastCard({ forecast: saved, game, qualifiedOnly = false, sport = "NBA" }: { forecast: Forecast; game?: Row; qualifiedOnly?: boolean; sport?: "NBA" | "NCAAM" }) {
+function ForecastCard({ forecast: saved, game, historyLabel, qualifiedOnly = false, sport = "NBA" }: { historyLabel?:string; forecast: Forecast; game?: Row; qualifiedOnly?: boolean; sport?: "NBA" | "NCAAM" }) {
   const display = sport === "NCAAM" && !qualifiedOnly ? ncaamNormalDisplay(saved, game) : null;
   const forecast = display?.forecast ?? (sport === "NBA" && !qualifiedOnly ? nbaNormalDisplay(saved, game) : saved);
   const gradingPending = marketProjectionPending(forecast) || (sport === "NCAAM" && ncaamTrackingGradesPending(forecast));
@@ -99,6 +100,7 @@ function ForecastCard({ forecast: saved, game, qualifiedOnly = false, sport = "N
     <h3><MatchupWithLogos sport={sport} game={`${forecast.away_team} @ ${forecast.home_team}`} /></h3>
     <p className="nbaMeta"><time dateTime={forecast.tipoff}>{time(forecast.tipoff)}</time>
       {gameStatus(game) && <span className="gameStatus" data-status={gameStatus(game)}>{gameStatus(game)}</span>}</p>
+    {historyLabel && <p className="nbaSmall">{historyLabel}</p>}
     <Score away={forecast.away_team} home={forecast.home_team} awayScore={(totalView?.awayScore ?? forecast.away_score).toFixed(1)} homeScore={(totalView?.homeScore ?? forecast.home_score).toFixed(1)} label="Projected score" adjustments={adjustments} />
     <div className="nbaMarkets">{markets.filter(market => !qualifiedOnly || ["A", "B"].includes(market.grade || "")).map(market => <section className="nbaMarketCard" key={market.name} aria-label={`${market.name} forecast`}>
       <div className="nbaMarketHeading"><h4>{market.name}</h4><span className="nbaGrade" data-grade={market.grade}>{gradingPending ? "Ungraded" : `Grade ${market.grade || "—"}`}</span></div>
@@ -125,7 +127,7 @@ function ForecastCard({ forecast: saved, game, qualifiedOnly = false, sport = "N
     {sport === "NCAAM" && <NcaamModelDetails forecast={forecast} normalTotal={display?.normalTotal} displayedTotalAdjustment={totalView?.adjustments.total} />}
     <p className="nbaSmall forecastTimestamp">{gradingPending ? "Updated" : "Locked"} {time(forecast.lockedAt)}{forecast.market ? ` · ${forecast.market.source || "ScoresAndOdds"} ${time(forecast.market.as_of)} · assumed -110` : ""}</p>
   </article>;
-  return <NcaamMobileMatchup sport={sport} forecast={forecast} totalView={totalView}
+  return <NcaamMobileMatchup historyLabel={historyLabel} sport={sport} forecast={forecast} totalView={totalView}
     spreadProjection={totalView && Number.isFinite(forecast.market_tracking?.baseline_margin) ? { projection: markets[0].model, adjustment: awaySpread ? adjustments?.awaySpread : adjustments?.homeSpread } : undefined} game={game || {"Game ID": forecast.gameId, "Away Team":forecast.away_team, "Home Team":forecast.home_team, "Game Time":forecast.tipoff}} modelPlays={qualifiedOnly}
     markets={qualifiedOnly ? markets.filter(market => ["A", "B"].includes(market.grade || "")).map(market => ({name:market.name, selection:market.pick || "No market line", detail:market.edge == null ? "Edge unavailable" : `${Math.abs(market.edge).toFixed(1)} pt edge`, grade:`Grade ${market.grade}`, result:gradingPending ? undefined : market.result})) : sport==="NBA" && forecast.modelVersion===trackingModelVersion("NBA",true)
       ? markets.map(market=>({name:market.name,selection:market.pick || "No market line",projection:market.model,
@@ -164,10 +166,16 @@ function ModelSlate({ tab, data }: { tab: string; data: NbaMarketPayload }) {
   const activeGames = games.filter(game => gameStatus(game) !== "Final")
     .sort((a, b) => Number(gameStatus(b) === "In progress") - Number(gameStatus(a) === "In progress"));
   const gameCard = (game: Row) => {
-    const forecast = latestByGame.get(game["Game ID"]);
-    const card = forecast ? <ForecastCard key={game["Game ID"]} forecast={forecast} game={game} sport={sport} />
+    const historical = fullSlate && gameStatus(game)==="Final";
+    const selection = historical ? completedBasketballProjection(data.forecasts,game,sport) : undefined;
+    const latestSaved = latestByGame.get(game["Game ID"]);
+    const native = latestSaved && !latestSaved.market_tracking && latestSaved.away_team===game["Away Team"]
+      && latestSaved.home_team===game["Home Team"] && Date.parse(latestSaved.tipoff)===Date.parse(game["Game Time"]) ? latestSaved : undefined;
+    const forecast = historical ? selection?.saved ?? native : latestSaved;
+    const historyLabel = historical ? selection?.label ?? missingPregameAdjustment : undefined;
+    const card = forecast ? <ForecastCard key={game["Game ID"]} forecast={forecast} game={game} sport={sport} historyLabel={historyLabel} />
       : <MissingForecastCard key={game["Game ID"]} game={game} splits={data.splits} sport={sport} />;
-    return !forecast ? <NcaamMobileMatchup key={game["Game ID"]} sport={sport} game={game}>{card}</NcaamMobileMatchup> : card;
+    return !forecast ? <NcaamMobileMatchup historyLabel={historyLabel} key={game["Game ID"]} sport={sport} game={game}>{historyLabel && <p className="nbaSmall">{historyLabel}</p>}{card}</NcaamMobileMatchup> : card;
   };
   const timedCards = (items: Row[]) => items.map((game, index) => <Fragment key={game["Game ID"]}>
     {sport === "NCAAM" && (index === 0 || time(items[index - 1]["Game Time"]) !== time(game["Game Time"])) && <h3 className="ncaamStartTime"><time dateTime={game["Game Time"]}>{time(game["Game Time"])}</time></h3>}

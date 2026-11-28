@@ -6,9 +6,9 @@ export type CompactMarket = { name: string; selection: string; detail?: string; 
 export const savedNumber = (value: unknown) => value == null || String(value).trim() === "" || !Number.isFinite(Number(value)) ? null : Number(value);
 const scoreText = (value: number | null | undefined) => typeof value === "number" && Number.isFinite(value) ? value.toFixed(1) : "—";
 /** Saved display values only. The original card remains the complete detail view. */
-export default function CompactMatchup({ id, sport, away, home, awayScore, homeScore, awayAdjustment, homeAdjustment, time, status, markets, finalScore, returnLabel = "Back to slate", children }: {
+export default function CompactMatchup({ id, sport, away, home, awayScore, homeScore, awayAdjustment, homeAdjustment, time, status, markets, historyLabel, finalScore, returnLabel = "Back to slate", children }: {
   id: string; sport: LogoSport; away: string; home: string; awayScore?: number | null; homeScore?: number | null;
-  awayAdjustment?: number | null; homeAdjustment?: number | null; time?: string; status: string; markets: CompactMarket[];
+  awayAdjustment?: number | null; homeAdjustment?: number | null; time?: string; status: string; markets: CompactMarket[]; historyLabel?: string;
   finalScore?: { away: string | number; home: string | number; awayTeam?: string; homeTeam?: string }; returnLabel?: string; children: ReactNode;
 }) {
   const [mobile, setMobile] = useState(false), [open, setOpen] = useState(false);
@@ -26,6 +26,7 @@ export default function CompactMatchup({ id, sport, away, home, awayScore, homeS
   const close = () => { if (window.history.state?.ezpzMatchup === id) window.history.back(); else setOpen(false); };
   const hasScores = awayScore != null || homeScore != null;
   return <article className="ncaamCompact" data-game-id={id}>
+    {historyLabel && <p className="nbaSmall">{historyLabel}</p>}
     {time && <div className="compactTime">{time}</div>}
     <div className="ncaamScoreLabel">{hasScores ? "Projected score" : "Projection pending"}</div>
     {([[away, awayScore, awayAdjustment], [home, homeScore, homeAdjustment]] as const).map(([team, score, delta], index) => <div className="ncaamCompactTeam" key={`${team}-${index}`}>

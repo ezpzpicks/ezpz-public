@@ -88,7 +88,13 @@ export async function readSavedSlate(sport: SlateHistorySport, date: string) {
     sport === "MLB" ? Promise.resolve([]) : readTursoDatasetByDateKeys(sport, "schedule", keys),
     sport === "NFL" ? readTursoDatasetByDateKeys(sport, "bet_tracker", keys) : Promise.resolve([]),
   ]);
-  const slateToday = mergeSavedSlate(sport, date, models, schedule, tracker);
+  let slateToday = mergeSavedSlate(sport, date, models, schedule, tracker);
+  if ((sport === "NFL" || sport === "NCAAF") && date >= "2026-11-25" && slateToday.length) {
+    try {
+      const {attachFootballHistory}=await import("./footballCompletedHistory");
+      slateToday=await attachFootballHistory(sport,date,slateToday);
+    } catch { /* Keep the dated slate and finals available during an overlay read outage. */ }
+  }
   return { ok: true, sport, today: date, slateToday, historicalSlate: true,
     // Prevent the football renderer from hydrating the current week's live data.
     footballWeeklyMarket: { ok: true, games: slateToday, splits: [] } };
