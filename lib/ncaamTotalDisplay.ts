@@ -1,4 +1,4 @@
-import { NCAAM_REVERSED_SPREAD_FROM, NCAAM_REVERSED_TOTAL_FROM, NCAAM_REVERSED_SPREAD_MODEL, NCAAM_REVERSED_TOTAL_MODEL } from "./ncaamMarketTrackingPolicy";
+import { NCAAM_MARKET_TRACKING, NCAAM_REVERSED_SPREAD_FROM, NCAAM_REVERSED_TOTAL_FROM, NCAAM_REVERSED_SPREAD_MODEL, NCAAM_REVERSED_TOTAL_MODEL } from "./ncaamMarketTrackingPolicy";
 import { ncaamProjectionAdjustments } from "./ncaamProjectionAdjustments";
 
 export const NCAAM_REVERSED_TOTAL_DISPLAY_FROM_ET = "2026-11-25";
@@ -72,9 +72,20 @@ export function ncaamNormalDisplay<T extends Record<string, any>>(saved: T, game
     || game["Away Team"] !== saved.away_team || game["Home Team"] !== saved.home_team
     || String(t.baseline_forecast_record_id || "").split("|")[0] !== saved.gameId) return previous;
   const tip = Date.parse(saved.tipoff), quote = Date.parse(market.as_of), published = Date.parse(t.published_at);
+  const captured = Date.parse(t.baseline_captured_at);
+  const espnFallback = market.source === "ESPN" && t.final_pregame === false
+    && typeof market.provider_id === "string" && market.provider_id.trim() !== ""
+    && market.quote_kind === "current_pregame"
+    && market.source_url === `https://www.espn.com/mens-college-basketball/game/_/gameId/${saved.gameId}`
+    && t.source_url === market.source_url && /^[a-f0-9]{64}$/.test(t.input_digest)
+    && saved.recordId === `${saved.gameId}|${saved.modelVersion}|${t.input_digest}`
+    && quote <= captured;
   if (!(tip === Date.parse(game["Game Time"]) && quote === Date.parse(t.decision_as_of)
-    && Date.parse(t.baseline_captured_at) <= published && quote <= published && published < tip
-    && Date.parse(saved.lockedAt) === quote && market.source === t.source && market.source === "ScoresAndOdds")) return previous;
+    && captured <= published && quote <= published && published < tip
+    && published-quote <= NCAAM_MARKET_TRACKING.maximum_market_age_minutes*60_000
+    && (!t.final_pregame || captured <= quote)
+    && Date.parse(saved.lockedAt) === published && market.source === t.source
+    && (market.source === "ScoresAndOdds" || espnFallback))) return previous;
   const close = (a: number, b: number) => Number.isFinite(a) && Number.isFinite(b) && Math.abs(a-b) <= 1e-6;
   function normalDelta(name: "spread" | "total", base: number, canonical: number, line: number) {
     const spread = name === "spread", shadow = t[`original_${name}_shadow`], applied = t[`${name}_adjustment`];
