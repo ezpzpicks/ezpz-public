@@ -172,3 +172,23 @@ test('normal 2x display reconciles each original shadow at the saved decision li
  f.market_tracking.original_total_shadow.line=149;assert.equal(ncaamNormalDisplay(f,game).forecast.total,146);
  f.market_tracking.published_at=tipoff;assert.equal(ncaamNormalDisplay(f,game).normalTotal,false);
 });
+
+test('Miami–Alabama ESPN last-saved quote uses the normal spread and total without granting a grade',()=>{
+ const {ncaamNormalDisplay}=require('../lib/ncaamTotalDisplay.ts');
+ const f=require('./fixtures/ncaam-miami-alabama-espn-display.json');
+ const game={'Game ID':f.gameId,'Game Time':f.tipoff,'Away Team':f.away_team,'Home Team':f.home_team};
+ const view=x=>ncaamNormalDisplay(x,game);
+ const v=view(f).forecast;
+ assert.equal(view(f).normalTotal,true);
+ assert.equal(v.total,171.73654062851526);
+ assert.equal(v.total_edge,v.total-168.5);
+ assert.equal(v.market_tracking.total_adjustment,-4);
+ assert.equal(v.market_tracking.spread_adjustment,-2);
+ assert.equal(v.fair_home_spread,5.715831989957163);
+ assert.equal(v.market_tracking.grade_status,'ungraded');
+ assert.equal(f.total,179.73654062851526);
+ for(const market of [{...f.market,provider_id:''},{...f.market,source_url:'wrong'},{...f.market,source:'other'}])
+   assert.equal(view({...f,market}).normalTotal,false);
+ assert.equal(view({...f,lockedAt:f.market.as_of}).normalTotal,false);
+ assert.equal(view({...f,market_tracking:{...f.market_tracking,final_pregame:true}}).normalTotal,false);
+});
