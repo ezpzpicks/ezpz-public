@@ -174,7 +174,7 @@ function ModelSlate({ tab, data }: { tab: string; data: NbaMarketPayload }) {
     const forecast = historical ? selection?.saved ?? native : latestSaved;
     const historyLabel = historical ? selection?.label ?? missingPregameAdjustment : undefined;
     const card = forecast ? <ForecastCard key={game["Game ID"]} forecast={forecast} game={game} sport={sport} historyLabel={historyLabel} />
-      : <MissingForecastCard key={game["Game ID"]} game={game} splits={historical ? [] : data.splits} sport={sport} />;
+      : <MissingForecastCard key={game["Game ID"]} game={game} splits={data.splits} sport={sport} />;
     return !forecast ? <NcaamMobileMatchup historyLabel={historyLabel} key={game["Game ID"]} sport={sport} game={game}>{historyLabel && <p className="nbaSmall">{historyLabel}</p>}{card}</NcaamMobileMatchup> : card;
   };
   const timedCards = (items: Row[]) => items.map((game, index) => <Fragment key={game["Game ID"]}>
