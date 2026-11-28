@@ -727,7 +727,7 @@ async function loadPostedSplits(
             : Number.POSITIVE_INFINITY,
         };
       })
-      .filter((candidate) => candidate.date)
+      .filter(candidate => candidate.date && (sport !== "NCAAF" || candidate.date === source.date))
       .sort((left, right) => {
         if (sport === "NCAAF") {
           const leftSourceDate = left.date === source.date;
@@ -741,9 +741,10 @@ async function loadPostedSplits(
       });
     // A known clock on a different date must never be lent to a quote.
     // Older, undated provider shells may remain in retained history.
-    const verified = candidates.filter(c => c.row["Kickoff Source"] === "ESPN" && c.row["Verified Event ID"]);
-    const verifiedToday = verified.filter(c => c.date === source.date);
-    if (sport === "NCAAF" && verified.length) {
+    const verified = sport === "NCAAF" && kickoffAuthorityRows.some(row => row["Kickoff Source"] === "ESPN" && row["Verified Event ID"]
+      && matchesSourceTeams(row, source.awayTeam, source.homeTeam));
+    const verifiedToday = candidates.filter(c => c.row["Kickoff Source"] === "ESPN" && c.row["Verified Event ID"]);
+    if (verified) {
       const identities = new Set(verifiedToday.map(c => c.row["Verified Event ID"] + "|" + c.row["Game Time"]));
       const exact = verifiedToday[0];
       if (!exact || identities.size !== 1 || !/^([01]\d|2[0-3]):[0-5]\d$/.test(source.eventTime)) continue;

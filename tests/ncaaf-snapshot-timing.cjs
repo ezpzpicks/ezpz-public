@@ -609,15 +609,12 @@ test('source kickoff survives real mapping, persistence, fast reads and lock whe
   assert.equal(read.trendPlays[0].gameTime, stored.sourceKickoff);
 });
 
-test('source date guard preserves canonical fallback and verified midnight differs from a placeholder', async () => {
+test('cross-date market is rejected and verified midnight differs from a placeholder', async () => {
   const h = harness('2026-10-03T16:44:00Z', true);
   const p = { ...play(''), date: '2026-10-03', gameKey: '2026-10-03|army|temple' };
   seed(h, p, []);
   h.setFeed([{ ...p, date: '2026-10-04', eventTime: '13:00' }]);
-  const mapped = await h.timing.loadPostedSplits('NCAAF', h.tables.schedule);
-  assert.equal(mapped.splits[0].date, p.date);
-  assert.equal(mapped.splits[0].eventTime, '');
-  assert.equal(mapped.splits[0].sourceKickoff, undefined);
+  await assert.rejects(h.timing.loadPostedSplits('NCAAF', h.tables.schedule), /no NCAAF market sides/);
   const midnight = '2026-10-04T04:00:00.000Z';
   assert.equal(h.timing.ncaafKickoffEpoch('2026-10-04', midnight, midnight), Date.parse(midnight));
   assert.ok(Number.isNaN(h.timing.ncaafKickoffEpoch('2026-10-04', midnight)));
